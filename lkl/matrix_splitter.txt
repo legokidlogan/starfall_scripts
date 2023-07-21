@@ -1,0 +1,66 @@
+--@name Matrix Splitter
+--@author legokidlogan
+--@server
+
+-- Needs to reformatted to use recursion
+
+wire.adjustInputs( { "TABLE" }, { "TABLE" } )
+
+local function upperFirst( str )
+    str = string.trim( str )
+
+    if str == "" then return end
+
+    return string.upper( str:sub( 1, 1 ) ) .. str:sub( 2 )
+end
+
+local function wireInput( name, value )
+    local outNames = {}
+    local outTypes = {}
+    local outValues = {}
+    local ind = 1
+    local matrixInd = 1
+
+    for k, v in pairs( value ) do
+        local typeCounts = {}
+
+        if type( v ) ~= "table" then continue end
+
+        for k2, v2 in pairs( v ) do
+            local curType = upperFirst( type( v2 ) )
+            local curName
+
+            typeCounts[curType] = ( typeCounts[curType] or 0 ) + 1
+
+            if type( k2 ) == "string" then
+                curName = upperFirst( k2 )
+
+                if not curName then
+                    curName = curType .. typeCounts[curType]
+                end
+            else
+                curName = curType .. typeCounts[curType]
+            end
+
+            curName = "M" .. matrixInd .. "_" .. curName
+
+            outNames[ind] = curName
+            outTypes[ind] = curType
+            outValues[curName] = v2
+
+            ind = ind + i
+        end
+
+        matrixInd = matrixInd + 1
+    end
+
+    wire.adjustOutputs( outNames, outTypes )
+
+    for k, v in pairs( outValues ) do
+        pcall( function()
+            wire.ports[k] = v
+        end )
+    end
+end
+
+hook.add( "input", "LKL_MatrixSplitter_HandleInput", wireInput )

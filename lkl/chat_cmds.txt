@@ -1,0 +1,1547 @@
+--@name Chat Cmds
+--@author legokidlogan
+--@shared
+--@include lkl/easy_print.txt
+--@include lkl/cl_check_permissions.txt
+--@include lkl/bulletlist.txt
+
+-- This library does not support having multiple instances per starfall chip.
+
+ccmdPrefix = ccmdPrefix or "/ccmd" -- Make sure to define this!
+ccmdPrintCommands = ccmdPrintCommands -- Should the original command message be printed to the player's chat before running it?
+ccmdUsePCall = ccmdUsePCall -- Should chat command functions be wrapped in a pcall? If so, unsuccessful calls will have their error message printed out.
+
+
+
+if ccmdPrintCommands == nil then
+    ccmdPrintCommands = true -- Enabled by default
+end
+
+if ccmdUsePCall == nil then
+    ccmdUsePCall = true -- Enabled by default
+end
+
+projectNameID = projectNameID or ( "ChatCmds|" .. chip():getChipName() )
+printName = printName or ( "[" .. projectNameID .. "]" )
+
+
+
+require( "lkl/bulletlist.txt" )
+local epScheme = require( "lkl/easy_print.txt" )
+local ep = easyPrint
+
+ccmdScheme = ColorScheme.createIfNew( "ChatCmds", epScheme, nil, nil )
+
+
+if SERVER then
+    ccmdCommands = ccmdCommands or {}
+    ccmdAliases = ccmdAliases or {}
+    local targets = {}
+    local printCommandEnabledPlys = {}
+    local reservedCommands = {
+        help = true,
+        commands = true,
+    }
+    local prefixLength = string.len( ccmdPrefix )
+    local targetNewJoinFilter = function() return end
+    local stateStrVals = {
+        ["1"] = true,
+        ["enabled"] = true,
+        ["enable"] = true,
+        ["on"] = true,
+        ["true"] = true,
+        ["0"] = false,
+        ["disabled"] = false,
+        ["disable"] = false,
+        ["off"] = false,
+        ["false"] = false,
+    }
+
+    local tableIsEmpty = table.isEmpty
+    local tableRemove = table.remove
+    local tableInsert = table.insert
+    local tableAdd = table.add
+    local tableConcat = table.concat
+    local stringGsub = string.gsub
+    local stringSub = string.sub
+    local stringLen = string.len
+    local stringExplode = string.explode
+    local mMax = math.max
+
+    ccmdGetCommandInfo = false -- Placeholder
+
+    local function getHumans( plys )
+        plys = plys or find.allPlayers()
+
+        for i, ply in ipairs( plys ) do
+            if not isValid( ply ) or ply:isBot() then
+                tableRemove( plys, i )
+            end
+        end
+
+        return plys
+    end
+
+    local function makePlayerLookup( plys )
+        if plys == nil then
+            plys = getHumans()
+        end
+
+        if not plys then
+            plys = {}
+        end
+
+        local plysType = type( plys )
+
+        if plysType == "Player" and isValid( plys ) then
+            plys = {
+                plys,
+            }
+        elseif plysType ~= "table" then
+            return -- Invalid input (was a number, string, invalid ent, etc)
+        end
+
+        local plyLookup = {}
+        plys = getHumans( plys )
+
+        if tableIsEmpty( plys ) then return plyLookup end
+
+        local plyCount = #plys
+
+        if plyCount == 0 then
+            -- This better be a lookup table!
+
+            for ply in pairs( plys ) do -- deep-clone the table to ensure ply validity and unlink memory addresses
+                if isValid( ply ) and ply:isPlayer() then
+                    plyLookup[ply] = true
+                end
+            end
+        else
+            for i = 1, plyCount do
+                local ply = plys[i]
+
+                if isValid( ply ) and ply:isPlayer() then
+                    plyLookup[ply] = true
+                end
+            end
+        end
+
+        for i = 1, plyCount do
+            local ply = plys[i]
+
+            if isValid( ply ) and ply:isPlayer() then
+                plyLookup[ply] = true
+            end
+        end
+
+        return plyLookup
+    end
+
+    local function removeSpaces( str, fallback )
+        str = stringGsub( str, "[%s]+", "" ) or ""
+
+        if str == "" then
+            str = fallback or ""
+        end
+
+        return str
+    end
+
+    local function makeArgInfo( infoIn, cmdFunc, ... )
+        infoInType = type( infoIn )
+
+        if infoInType == "table" then
+            if infoIn.__IsValidated then return infoIn end
+        --
+        elseif infoInType == "function" then
+            local args = { ... }
+
+            infoIn = infoIn( unpack( args ) )
+
+            if type( infoIn ) ~= "table" then
+                error( "Expected argInfo() to return a table" )
+            end
+        --
+        elseif infoIn ~= nil then
+            error( "Expected argInfo to be nil, a table, or a function" )
+            --error( "Expected argInfo to be nil or a table" )
+        end
+
+        infoIn = infoIn or {}
+        local argInfo = {}
+        local argCountR = infoIn.ReqCount
+        local argCountO = infoIn.OptCount
+
+        if not argCountR and not argCountO then
+            argCountR = mMax( ( debug.getinfo( cmdFunc, "u" ).nparams or 0 ) - 3, 0 )
+            argCountO = 0
+            argInfo = {
+                ReqCount = argCountR,
+                OptCount = argCountO,
+                __IsValidated = true,
+            }
+
+            for i = 1, argCountR do
+                argInfo[i] = {
+                    Name = "arg" .. i,
+                    Type = false,
+                    IsOptional = false,
+                    Description = false,
+                }
+            end
+        else
+            argCountR = mMax( argCountR or 0, 0 )
+            argCountO = mMax( argCountO or 0, 0 )
+
+            local expectedTotal = argCountR + argCountO
+            local amountNamed = #infoIn
+            local amountToName = expectedTotal - amountNamed
+
+            argInfo = {
+                ReqCount = argCountR,
+                OptCount = argCountO,
+                __IsValidated = true,
+            }
+
+            for i = 1, amountNamed do
+                local thisArgData = infoIn[i] or {}
+
+                argInfo[i] = {
+                    Name = removeSpaces( tostring( thisArgData.Name ), "arg" .. i ),
+                    Type = false,
+                    IsOptional = i > argCountR,
+                    Description = thisArgData.Description or thisArgData.Descr or thisArgData.Desc,
+                }
+            end
+
+            if amountToName > 0 then
+                for i = 1, amountToName do
+                    local argInd = i + amountNamed
+
+                    argInfo[argInd] = {
+                        Name = "arg" .. argInd,
+                        Type = false,
+                        IsOptional = argInd > argCountR,
+                        Description = false,
+                    }
+                end
+            elseif amountToName ~= 0 then
+                -- Assume the extra names are optional args
+                argCountO = argCountO - amountToName
+                argInfo.OptCount = argCountO
+            end
+        end
+
+        local cArgReq = ccmdScheme:getColor( "ArgRequired" )
+        local cArgOpt = ccmdScheme:getColor( "ArgOptional" )
+
+        local printTbl = {}
+        local printTblCount = 0
+
+        for i = 1, argCountR do
+            printTblCount = printTblCount + 2
+            printTbl[printTblCount - 1] = cArgReq
+            printTbl[printTblCount] = argInfo[i].Name .. " "
+        end
+
+        for i = 1, argCountO do
+            printTblCount = printTblCount + 2
+            printTbl[printTblCount - 1] = cArgOpt
+            printTbl[printTblCount] = argInfo[i + argCountR].Name .. " "
+        end
+
+        if printTblCount > 0 then
+            printTbl[printTblCount] = removeSpaces( printTbl[printTblCount] )
+        end
+
+        argInfo.PrintTbl = printTbl
+
+        return argInfo
+    end
+
+    local function printToPly( ply, printTbl, delay, delayRequirement )
+        if delay and ( delayRequirement == nil or delayRequirement ) then
+            timer.simple( delay, function()
+                printToPly( ply, printTbl )
+            end )
+
+            return
+        end
+
+        --[[
+        net.start( "LKL_ChatCmds_PrintMessage" )
+        net.writeEntity( chip() )
+        net.writeTable( printTbl )
+        net.send( ply )
+        --]]
+
+        ep.printToClient( ply, printTbl )
+    end
+
+    local function hasPrintCommandEnabled( ply )
+        if true then -- Probably will just leave it all to the one boolean and not have a per-player setting
+            return ccmdPrintCommands
+        end
+
+        local printCommandEnabled = printCommandEnabledPlys[ply]
+
+        return printCommandEnabled or ( printCommandEnabled == nil and ccmdPrintCommands )
+    end
+
+    function ccmdPrintFailCase( cmdName, ply, msg, failMsg, badArgInd, ... )
+        local args = { ... }
+
+        local cHighlight = ccmdScheme:getColor( "Highlight" )
+        local cHighlightWeak = ccmdScheme:getColor( "HighlightWeak" )
+        local cFail = ccmdScheme:getColor( "Fail" )
+        local cBulletPoint = ccmdScheme:getColor( "BulletPoint" )
+
+        local printTbl = ep.chipNamePrefix( ccmdScheme )
+        tableAdd( printTbl, {
+            cFail, "Command failed: ",
+        } )
+
+        msg = stringSub( msg, prefixLength + 1 + stringLen( cmdName ) + 2 ) or ""
+
+        tableInsert( printTbl, cHighlightWeak )
+        tableInsert( printTbl, ccmdPrefix .. " " .. cmdName .. " " )
+
+        if badArgInd > 0 then
+            local argCount = #args
+
+            for i = 1, argCount do
+                if i == badArgInd then
+                    tableInsert( printTbl, cFail )
+                else
+                    tableInsert( printTbl, cHighlight )
+                end
+
+                if i == argCount then
+                    tableInsert( printTbl, args[i] )
+                else
+                    tableInsert( printTbl, args[i] .. " " )
+                end
+            end
+        else
+            tableInsert( printTbl, cHighlight )
+            tableInsert( printTbl, msg )
+        end
+
+        if type( failMsg ) == "string" then
+            failMsg = failMsg == "" and "[No reason specified]" or failMsg
+
+            tableInsert( printTbl, cBulletPoint )
+            tableInsert( printTbl, "\n  - " )
+
+            tableInsert( printTbl, cFail )
+            tableInsert( printTbl, failMsg )
+        elseif type( failMsg ) == "table" then
+            local printTblCount = #printTbl
+
+            printTbl[printTblCount] = printTbl[printTblCount] .. "\n"
+            tableAdd( printTbl, failMsg )
+        end
+
+        printToPly( ply, printTbl )
+    end
+
+
+
+    ----- GLOBAL FUNCTIONS -----
+
+
+    --[[
+        - Gets the info of a command.
+
+        RETURNS: cmdInfo, mainCmdName
+            cmdInfo: (table)
+                - The command's info. Best to to touch any of this directly.
+                - Further details can be found in the documentation for ccmdCreateCommand().
+                {
+                    Func = cmdFunc,
+                    FailCasesFunc = failCasesFunc,
+                    ArgInfo = argInfo,
+                    HelpInfo = helpInfo,
+                    TargetsOverride = targetsOverride,
+                    NewJoinsFunc = filterNewJoinsFunc,
+
+                    -- If this command has aliases:
+                    Aliases = aliasNames,
+                    AliasCount = alianCount,
+                }
+            mainCmdName: (nil or string)
+                - Name of main command, if cmdName is an alias.
+    --]]
+    ccmdGetCommandInfo = function( cmdName )
+        cmdName = cmdName or ""
+        local cmdInfo = ccmdCommands[cmdName]
+
+        if cmdInfo then return cmdInfo end
+
+        local mainCmdName = ccmdAliases[cmdName]
+
+        if mainCmdName then return ccmdCommands[mainCmdName], mainCmdName end
+    end
+
+    --[[
+        - Decides who can and cannot use this chip's chat commands.
+        - Each command can have its own override which bypasses this.
+
+        plys:
+            - { plyOne, plyTwo, plyThree, ... } -> Sets these players as the new targets to allow chat commands from.
+                - Either numerically indexed, or a lookup table (i.e. { [1] = plyOne, [2] = plyTwo, ... }  or  { [plyOne] = tue, [plyTwo] = true, ... })
+            - {} / false -> Do not target any players.
+            - ply -> Target one specific player. Same as { ply }
+            - nil -> Target ALL players.
+        filterNewJoinsFunc: (optional) (bool or function)
+            - BOOL:
+                - If true, will always add new joins to the target list.
+                - If false/nil, will never add new joins to the target list.
+            - FUNCTION:   function( ply )  return canAddPlyToTargetList  end
+                - canAddPlyToTargetList: (bool)
+    --]]
+    function ccmdSetTargets( plys, filterNewJoinsFunc )
+        targets = makePlayerLookup( plys ) or targets
+
+        if type( filterNewJoinsFunc ) ~= "function" then
+            if filterNewJoinsFunc then
+                filterNewJoinsFunc = function() return true end
+            else
+                filterNewJoinsFunc = function() return false end
+            end
+        end
+
+        targetNewJoinFilter = filterNewJoinsFunc
+    end
+
+    --[[
+        - Change the override for who can see a particular command.
+        - Similar parameter behavior to ccmdSetTargets(), except for the following differences:
+
+        plys:
+            - If nil, will remove override entirely.
+        filterNewJoinsFunc: (nil, bool, or function)
+            - NIL:
+                - Will retain previous filter function.
+            - BOOL:
+                - If true, will always add new joins to the target override list.
+                - If false, will never add new joins to the target override list.
+            - FUNCTION:   function( ply, cmdName )  return canAddPlyToTargetList  end
+                - canAddPlyToTargetList: (bool)
+    --]]
+    function ccmdSetTargetsForCommand( cmdName, plys, filterNewJoinsFunc )
+        ---------------------------------------------
+        local cmdInfo, mainCmdName = ccmdGetCommandInfo( cmdName )
+
+        if not cmdInfo then
+            error( "There is no command registered with the name \"" .. tostring( cmdName ) .. "\"" )
+        end
+
+        if reservedCommands[mainCmdName or cmdName] then
+            error( "\"" .. tostring( mainCmdName or cmdName ) .. "\" is a reserved command and cannot be modified" )
+        end
+
+        if plys == nil then
+            cmdInfo.TargetsOverride = nil
+            cmdInfo.NewJoinsFunc = nil
+
+            return
+        end
+
+        if filterNewJoinsFunc == nil then
+            filterNewJoinsFunc = cmdInfo.NewJoinsFunc
+        end
+
+        if filterNewJoinsFunc ~= nil and type( filterNewJoinsFunc ) ~= "function" then
+            if type( filterNewJoinsFunc ) ~= "boolean" then
+                error( "Expected filterNewJoinsFunc to be nil, a boolean, or a function" )
+            end
+
+            if filterNewJoinsFunc then
+                filterNewJoinsFunc = function() return true end
+            else
+                filterNewJoinsFunc = function() return false end
+            end
+        end
+
+        if type( plys ) == "function" then
+            cmdInfo.TargetsOverride = plys
+        else
+            cmdInfo.TargetsOverride = makePlayerLookup( plys ) or cmdInfo.TargetsOverride
+        end
+
+        if type( cmdInfo.TargetsOverride == "function" ) then
+            filterNewJoinsFunc = nil
+        end
+
+        cmdInfo.NewJoinsFunc = filterNewJoinsFunc
+    end
+
+    --[[
+        - Returns whether or not a given player can see a command.
+
+        ply: (player)
+            - The player to check.
+        cmdName: (nil or string)
+            NIL:
+                - Checks the global target list.
+            STRING:
+                - Checks that command's target override list, or the global list if there is no override.
+        ignoreCommandValidity: (optional) (bool)
+            - If true, will return false instead of an error if cmdName is not a registered command.
+
+        RETURNS: canSee
+            canSee: (bool)
+                - Can the player see this command?
+                - Does not check for the player's ability to *run* the command, only the ability to see it.
+    --]]
+    function ccmdCanSeeCommand( ply, cmdName, ignoreCommandValidity )
+        if not isValid( ply ) or not ply:isPlayer() then
+            error( "You must provide a valid player" )
+        end
+
+        if cmdName == nil then
+            return targets[ply] == true
+        end
+
+        local cmdInfo = ccmdGetCommandInfo( cmdName )
+
+        if not cmdInfo then
+            if ignoreCommandValidity then return false end
+
+            error( "There is no command registered with the name \"" .. tostring( cmdName ) .. "\"" )
+        end
+
+        local targetsOverride = cmdInfo.TargetsOverride
+
+        if targetsOverride then
+            if type( targetsOverride ) == "function" then
+                return targetsOverride( cmdName, ply )
+            end
+
+            return targetsOverride[ply] == true
+        end
+
+        return targets[ply] == true
+    end
+
+    --[[
+        cmdName: (string or table)
+            - The name of the command, cannot include whitespace (e.g. space, newline, tab)
+            - STRING:
+                - Just a string.
+            - TABLE:
+                - A list of strings, where the first entry is the main command name, and the rest are aliases.
+                    - An alias is simply an alternate name to call a command with, such as having a 'teleport' command as well as its alias, 'tp'
+                    - If you modify a command (e.g. with ccmdSetTargetsForCommand()), it will also alter its aliases, and vice versa.
+                    - Alias names will be shown next to their main name in places like '/myPrefix cmds' and '/myPrefix help mainCmdName'
+        cmdFunc: (function or string)
+            - FUNCTION:  function( cmdName, callingPly, argsAsString, cmdVarArgs )  return returnVal1, returnVal2  end
+                - argsAsString: The player's arguments, appended together as a single string.
+                    - For example, the chat message "/myPrefix cmdName arg1 arg2" yields "arg1 arg2"
+                - cmdVarArgs: The variable arguments provided by the player.
+                    - For example, the chat message "/myPrefix cmdName arg1 arg2" yields ( "arg1", "arg2" )
+                    - Again, these are var-args, not a single table arg.
+                - returnVal1: (nil, bool, string, or table)
+                    - BOOL:
+                        - Doesn't print to chat (regardless of true/false), same as returning nil.
+                        - Use this if you have 'ccmdUsePCall = true' and need to alter the player's chat message (via returnVal2).
+                        - Starfall pcall loses return values that come after the first nil, so you need this to retain returnVal2 under those circumstances.
+                    - STRING: This will be printed to callingPly's chat in white text.
+                    - TABLE: { COLOR, STRING, COLOR, STRING, ... }
+                        - Colored text to print to callingPly's chat.
+                    - Your message will automatically get prepended by 'printName .. " "' in white text, for consistency and identification.
+                        - printName is a global var, defaulting to '"[" .. projectNameID .. "]"'
+                        - projectNameID is a global var, defaulting to '"ChatCmds|" .. chip():getChipName()'
+                        - e.g. If the parent script is named 'My Starfall' and doesn't define printName or projectNameID, it will have printName = "[ChatCmds|My Starfall]"
+                        - You basically don't need to care about this sub-bullet, though it's recommended to set projectNameID to something short that well-suits your parent script.
+                - returnVal2: (nil or string)
+                    - STRING: Replaces the player's chat message with this, instead of just hiding the message.
+                - The function for the command to call.
+                - If applicable, will only get called after the command successfully passes through failCasesFunc.
+            - STRING:
+                - Name of command to become an alias of.
+                - IMPORTANT: If provided as a string, this will be marked as an alias. All other arguments will be ignored.
+        failCasesFunc: (optional) (function)
+            - Has the form   function( cmdName, callingPly, argsAsString, cmdVarArgs )  return failMessage, badArgInd  end
+                - failMessage: (nil, string, or table)
+                    - NIL:
+                        - No preemptive failure has been found. The chat command will run.
+                    - STRING:
+                        - A simple failure message, colored red.
+                    - TABLE: { COLOR, STRING, COLOR, STRING, ... }
+                        - Allows for colored text.
+                - badArgInd: (optional) (integer > 0)
+                    - The numerical index of the cmdVarArgs param that caused the failure, if applicable.
+            - Lets you have nicely-formatted misuse/invalid arg cases, with relevant info being printed out.
+                - This runs before cmdFunc, so this is to check command availability and do input sanitization, not handle execution errors.
+            - The player not providing all required args will be auto-checked before failCasesFunc.
+                - This is based on argInfo, which assumes the required arg count doesn't change (other than per-player differences, if applicable).
+                - If you have extra required args that dynamically exist based on other arguments, you must handle it in failCasesFunc, not argInfo.
+            - The player being marked as 'not a target' for the command is auto-checked first as well.
+                - If the player isn't on the list, they simply won't see this command.
+                - You can use failCasesFunc for having always-visible commands that just say 'you don't have access to use this', etc.
+        argInfo: (optional) (table or function)
+            - Provides info about the command's chat arguments.
+            - If nil, will assume all args are required, give them generic names, and will try to auto-calculate cmdFunc's param count.
+            - TABLE:
+                {
+                    ReqCount = NUMBER, -- The number of required arguments, which all come first in the command.
+                    OptCount = NUMBER, -- The number of optional arguments, which all come after the required ones. If you have more names than RC + OC, the extras are assumed to be optional args.
+                    [1] = {
+                        Name = STRING, -- Name of the first argument, defaults to "arg1"
+                        Description = STRING OR TABLE, -- Description of the first argument. Can either be a string or a printTbl (sequential table that alternates between color and string).
+                    },
+                    [2] = {
+                        Name = STRING,
+                        Descriptiopn = STRING OR TABLE,
+                    },
+                    [3] = {
+                        Name = STRING,
+                        Descriptiopn = STRING OR TABLE,
+                    },
+                    ...
+                }
+            - FUNCTION:  function( cmdName, callingPly )  return returnVal  end
+                - returnVal: (table)
+                    - Same format as the TABLE version of argInfo.
+                - Will be called without the callingPly arg when the command gets registered.
+        helpInfo: (optional) (string, table, or function)
+            - Provides additional help text for use with "/myPrefix help cmdName"
+            - Note that the help command automatically includes argInfo, so you don't need to worry about printing it here.
+            - STRING:
+                - A simple one-line description for the command, nothing fancy.
+            - TABLE:
+                {
+                    [1] = STRING OR TABLE, -- The first line of help text. Can either be a string or a printTbl (sequential table that alternates between color and string).
+                    [2] = STRING OR TABLE, -- The second line of help text.
+                    ...
+                }
+                - Allows for colored text.
+                - Each line will be on its own bullet point.
+            - FUNCTION:  function( cmdName, callingPly, cmdVarArgs )  return returnVal  end
+                - cmdVarArgs: Additional varargs from the player, for adding extra-specific help requests.
+                    - e.g. "/myPrefix help cmdName arg1 arg2" yields ( "arg1", "arg2" )
+                - returnVal: (table)
+                    - Same format as the TABLE version of helpInfo.
+                - If you have a complex enough command to need this as a function and go through the trouble of making it,
+                    please make sure to include info about your special 'help args' in the default case where the player gives no args.
+        targetsOverride: (optional) (player, table, or function)
+            - Determines who can and can't use this command, regardless of whatever has been set globally with ccmdSetTargets().
+            - If a player is on the global target list, but not the override, they will receive a print saying the command doesn't exist.
+                - If you want to let the player see the command, but not have access to running it, you should make use of failCasesFunc.
+            - If a player is missing from both lists, they will simply never get a print.
+            - PLAYER/TABLE:
+                - Same expectations and behavior as ccmdSetTargets().
+                - Note that nil and false are not available options!
+                    - To target all players, provide find.allPlayers().
+                    - To target nobody, provide {}
+                - You can change this later with ccmdSetTargetsForCommand().
+                - This list may or may not get modified later when players join, depending on filterNewJoinsFunc.
+            - FUNCTION:  function( cmdName, callingPly )  return returnVal end
+                - returnVal: (bool)
+                    - Can the player see this function?
+                - If targetsOverride is given as a function, it will update visibility any time the command might attempt to be seen or ran.
+                - It will also cause filterNewJoinsFunc to be obsolete.
+        filterNewJoinsFunc: (optional) (bool or function)
+            - Behaves the same way as it does in ccmdSetTargetsForCommand().
+
+
+        - To minimize on networking, wherever there's a COLOR for print formatting in the above definitions,
+            you can alternatively use the string "::c_SOMECOLORNAME" with the colors defined in gcolors.txt
+    --]]
+    function ccmdCreateCommand( cmdName, cmdFunc, failCasesFunc, argInfo, helpInfo, targetsOverride, filterNewJoinsFunc )
+        if not cmdName then
+            error( "You must provide a valid chat command name" )
+        end
+
+        if type( cmdName ) == "table" then
+            local mainCmdName = cmdName[1]
+            ccmdCreateCommand( mainCmdName, cmdFunc, failCasesFunc, argInfo, helpInfo, targetsOverride, filterNewJoinsFunc )
+
+            for i = 2, #cmdName do
+                ccmdCreateCommand( cmdName[i], mainCmdName )
+            end
+
+            return
+        end
+
+        if type( cmdName ) ~= "string" then
+            error( "Expected cmdName to be a string or a table" )
+        end
+
+        cmdName = removeSpaces( cmdName, "" )
+
+        if cmdName == "" then
+            error( "You must provide a valid chat command name" )
+        end
+
+        if ccmdCommands[cmdName] then
+            error( "There is already a chat command registered with the name \"" .. cmdName .. "\"" )
+            --[[
+            if type( cmdFunc ) == "string" and ccmdAliases[cmdFunc] then
+                error( "There is already a chat command registered with the alias \"" .. cmdFunc .. "\"" )
+            elseif type( cmdFunc ) == "function" then
+                error( "There is already a chat command registered with the name \"" .. cmdName .. "\"" )
+            end
+            --]]
+        end
+
+        if type( cmdFunc ) == "string" then
+            local mainCmdName = ccmdAliases[cmdFunc] or cmdFunc -- Get the original command if cmdFunc is itself another alias
+            local cmdInfo = ccmdCommands[mainCmdName]
+
+            if not cmdInfo then
+                error( "Couldn't find a chat command registered with the name \"" .. mainCmdName .. "\" to make an alias \"" .. cmdName .. "\" from" )
+            end
+
+            local aliases = cmdInfo.Aliases
+            local aliasCount = cmdInfo.AliasCount
+
+            ccmdAliases[cmdName] = mainCmdName
+
+            if not aliases then
+                aliases = {}
+                aliasCount = 0
+                cmdInfo.Aliases = aliases
+            end
+
+            aliasCount = aliasCount + 1
+            aliases[aliasCount] = cmdName
+            cmdInfo.AliasCount = aliasCount
+
+            return
+        end
+
+        if type( cmdFunc ) ~= "function" then
+            error( "You must provide a valid chat command function" )
+        end
+
+        if failCasesFunc ~= nil and type( failCasesFunc ) ~= "function" then
+            error( "Expected failCasesFunc to be nil or a function" )
+        end
+
+        --
+        if type( argInfo ) ~= "function" then
+            if type( argInfo ) == "table" then
+                argInfo.__IsValidated = false
+            end
+
+            argInfo = makeArgInfo( argInfo, cmdFunc, cmdName )
+        end
+        --
+        --argInfo = makeArgInfo( argInfo, cmdFunc )
+
+        if helpInfo ~= nil and type( helpInfo ) ~= "string" and type( helpInfo ) ~= "table" and type( helpInfo ) ~= "function" then
+            error( "Expected helpInfo to be nil, a string, a table, or a function" )
+        end
+
+        if targetsOverride then
+            if type( targetsOverride ) == "function" then
+                filterNewJoinsFunc = nil
+            else
+                targetsOverride = makePlayerLookup( targetsOverride )
+
+                if not targetsOverride then
+                    error( "Expected targetsOverride to be nil, a player, a table, or a function" )
+                end
+            end
+        end
+
+        if filterNewJoinsFunc ~= nil then
+            if type( filterNewJoinsFunc ) == "boolean" then
+                if filterNewJoinsFunc then
+                    filterNewJoinsFunc = function() return true end
+                else
+                    filterNewJoinsFunc = function() return false end
+                end
+            elseif type( filterNewJoinsFunc ) ~= "function" then
+                error( "Expected filterNewJoinsFunc to be nil, a boolean, or a function" )
+            end
+        end
+
+
+        ----------------------------------
+        ccmdCommands[cmdName] = {
+            Name = cmdName,
+            Func = cmdFunc,
+            FailCasesFunc = failCasesFunc,
+            ArgInfo = argInfo,
+            HelpInfo = helpInfo,
+            TargetsOverride = targetsOverride,
+            NewJoinsFunc = filterNewJoinsFunc,
+        }
+    end
+
+    --[[
+        A quick and easy way to create a chat command that toggles/sets a flag between off and on.
+        Make sure to store the functions returned by this, as they are required to get the flag's current value,
+            unless you track it yourself in stateCallback().
+
+        cmdName: (string or table)
+            - Same as in ccmdCreateCommand().
+        stateCallback: (optional) (function)
+            - FUNCTION:  function( oldState, newState )  return overrideState end
+                - overrideState: (optional) (bool)
+                    - Will override the state, used for preventing changes under certain conditions.
+                - Gets called automatically by stateSetter() so you can perform actions whenever your flag changes or double-sets.
+                - Note that players can provide an optional chat argument to set the state directly to on/off instead of toggling.
+        valueName: (optional) (string)
+            - The display name for your flag, used in the resulting chat message:  valueName .. " is now " .. [enabled/disabled] .. "."
+            - Defaults to the primary name in cmdName.
+        description: (optional) (string)
+            - The short description used in the command's help info, which will say  "Enables/disables " .. description .. "."
+            - Defaults to valueName.
+        initialState: (optional) (bool)
+            - The initial value of your flag.
+        targetsOverride: (optional) (player or table)
+            - Same as in ccmdCreateCommand().
+        filterNewJoinsFunc: (optional) (bool or function)
+            - Same as in ccmdSetTargetsForCommand().
+
+
+        RETURNS: stateSetter, stateGetter
+            stateSetter: (function)
+                - FUNCTION:  function( state ) return end
+                - Calls stateCallback() and sets the value of your flag accordingly.
+            stateGetter: (function)
+                - FUNCTION:  function() return state end
+                - Gives the current value of your flag.
+    --]]
+    function ccmdCreateToggleCommand( cmdName, stateCallback, valueName, description, initialState, targetsOverride, filterNewJoinsFunc )
+        local mainCmdName
+        cmdName = cmdName or ""
+
+        if type( cmdName ) == "string" then
+            cmdName = removeSpaces( cmdName, "" )
+        end
+
+        if cmdName == "" or ( type( cmdName ) ~= "string" and type( cmdName ) ~= "table" ) then
+            error( "You must provide a valid chat command name" )
+        end
+
+        if type( cmdName ) == "string" then
+            if ccmdCommands[cmdName] then
+                error( "There is already a chat command registered with the name \"" .. cmdName .. "\"" )
+            end
+
+            mainCmdName = cmdName
+        else
+            for _, alias in ipairs( cmdName ) do
+                if ccmdCommands[alias] then
+                    error( "There is already a chat command registered with the name \"" .. alias .. "\"" )
+                end
+            end
+
+            mainCmdName = cmdName[1]
+        end
+
+        if type( initialState ) ~= "boolean" then
+            initialState = false
+        end
+
+        if type( stateCallback ) ~= "function" then
+            stateCallback = function() end
+        end
+
+        local stateFlag = initialState
+        valueName = valueName or mainCmdName
+        description = description or valueName
+
+        if type( valueName ) ~= "string" then
+            error( "Expected valueName to be nil or a string" )
+        end
+
+        if type( description ) ~= "string" then
+            error( "Expected description to be nil or a string" )
+        end
+
+
+        local cText = ccmdScheme:getColor( "Text" )
+        local cHighlight = ccmdScheme:getColor( "Highlight" )
+        local cTrue = ccmdScheme:getColor( "true" )
+        local cFalse = ccmdScheme:getColor( "false" )
+
+        local function stateSetter( state )
+            local overrideState = stateCallback( stateFlag, state )
+
+            if overrideState == nil then
+                stateFlag = state
+            else
+                stateFlag = overrideState
+            end
+        end
+
+        local function stateGetter()
+            return stateFlag
+        end
+
+        local function cmdFunc( _, _, _, stateStr )
+            local state = stateStrVals[stateStr]
+
+            if state == nil then
+                state = not stateFlag
+            end
+
+            stateSetter( state )
+
+            return {
+                cText, valueName .. " is now ",
+                state and cTrue or cFalse, state and "enabled" or "disabled",
+                cText, "."
+            }
+        end
+
+        local function failCasesFunc()
+            return -- No fail cases
+        end
+
+        local argInfo = {
+            ReqCount = 0,
+            OptCount = 1,
+            {
+                Name = "state",
+                Description = {
+                    {
+                        cText, "Sets the state directly, instead of toggling.",
+                    },
+                    {
+                        cText, "Can be ",
+                        cTrue, "on",
+                        cText, ", ",
+                        cFalse, "off",
+                        cText, ", ",
+                        cTrue, "1",
+                        cText, ", ",
+                        cFalse, "0",
+                        cText, ", etc.",
+                    },
+                },
+            },
+        }
+
+        local helpInfo = {
+            {
+                cText, "Enables/disables ",
+                cHighlight, description,
+                cText, "."
+            },
+        }
+
+        ccmdCreateCommand( cmdName, cmdFunc, failCasesFunc, argInfo, helpInfo, targetsOverride, filterNewJoinsFunc )
+
+        return stateSetter, stateGetter
+    end
+
+    --[[
+        - Removes a command or alias so that it may be re-registered later with different functionality.
+
+        cmdName: (string)
+            - The name of the command to remove.
+            - If the command has aliases, those will be removed as well.
+            - If cmdName is itself an alias, then only that one alias will be removed.
+    --]]
+    function ccmdRemoveCommand( cmdName )
+        if type( cmdName ) ~= "string" then
+            error( "Expected cmdName to be a string" )
+        end
+
+        local cmdInfo, mainCmdName = ccmdGetCommandInfo( cmdName )
+
+        if not cmdInfo then
+            error( "There is no command registered with the name \"" .. cmdName .. "\"" )
+        end
+
+        if reservedCommands[mainCmdName or cmdName] then
+            error( "\"" .. tostring( mainCmdName or cmdName ) .. "\" is a reserved command and cannot be removed" )
+        end
+
+        if mainCmdName then -- Only removing a single alias
+            local aliasCount = cmdInfo.AliasCount - 1
+
+            ccmdAliases[cmdName] = nil
+
+            if aliasCount == 0 then
+                cmdInfo.Aliases = nil
+                cmdInfo.AliasCount = nil
+
+                return
+            end
+
+            cmdInfo.AliasCount = aliasCount
+            table.removeByValue( cmdInfo.Aliases, cmdName )
+
+            return
+        end
+
+        local aliases = cmdInfo.Aliases
+
+        if aliases then -- Command has aliases to remove
+            for i = 1, cmdInfo.AliasCount do
+                local alias = aliases[i]
+
+                ccmdAliases[alias] = nil
+            end
+        end
+
+        ccmdCommands[cmdName] = nil
+    end
+
+    local processCommand = false -- Defined later
+
+    --[[
+        - Process a command directly.
+        - Useful for automation and shortcuts like "/tp someGuy" --> "/myPrefix tp someGuy" without needing chat re-send delays.
+
+        ply: (entity)
+            - The player who would be running this command.
+        cmdName: (string)
+            - The name of the command to run.
+        argsIn: (table or string)
+            - Command arguments, either as a numerical table or space-separated string.
+        hideCommandPrinting: (bool)
+            - If true, will forcefully prevent the command call from getting echoed to the player's chat
+
+        RETURNS: chatOverride
+            chatOverride: (string)
+                - A string to override the player's original message with, for use with the PlayerSay hook.
+    --]]
+    function ccmdProcessCommand( ply, cmdName, argsIn, hideCommandPrinting )
+        local argsAsString
+        local args
+
+        if argsIn == nil then
+            argsIn = {}
+        end
+
+        if type( argsIn ) == "string" then
+            argsAsString = argsIn
+            args = stringExplode( " ", argsAsString )
+        elseif type( argsIn ) == "table" then
+            args = argsIn
+            argsAsString = tableConcat( args, " " )
+        else
+            error( "Expected argsIn to be a string or a table" )
+        end
+
+        local argCount = #args
+        local msg = ccmdPrefix .. " " .. cmdName
+
+        if argCount > 0 then
+            msg = msg .. " " .. argsAsString
+        end
+
+        return processCommand( ply, msg, cmdName, args, argsAsString, hideCommandPrinting )
+    end
+
+    -- This is not a global func btw
+    processCommand = function( ply, msg, cmdName, args, argsAsString, hideCommandPrinting )
+        if not hideCommandPrinting and hasPrintCommandEnabled( ply ) then
+            local cTextQuiet = ccmdScheme:getColor( "TextQuiet" )
+
+            local printTbl = ep.chipNamePrefix( ccmdScheme )
+            tableAdd( printTbl, {
+                cTextQuiet, msg,
+            } )
+
+            printToPly( ply, printTbl )
+        end
+
+        local cmdInfo = ccmdGetCommandInfo( cmdName )
+        local canSee = ccmdCanSeeCommand( ply, cmdName, true )
+
+        local cText = ccmdScheme:getColor( "Text" )
+        local cFail = ccmdScheme:getColor( "Fail" )
+        local cHighlight = ccmdScheme:getColor( "Highlight" )
+        local cHighlightWeak = ccmdScheme:getColor( "HighlightWeak" )
+        local cBulletPoint = ccmdScheme:getColor( "BulletPoint" )
+
+        if not cmdInfo or not canSee then
+            local printTbl = ep.chipNamePrefix( ccmdScheme )
+
+            if cmdName == "" then
+                printToPly(
+                    ply,
+                    tableAdd( printTbl, {
+                        cFail, "You need to specify a command name!",
+                        cText, "\n  You can view the list of available commands with ",
+                        cHighlightWeak, ccmdPrefix .. " cmds",
+                    } )
+                )
+            else
+                --if not canSee and not targets[ply] then return end
+
+                printToPly(
+                    ply,
+                    tableAdd( printTbl, {
+                        cFail, " Couldn't find a command named ",
+                        cHighlight, cmdName,
+                        cText, "\n  You can view the list of available commands with ",
+                        cHighlightWeak, ccmdPrefix .. " cmds",
+                    } )
+                )
+            end
+
+            return ""
+        end
+
+        -- Check for required args
+        local cmdFunc = cmdInfo.Func
+        local argInfo = makeArgInfo( cmdInfo.ArgInfo, cmdFunc, cmdName, ply )
+        local argCount = #args
+
+        if argCount < argInfo.ReqCount then
+            local argFailMsg = {
+                cBulletPoint, "  - ",
+                cFail, "Not enough arguments!",
+                cBulletPoint, "\n  - ",
+                cText, "Expected: ",
+                cHighlightWeak, ccmdPrefix .. " " .. cmdName .. " ",
+                unpack( argInfo.PrintTbl )
+            }
+
+            ccmdPrintFailCase( cmdName, ply, msg, argFailMsg, 0, unpack( args ) )
+
+            return ""
+        end
+
+        -- Check special fail cases
+        local failCasesFunc = cmdInfo.FailCasesFunc
+
+        if failCasesFunc then
+            local failMsg, badArgInd = failCasesFunc( cmdName, ply, argsAsString, unpack( args ) )
+
+            if failMsg then
+                ccmdPrintFailCase( cmdName, ply, msg, failMsg, badArgInd or 0, unpack( args ) )
+
+                return ""
+            end
+        end
+
+        -- Run command
+        local cmdResult1
+        local cmdResult2
+
+        if ccmdUsePCall then
+            local success
+            success, cmdResult1, cmdResult2 = pcall( cmdFunc, cmdName, ply, argsAsString, unpack( args ) )
+
+            if not success then
+                if type( cmdResult1 ) == "table" then
+                    cmdResult1 = cmdResult1.message
+                end
+
+                local failMsg = {
+                    cBulletPoint, "  - ",
+                    cFail, "[Failed during execution] ",
+                    cText, "(caught by pcall)",
+                    cBulletPoint, "\n  - ",
+                    cText, "Error message: ",
+                    cHighlight, cmdResult1
+                }
+
+                ccmdPrintFailCase( cmdName, ply, msg, failMsg, 0, unpack( args ) )
+
+                if ply ~= owner() then
+                    failMsg[2] = "\n  - "
+                    tableInsert( failMsg, 1, cBulletPoint )
+                    tableInsert( failMsg, 2, "  - " )
+                    tableInsert( failMsg, 3, cText )
+                    tableInsert( failMsg, 4, "Called by: " )
+                    tableInsert( failMsg, 5, team.getColor( ply:getTeam() ) )
+                    tableInsert( failMsg, 6, ply:getName() )
+
+                    ccmdPrintFailCase( cmdName, owner(), msg, failMsg, 0, unpack( args ) )
+                end
+
+                return ""
+            end
+        else
+            cmdResult1, cmdResult2 = cmdFunc( cmdName, ply, argsAsString, unpack( args ) )
+        end
+
+        if cmdResult1 and type( cmdResult1 ) ~= "boolean" then
+            if type( cmdResult1 ) == "string" then
+                cmdResult1 = {
+                    cText, cmdResult1,
+                }
+            elseif type( cmdResult1 ) ~= "table" then
+                error( "Expected command function to return nil, a string, or a table" )
+            end
+
+            tableInsert( cmdResult1, 1, cText )
+            tableInsert( cmdResult1, 2, printName .. " " )
+
+            printToPly( ply, cmdResult1 )
+        end
+
+        if type( cmdResult2 ) == "string" then
+            return cmdResult2
+        end
+
+        return ""
+    end
+
+
+    --------------------------------------------------------------------------------------------------------
+    hook.add( "PlayerSay", "LKL_ChatCmds_RunCommand", function( ply, msg )
+        local args = stringExplode( " ", msg ) or {}
+        local prefix = tableRemove( args, 1 )
+
+        if prefix ~= ccmdPrefix then return end
+
+        local cmdName = tableRemove( args, 1 ) or ""
+        local chatOverride = ccmdProcessCommand( ply, cmdName, args )
+
+        return chatOverride
+    end )
+
+    hook.add( "PlayerInitialSpawn", "LKL_ChatCmds_FilterNewJoin", function( ply )
+        ---------------------------------------------------------
+        if targetNewJoinFilter( ply ) then
+            targets[ply] = true
+        end
+
+        for cmdName, cmdInfo in pairs( ccmdCommands ) do
+            local filterNewJoinsFunc = cmdInfo.NewJoinsFunc
+
+            if not filterNewJoinsFunc then continue end
+
+            local targetsOverride = cmdInfo.TargetsOverride
+
+            if not targetsOverride then
+                targetsOverride = {}
+
+                for target in pairs( targets ) do
+                    if isValid( target ) and target ~= ply then
+                        targetsOverride[target] = true
+                    end
+                end
+
+                cmdInfo.TargetsOverride = targetsOverride
+            end
+
+            if filterNewJoinsFunc( ply, cmdName ) then
+                targetsOverride[ply] = true
+            end
+        end
+    end )
+
+
+    ---- BUILTIN CHAT COMMANDS:
+    local visIfAvailCurrentlyChecking = false
+
+    --[[
+        - This has been made global for in case you need to make a command that's visible to players who can see at least one other command
+        - To use it, provide this function as the targetsOverride argument in ccmdCreateCommand()
+    --]]
+    function ccmdFilter_VisibleIfAnyCommandIsAvailable( _, ply )
+        if visIfAvailCurrentlyChecking then return false end -- Avoid infinite loop
+
+        visIfAvailCurrentlyChecking = true
+
+        for cmdName, cmdInfo in pairs( ccmdCommands ) do
+            local targetsOverride = cmdInfo.TargetsOverride
+
+            if targetsOverride == ccmdFilter_VisibleIfAnyCommandIsAvailable then continue end -- Avoid infinite loop
+
+            if ccmdCanSeeCommand( ply, cmdName ) then
+                visIfAvailCurrentlyChecking = false
+                return true
+            end
+        end
+
+        visIfAvailCurrentlyChecking = false
+
+        return false
+    end
+
+    local function commandHelp( _, ply, _, ... )
+        local args = { ... }
+        local cmdHelpName = tableRemove( args, 1 )
+
+        if not cmdHelpName or cmdHelpName == "" then
+            return commandHelp( nil, ply, nil, "help", unpack( args ) )
+        end
+
+        local cmdInfo, mainCmdName = ccmdGetCommandInfo( cmdHelpName )
+
+        local aliases = cmdInfo.Aliases
+        local helpInfo = cmdInfo.HelpInfo
+        local argInfo = makeArgInfo( cmdInfo.ArgInfo, cmdInfo.Func, cmdHelpName, ply )
+        --local descInfo = {}
+        local descInfo = BulletList:new()
+
+        local cText = ccmdScheme:getColor( "Text" )
+        local cHighlight = ccmdScheme:getColor( "Highlight" )
+
+        if mainCmdName then
+            --[[
+            tableInsert( descInfo, {
+                cText, "Alias of ",
+                cHighlight, mainCmdName,
+            } )
+            --]]
+
+            descInfo:addPoint( {
+                cText, "Alias of ",
+                cHighlight, mainCmdName,
+            } )
+        elseif aliases then
+            local aliasPrint = {
+                cText, "Aliases: ",
+            }
+
+            tableAdd( aliasPrint, ep.simpleList( ccmdScheme, aliases, cHighlight, false, false, "" ) )
+            --tableInsert( descInfo, aliasPrint )
+            descInfo:addPoint( aliasPrint )
+        end
+
+        if helpInfo then
+            if type( helpInfo ) == "function" then
+                helpInfo = helpInfo( mainCmdName or cmdHelpName, ply, unpack( args ) )
+            end
+
+            if type( helpInfo ) == "string" then
+                helpInfo = {
+                    {
+                        cText, helpInfo,
+                    }
+                }
+            end
+
+            if type( helpInfo ) ~= "table" then error( "Expected the final result of helpInfo to be a string or a table" ) end
+
+            if helpInfo.__type == "BulletList" then
+                descInfo:mergeIn( helpInfo )
+            else
+                for _, helpInfoLine in ipairs( helpInfo ) do
+                    --tableInsert( descInfo, helpInfoLine )
+
+                    if type( helpInfoLine ) == "string" then
+                        helpInfoLine = {
+                            cText, helpInfoLine,
+                        }
+                    end
+
+                    descInfo:addPoint( helpInfoLine )
+                end
+            end
+        end
+
+        local printTbl = ep.functionDetails( ccmdScheme, cmdHelpName, argInfo, false, descInfo, 2, 1, 0 )
+
+        return printTbl
+    end
+
+    local function commandHelp_FailCases( _, _, _, cmdHelpName )
+        if not cmdHelpName or cmdHelpName == "" then return end
+
+        local cmdInfo = ccmdGetCommandInfo( cmdHelpName )
+
+        if not cmdInfo then
+            local cBulletPoint = ccmdScheme:getColor( "BulletPoint" )
+            local cFail = ccmdScheme:getColor( "Fail" )
+            local cHighlight = ccmdScheme:getColor( "Highlight" )
+
+            local failMsg = {
+                cBulletPoint, "  - ",
+                cFail, "Couldn't find a command named ",
+                cHighlight, cmdHelpName,
+            }
+            local badArgInd = 1
+
+            return failMsg, badArgInd
+        end
+    end
+
+
+    local function commandCommands( _, ply )
+        local cmdList = {}
+        local cmdCount = 0
+
+        for cmdName, cmdInfo in pairs( ccmdCommands ) do
+            if ccmdCanSeeCommand( ply, cmdName, true ) then
+                cmdCount = cmdCount + 1
+                cmdList[cmdCount] = cmdInfo
+            end
+        end
+
+        local cText = ccmdScheme:getColor( "Text" )
+        local cHighlight = ccmdScheme:getColor( "Highlight" )
+        local cHighlightWeak = ccmdScheme:getColor( "HighlightWeak" )
+
+        local printTbl = {
+            cText, "The available commands are: ",
+        }
+
+        tableAdd( printTbl, ep.simpleList(
+            ccmdScheme,
+            cmdList, function( _, cmdInfo )
+                local _printTbl = {
+                    cHighlight, cmdInfo.Name,
+                }
+
+                local aliasCount = cmdInfo.AliasCount
+
+                if aliasCount and aliasCount ~= 0 then
+                    local aliases = cmdInfo.Aliases
+
+                    tableInsert( _printTbl, cText )
+                    tableInsert( _printTbl, " (" )
+
+                    for i = 1, aliasCount do
+                        tableInsert( _printTbl, cHighlightWeak )
+                        tableInsert( _printTbl, aliases[i] )
+
+                        if i ~= aliasCount then
+                            tableInsert( _printTbl, cText )
+                            tableInsert( _printTbl, ", " )
+                        end
+                    end
+
+                    tableInsert( _printTbl, cText )
+                    tableInsert( _printTbl, ")" )
+                end
+
+                return _printTbl
+            end,
+            false,
+            false,
+            ""
+            )
+        )
+
+        return printTbl
+    end
+
+    local function commandCommands_FailCases()
+        return -- No fail cases
+    end
+
+
+    do
+        ccmdPrefix = removeSpaces( ccmdPrefix, "/ccmd" )
+        prefixLength = stringLen( ccmdPrefix )
+
+        if ccmdPrefix == "/ccmd" then
+            ep.printInScheme( ccmdScheme,
+                c_white, printName,
+                "Alert", " You didn't specify a command prefix for this starfall's chat commands!",
+                "Text", "\n  It has been defaulted to ",
+                "Higlight", "/ccmd ",
+                "Text", "but it will cause conflicts if other chips are defaulted as well.",
+                "Text", "\n  Make sure to define ",
+                "Higlight", "ccmdPrefix ",
+                "Text", "as a ",
+                "HighlightWeak", "global (non-local) string variable ",
+                "Text", "in your main starfall script before the ",
+                "HighlightWeak", "require( \"chat_cmds.txt\" ) ",
+                "Text", "statement."
+            )
+        end
+
+
+        -- Help:
+        ccmdCreateCommand(
+            "help",
+            commandHelp,
+            commandHelp_FailCases,
+            {
+                ReqCount = 1,
+                OptCount = 1,
+                {
+                    Name = "commandName",
+                    Description = {
+                        {
+                            ccmdScheme:getColor( "Text" ), "The name of the command to get help with.",
+                        },
+                    },
+                },
+                {
+                    Name = "...",
+                    Description = {
+                        {
+                            ccmdScheme:getColor( "Text" ), "Additional arguments to get specific help with that command, if applicable.",
+                        },
+                    },
+                },
+            },
+            {
+                {
+                    ccmdScheme:getColor( "Text" ), "Displays info about various chat commands."
+                },
+            },
+            ccmdFilter_VisibleIfAnyCommandIsAvailable,
+            nil
+        )
+
+        -- Commands:
+        ccmdCreateCommand(
+            {
+                "commands",
+                "cmds",
+            },
+            commandCommands,
+            commandCommands_FailCases,
+            {
+                ReqCount = 0,
+                OptCount = 0,
+            },
+            "Displays the list of usable commands (and their aliases).",
+            ccmdFilter_VisibleIfAnyCommandIsAvailable,
+            nil
+        )
+    end
+else
+    local stringSub = string.sub
+    local tableInsert = table.insert
+
+    local function tableInsertUnique( tbl, val )
+        if table.hasValue( tbl, val ) then return end
+        tableInsert( tbl, val )
+    end
+
+    permissions = permissions or {}
+    permissionSatisfied = permissionSatisfied or false
+    permissionRequestSent = permissionRequestSent or false
+
+    tableInsertUnique( permissions, "print.chat" )
+    tableInsertUnique( permissions, "print.console" )
+    tableInsertUnique( permissions, "print.color" )
+
+    if not setupPermissionRequestSafe then
+        require( "lkl/cl_check_permissions.txt" )
+
+        setupPermissionRequestSafe( permissions, "Use chat commands", true )
+
+        timer.simple( 1, function()
+            checkPermissions()
+        end )
+    end
+
+
+    net.receive( "LKL_ChatCmds_PrintMessage", function()
+        if not permissionSatisfied then return end
+
+        if net.readEntity() ~= chip() then return end -- Annoyingly, net messages are not local to each chip
+
+        local printTbl = net.readTable()
+        local printTblCount = #printTbl
+
+        for i = 1, printTblCount do
+            local printChunk = printTbl[i]
+            local chunkType = type( printChunk )
+
+            if chunkType == "string" then
+                if stringSub( printChunk, 1, 4 ) == "::c_" then
+                    printTbl[i] = COLORS[stringSub( printChunk, 5 )] or c_white
+                end
+            elseif chunkType == "table" then
+                printTbl[i] = Color( printChunk.r, printChunk.g, printChunk.b, printChunk.a )
+            end
+        end
+
+        print( unpack( printTbl ) )
+    end )
+end

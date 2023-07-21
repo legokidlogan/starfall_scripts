@@ -1,0 +1,99 @@
+--@name Curves
+--@author legokidlogan
+--@shared
+
+
+local function lerp( a, b, t )
+    return a + ( b - a ) * t
+end
+
+
+--[[
+    - Creates a bezier curve.
+
+    numSamples: (nil or number)
+        - The number of samples to take from the curve.
+        - If nil, the curve will be returned as function( t )  return VECTOR  end  where t is a number from 0 to 1.
+    ...: (Vectors)
+        - The points to use for the curve.
+        - The first point is the start point, the last point is the end point, and the points in between are the control points.
+        - Can instead be given as a single table of vectors.
+
+    RETURNS: (table or function)
+        - If numSamples is nil, returns a function that takes a number from 0 to 1 and returns a vector.
+        - If numSamples is a number, returns a table of vectors.
+--]]
+function math.bezierCurve( numSamples, ... )
+    local points = { ... }
+    local pointCount = #points
+
+    if pointCount == 1 and type( points[1] ) == "table" then
+        points = points[1]
+        pointCount = #points
+    end
+
+    for i = 1, pointCount do
+        if type( points[i] ) ~= "Vector" then
+            error( "point " .. i .. " is not a vector" )
+        end
+    end
+
+    if pointCount == 0 then
+        error( "no points given" )
+    end
+
+    local curveFunc
+
+    if pointCount == 1 then
+        local point = points[1]
+        curveFunc = function()
+            return point
+        end
+    end
+
+    curveFunc = curveFunc or function( t )
+        local lerpPoints = {}
+        local prevLerpPoints = points
+        lerpPoints[0] = points
+
+        for i = 1, pointCount - 1 do
+            local theseLerpPoints = {}
+            lerpPoints[i] = theseLerpPoints
+
+            for i2 = 1, pointCount - i do
+                theseLerpPoints[i2] = lerp( prevLerpPoints[i2], prevLerpPoints[i2 + 1], t )
+            end
+
+            prevLerpPoints = theseLerpPoints
+        end
+
+        return prevLerpPoints[1]
+    end
+
+    if numSamples == nil then
+        return curveFunc
+    end
+
+    if type( numSamples ) ~= "number" then
+        error( "numSamples must be a number or nil" )
+    end
+
+    if math.round( numSamples ) ~= numSamples then
+        error( "numSamples must be an integer" )
+    end
+
+    if numSamples < 2 then
+        error( "numSamples must be at least 2" )
+    end
+
+    local curvePoints = {}
+    local numSamplesMinusOne = numSamples - 1
+
+    for i = 1, numSamples do
+        curvePoints[i] = curveFunc( ( i - 1 ) / numSamplesMinusOne )
+    end
+
+    return curvePoints
+end
+
+

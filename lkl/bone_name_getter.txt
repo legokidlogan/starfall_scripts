@@ -1,0 +1,17 @@
+--@name Bone Name Getter
+--@author
+--@client
+
+
+if player() ~= owner() then return end
+
+
+local boneCount = player():getBoneCount()
+local boneNames = {}
+
+for i = 0, boneCount - 1 do
+    boneNames[i] = player():getBoneName( i )
+end
+
+printTable( boneNames )
+

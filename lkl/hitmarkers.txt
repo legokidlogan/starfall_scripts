@@ -1,0 +1,631 @@
+--@name Hitmarkers
+--@author legokidlogan
+--@shared
+
+if SERVER then
+    local headDist = 10
+    
+    local headDistSqr = headDist ^ 2
+    local connectedPlyCount = 0
+    local connectedPlys = {}
+    local connectedPlys2 = {}
+    
+    hook.add( "PlayerSay", "LKL_Hitmarkers_PlayerSay", function( ply, msg )
+        local LS = string.explode( " ", msg )
+        
+        if LS[1] ~= "/hit" then return end
+        
+        local command = LS[2]
+        
+        if command == "sounds" or command == "sound" or command == "s" then
+            if not connectedPlys[ply] then return end
+            
+            net.start( "LKL_Hitmarkers_ToggleSounds" )
+            net.send( ply )
+        end
+        
+        if ply ~= owner() then return end
+        
+        if command == "players" or command == "users" or command == "p" or command == "u" then
+            local plyCount = table.count( connectedPlys )
+            plyCount = plyCount > 0 and plyCount
+            
+            local out = plyCount and {
+                Color( 255, 255, 255 ), "[Hitmarkers] The players currently connected are ",
+            } or {
+                Color( 255, 255, 255 ), "[Hitmarkers] ",
+                Color( 255, 150, 150 ), "No one is connected!"
+            }
+            
+            if plyCount then
+                local indBase = 2
+                
+                for cPly, plyData in pairs( connectedPlys ) do
+                    plyData = plyData or {
+                        "An unkown player",
+                        Color( 152, 212, 255 ),
+                    }
+                    
+                    rawset( out, indBase + 1, rawget( plyData, 2 ) )
+                    rawset( out, indBase + 2, rawget( plyData, 1 ) )
+                    rawset( out, indBase + 3, Color( 255, 255, 255 ) )
+                    rawset( out, indBase + 4, ", " )
+                    
+                    indBase = indBase + 4
+                end
+                
+                indBase = ( plyCount - 1 ) * 4 + 2
+                
+                rawset( out, indBase + 4, "." )
+                
+                if plyCount > 1 then
+                    rawset( out, indBase, plyCount == 2 and " and " or ", and " )
+                end
+            end
+            
+            print( unpack( out ) )
+        else
+            print(
+                Color( 255, 255, 255 ), "[Hitmarkers] ",
+                Color( 255, 0, 0 ), "That is not a valid command! ",
+                Color( 255, 255, 255 ), "The available commands are ",
+                Color( 255, 255, 0 ), "users",
+                Color( 255, 255, 255 ),"."
+            )
+        end
+        
+        return ""
+    end )
+    
+    net.receive( "LKL_Hitmarkers_HUDChange", function( _, ply )
+        local valid = isValid( ply )
+        local state = net.readBool()
+        
+        local plyName = valid and ply:getName() or "An unkown player"
+        local plyColor = valid and team.getColor( ply:getTeam() ) or Color( 152, 212, 255 )
+        local stateStr = state and " has connected." or " has disconnected."
+        local stateColor = state and Color( 150, 255, 150 ) or Color( 255, 150, 150 )
+        
+        if valid then
+            local val = state and { plyName, plyColor } or nil
+            rawset( connectedPlys, ply, val )
+            
+            if val then
+                table.insert( connectedPlys2, ply )
+            else
+                table.removeByValue( connectedPlys2, ply )
+            end
+        else
+            for i = #connectedPlys2, 1, -1 do
+                if not isValid( rawget( connectedPlys2, i ) ) then
+                    table.remove( connectedPlys2, i )
+                end
+            end
+            
+            if state then
+                if ply then
+                    local plyData = rawget( connectedPlys, ply )
+                    
+                    if plyData then
+                        plyName = rawget( plyData, 1 )
+                        plyColor = rawget( plyData, 2 )
+                    else
+                        rawset( connectedPlys, ply, { plyName, plyColor } )
+                    end
+                end
+            else
+                if ply then
+                    local plyData = rawget( connectedPlys, ply )
+                    
+                    if plyData then
+                        plyName = rawget( plyData, 1 )
+                        plyColor = rawget( plyData, 2 )
+                    end
+                end
+                
+                for i = 1, #connectedPlys do
+                    if not isValid( rawget( connectedPlys, i ) ) then
+                        rawset( connectedPlys, i, nil )
+                    end
+                end
+            end
+        end
+        
+        connectedPlyCount = #connectedPlys2
+        
+        print(
+            Color( 255, 255, 255 ), "[Hitmarkers] ",
+            plyColor, plyName,
+            stateColor, stateStr
+        )
+    end )
+    
+    hook.add( "EntityTakeDamage", "LKL_HitMarkers_EntityTakeDamage", function( ent, attacker, inflictor, amount, type, pos )
+        if not isValid( ent ) or not ent:isPlayer() or ent == attacker or not connectedPlys[attacker] then return end
+        
+        --print( "dmg", ent, amount )
+        
+        attacker.hitmarkerPoints = attacker.hitmarkerPoints or {}
+        attacker.hitmarkerPoints[ent] = pos
+    end )
+    
+    hook.add( "PlayerHurt", "LKL_Hitmarkers_PlayerHurt", function( ply, attacker, newHealth, damage )
+        if not connectedPlys[attacker] then return end
+        
+        --print( "hurt", ply, damage )
+        
+        attacker.hitmarkerPoints = attacker.hitmarkerPoints or {}
+        local pos = attacker.hitmarkerPoints[ply] or ply:getAttachment( ply:lookupAttachment( "chest" ) ) or ply:getPos() + Vector( 0, 0, ply:obbSize().z * 2 / 3  )
+        local headShot = false
+        
+        local headInd = ply:lookupAttachment( "eyes" )
+        
+        if headInd ~= 0 then
+            local headPos = ply:getAttachment( headInd )
+            
+            headShot = headPos:getDistanceSqr( pos ) <= headDistSqr
+        end
+        
+        net.start( "LKL_Hitmarkers_Hit" )
+        net.writeEntity( ply )
+        net.writeVector( pos )
+        net.writeFloat( damage )
+        net.writeBool( headShot )
+        net.send( attacker )
+        
+        attacker.hitmarkerPoints[ply] = nil
+    end )
+    
+    hook.add( "PlayerDeath", "LKL_Hitmarkers_PlayerDeath", function( ply )
+        if not connectedPlys[ply] then return end
+        
+        net.start( "LKL_Hitmarkers_Die" )
+        net.send( ply )
+    end )
+    
+    hook.add( "PlayerDeath", "LKL_Hitmarkers_PlayerKill", function( ply, _, attacker )
+        if not connectedPlys[attacker] then return end
+        
+        net.start( "LKL_Hitmarkers_Kill" )
+        net.writeEntity( ply )
+        net.send( attacker )
+    end )
+    
+    hook.add( "PlayerSpawn", "LKL_Hitmarkers_PlayerSpawn", function( ply )
+        if not connectedPlys[ply] then return end
+        
+        net.start( "LKL_Hitmarkers_Spawn" )
+        net.send( ply )
+    end )
+else
+    local streakLength = 5
+    local fadeTime = 3
+    local fadeTimeMini = 2.5
+    local miniHitVelMin = 1.5
+    local miniHitVelMax = 3
+    local miniHitIntertia = 0.93
+    local miniHitGravity = 0.03
+    local updateInterval = 0.01
+    local roundDecimals = 1
+    
+    local doSounds = true
+    
+    local soundTbl = {
+        Hit = {
+            Path = "sound/buttons/lightswitch2.wav",
+            Bass = false,
+            Pitch = function() return math.rand( 0.9, 1.1 ) end,
+            Volume = 1.5,
+        },
+        Headshot = {
+            Path = "sound/buttons/button16.wav",
+            Bass = false,
+            Pitch = function() return math.rand( 0.95, 1.1 ) end,
+            Volume = 1,
+        },
+        Kill = {
+            Path = "sound/buttons/combine_button1.wav",
+            Bass = false,
+            Pitch = 1,
+            Volume = 1.5,
+        },
+        Template = {
+            Path = "",
+            Bass = false,
+            Pitch = 1,
+            Volume = 1.5,
+        },
+    }
+    
+    local infoFontSize = 25
+    local infoColorBase = Color( 255, 255, 255, 255 )
+    local infoColorHighlight = Color( 255, 255, 0, 255 )
+    local infoColorPositive = Color( 150, 255, 150, 255 )
+    local infoColorPositiveHighlight = Color( 0, 255, 0, 255 )
+    local infoColorNegative = Color( 255, 150, 150, 255 )
+    local infoColorNegativeHighlight = Color( 255, 0, 0, 255 )
+    
+    local markerColor = Color( 255, 0, 0, 255 )
+    local markerColorMini = Color( 255, 100, 0, 255 )
+    --local markerFontSize = 5000
+    local markerFontSize = 30
+    local markerFontSizeMini = 30
+    --local markerFontData = { 400, true, false, false, false, false, false }
+    --local markerFontDataMini = { 400, true, false, false, false, false, false }
+    
+    -----------------------------------------------------------------------------
+    
+    local streaking = false
+    local fullTotal = 0
+    local fullDPS = 0
+    local lifeTotal = 0
+    local lifeDPS = 0
+    local streakTotal = 0
+    local streakDPS = 0
+    local hitCountMini = 0
+    local fullTimeStart
+    local lifeTimeStart
+    local streakTimeStart
+    local scrW
+    local scrH
+    local hitSound
+    local hitScores = {}
+    local hitFonts = {}
+    local hitColors = {}
+    local hitTimes = {}
+    local hitPoints = {}
+    local hitPointsMini = {}
+    local infoTextLengths = {}
+    local infoTextValues = {}
+    
+    local infoTexts = {
+        "Total damage: ",
+        "Total DPS: ",
+        "Lifetime damage: ",
+        "Lifetime DPS: ",
+        "Streak damage: ",
+        "Streak DPS: ",
+    }
+    
+    for i, text in ipairs( infoTexts ) do
+        infoTextLengths[i] = text:len() * infoFontSize / 2
+    end
+    
+    local permissions = {
+        "render.hud",
+        "bass.loadFile",
+        "bass.play2D",
+    }
+    
+    setupPermissionRequest( permissions, "See how much damage you're doing", true )
+    local permissionSatisfied
+    
+    local infoFont = render.createFont( "Roboto Mono", infoFontSize, 400, true, false, false, false, false, false )
+    local markerFont = render.createFont( "Roboto Mono", markerFontSize, 500, true, false, false, false, false, false )
+    local markerFontMini = render.createFont( "Roboto Mono", markerFontSizeMini, 500, true, false, false, false, false, false )
+    
+    local function doSound( soundType )
+        local snd = soundTbl[soundType]
+        
+        if not snd then return end
+        
+        local path = snd.Path
+        local bassObj = snd.Bass
+        
+        if not bassObj then
+            if not permissionSatisfied then return end
+            
+            bass.loadFile( path, "mono", function( s )
+                bassObj = s
+                snd.Bass = bassObj
+            end )
+            
+            if not bassObj then return end
+        end
+        
+        local pitch = snd.Pitch
+        local volume = snd.Volume
+        
+        if type( pitch ) == "function" then
+            pitch = pitch()
+        end
+        
+        if type( volume ) == "function" then
+            volume = volume()
+        end
+        
+        bassObj:setPitch( pitch )
+        bassObj:setVolume( volume )
+        
+        bassObj:play()
+    end
+    
+    local function updateInfoValues()
+        infoTextValues = {
+            fullTotal,
+            fullDPS,
+            lifeTotal,
+            lifeDPS,
+            streakTotal,
+            streakDPS,
+        }
+    end
+    
+    local function clearStreak()
+        streakTotal = 0
+        streakDPS = 0
+        streakTimeStart = nil
+        
+        for ply, score in pairs( hitScores ) do
+            hitScores[ply] = nil
+            hitColors[ply] = nil
+            hitTimes[ply] = nil
+            hitPoints[ply] = nil
+        end
+        
+        updateInfoValues()
+    end
+    
+    local function clearLife()
+        lifeTotal = 0
+        lifeDPS = 0
+        lifeTimeStart = nil
+        
+        updateInfoValues()
+    end
+    
+    local function checkPermissions()
+        local isSatisfied = true
+        
+        for i, permission in pairs( permissions ) do
+            if not hasPermission( permission ) then
+                isSatisfied = false
+                
+                break
+            end
+        end
+        
+        permissionSatisfied = isSatisfied
+    end
+    
+    checkPermissions()
+    
+    local function HUDChange( state )
+        checkPermissions()
+        
+        if permissionSatisfied then
+            net.start( "LKL_Hitmarkers_HUDChange" )
+            net.writeBool( state )
+            net.send()
+        elseif state then
+            sendPermissionRequest()
+        end
+    end
+    
+    hook.add( "hudconnected", "LKL_Hitmarkers_HUDConnect", function()
+        HUDChange( true )
+    end )
+    
+    hook.add( "huddisconnected", "LKL_Hitmarkers_HUDConnect", function()
+        HUDChange( false )
+    end )
+    
+    hook.add( "permissionrequest", "LKL_Hitmarkers_PermissionRequest", function()
+        checkPermissions()
+        
+        if not permissionSatisfied then
+            enableHud( player(), false )
+        end
+    end )
+    
+    hook.add( "drawhud", "LKL_HitMarkers_DrawHud", function()
+        if not permissionSatisfied then return end
+        
+        if not scrW then
+            scrW, scrH = render.getGameResolution()
+        end
+        
+        render.setFont( infoFont )
+        render.setColor( infoColorBase )
+        
+        for i, text in ipairs( infoTexts ) do
+            if i == 5 then
+                render.setColor( ( streaking and infoColorPositive ) or infoColorNegative )
+            end
+            
+            render.drawSimpleText( 0, ( i - 1 ) * infoFontSize, text, -1, 3 )
+        end
+        
+        render.setColor( infoColorHighlight )
+        
+        for i, length in ipairs( infoTextLengths ) do
+            if i == 5 then
+                render.setColor( ( streaking and infoColorPositiveHighlight ) or infoColorNegativeHighlight )
+            end
+            
+            render.drawSimpleText( length, ( i - 1 ) * infoFontSize, tostring( infoTextValues[i] ), -1, 3 )
+        end
+        
+        render.setFont( markerFontMini )
+        
+        for i = 1, hitCountMini do
+            local hitMini = hitPointsMini[i]
+            local screenPos = hitMini.Pos:toScreen()
+            local xPos = screenPos.x
+            local yPos = screenPos.y
+            
+            render.setColor( hitMini.Color )
+            render.drawSimpleText( xPos, yPos, hitMini.Text, 1, 1 )
+        end
+        
+        render.setFont( markerFont )
+        
+        for ply, score in pairs( hitScores ) do
+            local screenPos = hitPoints[ply]:toScreen()
+            local xPos = screenPos.x
+            local yPos = screenPos.y
+            
+            render.setColor( hitColors[ply] )
+            --render.setFont( hitFonts[ply] )
+            render.drawSimpleText( xPos, yPos, tostring( score ), 1, 1 )
+        end
+    end )
+    
+    if render.isHUDActive() then
+        HUDChange( true )
+    end
+    
+    net.receive( "LKL_Hitmarkers_ForceDisconnect", function()
+        enableHud( player(), false )
+    end )
+    
+    net.receive( "LKL_Hitmarkers_Hit", function()
+        local ply = net.readEntity()
+        local pos = net.readVector()
+        local dmg = math.round( net.readFloat(), roundDecimals )
+        local headShot = net.readBool()
+        
+        if not streaking then
+            clearStreak()
+            
+            streaking = true
+        end
+        
+        hitScores[ply] = ( hitScores[ply] or 0 ) + dmg
+        hitColors[ply] = markerColor:clone()
+        hitTimes[ply] = timer.realtime()
+        hitPoints[ply] = pos
+        
+        fullTotal = fullTotal + dmg
+        lifeTotal = lifeTotal + dmg
+        streakTotal = streakTotal + dmg
+        
+        fullTimeStart = fullTimeStart or timer.realtime()
+        lifeTimeStart = lifeTimeStart or timer.realtime()
+        streakTimeStart = streakTimeStart or timer.realtime()
+        
+        local hitVelMini = Vector( math.rand( -1, 1 ), math.rand( -1, 1 ), math.rand( -1, 1 ) )
+        hitVelMini:normalize()
+        
+        hitCountMini = hitCountMini + 1
+        hitPointsMini[hitCountMini] = {
+            Pos = pos,
+            Text = headShot and ">" .. dmg .. "<" or dmg .. "",
+            Vel = hitVelMini * math.rand( miniHitVelMin, miniHitVelMax ),
+            Color = markerColorMini:clone(),
+            Time = timer.realtime(),
+        }
+        
+        updateInfoValues()
+        
+        if doSounds and permissionSatisfied then
+            doSound( headShot and "Headshot" or "Hit" )
+        end
+        
+        timer.remove( "LKL_Hitmarkers_StreakTimeout" )
+        timer.create( "LKL_Hitmarkers_StreakTimeout", streakLength, 1, function()
+            streaking = false
+        end )
+    end )
+    
+    net.receive( "LKL_Hitmarkers_Die", function()
+        clearLife()
+        
+        streaking = false
+        
+        timer.remove( "LKL_Hitmarkers_StreakTimeout" )
+    end )
+    
+    net.receive( "LKL_Hitmarkers_Spawn", function()
+        lifeTimeStart = timer.realtime()
+    end )
+    
+    net.receive( "LKL_Hitmarkers_ToggleSounds", function()
+        doSounds = not doSounds
+    end )
+    
+    net.receive( "LKL_Hitmarkers_Kill", function()
+        local ply = net.readEntity()
+        
+        if doSounds and permissionSatisfied then
+            doSound( "Kill" )
+        end
+    end )
+    
+    timer.create( "LKL_Hitmarkers_UpdatePoints", updateInterval, 0, function()
+        if not permissionSatisfied or not render.isHUDActive() then return end
+        
+        local curTime = timer.realtime()
+        
+        for ply, time in pairs( hitTimes ) do
+            local alpha = 255 * ( 1 - ( curTime - time ) / fadeTime )
+            
+            if alpha < 0 then
+                --[[
+                local oldFont = hitFonts[ply]
+                
+                if oldFont then
+                    oldFont:remove()
+                end
+                --]]
+                
+                hitScores[ply] = nil
+                hitColors[ply] = nil
+                hitTimes[ply] = nil
+                hitPoints[ply] = nil
+                --hitFonts[ply] = nil
+            else
+                --[[
+                local oldFont = hitFonts[ply]
+                
+                if oldFont then
+                    oldFont:remove()
+                end
+                --]]
+                
+                hitColors[ply]:setA( alpha )
+                --hitFonts[ply] = render.createFont( markerFont, markerFontSize / math.max( eyePos():getDistance( hitPoints[ply] ), 1 ), unpack( markerFontData ) )
+            end
+        end
+        
+        for i = hitCountMini, 1, -1 do
+            local hitMini = hitPointsMini[i]
+            local alpha = 255 * ( 1 - ( curTime - hitMini.Time ) / fadeTimeMini )
+            
+            if alpha < 0 then
+                table.remove( hitPointsMini, i )
+                hitCountMini = hitCountMini - 1
+            else
+                hitMini.Color:setA( alpha )
+                hitMini.Pos = hitMini.Pos + hitMini.Vel
+                hitMini.Vel = hitMini.Vel * miniHitIntertia + Vector( 0, 0, - miniHitGravity )
+            end
+        end
+        
+        if fullTimeStart then
+            local timeDiff = curTime - fullTimeStart
+            
+            if timeDiff > 0 then
+                fullDPS = math.round( fullTotal / timeDiff, roundDecimals )
+            end
+        end
+        
+        if lifeTimeStart then
+            local timeDiff = curTime - lifeTimeStart
+            
+            if timeDiff > 0 then
+                lifeDPS = math.round( lifeTotal / timeDiff, roundDecimals )
+            end
+        end
+        
+        if streaking and streakTimeStart then
+            local timeDiff = curTime - streakTimeStart
+            
+            if timeDiff > 0 then
+                streakDPS = math.round( streakTotal / timeDiff, roundDecimals )
+            end
+        end
+        
+        updateInfoValues()
+    end )
+end

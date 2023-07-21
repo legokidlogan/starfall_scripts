@@ -1,0 +1,96 @@
+--@name chat_cmds Tester
+--@author legokidlogan
+--@shared
+--@include lkl/chat_cmds.txt
+
+
+ccmdPrefix = "/ct"
+ccmdPrintCommandEnabledByDefault = true
+ccmdUsePCall = true
+
+projectNameID = "CmdTest"
+
+require( "lkl/chat_cmds.txt" )
+
+
+if SERVER then
+    ccmdSetTargets( owner(), false )
+
+
+
+
+
+    ccmdCreateCommand(
+        "err",
+        function( _, ply, _, errorType )
+            if errorType == "1" then
+                error( "This is a runtime error" )
+            end
+
+            return "No error"
+        end,
+        function( _, ply, _, errorType )
+            if errorType == "2" then
+                return "This is a fail reason", 1
+            end
+        end,
+        { -- argInfo
+            ReqCount = 1,
+            OptCount = 0,
+            {
+                Name = "errorType",
+                Description = "The type of error to throw",
+            },
+        },
+        { -- helpInfo
+            "This is a basic line.",
+            {
+                c_white, "This uses ",
+                c_yellow, "global colors ",
+                "::c_code_string", "string colors, ",
+                Color( 255, 123, 0 ), "and local colors.",
+            },
+        },
+        nil,
+        nil
+    )
+
+
+    ccmdCreateCommand(
+        "ctest",
+        function( _, ply, _ )
+            return {
+                c_white, "This uses ",
+                c_yellow, "global colors, ",
+                "::c_code_string", "string colors, ",
+                "::c(127,255,0,255)", "custom string colors, ",
+                Color( 255, 123, 0 ), "local colors, ",
+                "Attention", "and color scheme types.",
+            }
+        end,
+        function( _, ply, _ )
+            return
+        end,
+        { -- argInfo
+            ReqCount = 0,
+            OptCount = 0,
+        },
+        { -- helpInfo
+            "This is a basic line.",
+            {
+                c_white, "This uses ",
+                c_yellow, "global colors, ",
+                "::c_code_string", "string colors, ",
+                "::c(127,255,0,255)", "custom string colors, ",
+                Color( 255, 123, 0 ), "local colors, ",
+                "Attention", "and color scheme types.",
+            },
+        },
+        nil,
+        nil
+    )
+
+end
+
+
+

@@ -1,0 +1,599 @@
+--@name Queue
+--@author
+--@shared
+--@include lkl/middleclass_extras.txt
+--@include lkl/table_clone_deep.txt
+
+if Queue then return end
+
+require( "lkl/middleclass_extras.txt" )
+require( "lkl/table_clone_deep.txt" )
+
+
+Queue = class( "Queue" )
+
+
+local allQueues = {}
+
+local tableInsert = table.insert
+local tableRemove = table.remove
+local tableRemoveByValue = table.removeByValue
+local tableAdd = table.add
+
+
+local function perf( frac )
+    return quotaAverage() < quotaMax() * frac
+end
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    - Creates a Queue to safely process lots of things in batches over time.
+    - When a Queue finishes processing all of its entries, it will call the onComplete function if one was provided, and then :stop() itself.
+    - If the Queue is stopped before it finishes processing all of its entries, it will not call the onComplete function.
+    - When a Queue is created, it is initially stopped, and must be started with :start() before it will process entries.
+
+    entryFunc: (function)
+        - The function to call when an entry is being processed.
+        - Has the form function( queue, entry )  return shouldpause  end
+            - queue: (Queue)
+                - The queue the entry is being processed in. Can be used for queue:stop(), etc.
+            - entry: (any)
+                - The entry being processed.
+            - shouldpause: (nil or boolean or number)
+                - If nil, the queue will continue processing entries.
+                - If true, the batch of entries will stop being processed until the next interval, and the current entry will REMAIN in the queue.
+                - If false, the batch of entries will stop being processed until the next interval, and the current entry will be REMOVED from the queue.
+                - If a number, the queue will pause for that many seconds, and the current entry will REMAIN in the queue.
+    onComplete: (optional) (function)
+        - The function to call when the queue is finished processing all entries.
+        - The queue will be stopped before this is called.
+        - Has the form function( queue ) return end
+            - queue: (Queue)
+                - The queue that has finished processing its entries.
+    entries: (optional) (table)
+        - The initial entries for the queue.
+        - If provided, must be numerically indexed.
+        - Each entry will be processed in order, and can be of any type.
+    interval: (optional) (number)
+        - The time in seconds between each batch of entries to process.
+        - If not provided, defaults to 0.1
+    batchSize: (optional) (number)
+        - The number of entries to process at once.
+        - A value of 0 will try to process all remaining entries in one go.
+        - If not provided, defaults to 0.
+    perfLimit: (optional) (number)
+        - The fraction of the CPU limit to use before breaking out of the batch early.
+        - If not provided, defaults to 0.9
+    name: (optional) (string)
+        - Gives a name to the Queue for easy identification.
+        - Only changes results of tostring() and :getName().
+        - Names don't have to be unique.
+--]]
+function Queue:initialize( entryFunc, onComplete, entries, interval, batchSize, perfLimit, name )
+    self:setEntryFunction( entryFunc )
+    self:setOnComplete( onComplete )
+    self:setEntries( entries )
+    self:setInterval( interval )
+    self:setBatchSize( batchSize )
+    self:setPerfLimit( perfLimit )
+    self:setName( name )
+    self._running = false
+
+    tableInsert( allQueues, self )
+end
+
+-- Returns a list of all valid queues.
+function Queue.static:getAllQueues()
+    local out = {}
+
+    for i, queue in ipairs( allQueues ) do
+        out[i] = queue
+    end
+
+    return out
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Queue:destroy()
+    if not isValid( self ) then
+        error( "This Queue is already destroyed." )
+    end
+
+    self._entryFunction = nil
+    self._onComplete = nil
+    self._entries = nil
+    self._interval = nil
+    self._batchSize = nil
+    self._perfLimit = nil
+    self._name = nil
+    self._running = false
+
+    tableRemoveByValue( allQueues, self )
+
+    function self:isValid()
+        return false
+    end
+end
+
+function Queue:isValid()
+    return true
+end
+
+function Queue:setEntryFunction( entryFunc )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if type( entryFunc ) ~= "function" then
+        error( "entryFunc must be a function." )
+    end
+
+    self._entryFunction = entryFunc
+end
+
+function Queue:getEntryFunction()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    return self._entryFunction
+end
+
+function Queue:setOnComplete( onComplete )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if onComplete == nil then
+        self._onComplete = nil
+
+        return
+    end
+
+    if type( onComplete ) ~= "function" then
+        error( "onComplete must be nil or a function." )
+    end
+
+    self._onComplete = onComplete
+end
+
+-- Note that this will return nil if no OnComplete function has been set.
+function Queue:getOnComplete()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    return self._onComplete
+end
+
+-- If nil, then entries will be emptied.
+-- If a table, entries will be set to a deep clone of it. The table must be numerically indexed.
+function Queue:setEntries( entries )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if entries == nil then
+        self._entries = {}
+
+        return
+    end
+
+    if type( entries ) ~= "table" then
+        error( "entries must be nil or a table." )
+    end
+
+    self._entries = table.cloneDeep( entries )
+end
+
+-- Returns the exact entries table. Modifying it will modify the queue.
+function Queue:getEntries()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    return self._entries
+end
+
+-- Because __len and thus custom # is broken in Lua 5.1
+function Queue:getLength()
+    return self:__len()
+end
+
+function Queue:len()
+    return self:__len()
+end
+
+function Queue:setInterval( interval )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if interval == nil then
+        self._interval = 0.1
+
+        return
+    end
+
+    if type( interval ) ~= "number" then
+        error( "interval must be nil or a number." )
+    end
+
+    if interval < 0 then
+        error( "interval must be greater than or equal to 0." )
+    end
+
+    self._interval = interval
+end
+
+function Queue:getInterval()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    return self._interval
+end
+
+function Queue:setBatchSize( batchSize )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if batchSize == nil then
+        self._batchSize = 0
+
+        return
+    end
+
+    if type( batchSize ) ~= "number" then
+        error( "batchSize must be nil or a number." )
+    end
+
+    if batchSize < 0 then
+        error( "batchSize must be greater than or equal to 0." )
+    end
+
+    self._batchSize = batchSize
+end
+
+function Queue:getBatchSize()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    return self._batchSize
+end
+
+function Queue:setPerfLimit( perfLimit )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if perfLimit == nil then
+        self._perfLimit = 0.9
+
+        return
+    end
+
+    if type( perfLimit ) ~= "number" then
+        error( "perfLimit must be nil or a number." )
+    end
+
+    if perfLimit < 0 or perfLimit > 1 then
+        error( "perfLimit must be between 0 and 1." )
+    end
+
+    self._perfLimit = perfLimit
+end
+
+function Queue:getPerfLimit()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    return self._perfLimit
+end
+
+function Queue:setName( name )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if name == nil then
+        self._name = nil
+
+        return
+    end
+
+    if type( name ) ~= "string" then
+        error( "name must be nil or a string." )
+    end
+
+    self._name = name
+end
+
+-- Note that this may return nil if the name is not set.
+function Queue:getName()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    return self._name
+end
+
+function Queue:start()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    self._running = true
+    self._nextBatchTime = timer.realtime()
+end
+
+function Queue:stop()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    self._running = false
+end
+
+-- Sets the next batch proccess time to the current time + duration.
+-- Does effectively nothing if the Queue is already stopped.
+function Queue:pause( duration )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if type( duration ) ~= "number" then
+        error( "duration must be a number." )
+    end
+
+    if duration < 0 then
+        error( "duration must be greater than or equal to 0." )
+    end
+
+    self._nextBatchTime = timer.realtime() + duration
+end
+
+function Queue:isRunning()
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    return self._running
+end
+
+--[[
+    - Add an entry to the Queue.
+
+    entry: (any)
+        - The entry to add to the Queue.
+    index: (optional) (number)
+        - The index to add the entry at.
+        - Defaults to the end of the Queue (queue:len() + 1).
+--]]
+function Queue:addEntry( entry, index )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if entry == nil then
+        error( "entry cannot be nil." )
+    end
+
+    if index then
+        tableInsert( self._entries, index, entry )
+    else
+        tableInsert( self._entries, entry )
+    end
+end
+
+-- Adds an entry to the Queue and starts the Queue if it is not already running.
+function Queue:addEntryAndStart( entry, index )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    self:addEntry( entry, index )
+
+    if not self:isRunning() then
+        self:start()
+    end
+end
+
+-- Adds multiple entries to the Queue.
+-- entries must be a sequential table.
+function Queue:addEntries( entries, startIndex )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if type( entries ) ~= "table" then
+        error( "entries must be a table." )
+    end
+
+    if startIndex then
+        for i = #entries, 1, -1 do
+            tableInsert( self._entries, startIndex, entries[i] )
+        end
+    else
+        tableAdd( self._entries, entries )
+    end
+end
+
+-- Adds multiple entries to the Queue and starts the Queue if it is not already running.
+function Queue:addEntriesAndStart( entries, startIndex )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    self:addEntries( entries, startIndex )
+
+    if not self:isRunning() then
+        self:start()
+    end
+end
+
+--[[
+    - Removes an entry from the Queue.
+
+    index: (number or nil)
+        - The index to remove.
+        - Defaults to the first entry (1).
+--]]
+function Queue:removeEntry( index )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    index = index or 1
+
+    if type( index ) ~= "number" then
+        error( "index must be a number." )
+    end
+
+    tableRemove( self._entries, index )
+end
+
+--[[
+    - Removes the first entry in the Queue that matches the specified value.
+
+    val: (any)
+        - The value to search for and remove.
+--]]
+function Queue:removeEntryByValue( val )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    if val == nil then
+        error( "val cannot be nil." )
+    end
+
+    tableRemoveByValue( self._entries, val )
+end
+
+--[[
+    - Moves an entry to the end of the Queue.
+
+    index: (number or nil)
+        - The index of the entry to move.
+        - Defaults to the first entry (1).
+--]]
+function Queue:moveEntryToEnd( index )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    index = index or 1
+
+    if type( index ) ~= "number" then
+        error( "index must be a number." )
+    end
+
+    local entries = self._entries
+    local entry = entries[index]
+
+    if entry == nil then
+        error( "No entry at index " .. index )
+    end
+
+    tableRemove( entries, index )
+    tableInsert( entries, entry )
+end
+
+--[[
+    - Force a batch to be processed, ignoring the interval and overriding the batch size, if provided.
+    - Will run even if the Queue is stopped or paused.
+    - Will set the next batch time automatically, so be careful about calling this while the batch is paused.
+--]]
+function Queue:processBatch( batchSize )
+    if not isValid( self ) then
+        error( "Invalid Queue" )
+    end
+
+    batchSize = batchSize or self:getBatchSize()
+    batchSize = batchSize == 0 and math.huge or batchSize
+    local now = timer.realtime()
+    local perfLimit = self:getPerfLimit()
+
+    self._nextBatchTime = now + self:getInterval()
+
+    for _ = 1, batchSize do
+        if not perf( perfLimit ) then return end
+
+        local entry = self:getEntries()[1] -- Don't localize for in case :setEntries() or :Destroy() are called.
+
+        if entry == nil then
+            self:stop()
+
+            if self._onComplete then
+                self:_onComplete()
+            end
+
+            return
+        end
+
+        local shouldpause = self:_entryFunction( entry )
+
+        if shouldpause == nil then
+            tableRemove( self._entries, 1 )
+        elseif shouldpause == true then
+            return
+        elseif shouldpause == false then
+            tableRemove( self._entries, 1 )
+            return
+        elseif type( shouldpause ) == "number" then
+            self:pause( shouldpause )
+            return
+        else
+            error( "EntryFunction must return nil, true, false, or a number." )
+        end
+    end
+end
+
+function Queue:__concat( other )
+    return tostring( self ) .. tostring( other )
+end
+
+function Queue:__len( x ) -- Get the number of entries left in the Queue
+    return #x:getEntries()
+end
+
+function Queue:__tostring()
+    local address = table.address( self )
+    local name = ( self.getName and self:getName() ) or self.name or self.Name
+    local customType = self.class.name or self.__type
+
+    if not isValid( self ) then
+        customType = customType .. " (INVALID)"
+    end
+
+    if type( name ) == "string" then
+        return customType .. " [" .. name .. "][" .. address .. "]"
+    end
+
+    return customType .. " [" .. address .. "]"
+end
+
+
+hook.add( "think", "LKL_QueueCreator_ProcessQueues", function()
+    local now = timer.realtime()
+
+    for i = 1, #allQueues do
+        local queue = allQueues[i]
+
+        if queue:isRunning() then
+            local nextBatchTime = queue._nextBatchTime or 0
+
+            if now >= nextBatchTime then
+                queue:processBatch()
+            end
+        end
+    end
+end )

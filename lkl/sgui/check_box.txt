@@ -1,0 +1,139 @@
+--@name Check Box
+--@author legokidlogan
+--@client
+--@include lkl/sgui/toggle_button.txt
+
+--[[
+    - SGUI.CheckBox
+    - Blah
+--]]
+
+
+require( "lkl/sgui/toggle_button.txt" )
+
+if SGUI.CheckBox then return end -- Don't run twice
+
+
+SGUI.CheckBox = class( "CheckBox", SGUI.ToggleButton )
+
+
+local CheckBox = SGUI.CheckBox
+local checkmarkPoly
+
+local mathMin = math.min
+
+
+----- STATIC FUNCTIONS -----
+
+function CheckBox:initialize( parent, initialState )
+    CheckBox.super.initialize( self, parent, initialState )
+
+    self:setWidth( 30 )
+    self:setBackgroundRadius( 0 )
+    self:setBorderSize( 2 )
+    self:setText( "" )
+
+    function self:setText()
+        error( "This function does not exist" )
+    end
+
+    function self:setEnabledTextColor()
+        error( "This function does not exist" )
+    end
+
+    function self:getEnabledTextColor()
+        error( "This function does not exist" )
+    end
+
+    function self:setDisabledTextColor()
+        error( "This function does not exist" )
+    end
+
+    function self:getDisabledTextColor()
+        error( "This function does not exist" )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function CheckBox:setEnabledCheckmarkColor( color )
+    self:setColor( self.class.name .. "Checkmark", color )
+end
+
+function CheckBox:getEnabledCheckmarkColor( fallbackColor, ... )
+    return self:getClassColor( "Checkmark", fallbackColor, ... )
+end
+
+function CheckBox:setDisabledCheckmarkColor( color )
+    self:setColor( self.class.name .. "DisabledCheckmark", color )
+end
+
+function CheckBox:getDisabledCheckmarkColor( fallbackColor, ... )
+    return self:getClassColor( "DisabledCheckmark", fallbackColor, ... )
+end
+
+function CheckBox:getCheckmarkColor( fallbackColor, ... )
+    if self:isEnabled() then return self:getEnabledCheckmarkColor( fallbackColor, ... ) end
+
+    return self:getDisabledCheckmarkColor( fallbackColor, ... )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function CheckBox:handleDraw()
+    if not self:getState() then return end
+
+    render.setColor( self:getCheckmarkColor() )
+    self:drawPoly( checkmarkPoly )
+end
+
+function CheckBox:setEnabled( state )
+    self._enabled = state
+    SGUI.Panel.acceptMouseInput( self, state )
+end
+
+function CheckBox:setWidth( width )
+    CheckBox.super.setWidth( self, width )
+    CheckBox.super.setHeight( self, width )
+end
+
+function CheckBox:setHeight( height )
+    CheckBox.super.setWidth( self, height )
+    CheckBox.super.setHeight( self, height )
+end
+
+function CheckBox:setSize( width, height )
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+
+    local size = mathMin( width, height )
+    CheckBox.super.setSize( self, size, size )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+checkmarkPoly = {
+    { x = 42 / 100, y = 70 / 100 },
+    { x = 76 / 100, y = 10 / 100 },
+    { x = 83 / 100, y = 5 / 100 },
+    { x = 93 / 100, y = 11 / 100 },
+    { x = 93 / 100, y = 19 / 100 },
+    { x = 59 / 100, y = 79 / 100 },
+    { x = 51 / 100, y = 92 / 100 },
+    { x = 41 / 100, y = 93 / 100 },
+    { x = 8 / 100, y = 71 / 100 },
+    { x = 7 / 100, y = 64 / 100 },
+    { x = 12 / 100, y = 57 / 100 },
+    { x = 21 / 100, y = 57 / 100 },
+}

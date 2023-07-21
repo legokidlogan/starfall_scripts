@@ -1,0 +1,732 @@
+--@name Advanced Entity Marker
+--@author legokidlogan
+--@shared
+
+if SERVER then
+    -- CONFIG 1 OF 2
+    local maxArrays = 6
+    local maxCount = 40
+    -- END CONFIG
+
+    local wireSetupI = 1
+    local wireSetupI2 = 1
+    local wireSetupFirstPass = true
+    local ready = false
+    local pauseCountUpdate = false
+    local pauseWireInput = true
+    local shiftingArray = false
+    local chip = chip()
+    local inputNames = {}
+    local inputTypes = {}
+    local outputNames = {}
+    local outputTypes = {}
+    local arrays = {}
+    local arrayCounts = {}
+    local arrayNames
+
+    timer.simple( 1, function()
+        arrayNames = getUserdata()
+
+        if not arrayNames or arrayNames == "" then
+            arrayNames = "Unnamed Array"
+
+            for i = 1, maxArrays - 1 do
+                arrayNames = arrayNames .. "|||Unnamed Array"
+            end
+        else
+            local arrayNamesTbl = string.explode( "|||", arrayNames )
+            local arrayNamesCount = #arrayNamesTbl
+
+            if arrayNamesCount ~= maxArrays then
+                arrayNames = ""
+
+                for i = 1, maxArrays do
+                    arrayNames = arrayNames .. ( rawget( arrayNamesTbl, i ) or "Unnamed Array" ) .. "|||"
+                end
+
+                arrayNames = arrayNames:sub( 1, string.len( arrayNames ) - 3 )
+            end
+        end
+
+        net.start( "LKL_AEM_DefineArrayNames" )
+        net.writeTable( string.explode( "|||", arrayNames ) )
+        net.send( owner() )
+
+        setUserdata( arrayNames )
+    end )
+
+    local function yieldCheck( n )
+        if quotaAverage() < quotaMax() * n then return end
+
+        coroutine.yield()
+    end
+
+    local function updateArrayCounts()
+        if not ready or pauseCountUpdate then return end
+
+        net.start( "LKL_AEM_DefineArrayCounts" )
+        net.writeTable( arrayCounts )
+        net.send( owner() )
+    end
+
+    local function shiftArrayDown( arrayInd, removedInd )
+        pauseCountUpdate = true
+        --shiftingArray = true
+        pauseWireInput = true
+
+        local inputNameBase = "R" .. arrayInd .. "E"
+        local array = rawget( arrays, arrayInd )
+        local arrayCount = rawget( arrayCounts, arrayInd ) or table.count( array )
+
+        for i = removedInd + 1, arrayCount do
+            local ent = rawget( array, i )
+
+            if isValid( ent ) then
+            wire.create( chip, ent, inputNameBase .. ( i - 1 ), "entity" )
+            end
+        end
+
+        if chip:getWirelink():isWired( inputNameBase .. arrayCount ) then
+            wire.delete( chip, inputNameBase .. arrayCount )
+        end
+
+        table.remove( array, removedInd )
+
+        pauseCountUpdate = false
+        --shiftingArray = false
+        pauseWireInput = false
+        updateArrayCounts()
+    end
+
+    local setupWires = coroutine.create( function()
+        for i = wireSetupI, maxArrays do
+            yieldCheck( 0.7 )
+
+            rawset( outputNames, i, "R" .. i )
+            rawset( outputTypes, i, "ARRAY" )
+            rawset( arrays, i, {} )
+
+            for i2 = wireSetupI2, maxCount do
+                yieldCheck( 0.7 )
+
+                local ind = ( i - 1 ) * maxCount + i2
+
+                rawset( inputNames, ind, "R" .. i .. "E" .. i2 )
+                rawset( inputTypes, ind, "ENTITY" )
+
+                wireSetupI2 = wireSetupI2 + 1
+            end
+
+            wireSetupI = wireSetupI + 1
+            wireSetupI2 = 1
+        end
+
+        return true
+    end )
+
+    local applyWires = coroutine.create( function()
+        for i = wireSetupI, maxArrays do
+            yieldCheck( 0.7 )
+
+            local array = rawget( arrays, i )
+
+            if not array then
+                array = {}
+
+                rawset( arrays, i, array )
+            end
+
+            for i2 = wireSetupI2, maxCount do
+                yieldCheck( 0.7 )
+
+                local ent = wire.ports["R" .. i .. "E" .. i2]
+
+                if isValid( ent ) then
+                    rawset( array, i2, ent )
+                end
+
+                wireSetupI2 = wireSetupI2 + 1
+            end
+
+            wire.ports["R" .. i] = array
+            rawset( arrayCounts, i, #array )
+            wireSetupI = wireSetupI + 1
+            wireSetupI2 = 1
+        end
+
+        return true
+    end )
+
+    timer.create( "LKL_AEM_SetupWires", 0.5, 0, function()
+        if wireSetupFirstPass or coroutine.status( setupWires ) == "suspended" then
+            wireSetupFirstPass = false
+
+            local finished = coroutine.resume( setupWires )
+
+            if finished then
+                wireSetupFirstPass = true
+                wireSetupI = 1
+                wireSetupI2 = 1
+
+                wire.adjustInputs( inputNames, inputTypes )
+                wire.adjustOutputs( outputNames, outputTypes )
+
+                timer.remove( "LKL_AEM_SetupWires" )
+
+                timer.create( "LKL_AEM_ApplyWires", 0.5, 0, function()
+                    if wireSetupFirstPass or coroutine.status( applyWires ) == "suspended" then
+                        wireSetupFirstPass = false
+
+                        local finished = coroutine.resume( applyWires )
+
+                        if finished then
+                            ready = true
+                            pauseWireInput = false
+
+                            timer.remove( "LKL_AEM_ApplyWires" )
+
+                            net.start( "LKL_AEM_DefineNumArrays" )
+                            net.writeInt( maxArrays, 10 )
+                            net.writeInt( maxCount, 10 )
+                            net.send( owner() )
+
+                            updateArrayCounts()
+                        end
+                    end
+                end )
+            end
+        end
+    end )
+
+    hook.add( "input", "LKL_AEM_InputChanged", function( name, value )
+        if pauseWireInput then return end
+
+        local nameSplit = string.explode( "E", string.sub( name, 2 ) )
+        local arrayInd = tonumber( nameSplit[1] )
+        local entInd = tonumber( nameSplit[2] )
+        local array = rawget( arrays, arrayInd )
+        local arrayCount = rawget( arrayCounts, arrayInd ) or 0
+
+        if not array then
+            array = {}
+
+            rawset( arrays, arrayInd, array )
+        end
+
+        local valid = isValid( value )
+
+        if valid then
+            if not isValid( rawget( array, entInd ) ) then
+                arrayCount = arrayCount + 1
+            end
+
+            table.insert( array, entInd, value )
+        else
+            if isValid( rawget( array, entInd ) ) then
+                shiftArrayDown( arrayInd, entInd )
+
+                arrayCount = arrayCount - 1
+            end
+
+            --table.remove( array, entInd )
+        end
+
+        --rawset( array, entInd, valid and value or nil )
+        rawset( arrayCounts, arrayInd, arrayCount )
+        wire.ports["R" .. arrayInd] = array
+
+        updateArrayCounts()
+    end )
+
+    hook.add( "EntityRemoved", "LKL_AEM_EntityRemoved", function( ent )
+        for i = 1, maxArrays do
+            local array = rawget( arrays, i ) or {}
+            local entInd = table.keyFromValue( array, ent )
+
+            if not entInd then continue end
+
+            local inputName = "R" .. i .. "E" .. entInd
+
+            if not chip:getWirelink():isWired( inputName ) then continue end
+
+            wire.delete( chip, inputName )
+        end
+    end )
+
+    hook.add( "PlayerSay", "LKL_AEM_PlayerSay", function( ply, msg )
+        if ply ~= owner() then return end
+
+        local LS = string.explode( " ", msg )
+
+        if LS[1] ~= "/aem" then return end
+
+        local arrayInd = LS[2]
+
+        if arrayInd then
+            local arrayInd = tonumber( arrayInd )
+
+            if not arrayInd or arrayInd == 0 or arrayInd > maxArrays then
+                print(
+                    Color( 255, 255, 255 ), "[AEM] ",
+                    Color( 255, 0, 0 ), "You must specify a valid array index to assign a name to!"
+                )
+
+                return ""
+            end
+
+            if LS[3] then
+                local name = msg:sub( string.len( LS[1] ) + string.len( LS[2] ) + 3 )
+
+                local arrayNamesTbl = string.explode( "|||", arrayNames )
+                rawset( arrayNamesTbl, arrayInd, name )
+
+                arrayNames = ""
+
+                for i = 1, maxArrays do
+                    arrayNames = arrayNames .. ( rawget( arrayNamesTbl, i ) or "" ) .. "|||"
+                end
+
+                setUserdata( arrayNames )
+
+                net.start( "LKL_AEM_DefineArrayNames" )
+                net.writeTable( arrayNamesTbl )
+                net.send( owner() )
+
+                print(
+                    Color( 255, 255, 255 ), "[AEM] Set the name of ",
+                    Color( 255, 255, 0 ), arrayInd,
+                    Color( 255, 255, 255 ), " to ",
+                    Color( 255, 255, 0 ), name,
+                    Color( 255, 255, 255 ), "!"
+                )
+            else
+                print(
+                    Color( 255, 255, 255 ), "[AEM] ",
+                    Color( 255, 0, 0 ), "You must specify a name to assign to the array!"
+                )
+            end
+        else
+            print(
+                Color( 255, 255, 255 ), "[AEM] ",
+                Color( 255, 0, 0 ), "You must specify an array index to assign a name to!"
+            )
+        end
+
+        return ""
+    end )
+
+    net.receive( "LKL_AEM_RemoveMarker", function( _, ply )
+        if ply ~= owner() then return end
+
+        local ent = net.readEntity()
+
+        if not isValid( ent ) then return end
+
+        ent:remove()
+    end )
+
+    net.receive( "LKL_AEM_WipeArray", function( _, ply )
+        if ply ~= owner() then return end
+
+        pauseCountUpdate = true
+
+        local arrayInd = net.readInt( 10 )
+
+        if rawget( arrayCounts, arrayInd ) == 0 then
+            pauseCountUpdate = false
+
+            return
+        end
+
+        local array = rawget( arrays, arrayInd )
+        local inputNameBase = "R" .. arrayInd .. "E"
+        local wl = chip:getWirelink()
+
+        for i = maxCount, 1, -1 do
+            local inputName = inputNameBase .. i
+
+            if wl:isWired( inputName ) then
+                wire.delete( chip, inputName )
+            end
+        end
+
+        pauseCountUpdate = false
+        rawset( arrays, arrayInd, {} )
+        wire.ports["R" .. arrayInd] = {}
+
+        updateArrayCounts()
+    end )
+
+    net.receive( "LKL_AEM_TryRemove", function( _, ply )
+        if ply ~= owner() then return end
+
+        local arrayInd = net.readInt( 10 )
+        local ent = net.readEntity()
+        local inputName
+
+        net.start( "LKL_AEM_ArrayChangeResult" )
+
+        if isValid( ent ) then
+            local array = rawget( arrays, arrayInd )
+            local entInd = table.keyFromValue( array, ent )
+
+            if entInd then
+                inputName = "R" .. arrayInd .. "E" .. entInd
+
+                if chip:getWirelink():isWired( inputName ) then
+                    net.writeBool( true )
+                else
+                    inputName = false
+
+                    net.writeBool( false )
+                end
+            else
+                net.writeBool( false )
+            end
+        else
+            net.writeBool( false )
+        end
+
+        net.writeBool( false )
+        net.writeEntity( ent )
+        net.send( owner() )
+
+        if inputName then
+            wire.delete( chip, inputName )
+        end
+    end )
+
+    net.receive( "LKL_AEM_TryAdd", function( _, ply )
+        if ply ~= owner() then return end
+
+        local arrayInd = net.readInt( 10 )
+        local arrayCount = rawget( arrayCounts, arrayInd ) + 1
+        local ent = net.readEntity()
+        local canAdd = false
+
+        net.start( "LKL_AEM_ArrayChangeResult" )
+
+        if arrayCount <= maxCount then
+            if isValid( ent ) and not table.hasValue( rawget( arrays, arrayInd ), ent ) then
+                canAdd = true
+
+                net.writeBool( true )
+            else
+                net.writeBool( false )
+            end
+        else
+            net.writeBool( false )
+        end
+
+        net.writeBool( true )
+        net.writeEntity( ent )
+        net.send( owner() )
+
+        if canAdd then
+            wire.create( chip, ent, "R" .. arrayInd .. "E" .. arrayCount, "entity" )
+        end
+    end )
+
+    net.receive( "LKL_AEM_RequestArrays", function()
+        net.start( "LKL_AEM_DefineArrays" )
+        net.writeTable( arrays )
+        net.send( owner() )
+    end )
+
+else
+    if player() ~= owner() then return end
+
+    -- CONFIG 2 OF 2
+    local fontSize = 20
+    local hudWidth = 0.2
+    local hudMargin = 0.03
+    local hudVertGap = 0.02
+    local toolTipWidth = 0.2
+    local hudBackgroundColor = Color( 39, 39, 64, 200 )
+    local textColor = Color( 255, 255, 255, 255 )
+    local textInfoColor = Color( 255, 200, 80, 255 )
+    local highlightColor = Color( 0, 255, 0, 150 )
+    local selectColor = Color( 0, 0, 255, 150 )
+    local lineColor = Color( 255, 255, 0, 255 )
+    -- END CONFIG
+
+    local owner = player()
+    local chip = chip()
+    local arrayInd = 1
+    local numArrays = 0
+    local arrayMaxSize = 0
+    local scrW = false
+    local scrH = false
+    local selecting = false
+    local multiSelect = false
+    local hasSelected = false
+    local toolGun = isValid( owner:getActiveWeapon() ) and owner:getActiveWeapon():getClass() == "gmod_tool" and owner:getActiveWeapon()
+    local arrayNames = {}
+    local arrayCounts = {}
+    local arrays = {}
+    local hudFont = render.createFont( "Roboto Mono", fontSize, 500, true, false, false, false, false, false)
+    local wheelUp = MOUSE.MWHEELUP
+    local wheelDown = MOUSE.MWHEELDOWN
+    local mouseLeft = MOUSE.LEFT
+    local mouseRight = MOUSE.RIGHT
+    local buttonR = KEY.R
+    local buttonShift = KEY.LSHIFT
+
+    render.createRenderTarget( "LKL_AEM_Blank" )
+    render.setChipOverlay( "LKL_AEM_Blank" )
+
+    hook.add( "drawhud", "LKL_AEM_DrawArrayList", function()
+        if selecting then
+            local toolTipXLeft = scrW - toolTipWidth
+            local toolTipYMiddle = scrH - hudVertGap / 2
+
+            render.setColor( hudBackgroundColor )
+            render.drawRect( toolTipXLeft, scrH - hudVertGap, toolTipWidth, hudVertGap )
+
+            render.setColor( textColor )
+            render.drawSimpleText( scrW - toolTipWidth / 2, toolTipYMiddle, rawget( arrayNames, arrayInd ) or "Unnamed Array", 1, 1 )
+
+            render.setColor( textInfoColor )
+            render.drawSimpleText( scrW, scrH - fontSize / 2, ( rawget( arrayCounts, arrayInd ) or 0 ) .. "/" .. arrayMaxSize, 2, 1 )
+            render.drawSimpleText( toolTipXLeft, toolTipYMiddle, arrayInd .. ".", 0, 1 )
+        end
+
+        if owner:getEyeTrace().Entity ~= chip then return end
+
+        render.selectRenderTarget( "LKL_AEM_Blank" )
+        render.clear( Color( 0, 0, 0, 0 ), true )
+        render.selectRenderTarget()
+
+        if not scrW then
+            scrW, scrH = render.getGameResolution()
+            hudWidth = hudWidth * scrW
+            hudMargin = hudMargin * scrW
+            hudVertGap = hudVertGap * scrH + fontSize
+            toolTipWidth = toolTipWidth * scrW
+        end
+
+        local noArrays = numArrays == 0
+        local hudYSize = noArrays and hudVertGap + hudMargin or hudVertGap * numArrays + hudMargin
+        local hudXLeft = ( scrW - hudWidth ) / 2
+        local hudXRight = ( scrW + hudWidth ) / 2
+        local hudXMiddle = scrW / 2
+        local hudYTop = ( scrH - hudYSize ) / 2
+
+        render.setColor( hudBackgroundColor )
+        render.setFont( hudFont )
+        render.drawRect( hudXLeft, hudYTop, hudWidth, hudYSize )
+
+        if noArrays then
+            render.setColor( textColor )
+            render.drawSimpleText( hudXMiddle, scrH / 2, "There are no arrays!", 1, 1 )
+
+            return
+        end
+
+        local textY = ( scrH - hudYSize + hudMargin + hudVertGap ) / 2
+
+        for i = 1, numArrays do
+            if i == arrayInd then
+                render.setColor( selecting and selectColor or highlightColor )
+                render.drawRect( hudXLeft, textY - hudVertGap / 2, hudWidth, hudVertGap )
+            end
+
+            render.setColor( textColor )
+            render.drawSimpleText( hudXMiddle, textY, rawget( arrayNames, i ) or "Unnamed Array", 1, 1 )
+            render.setColor( textInfoColor )
+            render.drawSimpleText( hudXRight, textY, ( rawget( arrayCounts, i ) or 0 ) .. "/" .. arrayMaxSize, 2, 2 )
+            render.drawSimpleText( hudXLeft, textY, i .. ".", 0, 1 )
+
+            textY = textY + hudVertGap
+        end
+
+        render.setColor( textColor )
+        render.drawSimpleText( hudXMiddle, hudYTop, "Advanced Entity Marker", 1, 0 )
+    end )
+
+    hook.add( "postdrawopaquerenderables", "LKL_AEM_DrawLines", function( _, skybox )
+        if skybox or not selecting then return end
+
+        local array = rawget( arrays, arrayInd ) or {}
+        local arrayCount = rawget( arrayCounts, arrayInd )
+        local chipPos = chip:getPos()
+
+        render.setColor( lineColor )
+
+        for i = 1, arrayCount do
+            local ent = rawget( array, i )
+
+            if isValid( ent ) then
+                render.draw3DLine( chipPos, ent:getPos() )
+            end
+        end
+    end )
+
+    hook.add( "inputPressed", "LKL_AEM_InputPressed", function( button )
+        if numArrays == 0 then return end
+
+        if not isValid( toolGun ) or toolGun:getToolMode() ~= "wire_adv_emarker" then
+            selecting = false
+            multiSelect = false
+            hasSelected = false
+
+            return
+        end
+
+        if button == mouseLeft then
+
+        elseif button == mouseRight then
+            local ent = owner:getEyeTrace().Entity
+
+            if ent == chip then
+                selecting = not selecting
+
+                if selecting then
+                    net.start( "LKL_AEM_RequestArrays" )
+                    net.send()
+                end
+
+                return
+            end
+
+            if not selecting or ( rawget( arrayCounts, arrayInd ) or 0 ) == arrayMaxSize then return end
+
+            if not isValid( ent ) or ent:getOwner() ~= owner then return end
+
+            net.start( "LKL_AEM_TryAdd" )
+            net.writeInt( arrayInd, 10 )
+            net.writeEntity( ent )
+            net.send()
+        elseif button == wheelUp then
+            if selecting or owner:getEyeTrace().Entity ~= chip then return end
+
+            arrayInd = arrayInd - 1
+            concmd( "invnext" )
+            concmd( "+attack" )
+
+            local curTool = toolGun
+
+            timer.simple( 0, function() concmd( "-attack" ) end )
+            timer.simple( 0.05, function() concmd( "gmod_tool wire_adv_emarker" ) toolGun = curTool end )
+
+            if arrayInd == 0 then
+                arrayInd = numArrays
+            end
+        elseif button == wheelDown then
+            if selecting or owner:getEyeTrace().Entity ~= chip then return end
+
+            arrayInd = arrayInd % numArrays + 1
+
+            concmd( "invprev" )
+            concmd( "+attack" )
+
+            local curTool = toolGun
+
+            timer.simple( 0, function() concmd( "-attack" ) end )
+            timer.simple( 0.05, function() concmd( "gmod_tool wire_adv_emarker" ) toolGun = curTool end )
+        elseif button == buttonR then
+            local ent = owner:getEyeTrace().Entity
+
+            if selecting and ent ~= chip then
+                if not isValid( ent ) or ent:getOwner() ~= owner then return end
+
+                if ( rawget( arrayCounts, arrayInd ) or 0 ) == 0 then return end
+
+                net.start( "LKL_AEM_TryRemove" )
+                net.writeInt( arrayInd, 10 )
+                net.writeEntity( ent )
+                net.send()
+
+                return
+            end
+
+            if ent ~= chip then return end
+
+            net.start( "LKL_AEM_WipeArray" )
+            net.writeInt( arrayInd, 10 )
+            net.send()
+        elseif button == buttonShift then
+            multiSelect = true
+        end
+    end )
+
+    hook.add( "inputReleased", "LKL_AEM_InputReleased", function( button )
+        if button == buttonShift then
+            multiSelect = false
+
+            if hasSelected then
+                selecting = false
+                hasSelected = false
+            end
+        end
+    end )
+
+    hook.add( "PlayerSwitchWeapon", "LKL_AEM_SwitchWeapon", function( ply, _, wep )
+        if ply ~= owner then return end
+
+        toolGun = isValid( wep ) and wep:getClass() == "gmod_tool" and wep
+
+        if not toolGun or toolGun:getToolMode() ~= "wire_adv_emarker" then
+            selecting = false
+            multiSelect = false
+            hasSelected = false
+        end
+    end )
+
+    hook.add( "OnEntityCreated", "LKL_AEM_OnEntityCreated", function( ent )
+        if not selecting then return end
+        if not isValid( ent ) or ent:getOwner() ~= owner then return end
+        if ent:getClass() ~= "gmod_wire_adv_emarker" then return end
+
+        net.start( "LKL_AEM_RemoveMarker" )
+        net.writeEntity( ent )
+        net.send()
+    end )
+
+    net.receive( "LKL_AEM_DefineNumArrays", function()
+        numArrays = net.readInt( 10 )
+        arrayMaxSize = net.readInt( 10 )
+    end )
+
+    net.receive( "LKL_AEM_DefineArrayCounts", function()
+        arrayCounts = net.readTable()
+    end )
+
+    net.receive( "LKL_AEM_DefineArrays", function()
+        arrays = net.readTable()
+    end )
+
+    net.receive( "LKL_AEM_DefineArrayNames", function()
+        arrayNames = net.readTable()
+    end )
+
+    net.receive( "LKL_AEM_ArrayChangeResult", function()
+        if not net.readBool() then
+            if net.readBool() then
+                notification.addLegacy( tostring( net.readEntity() ) .. " is already in that array!", NOTIFY.ERROR, 5 )
+            else
+                notification.addLegacy( tostring( net.readEntity() ) .. " is not in that array!", NOTIFY.ERROR, 5 )
+            end
+
+            return
+        end
+
+        hasSelected = true
+
+        if not multiSelect then
+            selecting = false
+        end
+
+        if net.readBool() then
+            notification.addLegacy( "Added " .. tostring( net.readEntity() ) .. " to the array.", NOTIFY.GENERIC, 5 )
+        else
+            notification.addLegacy( "Removed " .. tostring( net.readEntity() ) .. " from the array.", NOTIFY.GENERIC, 5 )
+        end
+
+        timer.simple( 0.1, function()
+            net.start( "LKL_AEM_RequestArrays" )
+            net.send()
+        end )
+    end )
+
+end

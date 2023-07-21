@@ -1,0 +1,236 @@
+--@name Curves
+--@author legokidlogan
+--@client
+--@include lkl/math/curves.txt
+
+require( "lkl/math/curves.txt" )
+
+local renderDrawLine = render.drawLine
+local renderDraw3DLine = render.draw3DLine
+local renderDrawPoly = render.drawPoly
+local renderDraw3DBeam = render.draw3DBeam
+local renderDraw3DBox = render.draw3DBox
+
+
+local function lerp( a, b, t )
+    return a + ( b - a ) * t
+end
+
+local function getPointsFromArgs( ... )
+    local points = { ... }
+    local pointCount = #points
+
+    if pointCount == 1 and type( points[1] ) == "table" then
+        points = points[1]
+        pointCount = #points
+    end
+
+    for i = 1, pointCount do
+        if type( points[i] ) ~= "Vector" then
+            error( "point " .. i .. " is not a vector" )
+        end
+    end
+
+    if pointCount == 0 then
+        error( "no points given" )
+    end
+
+    return points, pointCount
+end
+
+
+--[[
+    - Draws a curve of points.
+
+    lineWidth: (number)
+        - The width of the line to draw.
+        - If 0, uses render.drawLine(), otherwise uses render.drawPoly().
+    ...: (Vectors)
+        - The points to use for the curve. Make sure to only use the x and y components.
+        - Can instead be given as a single table of vectors.
+--]]
+function render.drawCurve( lineWidth, ... )
+    local curvePoints, curvePointCount = getPointsFromArgs( ... )
+
+    if lineWidth == 0 then
+        for i = 1, curvePointCount - 1 do
+            local point1 = curvePoints[i]
+            local point2 = curvePoints[i + 1]
+
+            renderDrawLine( point1[1], point1[2], point2[1], point2[2] )
+        end
+
+        return
+    end
+
+    local pointsTop = {}
+    local pointsBottom = {}
+    local curveDeltasPerp = {}
+
+    for i = 1, curvePointCount - 1 do
+        local delta = ( curvePoints[i + 1] - curvePoints[i] ):getNormalized()
+
+        curveDeltasPerp[i] = Vector( delta[2], -delta[1], 0 )
+    end
+
+    curveDeltasPerp[curvePointCount] = curveDeltasPerp[curvePointCount - 1]
+
+    for i = 1, curvePointCount do
+        local curvePoint = curvePoints[i]
+        local deltaPerp = curveDeltasPerp[i]
+
+        pointsTop[i] = curvePoint + deltaPerp * lineWidth
+        pointsBottom[i] = curvePoint - deltaPerp * lineWidth
+    end
+
+    -- Since render.drawPoly() breaks with concave polygons, we have to draw each segment individually.
+    for i = 1, curvePointCount - 1 do
+        local point1 = pointsTop[i]
+        local point2 = pointsTop[i + 1]
+        local point3 = pointsBottom[i + 1]
+        local point4 = pointsBottom[i]
+
+        local polyPoints = {
+            {
+                x = point1[1],
+                y = point1[2]
+            },
+            {
+                x = point2[1],
+                y = point2[2]
+            },
+            {
+                x = point3[1],
+                y = point3[2]
+            },
+            {
+                x = point4[1],
+                y = point4[2]
+            }
+        }
+
+        renderDrawPoly( polyPoints )
+    end
+end
+
+--[[
+    - Draws a 3D curve of points using beams.
+
+    lineWidth: (number)
+        - The width of the line to draw.
+        - If 0, uses render.draw3DLine(), otherwise uses render.draw3DBeam().
+    textureStart: (number)
+        - The texture start position.
+    textureEnd: (number)
+        - The texture end position.
+    ...: (Vectors)
+        - The points to use for the curve.
+        - Can instead be given as a single table of vectors.
+--]]
+function render.draw3DCurveBeam( lineWidth, textureStart, textureEnd, ... )
+    local curvePoints, curvePointCount = getPointsFromArgs( ... )
+    textureStart = textureStart or 0
+    textureEnd = textureEnd or 1
+
+    if lineWidth == 0 then
+        for i = 1, curvePointCount - 1 do
+            local point1 = curvePoints[i]
+            local point2 = curvePoints[i + 1]
+
+            renderDraw3DLine( point1, point2 )
+        end
+
+        return
+    end
+
+    for i = 1, curvePointCount - 1 do
+        local point1 = curvePoints[i]
+        local point2 = curvePoints[i + 1]
+        local textureStartLerp = lerp( textureStart, textureEnd, i / curvePointCount )
+        local textureEndLerp = lerp( textureStart, textureEnd, ( i + 1 ) / curvePointCount )
+
+        renderDraw3DBeam( point1, point2, lineWidth, textureStartLerp, textureEndLerp )
+    end
+end
+
+--[[
+    - Draws a 3D curve of points using boxes.
+
+    lineWidth: (number)
+        - The width of the line to draw.
+        - If 0, uses render.draw3DLine(), otherwise uses render.draw3DBox().
+    ...: (Vectors)
+        - The points to use for the curve.
+        - Can instead be given as a single table of vectors.
+--]]
+function render.draw3DCurveBox( lineWidth, ... )
+    local curvePoints, curvePointCount = getPointsFromArgs( ... )
+
+    if lineWidth == 0 then
+        for i = 1, curvePointCount - 1 do
+            local point1 = curvePoints[i]
+            local point2 = curvePoints[i + 1]
+
+            renderDraw3DLine( point1, point2 )
+        end
+
+        return
+    end
+
+    for i = 1, curvePointCount - 1 do
+        local point1 = curvePoints[i]
+        local point2 = curvePoints[i + 1]
+        local delta = point2 - point1
+        local pos = ( point1 + point2 ) / 2
+        local ang = delta:getAngle()
+        local length = delta:getLength() / 2
+
+        local maxs = Vector( length, lineWidth / 2, lineWidth / 2 )
+        local mins = -maxs
+
+        renderDraw3DBox( pos, ang, mins, maxs )
+    end
+end
+
+--[[
+    - Draws a bezier curve.
+
+    numSamples: (number)
+        - The number of samples to take from the curve.
+    lineWidth: (number)
+        - The width of the line to draw.
+        - If 0, uses render.drawLine(), otherwise uses render.drawPoly().
+    ...: (Vectors)
+        - The points to use for the curve. Make sure to only use the x and y components.
+        - The first point is the start point, the last point is the end point, and the points in between are the control points.
+        - Can instead be given as a single table of vectors.
+--]]
+function render.drawBezierCurve( numSamples, lineWidth, ... )
+    if not isnumber( numSamples ) then
+        error( "numSamples must be a number" )
+    end
+
+    local curvePoints = math.bezierCurve( numSamples, ... )
+
+    render.drawCurve( lineWidth, curvePoints )
+end
+
+function render.draw3DBezierCurveBeam( numSamples, lineWidth, textureStart, textureEnd, ... )
+    if not isnumber( numSamples ) then
+        error( "numSamples must be a number" )
+    end
+
+    local curvePoints = math.bezierCurve( numSamples, ... )
+
+    render.draw3DCurveBeam( lineWidth, textureStart, textureEnd, curvePoints )
+end
+
+function render.draw3DBezierCurveBox( numSamples, lineWidth, ... )
+    if not isnumber( numSamples ) then
+        error( "numSamples must be a number" )
+    end
+
+    local curvePoints = math.bezierCurve( numSamples, ... )
+
+    render.draw3DCurveBox( lineWidth, curvePoints )
+end

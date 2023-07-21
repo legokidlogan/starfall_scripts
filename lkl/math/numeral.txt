@@ -1,0 +1,455 @@
+--@name Numeral
+--@author legokidlogan
+--@shared
+--@include lkl/middleclass_extras.txt
+
+
+-- Allows for easy conversion of numbers in arbitrary bases.
+-- Note: This currently does not support fractional numbers, only integers.
+
+
+if Numeral then return end -- Don't run twice
+
+
+local VAL_TO_DIGIT = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+}
+VAL_TO_DIGIT[0] = "0"
+local VAL_TO_SUBSCRIPT = {
+    "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉",
+}
+VAL_TO_SUBSCRIPT[0] = "₀"
+local DIGIT_TO_VAL = {}
+local MIN_BASE = 2
+local MAX_BASE = #VAL_TO_DIGIT
+
+local mMin = math.min
+local mAbs = math.abs
+local mPow = math.pow
+local mFloor = math.floor
+local mCeil = math.ceil
+local stringSub = string.sub
+local stringMatch = string.match
+local stringSplit = string.split
+local stringFind = string.find
+local tabeInsert = table.insert
+
+Numeral = class( "Numeral" )
+
+require( "lkl/middleclass_extras.txt" )
+
+do
+    for val, digit in pairs( VAL_TO_DIGIT ) do
+        DIGIT_TO_VAL[digit] = val
+    end
+end
+
+
+local function extractNegative( numStr )
+    if isnumber( numStr ) then
+        local isNegative = numStr < 0
+
+        return mAbs( numStr ), isNegative and -1 or 1, isNegative
+    end
+
+    numStr = tostring( numStr )
+
+    if stringSub( numStr, 1, 1 ) == "-" then
+        return stringSub( numStr, 2 ), -1, true
+    end
+
+    return numStr, 1, false
+end
+
+local function floorToZero( num )
+    if num < 0 then
+        return mCeil( num )
+    end
+
+    return mFloor( num )
+end
+
+local function getDigits( numStr )
+    local num = tonumber( numStr )
+
+    if not num then -- Base is greater than 10
+        return string.split( numStr, "" )
+    end
+
+    if num == 0 then return { "0" } end
+
+    numStr = tostring( numStr )
+
+    if not stringFind( numStr, ".", nil, true ) then -- Quick split if the number is small enough to not get truncated by scientific notation
+        return stringSplit( numStr, "" )
+    end
+
+    local digits = {}
+    num = mAbs( num )
+
+    while num > 0 do -- Extract digits from right to left
+        local digit = num % 10
+
+        tabeInsert( digits, 1, tostring( digit ) )
+        num = mFloor( num / 10 )
+    end
+
+    return digits
+end
+
+local function sanitizeInput( numStr, base )
+    if mFloor( base ) ~= base then
+        error( "base must be a positive integer" )
+    end
+
+    if base < MIN_BASE or base > MAX_BASE then
+        error( "base must be between " .. MIN_BASE .. " and " .. MAX_BASE .. " (inclusive)" )
+    end
+
+    local sign, isNegative
+    numStr, sign, isNegative = extractNegative( numStr )
+
+    local digits = getDigits( numStr )
+    local maxDigit = base - 1
+
+    for i = 1, #digits do
+        local digit = digits[i]
+        local digitVal = DIGIT_TO_VAL[digit]
+
+        if not digitVal then
+            error( "Invalid digit '" .. digit .. "' in number '" .. numStr .. "'" )
+        end
+
+        if digitVal > maxDigit then
+            error( "Digit '" .. digit .. "' is not valid in base " .. base )
+        end
+    end
+
+    return numStr, sign, isNegative
+end
+
+local function trimLeadingZeros( numStr )
+    if type( numStr ) == "number" then return numStr end
+
+    return stringMatch( numStr, "^0*(.+)" )
+end
+
+
+function Numeral:initialize( numStr, base )
+    sanitizeInput( numStr, base )
+    numStr = trimLeadingZeros( numStr )
+
+    self.Base = base
+    self.Value = numStr
+    self.DecimalValue = Numeral:baseToDecimal( numStr, base )
+end
+
+function Numeral.static:getMaxBase()
+    return MAX_BASE
+end
+
+function Numeral.static:makeSubscript( numStr )
+    local digits = getDigits( numStr )
+    local out = ""
+
+    for i = 1, #digits do
+        local digit = tonumber( digits[i] )
+
+        if digit then
+            out = out .. VAL_TO_SUBSCRIPT[digit]
+        end
+    end
+
+    return out
+end
+
+function Numeral.static:baseToBase( numStr, fromBase, toBase )
+    return Numeral:decimalToBase( Numeral:baseToDecimal( numStr, fromBase ), toBase )
+end
+
+function Numeral.static:baseToDecimal( numStr, base )
+    if base == 10 then
+        return tonumber( numStr )
+    end
+
+    local sign
+    numStr, sign = sanitizeInput( numStr, base )
+
+    local digits = getDigits( numStr )
+    local digitCount = #digits
+    local out = 0
+
+    for i = 1, digitCount do
+        local digitVal = DIGIT_TO_VAL[digits[i]]
+
+        out = out + digitVal * mPow( base, digitCount - i )
+    end
+
+    return out * sign
+end
+
+function Numeral.static:decimalToBase( numStr, base )
+    if base == 10 then
+        return numStr
+    end
+
+    local isNegative
+    numStr, _, isNegative = sanitizeInput( numStr, 10 )
+    local num = tonumber( numStr )
+
+    if num == 0 then return "0" end
+
+    local maxDigit = base - 1
+    local powers = {}
+    local out = ""
+    local i = 0
+
+    repeat
+        local power = mPow( base, i )
+
+        powers[i] = power
+        i = i + 1
+    until power * maxDigit >= num
+
+    i = i - 1 -- Account for the last iteration
+
+    while i >= 0 do
+        local power = powers[i]
+        local digitVal = mMin( mFloor( num / power ), maxDigit )
+        local digitStr = VAL_TO_DIGIT[digitVal]
+
+        num = num - digitVal * power
+        out = out .. digitStr
+        i = i - 1
+    end
+
+    if stringSub( out, 1, 1 ) == "0" then
+        out = stringSub( out, 2 )
+    end
+
+    if isNegative then
+        out = "-" .. out
+    end
+
+    return out
+end
+
+function Numeral.static:safeGetValue( x )
+    if type( x ) == "number" then
+        return x, 10, true
+    end
+
+    if not isInstanceOf( x, Numeral ) then
+        return x, nil, false
+    end
+
+    local base = x.Base
+    local valDecimal = x.DecimalValue
+
+    if not valDecimal then
+        valDecimal = Numeral:baseToDecimal( x.Value, base )
+        x.Value = valDecimal
+    end
+
+    return valDecimal, base, false
+end
+
+
+function Numeral:exactlyEquals( x )
+    if type( x ) == "number" then
+        return self.Base == 10 and self.DecimalValue == x
+    end
+
+    if not isInstanceOf( x, Numeral ) then
+        return false
+    end
+
+    return self.Base == x.Base and self.DecimalValue == x.DecimalValue
+end
+
+function Numeral:toBase( base )
+    if self.Base == base then
+        return Numeral:new( self.Value, base )
+    end
+
+    return Numeral:new( Numeral:baseToBase( self.Value, self.Base, base ), base )
+end
+
+function Numeral:setValue( numStr )
+    sanitizeInput( numStr, self.Base )
+    numStr = trimLeadingZeros( numStr )
+
+    self.Value = numStr
+    self.DecimalValue = Numeral:baseToDecimal( numStr, self.Base )
+end
+
+function Numeral:setBase( base )
+    local numStr = Numeral:baseToBase( self.Value, self.Base, base )
+
+    self.Base = base
+    self.Value = numStr
+    self.DecimalValue = Numeral:baseToDecimal( numStr, base )
+end
+
+function Numeral:toNumber()
+    return self.DecimalValue
+end
+
+function Numeral:getValue()
+    return self.Value
+end
+
+function Numeral:getBase()
+    return self.Base
+end
+
+function Numeral:abs()
+    local numAbsStr = extractNegative( self.Value )
+
+    return Numeral:new( numAbsStr, self.Base )
+end
+
+function Numeral:getSubscript()
+    return Numeral:makeSubscript( self.Base )
+end
+
+
+-- If self and other are different bases or different types, priority goes to self.
+function Numeral:__add( other )
+    local valDecimalA, baseA, isNumA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+    local result = floorToZero( valDecimalA + valDecimalB )
+
+    if isNumA then
+        return result
+    end
+
+    result = Numeral:decimalToBase( result, baseA )
+
+    return Numeral:new( result, baseA )
+end
+
+-- If self and other are different bases or different types, priority goes to self.
+function Numeral:__sub( other )
+    local valDecimalA, baseA, isNumA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+    local result = floorToZero( valDecimalA - valDecimalB )
+
+    if isNumA then
+        return result
+    end
+
+    result = Numeral:decimalToBase( result, baseA )
+
+    return Numeral:new( result, baseA )
+end
+
+-- If self and other are different bases or different types, priority goes to self.
+function Numeral:__mul( other )
+    local valDecimalA, baseA, isNumA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+    local result = floorToZero( valDecimalA * valDecimalB )
+
+    if isNumA then
+        return result
+    end
+
+    result = Numeral:decimalToBase( result, baseA )
+
+    return Numeral:new( result, baseA )
+end
+
+-- If self and other are different bases or different types, priority goes to self.
+function Numeral:__div( other )
+    local valDecimalA, baseA, isNumA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+    local result = floorToZero( valDecimalA / valDecimalB )
+
+    if isNumA then
+        return result
+    end
+
+    result = Numeral:decimalToBase( result, baseA )
+
+    return Numeral:new( result, baseA )
+end
+
+-- If self and other are different bases or different types, priority goes to self.
+function Numeral:__mod( other )
+    local valDecimalA, baseA, isNumA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+    local result = floorToZero( valDecimalA % valDecimalB )
+
+    if isNumA then
+        return result
+    end
+
+    result = Numeral:decimalToBase( result, baseA )
+
+    return Numeral:new( result, baseA )
+end
+
+-- If self and other are different bases or different types, priority goes to self.
+function Numeral:__pow( other )
+    local valDecimalA, baseA, isNumA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+    local result = floorToZero( valDecimalA ^ valDecimalB )
+
+    if isNumA then
+        return result
+    end
+
+    result = Numeral:decimalToBase( result, baseA )
+
+    return Numeral:new( result, baseA )
+end
+
+function Numeral:__unm()
+    local valDecimal, base, isNum = Numeral:safeGetValue( self )
+    local result = floorToZero( -valDecimal )
+
+    if isNum then
+        return result
+    end
+
+    return Numeral:new( result, base )
+end
+
+function Numeral:__concat( other )
+    return tostring( self ) .. tostring( other )
+end
+
+-- Get the number of digits.
+function Numeral:__len()
+    local numAbsStr = extractNegative( self.Value )
+
+    return #numAbsStr
+end
+
+-- Compares the decimal values of the numerals. To check if both the bases and the values are the same, use :exactlyEquals()
+-- Unfortunately, we can't override tonumber(), so == will fail if a non-numeral is on the left side.
+function Numeral:__eq( other )
+    local valDecimalA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+
+    return valDecimalA == valDecimalB
+end
+
+function Numeral:__lt( other )
+    local valDecimalA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+
+    return valDecimalA < valDecimalB
+end
+
+function Numeral:__le( other )
+    local valDecimalA = Numeral:safeGetValue( self )
+    local valDecimalB = Numeral:safeGetValue( other )
+
+    return valDecimalA <= valDecimalB
+end
+
+function Numeral:__tostring()
+    return self.Value .. self:getSubscript()
+end

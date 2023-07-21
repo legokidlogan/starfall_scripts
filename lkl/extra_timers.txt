@@ -1,0 +1,121 @@
+--@name Extra Timers
+--@author legokidlogan
+--@shared
+
+extraTimerPrecision = math.max( math.floor( extraTimerPrecision or 1 ), 1 )
+
+local realtime = timer.realtime
+local tableKeyFromValue = table.keyFromValue
+local tableRemove = table.remove
+local mMax = math.max
+
+local precisionState = 0
+local timerCount = 0
+local timerCountSimple = 0
+local timers = {}
+local timerNames = {}
+local timerExistances = {}
+local timersSimple = {}
+
+
+function timer.existsExtra( name )
+    if not name then return false end
+
+    return timerExistances[name] or false
+end
+
+function timer.simpleExtra( gap, func )
+    if not gap or not func then return end
+
+    timerCountSimple = timerCountSimple + 1
+    timersSimple[timerCountSimple] = {
+        Trigger = realtime() + gap,
+        Func = func,
+    }
+end
+
+function timer.createExtra( name, gap, numRepeats, func )
+    if not name or not gap or not numRepeats or not func then return end
+
+    local exists = timerExistances[name]
+    local ind = exists and tableKeyFromValue( timerNames, name ) -- A lookup table would be less optimized here since needing to adjust the associated indeces would require a pairs() on string plus starfall wrapping
+
+    if not ind then
+        timerCount = timerCount + 1
+        ind = timerCount
+    end
+
+    timerNames[ind] = name
+    timerExistances[name] = true
+    timers[ind] = {
+        Name = name,
+        Gap = gap,
+        NextTrigger = realtime() + gap,
+        RemainingCalls = numRepeats,
+        Func = func,
+    }
+end
+
+function timer.removeExtra( name )
+    if not name or not timerExistances[name] then return end
+
+    local ind = tableKeyFromValue( timerNames, name )
+
+    timerCount = mMax( timerCount - 1, 0 )
+    timerExistances[name] = nil
+    tableRemove( timers, ind )
+    tableRemove( timerNames, ind )
+end
+
+
+hook.add( "think", "LKL_ExtraTimers_ProcessTimers", function()
+    if extraTimerPrecision ~= 1 then
+        precisionState = ( precisionState + 1 ) % extraTimerPrecision
+
+        if precisionState ~= 0 then return end
+    end
+
+    local curTime = realtime()
+
+    for i = 1, timerCountSimple do
+        local timerData = timersSimple[i]
+
+        if timerData and curTime >= timerData.Trigger then
+            timerData.Func()
+
+            timerCountSimple = mMax( timerCountSimple - 1, 0 )
+            tableRemove( timersSimple, i )
+        end
+    end
+
+    for i = 1, timerCount do
+        local timerData = timers[i]
+
+        if timerData and curTime >= timerData.NextTrigger then
+            local remCalls = timerData.RemainingCalls
+            local canRepeat
+
+            if remCalls > 0 then
+                remCalls = remCalls - 1
+
+                if remCalls > 0 then
+                    timerData.RemainingCalls = remCalls
+                    canRepeat = true
+                end
+            else
+                canRepeat = true
+            end
+
+            timerData.Func()
+
+            if canRepeat then
+                timerData.NextTrigger = curTime + timerData.Gap
+            else
+                timerCount = mMax( timerCount - 1, 0 )
+                timerExistances[timerData.Name] = nil
+                tableRemove( timers, i )
+                tableRemove( timerNames, i )
+            end
+        end
+    end
+end )

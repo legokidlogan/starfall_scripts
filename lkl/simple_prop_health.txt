@@ -1,0 +1,83 @@
+--@name Simple Prop Health
+--@author legokidlogan
+--@server
+
+----- VERY OLD -----
+
+local maxHealthPerProp = 700
+local maxDPS = 400
+local maxDamage = 100
+local maxDamageExplosive = 200
+
+local stopDamage = false
+local ents = {}
+local entLookup = {}
+local dps = 0
+local entCount = 0
+
+wire.adjustInputs(
+    { "Ents", "StopDamage", "Reset" },
+    { "ARRAY", "NUMBER", "NUMBER" }
+)
+
+local function wireInput( name, value )
+    if name == "Ents" then
+        ents = value or {}
+        entLookup = {}
+        entCount = #ents
+
+        for i = 1, entCount do
+            local ent = ents[i]
+
+            entLookup[ent] = i
+            ent.sphHealth = ent.sphHealth or maxHealthPerProp
+        end
+    elseif name == "StopDamage" then
+        stopDamage = value ~= 0
+    elseif name == "Reset" then
+        if reset == 0 then return end
+
+        for i = 1, entCount do
+            ents[i].sphHealth = maxHealthPerProp
+        end
+    end
+end
+
+hook.add( "input", "LKL_SPH_WireInput", wireInput )
+
+hook.add( "EntityTakeDamage", "LKL_SPH_TrackDamage", function( victim, attacker, inflictor, dmg, type )
+    if not isValid( victim ) or stopDamage then return end
+
+    if dps >= maxDPS then return end
+
+    local ind = entLookup[victim]
+
+    if not ind then return end
+
+    dmg = math.min( dmg, maxDPS - dps )
+
+    if bit.band( type, 64 ) then
+        dmg = math.min( dmg, maxDamageExplosive )
+    else
+        dmg = math.min( dmg, maxDamage )
+    end
+
+    local health = victim.sphHealth - dmg
+
+    victim.sphHealth = health
+    dps = dps + dmg
+
+    if health <= 0 then
+        victim:breakEnt()
+    end
+end )
+
+timer.create( "LKL_SPH_ResetDPS", 1, 0, function()
+    dps = 0
+end )
+
+timer.simple( 1, function()
+    wireInput( "Ents", wire.ports.Ents )
+    wireInput( "StopDamage", wire.ports.StopDamage )
+    wireInput( "Reset", wire.ports.Reset )
+end )

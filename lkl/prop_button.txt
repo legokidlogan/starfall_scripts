@@ -1,0 +1,184 @@
+--@name Prop Button
+--@author legokidlogan
+--@server
+--@include lkl/input_generator.txt
+
+-- Config:
+local defaultRange = 250
+-- End Config
+
+
+local tableInsert = table.insert
+
+projectNameID = "PropButton." .. chip():entIndex()
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+inGenRepeatMaxDefault = 20
+inGenRepeatNames = inGenRepeatNames or {}
+inGenRepeatTypes = inGenRepeatTypes or {}
+inGenRepeatGroups = inGenRepeatGroups or {}
+inGenRepeatMaxes = inGenRepeatMaxes or {}
+
+tableInsert( inGenRepeatNames, "Button" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "DoHold" )
+tableInsert( inGenRepeatTypes, "NUMBER" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Range" )
+tableInsert( inGenRepeatTypes, "NUMBER" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( outputNames, "One" )
+tableInsert( outputTypes, "NUMBER" )
+
+require( "lkl/input_generator.txt" )
+
+for _, name in pairs( inputNames ) do
+    local baseName, id = inGenGetInfo( name )
+
+    if baseName == "Button" then
+        tableInsert( outputNames, "Out__" .. id )
+        tableInsert( outputTypes, "NUMBER" )
+    end
+end
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+
+wire.ports.One = 1
+
+local useStates = {}
+local buttonStates = {}
+local buttons = {}
+local buttonLookup = {}
+local doHolds = {}
+local ranges = {}
+local pressers = {}
+
+local KEY_USE = IN_KEY.USE
+
+
+local function keyPress( ply, key, state )
+    if key ~= KEY_USE then return end
+    local ind = useStates[ply] or false
+
+    if not isValid( ply ) or not ply:isPlayer() then return end
+    if ( ind ~= false ) == state then return end -- Ignore if state is the same
+
+    local press
+
+    if state then
+        local tr = ply:getEyeTrace()
+        local ent = tr.Entity
+
+        ind = isValid( ent ) and buttonLookup[ent]
+        useStates[ply] = true
+
+        if not ind then return end
+
+        press = pressers[ind]
+
+        if not press then
+            press = { count = 0 }
+            pressers[ind] = press
+        end
+
+        local pressCount = press.count
+
+        local dist = tr.StartPos:getDistanceSqr( tr.HitPos )
+        local range = ranges[ind] or ( defaultRange ^ 2 )
+
+        if dist > range then return end
+
+        press.count = pressCount + 1
+        press[ply] = true
+
+        if doHolds[ind] then
+            buttonStates[ind] = true
+            wire.ports["Out__" .. ind] = 1
+        else
+            local btnState = not buttonStates[ind]
+
+            buttonStates[ind] = btnState
+            wire.ports["Out__" .. ind] = btnState and 1 or 0
+        end
+
+        useStates[ply] = ind
+    else
+        press = pressers[ind]
+
+        if not press then
+            press = { count = 0 }
+            pressers[ind] = press
+        end
+
+        local pressCount = press.count
+
+        if doHolds[ind] and press[ply] then
+            press[ply] = nil
+            press.count = pressCount - 1
+
+            if pressCount == 1 then
+                buttonStates[ind] = false
+                wire.ports["Out__" .. ind] = 0
+            end
+        end
+
+        useStates[ply] = false
+    end
+
+    press[ply] = state
+end
+
+hook.add( "KeyPress", "LKL_" .. projectNameID .. "_KeyPress", function( ply, key )
+    keyPress( ply, key, true )
+end )
+
+hook.add( "KeyRelease", "LKL_" .. projectNameID .. "_KeyRelease", function( ply, key )
+    keyPress( ply, key, false )
+end )
+
+hook.add( "LKL_" .. projectNameID .. "_InputGenerator_NewInput", "LKL_" .. projectNameID .. "_AddOutputs", function( baseName, ind )
+    if baseName ~= "Button" then return end
+
+    inGenClearBadOutputs()
+    tableInsert( outputNames, "Out__" .. ind )
+    tableInsert( outputTypes, "NUMBER" )
+
+    wire.adjustOutputs( outputNames, outputTypes )
+end )
+
+hook.add( "input", "LKL_" .. projectNameID .. "_WireInput", function( name, value )
+    local baseName, id = inGenGetInfo( name )
+
+    if baseName == "Button" then
+        local btn = isValid( value ) and value
+        local oldBtn = buttons[id] or false
+
+        buttons[id] = btn
+        buttonStates[id] = false
+        buttonLookup[oldBtn] = nil
+        buttonLookup[btn] = id
+        pressers[id] = { count = 0 }
+    elseif baseName == "DoHold" then
+        local state = value ~= 0
+
+        doHolds[id] = state
+        buttonStates[id] = false
+        pressers[id] = { count = 0 }
+    elseif baseName == "Range" then
+        local range = value ~= 0 and value or defaultRange
+
+        ranges[id] = range ^ 2
+    end
+end )

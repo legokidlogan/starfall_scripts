@@ -1,0 +1,380 @@
+--@name Draggable
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+--[[
+    - SGUI.Draggable
+    - Blah
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+
+if SGUI.Draggable then return end -- Don't run twice
+
+
+SGUI.Draggable = class( "Draggable", SGUI.Panel )
+
+
+local Draggable = SGUI.Draggable
+local Panel = SGUI.Panel
+local getDragBounds
+local getDragReleaseParent
+local wrapDragTarget
+local unwrapDragTarget
+
+local mathMax = math.max
+local mathClamp = math.clamp
+
+
+----- STATIC FUNCTIONS -----
+
+function Draggable:initialize( parent )
+    Draggable.super.initialize( self, parent )
+
+    self:setEnabled( true )
+    self:setDragParent( false )
+    self:setDragReleaseMode( DRAG_RELEASE_HOVERED )
+
+    function self:acceptMouseInput()
+        error( "This function does not exist" )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Changes which Panel will move around when this Draggable is dragged.
+    - nil will default it to this Draggable.
+    - Mostly useful for dragging a parent.
+--]]
+function Draggable:setDragTarget( panel )
+    if self:isDragging() then error( "Cannot change drag target while dragging" ) end
+
+    if panel ~= nil then
+        Panel:expectValidPanel( panel, 1, "panel" )
+    end
+
+    self._dragTarget = panel
+end
+
+function Draggable:getDragTarget()
+    return self._dragTarget or self
+end
+
+-- Sets whether this Draggable can be dragged.
+function Draggable:setEnabled( state )
+    self._enabled = state and true or false
+    Panel.acceptMouseInput( self, state )
+end
+
+function Draggable:enable()
+    self:setEnabled( true )
+end
+
+function Draggable:disable()
+    self:setEnabled( false )
+end
+
+function Draggable:isEnabled()
+    return self._enabled
+end
+
+function Draggable:isDisabled()
+    return not self._enabled
+end
+
+function Draggable:isDragging()
+    return self:isMouseHeld()
+end
+
+--[[
+    - Sets the Panel that the drag target will be parented to when it is dragged.
+    - Note that the resulting parent will determine the bounds of where the drag target can be dragged.
+
+    panel: (boolean or Panel)
+        - TRUE: Parent the drag target to its current parent. (i.e. change nothing)
+        - FALSE: Unparent the drag target.
+        - PANEL: Set the drag target's parent to the given Panel.
+--]]
+function Draggable:setDragParent( panel )
+    if type( panel ) ~= "boolean" and not Panel:isValidPanel( panel ) then
+        error( "Expected panel to be a boolean or a valid Panel" )
+    end
+
+    self._dragStartParent = panel
+end
+
+function Draggable:getDragParent()
+    local dragStartParent = self._dragStartParent
+
+    if dragStartParent == true then return self:getDragTarget():getParent() end -- Will error if drag target is invalid, which is intended.
+    if dragStartParent == false then return nil end
+
+    return dragStartParent
+end
+
+--[[
+    - Uses DRAG_RELEASE enum to determine how to parent the drag target upon letting go.
+        - DRAG_RELEASE_NONE: Unparent the drag target.
+        - DRAG_RELEASE_HOVERED: Parent the drag target to the Panel that the mouse is currently over. Panels need :acceptMouseInput( true ) to count for hovering.
+        - DRAG_RELEASE_ORIGINAL: Parent the drag target to the Panel that it was originally parented to.
+--]]
+function Draggable:setDragReleaseMode( mode )
+    SGUI.expectValidDragRelease( mode, 1, "mode" )
+
+    self._dragReleaseMode = mode
+end
+
+function Draggable:getDragReleaseMode()
+    return self._dragReleaseMode
+end
+
+-- Updates the mouse offset based on the current mouse and Panel positions, and the given offsets.
+function Draggable:adjustMouseOffset( xOff, yOff )
+    if not self:isDragging() then error( "Cannot adjust mouse offset while not dragging" ) end
+
+    xOff = xOff or 0
+    yOff = yOff or 0
+
+    local xRel, yRel = self:getDragTarget():getPosRelativeToPanel( self:getDragParent() )
+    local mouseX, mouseY = Panel:getMouseContext()
+
+    self._dragMouseXOffset = xRel - mouseX + xOff
+    self._dragMouseYOffset = yRel - mouseY + yOff
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function Draggable:onDragStarted()
+
+end
+
+function Draggable:onDragEnded()
+
+end
+
+function Draggable:dragThink()
+
+end
+
+--[[
+    - Whether or not dragTarget can be parented to panel when using :setDragReleaseMode( DRAG_RELEASE_HOVERED ).
+    - When releasing, if the result is false, dragTarget will go back to its original parent and position.
+    - This is called before :onDragEnded().
+--]]
+function Draggable:canParentTo( dragTarget, panel )
+    return true
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Draggable:think()
+    local dragTarget = self:getDragTarget()
+    if not isValid( dragTarget ) then return end
+    if not self:isDragging() then return end
+
+    local mouseX, mouseY = Panel:getMouseContext()
+    if not mouseX then return end
+
+    local minX, minY, maxX, maxY = getDragBounds( self )
+    local xOff = self._dragMouseXOffset
+    local yOff = self._dragMouseYOffset
+
+    local x = mathClamp( mouseX + xOff, minX, maxX )
+    local y = mathClamp( mouseY + yOff, minY, maxY )
+
+    dragTarget:setPos( x, y )
+    self:dragThink()
+end
+
+function Draggable:onMousePressed()
+    local dragTarget = self:getDragTarget()
+    local dragTargetParent = isValid( dragTarget ) and dragTarget:getParent() or nil
+    local newDragTargetParent = self:getDragParent()
+    newDragTargetParent = isValid( newDragTargetParent ) and newDragTargetParent or nil
+    local xRel, yRel = dragTarget:getPosRelativeToPanel( newDragTargetParent )
+    local x, y = dragTarget:getPos()
+
+    self._dragTargetParentOriginal = dragTargetParent
+    self._dragTargetXPosOriginal = x
+    self._dragTargetYPosOriginal = y
+    self:adjustMouseOffset()
+
+    wrapDragTarget( self )
+
+    dragTarget:setParent( newDragTargetParent )
+    dragTarget:setPos( xRel, yRel )
+
+    self:onDragStarted()
+end
+
+function Draggable:onMouseLetGo()
+    local dragTarget = self:getDragTarget()
+    if not isValid( dragTarget ) then return end
+
+    local newTargetParent = getDragReleaseParent( self, dragTarget )
+    local x, y
+
+    if newTargetParent == false then -- DRAG_RELEASE_HOVERED is forcing it to go back to its original parent.
+        newTargetParent = self._dragTargetParentOriginal
+        x = self._dragTargetXPosOriginal
+        y = self._dragTargetYPosOriginal
+    else
+        x, y = dragTarget:getPosRelativeToPanel( newTargetParent )
+    end
+
+    if newTargetParent ~= nil and not isValid( newTargetParent ) then error( "The drag release parent is invalid" ) end
+
+    dragTarget:setParent( newTargetParent )
+    dragTarget:setPos( x, y )
+    unwrapDragTarget( self )
+    self:onDragEnded()
+end
+
+function Draggable:onDestroyed()
+    unwrapDragTarget( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+local function getSpecialParent( parent )
+    if not isValid( parent ) then return parent end
+
+    parent = parent:getContainingList() or parent
+
+    return parent
+end
+
+getDragBounds = function( draggable )
+    local width, height = draggable:getDragTarget():getSize()
+    local dragTargetParent = draggable:getDragTarget():getParent()
+    local parentWidth
+    local parentHeight
+
+    if isValid( dragTargetParent ) then
+        parentWidth, parentHeight = dragTargetParent:getSize()
+    else
+        parentWidth, parentHeight = Panel:getScreenSize()
+    end
+
+    local maxX = mathMax( parentWidth - width, 0 )
+    local maxY = mathMax( parentHeight - height, 0 )
+
+    return 0, 0, maxX, maxY
+end
+
+getDragReleaseParent = function( draggable, dragTarget )
+    local dragReleaseMode = draggable:getDragReleaseMode()
+
+    if dragReleaseMode == DRAG_RELEASE_NONE then return nil end
+    if dragReleaseMode == DRAG_RELEASE_ORIGINAL then return getSpecialParent( draggable._dragTargetParentOriginal ) end
+
+    -- DRAG_RELEASE_HOVERED
+
+    local hoveredPanel = getSpecialParent( Panel:getHoveredPanel() )
+    if hoveredPanel then hoveredPanel = hoveredPanel:rerouteChild( dragTarget ) end
+    if hoveredPanel and not hoveredPanel:doesAllowDragParenting() then return false end
+    if not draggable:canParentTo( dragTarget, hoveredPanel ) then return false end
+
+    return hoveredPanel
+end
+
+wrapDragTarget = function( draggable )
+    local dragTarget = draggable:getDragTarget()
+
+    dragTarget.__Draggable_setDock = dragTarget.setDock
+    dragTarget.__Draggable_getDock = dragTarget.getDock
+    dragTarget.__Draggable_setExpand = dragTarget.setExpand
+    dragTarget.__Draggable_getExpand = dragTarget.getExpand
+    dragTarget.__Draggable_setAnchor = dragTarget.setAnchor
+    dragTarget.__Draggable_getAnchor = dragTarget.getAnchor
+
+    draggable._dockStored = dragTarget:getDock()
+    draggable._expandStored = dragTarget:getExpand()
+    draggable._anchorStored = dragTarget:getAnchor()
+
+    dragTarget.setDock = function( panel, dock )
+        SGUI.expectValidDock( dock, 2, "dock" )
+
+        draggable._dockStored = dock
+
+        if draggable:isDragging() then return end
+
+        panel:__Draggable_setDock( dock )
+    end
+
+    dragTarget.getDock = function( panel )
+        if draggable:isDragging() then return draggable._dockStored end
+
+        return panel:__Draggable_getDock()
+    end
+
+    dragTarget.setExpand = function( panel, expand )
+        SGUI.expectValidExpand( expand, 2, "expand" )
+
+        draggable._expandStored = expand
+
+        if draggable:isDragging() then return end
+
+        panel:__Draggable_setExpand( expand )
+    end
+
+    dragTarget.getExpand = function( panel )
+        if draggable:isDragging() then return draggable._expandStored end
+
+        return panel:__Draggable_getExpand()
+    end
+
+    dragTarget.setAnchor = function( panel, anchor )
+        SGUI.expectValidAnchor( anchor, 2, "anchor" )
+
+        draggable._anchorStored = anchor
+
+        if draggable:isDragging() then return end
+
+        panel:__Draggable_setAnchor( anchor )
+    end
+
+    dragTarget.getAnchor = function( panel )
+        if draggable:isDragging() then return draggable._anchorStored end
+
+        return panel:__Draggable_getAnchor()
+    end
+
+    dragTarget:__Draggable_setDock( DOCK_NONE )
+    dragTarget:__Draggable_setExpand( EXPAND_NONE )
+    dragTarget:__Draggable_setAnchor( ANCHOR_NONE )
+end
+
+unwrapDragTarget = function( draggable )
+    local dragTarget = draggable:getDragTarget()
+    if not isValid( dragTarget ) then return end
+
+    dragTarget.setDock = dragTarget.__Draggable_setDock
+    dragTarget.getDock = dragTarget.__Draggable_getDock
+    dragTarget.setExpand = dragTarget.__Draggable_setExpand
+    dragTarget.getExpand = dragTarget.__Draggable_getExpand
+    dragTarget.setAnchor = dragTarget.__Draggable_setAnchor
+    dragTarget.getAnchor = dragTarget.__Draggable_getAnchor
+
+    dragTarget.__Draggable_setDock = nil
+    dragTarget.__Draggable_getDock = nil
+    dragTarget.__Draggable_setExpand = nil
+    dragTarget.__Draggable_getExpand = nil
+    dragTarget.__Draggable_setAnchor = nil
+    dragTarget.__Draggable_getAnchor = nil
+
+    dragTarget:setDock( draggable._dockStored or DOCK_NONE )
+    dragTarget:setExpand( draggable._expandStored or EXPAND_NONE )
+    dragTarget:setAnchor( draggable._anchorStored or ANCHOR_NONE )
+end
+
+
+----- SETUP -----
+

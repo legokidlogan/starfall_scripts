@@ -1,0 +1,13 @@
+--@name Flip Flop
+--@author Gotta go FAST
+--@server
+
+local state = false
+
+wire.adjustOutputs( { "Out" }, { "NUMBER" } )
+
+hook.add( "think", "WereRunningInTheNineties", function()
+    state = not state
+
+    wire.ports.Out = state and 1 or 0
+end )

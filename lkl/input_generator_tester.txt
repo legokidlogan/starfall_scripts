@@ -1,0 +1,58 @@
+--@name Input Generator Tester
+--@author
+--@server
+--@include lkl/input_generator.txt
+
+local tableInsert = table.insert
+
+projectNameID = "Test." .. chip():entIndex()
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+inGenRepeatMaxDefault = 3
+inGenRepeatNames = inGenRepeatNames or {}
+inGenRepeatTypes = inGenRepeatTypes or {}
+inGenRepeatGroups = inGenRepeatGroups or {}
+inGenRepeatMaxes = inGenRepeatMaxes or {}
+
+tableInsert( inputNames, "StateAll" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inGenRepeatNames, "State" )
+tableInsert( inGenRepeatTypes, "NUMBER" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Door" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Base" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Button" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "WhoPressed" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Children" )
+tableInsert( inGenRepeatTypes, "ARRAY" )
+tableInsert( inGenRepeatGroups, 0 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+require( "lkl/input_generator.txt" )
+
+wire.adjustInputs( inputNames, inputTypes )
+--wire.adjustInputs( { "Test", "Test2" }, { "NUMBER", "NUMBER" } )
+
+print( table.toString( inputNames ), table.toString( inputTypes ) )
+--print( table.toString( { "e" } ) )

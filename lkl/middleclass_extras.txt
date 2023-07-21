@@ -1,0 +1,69 @@
+--@name Middleclass Extras
+--@author legokidlogan
+--@shared
+
+if isInstanceOf then return end
+
+
+-- Whether or not obj is an instance of class, or a subclass of it
+function isInstanceOf( obj, class )
+    if type( obj ) ~= "table" then return false end
+
+    local func = obj.isInstanceOf
+    if not func then return false end
+
+    return func( obj, class )
+end
+
+-- Whether or not obj is a subclass of class, but not a direct instance of it
+function isSubclassOf( obj, class )
+    if type( obj ) ~= "table" then return false end
+
+    local func = obj.isSubclassOf
+    if not func then return false end
+
+    return func( obj, class )
+end
+
+-- Whether or not obj is a direct instance of class
+function isClass( obj, class )
+    if type( obj ) ~= "table" then return false end
+
+    local objClass = obj.class
+    if not objClass then return false end
+
+    return objClass == class
+end
+
+-- Whether or not obj's class name is exactly className
+function isClassByName( obj, className )
+    if type( obj ) ~= "table" then return false end
+
+    local objClass = obj.class
+    if type( objClass ) ~= "table" then return false end
+
+    local objClassName = objClass.name
+    if not objClassName then return false end
+
+    return objClassName == className
+end
+
+-- Whether or not obj is a middleclass instance object
+function isInstanceObject( obj )
+    if type( obj ) ~= "table" then return false end
+
+    local objClass = obj.class
+    if type( objClass ) ~= "table" then return false end
+
+    return objClass.name ~= nil
+end
+
+-- Whether or not classObj is a middleclass class object
+function isClassObject( classObj )
+    if type( classObj ) ~= "table" then return false end
+    if classObj.name == nil then return false end
+    if classObj.subclass == nil then return false end
+    if classObj.allocate == nil then return false end
+
+    return true
+end

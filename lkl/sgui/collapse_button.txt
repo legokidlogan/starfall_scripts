@@ -1,0 +1,89 @@
+--@name collapse_button
+--@author legokidlogan
+--@client
+--@include lkl/sgui/toggle_button.txt
+
+--[[
+    - SGUI.ClassTemplate
+    - THIS IS AN INTERNAL CLASS, DO NOT USE
+--]]
+
+
+require( "lkl/sgui/toggle_button.txt" )
+
+if SGUI.CollapseButton then return end -- Don't run twice
+
+
+SGUI.CollapseButton = class( "CollapseButton", SGUI.ToggleButton )
+
+
+local CollapseButton = SGUI.CollapseButton
+local uncollapsedArrowPoly_A
+local uncollapsedArrowPoly_B
+local collapsedArrowPoly_A
+local collapsedArrowPoly_B
+
+
+----- STATIC FUNCTIONS -----
+
+function CollapseButton:initialize( parent, initialState )
+    CollapseButton.super.initialize( self, parent, initialState )
+
+    self:allowDragParenting( false )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function CollapseButton:setArrowColor( color )
+    self:setColor( self.class.name .. "Arrow", color )
+end
+
+function CollapseButton:getArrowColor( fallbackColor, ... )
+    return self:getClassColor( "Arrow", fallbackColor, ... )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function CollapseButton:rerouteChild( _ )
+    error( "Cannot parent to a CollapseButton" )
+end
+
+function CollapseButton:handleDraw()
+    local state = self:getState()
+
+    render.setColor( self:getArrowColor() )
+    self:drawPoly( state and collapsedArrowPoly_A or uncollapsedArrowPoly_A )
+    self:drawPoly( state and collapsedArrowPoly_B or uncollapsedArrowPoly_B )
+end
+
+function CollapseButton:handleDrawBackground()
+    -- Do nothing.
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+uncollapsedArrowPoly_A = {
+    { x = 0.5, y = 0.5625 - 0.025 },
+    { x = 0.75, y = 0.25 },
+    { x = 0.875, y = 0.1875 },
+    { x = 1, y = 0.3125 },
+    { x = 0.9375, y = 0.4375 },
+    --{ x = 0.5, y = 0.875 },
+    { x = 0.59375, y = 0.78125 },
+    { x = 0.5, y = 0.78125 },
+}
+
+uncollapsedArrowPoly_B = SGUI.polyFlipHorizontal( uncollapsedArrowPoly_A )
+collapsedArrowPoly_A = SGUI.polyRotateAround( uncollapsedArrowPoly_A, -90, 0.5, 0.5 )
+collapsedArrowPoly_B = SGUI.polyRotateAround( uncollapsedArrowPoly_B, -90, 0.5, 0.5 )

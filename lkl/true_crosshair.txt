@@ -1,0 +1,64 @@
+--@name True Crosshair
+--@author legokidlogan
+--@shared
+
+
+-------------------------------------------------
+local crossColor = Color( 255, 255, 0 )
+local lineLength = 5
+local lineGap = 5
+local doCross = true
+
+local circleColor = Color( 255, 0, 0 )
+local radius = 8
+local doCircle = true
+-------------------------------------------------
+
+
+if SERVER then
+    hook.add( "PlayerSay", "LKL_TrueCrosshair_Toggle", function( ply, msg )
+        --if player() ~= owner() then return end
+        if msg ~= "/tc" then return end
+
+        net.start( "LKL_TrueCrosshair_Toggle" )
+        net.send( ply )
+
+        return ""
+    end )
+
+    return
+end
+
+
+local off1 = lineGap
+local off2 = lineGap + lineLength
+local active = true
+
+hook.add( "drawhud", "LKL_TrueCrosshiar_Render", function()
+    if not active then return end
+
+    local pos = player():getEyeTrace().HitPos
+    local scrPos = pos:toScreen()
+
+    if not scrPos.visible then return end
+
+    local x = scrPos.x
+    local y = scrPos.y
+
+    if doCircle then
+        render.setColor( circleColor )
+        render.drawCircle( x + 1, y + 1, radius )
+    end
+
+    if doCross then
+        render.setColor( crossColor )
+        render.drawLine( x, y + off1, x, y + off2 )
+        render.drawLine( x, y - off1, x, y - off2 )
+        render.drawLine( x + off1, y, x + off2, y )
+        render.drawLine( x - off1, y, x - off2, y )
+    end
+end )
+
+net.receive( "LKL_TrueCrosshair_Toggle", function()
+    active = not active
+end )

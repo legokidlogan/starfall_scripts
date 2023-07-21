@@ -1,0 +1,25 @@
+--@name Table Combine
+--@author legokidlogan
+--@shared
+
+
+--[[
+    - Appends entries from source into target, without adding duplicate values.
+    - Both tables must be sequential.
+
+    - ex:
+        local target
+--]]
+function table.combine( target, source )
+    local targVals = {}
+
+    for _, v in ipairs( target ) do
+        targVals[v] = true
+    end
+
+    for _, v in ipairs( source ) do
+        if not targVals[v] then
+            table.insert( target, v )
+        end
+    end
+end

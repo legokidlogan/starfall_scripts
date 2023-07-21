@@ -1,0 +1,22 @@
+--@name cl_check_permissions example
+--@author
+--@client
+--@include lkl/cl_check_permissions.txt
+
+
+permissions = {
+    "material.urlcreate",
+}
+
+
+require( "lkl/cl_check_permissions.txt" )
+
+setupPermissionRequestSafe( permissions, "DEFINEME: Message on request popup", true )
+checkPermissions()
+
+
+local function blah()
+    if not permissionSatisfied then return end
+
+    doStuff()
+end

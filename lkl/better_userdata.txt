@@ -1,0 +1,142 @@
+--@name Better Userdata
+--@author legokidlogan
+--@server
+
+local ud = {}
+local udStr = ""
+
+-- In case the userdata string was edited without the use of functions used in this script
+function updateUserdata( force )
+    local oldStr = udStr
+
+    udStr = getUserdata()
+
+    if oldStr == udStr and not force then return end
+
+    table.empty( ud )
+
+    local explode = string.explode( " |||| ", udStr )
+    local group = false
+
+    for i, str in ipairs( explode ) do
+        if group then
+            local tbl = {}
+            local valType = false
+            local entries = string.explode( " ||| ", str )
+
+            for i2, str2 in ipairs( entries ) do
+                if valType then
+                    local value = false
+
+                    if valType == "string" then
+                        value = str2
+                    elseif valType == "number" then
+                        value = tonumber( str2 )
+                    elseif valType == "boolean" then
+                        value = str == "true"
+                    elseif valType == "Vector" then
+                        local subEntries = string.explode( " || ", str )
+
+                        value = Vector( tonumber( subEntries[1] ), tonumber( subEntries[2] ), tonumber( subEntries[3] ) )
+                    elseif valType == "Angle" then
+                        local subEntries = string.explode( " || ", str )
+
+                        value = Angle( tonumber( subEntries[1] ), tonumber( subEntries[2] ), tonumber( subEntries[3] ) )
+                    end
+
+                    valType = false
+                    tbl[i2 / 2] = value
+                else
+                    valType = str2
+                end
+            end
+
+            tbl.count = #tbl
+            ud[group] = tbl
+            group = false
+        else
+            group = str
+        end
+    end
+end
+
+-- Update the userdata string once you're done making changes to the table
+function applyUserdata()
+    local newStr = ""
+    local first = true
+
+    for groupName, group in pairs( ud ) do
+        if first then
+            first = false
+        else
+            newStr = newStr .. " |||| "
+        end
+
+        newStr = newStr .. groupName .. " |||| "
+
+        local first2 = true
+
+        for i = 1, group.count do
+            if first2 then
+                first2 = false
+            else
+                newStr = newStr .. " ||| "
+            end
+
+            local value = group[i]
+            local valType = type( value )
+
+            newStr = newStr .. valType .. " ||| "
+
+            if valType == "Vector" or valType == "Angle" then
+                newStr = newStr .. tostring( value[1] ) .. " || " .. tostring( value[2] ) .. " || " .. tostring( value[3] )
+            else
+                newStr = newStr .. tostring( value )
+            end
+        end
+    end
+
+    udStr = newStr
+    setUserdata( udStr )
+end
+
+-- Giving key == 0 will append val to the end of the group
+-- key must be >= 0 and <= group.count + 1
+function editUserdata( group, key, val )
+    local valType = type( val )
+
+    if valType ~= "string" and valType ~= "number" and valType ~= "boolean" and valType ~= "Vector" and valType ~= "Angle" then return end
+    if type( key ) ~= "number" or key < 0 then return end
+
+    local groupName = tostring( group )
+    local group = ud[groupName]
+
+    if not group then
+        group = {}
+        group.count = 0
+        ud[groupName] = group
+    end
+
+    local count = group.count
+
+    if key > group.count + 1 then return end
+
+    if key == -1 then
+        group.count = count + 1
+        key = count + 1
+    else
+        group.count = math.max( count, key )
+    end
+
+    group[key] = val
+end
+
+function readUserdata( group, key )
+    if key then
+        return ud[group][key]
+    end
+
+    return ud[group]
+end
+
+updateUserdata()

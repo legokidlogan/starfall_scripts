@@ -1,0 +1,174 @@
+--@name Selective X-Ray
+--@author legokidlogan
+--@shared
+
+if SERVER then
+    local function wireInput( name, value )
+        if name == "RevealEnts" then
+            net.start( "LKL_SXR_DefineRevealEnts" )
+            net.writeTable( wire.ports.RevealEnts )
+            net.send( find.allPlayers() )
+        elseif name == "HideEnts" then
+            net.start( "LKL_SXR_DefineHideEnts" )
+            net.writeTable( wire.ports.HideEnts )
+            net.send( find.allPlayers() )
+        end
+    end
+
+    wire.adjustInputs( { "RevealEnts", "HideEnts" }, { "ARRAY", "ARRAY" } )
+
+    hook.add( "input", "LKL_SXR_InputChanged", wireInput )
+
+    timer.simple( 1, function()
+        wireInput( "RevealEnts", wire.ports.RevealEnts )
+        wireInput( "HideEnts", wire.ports.HideEnts )
+    end )
+else
+    local useStencil = false
+
+    local revealCount = 0
+    local hideCount = 0
+    local revealEnts = {}
+    local hideEnts = {}
+    local screen = false
+    local screenCornerX1 = 0
+    local screenCornerY1 = 0
+    local screenCornerX2 = 0
+    local screenCornerY2 = 0
+    local screenSize = 0
+    local screenDepth = 0
+    local scrW
+    local scrH
+
+    local rtMat = material.create( "UnlitGeneric" )
+    render.createRenderTarget( "canvas" )
+    rtMat:setTextureRenderTarget( "$basetexture", "canvas" )
+
+    local function resetStencil()
+        render.setStencilWriteMask(0xFF)
+        render.setStencilTestMask(0xFF)
+        render.setStencilReferenceValue(0)
+        render.setStencilCompareFunction(STENCIL.ALWAYS)
+        render.setStencilPassOperation(STENCIL.KEEP)
+        render.setStencilFailOperation(STENCIL.KEEP)
+        render.setStencilZFailOperation(STENCIL.KEEP)
+        render.clearStencil()
+    end
+
+    local function drawEnt( ent )
+        if not isValid( ent ) or not ent:canDraw() then return end
+
+        if useStencil then
+            resetStencil()
+
+            render.setStencilEnable( true )
+            render.setStencilReferenceValue( 1 )
+
+            render.setStencilCompareFunction( STENCIL.EQUAL )
+            render.setStencilFailOperation( STENCIL.REPLACE )
+
+            render.clearStencilBufferRectangle( 0, 0, scrW, scrH, 0 )
+            render.clearStencilBufferRectangle( screenCornerX1, screenCornerY1, screenCornerX2, screenCornerY2, 1 )
+
+            ent:draw()
+
+            local col = ent:getColor()
+
+            render.clearBuffersObeyStencil( col.r, col.g, col.b, col.a, false)
+            render.setStencilEnable( false )
+        else
+            --[[
+            local mat = render.createMaterial( ent:getMaterial() or "models/debug/debugwhite" )
+            local col = ent:getColor()
+            render.setMaterialEffectColorModify( mat, {
+                addr = col.r,
+                addg = col.g,
+                addb = col.b,
+            } )
+
+            render.setMaterial( mat )
+            --]]
+            ent:draw()
+            --mat:destroy()
+        end
+    end
+
+    hook.add( "render", "LKL_SXR_DefineScreen", function()
+        screen = screen or render.getScreenEntity()
+        screenSize = screenSize or screen:obbSize().x
+        screenDepth = screenDepth or screen:obbSize().z
+    end )
+
+    hook.add( "render", "LKL_SXR_Render", function()
+    --hook.add( "drawhud", "LKL_SXR_Render", function()
+        --screen = screen or render.getScreenEntity()
+
+        --[[
+        local m = Matrix()
+        m:setTranslation( screen:worldToLocal( Vector( 0, 0, 0 ) ) )
+        render.pushMatrix( m )
+        --]]
+
+        if useStencil then
+            render.selectRenderTarget( "canvas" )
+            render.clear( Color( 0, 0 ,0 ,0 ), true )
+
+            render.pushViewMatrix({
+                type = "3D",
+                origin = eyePos(),
+                --origin = screen:getPos(),
+                angles = eyeAngles(),
+                --angles = -screen:getUp():getAngle(),
+                --angles = Angle( 0, 0, 0 ),
+                fov = player():getFOV(),
+                aspect = 1,
+            })
+
+            local m = Matrix()
+            --m:setTranslation( screen:worldToLocal( Vector( 0, 0, 0 ) ) )
+            --render.pushMatrix( m )
+
+            local screenPos1 = screen:localToWorld( Vector( -screenSize / 2, -screenSize / 2, screenDepth / 2 ) ):toScreen()
+            local screenPos2 = screen:localToWorld( Vector( screenSize / 2, screenSize / 2, screenDepth / 2 ) ):toScreen()
+
+            screenCornerX1 = screenPos1.x
+            screenCornerY1 = screenPos1.y
+            screenCornerX2 = screenPos2.x
+            screenCornerY2 = screenPos2.y
+
+            --render.clearStencilBufferRectangle( screenCornerX1, screenCornerY1, screenCornerX2, screenCornerY2, 1 )
+        end
+
+        for i = 1, hideCount do
+            drawEnt( rawget( hideEnts, i ) )
+        end
+
+        for i = 1, revealCount do
+            drawEnt( rawget( revealEnts, i ) )
+        end
+
+        if useStencil then
+            scrW, scrH = render.getResolution()
+
+            render.popViewMatrix()
+            --render.popMatrix()
+            render.selectRenderTarget()
+
+            render.setMaterial( rtMat )
+            --render.drawTexturedRect( 0, 0, 512, 512 )
+            render.drawTexturedRect( 0, 0, scrW, scrH )
+        end
+
+        --render.popMatrix()
+    end )
+
+    net.receive( "LKL_SXR_DefineRevealEnts", function()
+        revealEnts = net.readTable()
+        revealCount = #revealEnts
+    end )
+
+    net.receive( "LKL_SXR_DefineHideEnts", function()
+        hideEnts = net.readTable()
+        hideCount = #hideEnts
+    end )
+end

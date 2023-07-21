@@ -1,0 +1,470 @@
+--@name Car Controller
+--@author legokidlogan
+--@shared
+
+projectNameID = "CarCon"
+printName = "[" .. projectNameID .. "]"
+
+if CLIENT then return end
+
+
+-- CONFIG
+local forwardSpeed = 16 -- Speed for driving forwards
+local backwardSpeed = 12 -- Speed for drving backwards
+local boostMult = 1.5 -- Speed multiplier when holding shift
+
+local turnAssistSpeed = 0.75 -- Strength of torque used to assist in making sharper turns
+local turnAssistSpeedBackwards = 0.75 -- Strength of torque used to assist in making sharper turns while driving backwards
+local turnAssistBoostMult = 1.25 -- Multiplier for turn assist strength when holding shift
+
+local pushdownStrength = 0.75 -- Strength of force used to push the car into the ground, hugging it more closely.
+local pushdownStrengthWall = 14 -- Strength of force used to cling against walls.
+local flipUprightStrength = 2.5 --Strength of force used to upright the car when using a or d when it's upside-down.
+local uprightDetectionInterval = 0.05 -- The time between updates for determining what direction is 'up' relative to the current ground.
+local carHeight = 35 -- The approximate height of your car from the ground to the middle of the base.
+local wallAntiGravityStrength = 18
+
+local dampenMultPassive = 0.009 -- Passive dampening multiplier, acts like air resistance.
+local dampenMultBrake = 0.055 -- Active dampening multiplier, makes braking faster.
+
+local soundUpdateInterval = 0.1
+local soundConfig = {
+    ActiveAmbient = {
+        Path = "ambient/machines/diesel_engine_idle1.wav",
+        FadeInTime = 2,
+        FadeOutTime = 2,
+        Volume = 0.15,
+        Pitch = 100,
+        Level = 70,
+    },
+    ActiveDrive = {
+        Path = "vehicles/airboat/fan_motor_fullthrottle_loop1.wav",
+        FadeInTime = 2,
+        FadeOutTime = 2,
+        Level = 90,
+        SlowVolume = 0.3,
+        FastVolume = 1,
+        SlowPitch = 75,
+        FastPitch = 120,
+        SlowSpeed = 250,
+        FastSpeed = 1000,
+        StartAndStopSpeed = 175,
+        FadeOutDelay = 1,
+    },
+}
+-- END CONFIG
+
+--[[ INFO:
+    - Wire inputs:
+        - Base: The base prop for the car.
+        - PodController: The pod controller linked to your car. Will auto-wire some other inputs like Driver and the buttons.
+        - OrientProp: Determines the forward, right, and up directions of the car, in case your base prop model has a janky orientation.
+    - Important config notes:
+        - Make sure carHeight is accurate! It's used for detecting if you're on the ground or not, which is important for stability and uprighting.
+--]]
+
+
+local base
+local chair
+local driver
+local podController
+local orientProp
+local baseBoxSize
+local groundTraceLength = carHeight * 1.05 + 20
+local uprightThreshold = 0.2
+local wallAntiGravityThreshold = 0.25
+local driveForceForward = 0
+local driveForceTurn = 0
+local contraptionMass = 0
+local btnStateW = false
+local btnStateA = false
+local btnStateS = false
+local btnStateD = false
+local btnStateShift = false
+local stoppingActiveDrive = false
+local activeDriveSoundReady = true
+local isUpright = true
+local isNearGround = true
+local isOnWall = false
+local worldUp = Vector( 0, 0, 1 )
+local groundUp = Vector( 0, 0, 1 )
+local soundObjects = {}
+local contraption = {}
+
+local tableInsert = table.insert
+
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+
+tableInsert( inputNames, "Base" )
+tableInsert( inputTypes, "ENTITY" )
+
+tableInsert( inputNames, "PodController" )
+tableInsert( inputTypes, "ENTITY" )
+
+tableInsert( inputNames, "OrientProp" )
+tableInsert( inputTypes, "ENTITY" )
+
+tableInsert( inputNames, "Chair" )
+tableInsert( inputTypes, "ENTITY" )
+
+tableInsert( inputNames, "Driver" )
+tableInsert( inputTypes, "ENTITY" )
+
+tableInsert( inputNames, "W" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "A" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "S" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "D" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "Shift" )
+tableInsert( inputTypes, "NUMBER" )
+
+--[[
+tableInsert( outputNames, "" )
+tableInsert( outputTypes, "" )
+--]]
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+
+
+local function baseWidthInDirection( worldDir )
+    if not isValid( base ) then return Vector( 0, 0, 0 ) end
+
+    return ( base:localToWorldVector( baseBoxSize ) * worldDir ):getLength()
+end
+
+local function startActiveAmbientSound()
+    if not isValid( base ) then return end
+
+    local activeAmbientSound = soundObjects.ActiveAmbient
+    local activeAmbientData = soundConfig.ActiveAmbient
+
+    if not activeAmbientSound:isPlaying() then
+        activeAmbientSound:play()
+        activeAmbientSound:setVolume( 0 )
+        activeAmbientSound:setPitch( activeAmbientData.Pitch )
+        activeAmbientSound:setDSP( activeAmbientData.Level )
+    end
+
+    activeAmbientSound:setVolume( activeAmbientData.Volume, activeAmbientData.FadeInTime )
+end
+
+local function stopActiveSounds()
+    if not isValid( base ) then return end
+
+    local activeAmbientSound = soundObjects.ActiveAmbient
+    local activeAmbientData = soundConfig.ActiveAmbient
+
+    activeAmbientSound:stop( activeAmbientData.FadeOutTime )
+
+    local activeDriveSound = soundObjects.ActiveDrive
+    local activeDriveData = soundConfig.ActiveDrive
+
+    activeDriveSound:stop( activeDriveData.FadeOutTime )
+    stoppingActiveDrive = false
+    activeDriveSoundReady = false
+    timer.remove( "LKL_CarCon_StopActiveDriveSound" )
+    timer.remove( "LKL_CarCon_ActiveDriveSoundReady" )
+end
+
+local function updateDriveDirections()
+    if not driver then
+        driveForceForward = 0
+        driveForceTurn = 0
+
+        return
+    end
+
+    local isBackwards = false
+
+    if btnStateW then
+        if btnStateS then
+            driveForceForward = 0
+        else
+            driveForceForward = btnStateShift and ( forwardSpeed * boostMult ) or forwardSpeed
+        end
+    elseif btnStateS then
+        driveForceForward = btnStateShift and ( -backwardSpeed * boostMult ) or -backwardSpeed
+        isBackwards = true
+    else
+        driveForceForward = 0
+    end
+
+    if turnAssistSpeed == 0 then return end
+
+    local turnSpeedBase = isBackwards and -turnAssistSpeedBackwards or turnAssistSpeed
+
+    if btnStateA then
+        if btnStateD then
+            driveForceTurn = 0
+        else
+            driveForceTurn = btnStateShift and ( turnSpeedBase * turnAssistBoostMult ) or turnSpeedBase
+        end
+    elseif btnStateD then
+        driveForceTurn = btnStateShift and ( -turnSpeedBase * turnAssistBoostMult ) or -turnSpeedBase
+    else
+        driveForceTurn = 0
+    end
+end
+
+local function wireInput( name, value )
+    if name == "Base" then
+        base = isValid( value ) and value
+
+        if base then
+            baseBoxSize = base:obbSize() / 2
+            contraption = base:getAllConstrained()
+            contraptionMass = 0
+
+            local contraptionPhysical = base:getAllConstrained( {
+                Weld = true,
+                Rope = true,
+                Axis = true,
+                Motor = true,
+                Slider = true,
+                Winch = true,
+                Ballsocket = true,
+                AdvBallsocket = true,
+            } )
+
+            for _, ent in ipairs( contraptionPhysical ) do
+                pcall( function()
+                    contraptionMass = contraptionMass + ent:getMass()
+                end )
+            end
+
+            for sndName, sndData in pairs( soundConfig ) do
+                local sndObj = soundObjects[sndName]
+
+                if isValid( sndObj ) then
+                    sndObj:stop()
+                    sndObj:destroy()
+                end
+
+                sndObj = sounds.create( base, sndData.Path, false )
+                sndObj:stop()
+                soundObjects[sndName] = sndObj
+            end
+        else
+            for sndName, sndObj in pairs( soundObjects ) do
+                if isValid( sndObj ) then
+                    sndObj:stop()
+                    sndObj:destroy()
+                end
+
+                soundObjects[sndName] = nil
+            end
+        end
+    elseif name == "PodController" then
+        podController = isValid( value ) and value
+
+        if not podController then return end
+
+        wire.create( chip(), podController, "Chair", "Entity" )
+        wire.create( chip(), podController, "Driver", "Driver" )
+        wire.create( chip(), podController, "W", "W" )
+        wire.create( chip(), podController, "A", "A" )
+        wire.create( chip(), podController, "S", "S" )
+        wire.create( chip(), podController, "D", "D" )
+        wire.create( chip(), podController, "Shift", "Shift" )
+    elseif name == "OrientProp" then
+        orientProp = isValid( value ) and value
+    elseif name == "Chair" then
+        chair = isValid( value ) and value:isVehicle() and value
+    elseif name == "Driver" then
+        driver = isValid( value ) and value:isPlayer() and value
+
+        --tiSetTargets( driver )
+        timer.simple( 0.3, updateDriveDirections )
+
+        if driver then
+            startActiveAmbientSound()
+        else
+            stopActiveSounds()
+        end
+    elseif name == "W" then
+        btnStateW = value ~= 0
+        updateDriveDirections()
+    elseif name == "A" then
+        btnStateA = value ~= 0
+        updateDriveDirections()
+    elseif name == "S" then
+        btnStateS = value ~= 0
+        updateDriveDirections()
+    elseif name == "D" then
+        btnStateD = value ~= 0
+        updateDriveDirections()
+    elseif name == "Shift" then
+        btnStateShift = value ~= 0
+        updateDriveDirections()
+    end
+end
+
+
+hook.add( "input", "LKL_CarCon_WireInput", wireInput )
+
+hook.add( "think", "LKL_CarCon_DriveCar", function()
+    if not isValid( base ) or not isValid( driver ) then return end
+
+    if not isValid( orientProp ) then
+        orientProp = base
+    end
+
+    local mass = base:getMass()
+
+    if dampenMultPassive ~= 0 or dampenMultBrake ~= 0 then
+        local carVel = base:getVelocity()
+        local dampenMultEff
+
+        if driveForceForward == 0 then
+            dampenMultEff = dampenMultPassive
+        else
+            local driveDir = orientProp:getForward() * driveForceForward
+
+            if carVel:dot( driveDir ) >= 0 then -- Perpendicular or facing together
+                dampenMultEff = dampenMultPassive
+            else -- Facing away (trying to brake)
+                dampenMultEff = dampenMultBrake
+            end
+        end
+
+        base:applyForceCenter( carVel * -dampenMultEff * mass )
+    end
+
+    if driveForceForward ~= 0 then
+        base:applyForceCenter( orientProp:getForward() * driveForceForward * mass )
+    end
+
+    if driveForceTurn ~= 0 then
+        base:applyTorque( orientProp:getUp() * driveForceTurn * mass )
+    end
+
+    if isUpright then
+        if isNearGround then
+            local clingStrengthEff = isOnWall and pushdownStrengthWall or pushdownStrength
+
+            base:applyForceCenter( -groundUp * clingStrengthEff * mass )
+        end
+    else
+        -- Upright force
+        local uprightRightDir
+
+        if btnStateA then
+            if not btnStateD then
+                uprightRightDir = orientProp:getUp()
+            end
+        elseif btnStateD then
+            uprightRightDir = -orientProp:getUp()
+        end
+
+        if uprightRightDir then
+            local basePos = base:getPos()
+            local uprightRightOffset = orientProp:getRight()
+            uprightRightOffset = uprightRightOffset * baseWidthInDirection( uprightRightOffset )
+
+            base:applyForceOffset( uprightRightDir * flipUprightStrength * mass, basePos + uprightRightOffset )
+            base:applyForceOffset( -uprightRightDir * flipUprightStrength * mass, basePos - uprightRightOffset )
+        end
+    end
+
+    -- Wall anti-gravity:
+    if isOnWall then
+        base:applyForceCenter( worldUp * wallAntiGravityStrength * contraptionMass )
+    end
+end )
+
+
+timer.create( "LKL_CarCon_UpdateGroundDirection", uprightDetectionInterval, 0, function()
+    if not isValid( base ) or not isValid( driver ) then return end
+    if not isValid( orientProp ) then return end
+
+    local orientUp = orientProp:getUp()
+    local startPos = base:getPos()
+    local endPos = startPos - orientUp * groundTraceLength
+    local tr = trace.trace( startPos, endPos, contraption )
+
+    isNearGround = tr.Hit
+
+    if isNearGround then
+        groundUp = tr.HitNormal
+    else
+        groundUp = Vector( 0, 0, 1 )
+    end
+
+    isUpright = orientUp:dot( groundUp ) >= uprightThreshold
+    isOnWall = isNearGround and groundUp:dot( worldUp ) <= wallAntiGravityThreshold
+end )
+
+timer.create( "LKL_CarCon_UpdateActiveDriveSound", soundUpdateInterval, 0, function()
+    if not isValid( base ) or not isValid( driver ) then return end
+
+    local carSpeed = base:getVelocity():getLength()
+
+    local activeDriveSound = soundObjects.ActiveDrive
+    local activeDriveData = soundConfig.ActiveDrive
+
+    if carSpeed < activeDriveData.StartAndStopSpeed then
+        if not activeDriveSound:isPlaying() then return end
+        if stoppingActiveDrive then return end
+
+        stoppingActiveDrive = true
+        activeDriveSoundReady = false
+        activeDriveSound:setVolume( activeDriveData.SlowVolume, soundUpdateInterval )
+        activeDriveSound:setPitch( activeDriveData.SlowPitch, soundUpdateInterval )
+        timer.remove( "LKL_CarCon_ActiveDriveSoundReady" )
+
+        timer.create( "LKL_CarCon_StopActiveDriveSound", activeDriveData.FadeOutDelay, 1, function()
+            timer.create( "LKL_CarCon_StopActiveDriveSound", activeDriveData.FadeOutTime, 1, function()
+                stoppingActiveDrive = false
+            end )
+
+            if not isValid( base ) or not activeDriveSound:isPlaying() then return end
+
+            activeDriveSound:stop( activeDriveData.FadeOutTime )
+        end )
+
+        return
+    end
+
+    if not activeDriveSound:isPlaying() then
+        activeDriveSound:play()
+        activeDriveSound:setVolume( 0 )
+        activeDriveSound:setVolume( activeDriveData.SlowVolume, activeDriveData.FadeInTime )
+        activeDriveSound:setPitch( activeDriveData.SlowPitch )
+
+        activeDriveSoundReady = false
+
+        timer.remove( "LKL_CarCon_StopActiveDriveSound" )
+        timer.create( "LKL_CarCon_ActiveDriveSoundReady", activeDriveData.FadeInTime, 1, function()
+            activeDriveSoundReady = true
+        end )
+    end
+
+    if not activeDriveSoundReady then return end
+
+    local slowSpeed = activeDriveData.SlowSpeed
+    local fastSpeed = activeDriveData.FastSpeed
+    local speedClamped = math.clamp( carSpeed, slowSpeed, fastSpeed )
+    local frac = ( speedClamped - slowSpeed ) / ( fastSpeed - slowSpeed )
+
+    local slowVolume = activeDriveData.SlowVolume
+    local fastVolume = activeDriveData.FastVolume
+    local slowPitch = activeDriveData.SlowPitch
+    local fastPitch = activeDriveData.FastPitch
+
+    activeDriveSound:setVolume( slowVolume + ( fastVolume - slowVolume ) * frac, soundUpdateInterval )
+    activeDriveSound:setPitch( slowPitch + ( fastPitch - slowPitch ) * frac, soundUpdateInterval )
+end )

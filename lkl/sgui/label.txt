@@ -1,0 +1,215 @@
+--@name Label
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+--[[
+    - SGUI.Label
+    - Displays text
+
+    - TODO: Incorporate code from HText
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+
+if SGUI.Label then return end -- Don't run twice
+
+
+SGUI.Label = class( "Label", SGUI.Panel )
+
+
+local Label = SGUI.Label
+
+local mathMax = math.max
+
+
+----- STATIC FUNCTIONS -----
+
+function Label:initialize( parent )
+    Label.super.initialize( self, parent )
+
+    self._renderedTextWidth = 0
+    self._renderedTextHeight = 0
+
+    self:setTextAlign( TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+    self:setText()
+    self:setFont( render.getDefaultFont() )
+    self:allowDragParenting( false )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Label:setText( text )
+    text = text or ""
+    if type( text ) ~= "string" then error( "Expected text to be nil or a string" ) end
+
+    local doSuppress = self._doSuppressNextTextChangedEvent
+    self._doSuppressNextTextChangedEvent = nil
+
+    local oldText = self._text
+    if oldText == text then return end
+
+    self._text = text
+    self:invalidateRenderedTextSize()
+
+    if not doSuppress then
+        self:onTextChanged( oldText, text )
+    end
+end
+
+function Label:getText()
+    return self._text
+end
+
+-- Causes the next :setText() call to not run :onTextChanged()
+function Label:suppressNextTextChangedEvent()
+    self._doSuppressNextTextChangedEvent = true
+end
+
+function Label:setFont( font )
+    if type( font ) ~= "string" then error( "Expected font to be a string" ) end
+    if self._font == font then return end
+
+    self._font = font
+    self:invalidateRenderedTextSize()
+end
+
+function Label:getFont()
+    return self._font
+end
+
+function Label:setTextAlignX( xAlign )
+    SGUI.expectValidHorizontalTextAlign( xAlign, 1, "xAlign" )
+
+    self._xAlign = xAlign
+end
+
+function Label:getTextAlignX()
+    return self._xAlign
+end
+
+function Label:setTextAlignY( yAlign )
+    SGUI.expectValidVerticalTextAlign( yAlign, 1, "yAlign" )
+
+    self._yAlign = yAlign
+end
+
+function Label:getTextAlignY()
+    return self._yAlign
+end
+
+function Label:setTextAlign( xAlign, yAlign )
+    self:setTextAlignX( xAlign )
+    self:setTextAlignY( yAlign )
+end
+
+function Label:getTextAlign()
+    return self:getTextAlignX(), self:getTextAlignY()
+end
+
+function Label:setTextColor( color )
+    self:setColor( "Text", color )
+end
+
+function Label:getTextColor( fallbackColor, ... )
+    return self:getColor( "Text", fallbackColor, ... )
+end
+
+function Label:getRenderedTextWidth()
+    return self._renderedTextWidth
+end
+
+function Label:getRenderedTextHeight()
+    return self._renderedTextHeight
+end
+
+function Label:getRenderedTextSize()
+    return self:getRenderedTextWidth(), self:getRenderedTextHeight()
+end
+
+--[[
+    - Returns a width and height that would cause the Label to perfectly fit the text.
+    - Uses the rendered text size and inner margins.
+    - Mostly for use with :onRenderedTextSizeChanged() to auto-resize, such as by doing the following:
+        function MyLabel:onRenderedTextSizeChanged()
+            self:setSize( self:getSizeToFitText() )
+        end
+--]]
+function Label:getSizeToFitText()
+    local innerMarginLeft, innerMarginTop, innerMarginRight, innerMarginBottom = self:getInnerMargin()
+    local textWidth, textHeight = self:getRenderedTextSize()
+
+    local width = mathMax( textWidth + innerMarginLeft + innerMarginRight, 1 )
+    local height = mathMax( textHeight + innerMarginTop + innerMarginBottom, 1 )
+
+    return width, height
+end
+
+function Label:invalidateRenderedTextSize()
+    self._renderedTextSizeIsValid = false
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function Label:onTextChanged( oldText, newText )
+
+end
+
+function Label:onRenderedTextSizeChanged( oldWidth, oldHeight, newWidth, newHeight )
+
+end
+
+function Label:getTextColorEffective( fallbackColor, ... )
+    return self:getColor( "Text", fallbackColor, ... )
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Label:handleDraw()
+    local innerMarginLeft, innerMarginTop, innerMarginRight, innerMarginBottom = self:getInnerMargin()
+    local x, y = self:getPosEffective()
+    local w, h = self:getSize()
+    local alignX, alignY = self:getTextAlign()
+    local text = self:getText()
+
+    x = x + innerMarginLeft
+    y = y + innerMarginTop
+    w = w - innerMarginLeft - innerMarginRight
+    h = h - innerMarginTop - innerMarginBottom
+
+    if alignX == TEXT_ALIGN_CENTER then
+        x = x + w / 2
+    elseif alignX == TEXT_ALIGN_RIGHT then
+        x = x + w
+    end
+
+    if alignY == TEXT_ALIGN_CENTER then
+        y = y + h / 2
+    elseif alignY == TEXT_ALIGN_BOTTOM then
+        y = y + h
+    end
+
+    render.setFont( self:getFont() )
+    render.setColor( self:getTextColorEffective() )
+    render.drawSimpleText( x, y, text, alignX, alignY )
+
+    -- Update the rendered text size
+    if not self._renderedTextSizeIsValid then
+        local textWidthOld, textHeightOld = self:getRenderedTextSize()
+        local textWidth, textHeight = render.getTextSize( text )
+
+        self._renderedTextWidth = textWidth
+        self._renderedTextHeight = textHeight
+        self._renderedTextSizeIsValid = true
+
+        self:onRenderedTextSizeChanged( textWidthOld, textHeightOld, textWidth, textHeight )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+

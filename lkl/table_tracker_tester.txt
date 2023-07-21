@@ -1,0 +1,118 @@
+--@name Table Tracker Tester
+--@author
+--@server
+--@include lkl/table_tracker.txt
+
+require( "lkl/table_tracker.txt" )
+
+
+local function myReadFunc( proxyTbl, realTbl, key )
+
+end
+
+local function myWriteFunc( proxyTbl, realTbl, key, val )
+
+end
+
+
+local myLogFlags = {
+    LogRead = true,
+    LogWrite = true,
+    AutoTrackNewChildren = true,
+}
+
+local testTbl = {
+    Pre1 = {
+        "a",
+        "b",
+        "c",
+    },
+    Pre2 = {
+        "d",
+        "e",
+        "f",
+    },
+    Val1 = "va",
+    Val2 = "vb",
+    Val3 = "vc",
+}
+
+
+--testTbl = tableTracker.trackTbl( testTbl, myReadFunc, myWriteFunc, nil, "testTbl", false, myLogFlags )
+testTbl = tableTracker.trackTblAndChildren( testTbl, myReadFunc, myWriteFunc, nil, "testTbl", false, false, myLogFlags )
+
+
+
+local function testStuff_1()
+    print(
+        c_info_blue, "\n\nRunning test ",
+        c_yellow, "#1\n"
+    )
+
+    print( testTbl.Val1 )
+end
+
+local function testStuff_2()
+    print(
+        c_info_blue, "\n\nRunning test ",
+        c_yellow, "#2\n"
+    )
+
+    testTbl.Val2 = "vb_t"
+    print( testTbl.Val2 )
+end
+
+local function testStuff_3()
+    print(
+        c_info_blue, "\n\nRunning test ",
+        c_yellow, "#3\n"
+    )
+
+    testTbl.Val4 = "vd_t"
+    print( testTbl.Val4 )
+end
+
+local function testStuff_4()
+    print(
+        c_info_blue, "\n\nRunning test ",
+        c_yellow, "#4\n"
+    )
+
+    testTbl.Pre1[1] = "a_t"
+    print( testTbl.Pre1[1] )
+end
+
+local function testStuff_5()
+    print(
+        c_info_blue, "\n\nRunning test ",
+        c_yellow, "#5\n"
+    )
+
+    local post1 = {
+        "g_t",
+        "h_t",
+        "i_t"
+    }
+
+    testTbl.Post1 = post1
+    printTable( testTbl.Post1 )
+
+    post1 = testTbl.Post1
+    post1[4] = "j_t"
+    print( post1[4] )
+end
+
+
+local function runTests()
+    testStuff_1()
+    testStuff_2()
+    testStuff_3()
+    testStuff_4()
+    testStuff_5()
+end
+
+
+
+do
+    runTests()
+end

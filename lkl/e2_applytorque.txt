@@ -1,0 +1,65 @@
+--@name E2 ApplyTorque
+--@author legokidlogan
+--@server
+
+--[[
+    - A tool for easily and stably rotating unfrozen entities.
+--]]
+
+
+torqueStrength = torqueStrength or 100
+torqueStabilization = torqueStabilization or 30
+
+
+local mClamp = math.clamp
+local mAbs = math.abs
+
+function clampVec( v )
+    return Vector(
+        mClamp( v.x, -1000000, 1000000 ),
+        mClamp( v.y, -1000000, 1000000 ),
+        mClamp( v.z, -1000000, 1000000 )
+    )
+end
+
+-- e2's version of the applyTorque() function, ripped from wiremod
+function e2ApplyTorque( ent, torque )
+    if torque == Vector( 0, 0, 0 ) then return end
+
+    torque = clampVec( torque )
+
+    local phys = ent:getPhysicsObject()
+    local torqueamount = torque:getLength()
+
+    -- Convert torque from local to world axis
+    torque = phys:localToWorld( torque ) - phys:getPos()
+
+    -- Find two vectors perpendicular to the torque axis
+    local off = Vector( 0, 0, 0 )
+
+    if mAbs( torque.x ) > torqueamount * 0.1 or mAbs( torque.z ) > torqueamount * 0.1 then
+        off = Vector( -torque.z, 0, torque.x )
+    else
+        off = Vector( -torque.y, torque.x, 0 )
+    end
+
+    off = off:getNormalized() * torqueamount * 0.5
+
+    local dir = ( torque:cross( off ) ):getNormalized()
+
+    dir = clampVec( dir )
+    off = clampVec( off )
+
+    phys:applyForceOffset( dir, off )
+    phys:applyForceOffset( dir * -1, off * -1 )
+end
+
+-- If called frequently via think/timer, this will stably rotate ent to the angle desAng using torque.
+function torqueAlign( ent, desAng, overrideStrength, overrideStabilization )
+    local CQ = ent:getAngles():getQuaternion()
+    local TQ = desAng:getQuaternion()
+    local Q = TQ / CQ
+    local Torque = ent:worldToLocal( Q:getRotationVector() + ent:getPos() )
+
+    e2ApplyTorque( ent, ( Torque * ( overrideStrength or torqueStrength ) - ent:getAngleVelocity() * ( overrideStabilization or torqueStabilization ) ) * ent:getInertia() )
+end

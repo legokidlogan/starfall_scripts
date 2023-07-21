@@ -1,0 +1,288 @@
+--@name Window
+--@author legokidlogan
+--@client
+--@include lkl/sgui/collapsible.txt
+--@include lkl/sgui/close_button.txt
+--@include lkl/sgui/draggable.txt
+--@include lkl/sgui/label.txt
+
+--[[
+    - SGUI.Window
+    - Combines functionality of Collapsible and Resizsable, and adds a close button.
+    - The main base for putting other Panels inside of.
+    - Like in Collapsible, use :setUncollapsedSize() instead of :setSize()
+--]]
+
+
+require( "lkl/sgui/collapsible.txt" )
+require( "lkl/sgui/close_button.txt" )
+require( "lkl/sgui/draggable.txt" )
+require( "lkl/sgui/label.txt" )
+
+if SGUI.Window then return end -- Don't run twice
+
+
+SGUI.Window = class( "Window", SGUI.Collapsible )
+
+
+local Window = SGUI.Window
+local resizeDirectionsCollapsed = {}
+local resizeDirectionsUncollapsed = { DIR_RIGHT, DIR_BOTTOM_RIGHT, DIR_BOTTOM, DIR_BOTTOM_LEFT, DIR_LEFT }
+
+
+----- STATIC FUNCTIONS -----
+
+function Window:initialize( parent )
+    Window.super.initialize( self, parent )
+
+    local selfObj = self
+
+
+    local collapseButton = self:getCollapseButton()
+    collapseButton:setParent()
+
+
+    local collapseRegion = SGUI.Resizable()
+    self._collapseRegion:destroy()
+    self._collapseRegion = collapseRegion
+    collapseRegion:setParent( self ) -- Set parent after due to re-routing
+    collapseRegion:setBackgroundRoundedCorners( false, false, true, true )
+    collapseRegion:setBorderSize( 0 )
+    collapseRegion:setMargin( 0 )
+    collapseRegion:setInnerMargin( 0 )
+    collapseRegion:setResizeTarget( self )
+
+    function collapseRegion:getBackgroundColor( fallbackColor, ... )
+        return selfObj:getBackgroundColor( fallbackColor, ... )
+    end
+
+    function collapseRegion:onResized( resizeTarget, x, y, width, height )
+        resizeTarget:setPos( x, y )
+        resizeTarget:setUncollapsedSize( width, height )
+
+        selfObj:onResized( x, y, width, height )
+    end
+
+
+    local collapseBar = SGUI.Draggable()
+    self._collapseBar:destroy()
+    self._collapseBar = collapseBar
+    collapseBar:setParent( self ) -- Set parent after due to re-routing
+    collapseBar:setBorderSize( 0 )
+    collapseBar:setMargin( 0 )
+    collapseBar:setInnerMargin( 0 )
+    collapseBar:setDragTarget( self )
+    collapseBar:setDragParent( false )
+    collapseBar:setDragReleaseMode( DRAG_RELEASE_NONE )
+    collapseBar:allowDragParenting( false )
+
+    function collapseBar:getBackgroundColor( fallbackColor, ... )
+        return selfObj:getCollapseBarColor( fallbackColor, ... )
+    end
+
+    function collapseBar:onDragStarted()
+        selfObj:moveToFront()
+        selfObj:onDragStarted()
+    end
+
+    function collapseBar:onDragEnded()
+        selfObj:onDragEnded()
+    end
+
+    function collapseBar:dragThink()
+        selfObj:dragThink()
+    end
+
+
+    local dropdownContainer = SGUI.Panel()
+    self._dropdownContainer = dropdownContainer
+    dropdownContainer:setParent( self:getCollapseBar() ) -- Set parent after due to re-routing
+    dropdownContainer:setBorderSize( 0 )
+    dropdownContainer:setBackgroundRadius( 5 )
+    dropdownContainer:setWidth( 50 )
+    dropdownContainer:setDock( DOCK_RIGHT )
+    dropdownContainer:setMargin( 4 )
+    dropdownContainer:setInnerMargin( 2, 0, 4, 0 )
+    dropdownContainer:allowDragParenting( false )
+
+    function dropdownContainer:getBackgroundColor( fallbackColor, ... )
+        return selfObj:getButtonContainerColor( fallbackColor, ... )
+    end
+
+
+    local titleLabel = SGUI.Label( collapseBar )
+    self._titleLabel = titleLabel
+    titleLabel:setDock( DOCK_FILL )
+    titleLabel:setTextAlign( TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER )
+    titleLabel:setMargin( 3 )
+    titleLabel:allowDragParenting( false )
+
+
+    local closeButton = SGUI.CloseButton( dropdownContainer, nil )
+    self._closeButton = closeButton
+    closeButton:setSize( 15, 15 )
+    closeButton:setMargin( 2, 0, 0, 0 )
+    closeButton:setAnchor( ANCHOR_RIGHT )
+    closeButton:setText()
+
+    function closeButton:onClicked()
+        selfObj:onClosed()
+        selfObj:destroy()
+    end
+
+
+    collapseButton:setParent( dropdownContainer )
+    collapseButton:setAnchor( ANCHOR_LEFT )
+
+    function collapseButton:getArrowColor( fallbackColor, ... )
+        return selfObj:getCollapseButtonColor( fallbackColor, ... )
+    end
+
+
+    self:setBackgroundRadius( 10 )
+    self:setCollapsedHeight( 25 )
+    self:setUncollapsedSize( 200, 200 )
+    self:setBorderSize( 3 )
+    self:setMinSize( self:getSize() )
+    self:setTitle( "Window" )
+    self:collapse()
+    self:uncollapse()
+
+    collapseBar:setDock( DOCK_TOP )
+    collapseRegion:setDock( DOCK_FILL )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Window:setCanClose( state )
+    self:getCloseButton():setEnabled( state )
+end
+
+function Window:getCanClose()
+    return self:getCloseButton():getEnabled()
+end
+
+function Window:getCloseButton()
+    return self._closeButton
+end
+
+function Window:getDropdownContainer()
+    return self._dropdownContainer
+end
+
+function Window:setMinWidth( width )
+    self:getCollapseRegion():setMinWidth( width )
+end
+
+function Window:setMinHeight( height )
+    self:getCollapseRegion():setMinHeight( height )
+end
+
+function Window:setMinSize( width, height )
+    self:getCollapseRegion():setMinSize( width, height )
+end
+
+function Window:setMaxWidth( width )
+    self:getCollapseRegion():setMaxWidth( width )
+end
+
+function Window:setMaxHeight( height )
+    self:getCollapseRegion():setMaxHeight( height )
+end
+
+function Window:setMaxSize( width, height )
+    self:getCollapseRegion():setMaxSize( width, height )
+end
+
+function Window:setTitle( text )
+    self:getTitleLabel():setText( text )
+end
+
+function Window:getTitleLabel()
+    return self._titleLabel
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function Window:onClosed()
+
+end
+
+function Window:onResized( x, y, width, height )
+
+end
+
+function Window:onDragStarted()
+
+end
+
+function Window:onDragEnded()
+
+end
+
+function Window:dragThink()
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Window:setBorderSize( size )
+    local collapseRegion = self:getCollapseRegion()
+    if not collapseRegion then return end
+
+    local marginLeft, _, marginRight, marginBottom = collapseRegion:getMargin()
+    local marginInner = math.round( size / 2 ) + 1
+
+    collapseRegion:setBorderSize( size )
+    collapseRegion:setMargin( marginLeft, -size, marginRight, marginBottom )
+    collapseRegion:setInnerMargin( marginInner, size, marginInner, marginInner )
+end
+
+function Window:setButtonContainerColor( color )
+    self:setColor( self.class.name .. "ButtonContainer", color )
+end
+
+function Window:getButtonContainerColor( fallbackColor, ... )
+    return self:getClassColor( "ButtonContainer", fallbackColor, ... )
+end
+
+function Window:getCollapseButtonColor( fallbackColor, ... )
+    return self:getClassColor( "CollapseButton", fallbackColor, ... )
+end
+
+function Window:setCollapseButtonColor( color )
+    self:setColor( self.class.name .. "CollapseButton", color )
+end
+
+function Window:setCollapsedHeight( height )
+    Window.super.setCollapsedHeight( self, height )
+
+    local dropdownContainer = self:getDropdownContainer()
+    if not dropdownContainer then return end
+
+    dropdownContainer:setWidth( height * 2 )
+end
+
+function Window:onCollapseChanged( state )
+    local collapseRegion = self:getCollapseRegion()
+    if not isValid( collapseRegion ) or not collapseRegion:isInstanceOf( SGUI.Resizable ) then return end
+
+    collapseRegion:setResizeDirections( state and resizeDirectionsCollapsed or resizeDirectionsUncollapsed )
+end
+
+function Window:setBackgroundRadius( radius )
+    if not self:getCollapseBar() then return end
+
+    self:getCollapseBar():setBackgroundRadius( radius )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+

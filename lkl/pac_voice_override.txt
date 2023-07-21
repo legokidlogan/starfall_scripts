@@ -1,0 +1,86 @@
+--@name PAC Voice Override
+--@author Snepdragon and legokidlogan
+--@shared
+
+-- Provides structure to manipulate a PAC3 Proxy based on Sound Level.
+-- Owner only due to concmd!
+
+if pacVoiceOverride and pacVoiceOverride.doVoiceProxy then return end -- Don't re-execute
+
+
+-- CONFIG
+pacVoiceOverride = pacVoiceOverride or {}
+pacVoiceOverride.ratelimit = pacVoiceOverride.ratelimit or 0.05 -- Time in seconds.
+pacVoiceOverride.volumeMult = pacVoiceOverride.volumeMult or 2 -- Volume multiplier.
+pacVoiceOverride.alertRatelimit = pacVoiceOverride.alertRatelimit or 10 -- Cooldown for alerts telling you if starfall's concmd limit was reached. 0 to disable alerts entirely.
+-- END CONFIG
+
+
+local nextProxyTime = 0
+local nextAlertTime = 0
+local proxyActive = false
+
+c_white = c_white or Color( 255, 255, 255, 255 )
+c_alert_red = c_alert_red or Color( 150, 0, 0, 255 )
+
+
+local function tryAlert( success, now )
+    if success then return end
+
+    local alertRatelimit = pacVoiceOverride.alertRatelimit
+    if alertRatelimit <= 0 then return end
+    if now < nextAlertTime then return end
+
+    nextAlertTime = now + alertRatelimit
+
+    print(
+        c_white, "[PacVO] ",
+        c_alert_red, "Starfall concmd limit reached! ",
+        c_white, "It is recommended to set pacVoiceOverride.ratelimit to a higher value."
+    )
+end
+
+
+-- GLOBAL FUNCTIONS ------------------------------------------------------------
+
+function pacVoiceOverride.setActive( state )
+    if CLIENT and player() ~= owner() then return end
+
+    proxyActive = state
+
+    local stateStr = proxyActive and "1" or "3"
+
+    concmd( "pac_event voice_override_enabled " .. stateStr )
+end
+
+function pacVoiceOverride.activate()
+    pacVoiceOverride.setActive( true )
+end
+
+function pacVoiceOverride.deactivate()
+    pacVoiceOverride.setActive( false )
+end
+
+function pacVoiceOverride.isActive()
+    if CLIENT and player() ~= owner() then return end
+
+    return proxyActive
+end
+
+function pacVoiceOverride.doVoiceProxy( vol )
+    if CLIENT and player() ~= owner() then return end
+    if not proxyActive then return end
+
+    local now = timer.curtime()
+    if now < nextProxyTime then return end
+
+    local volStr = tostring( math.round( vol * pacVoiceOverride.volumeMult, 2 ) )
+
+    nextProxyTime = now + pacVoiceOverride.ratelimit
+
+    local success = pcall( function()
+        concmd( "pac_proxy voice_override " .. volStr )
+    end )
+
+    tryAlert( success, now )
+end

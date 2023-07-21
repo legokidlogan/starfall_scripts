@@ -1,0 +1,221 @@
+--@name Playback
+--@author legokidlogan
+--@shared
+--@include lkl/simple_file_handler.txt
+--@include lkl/queue.txt
+
+if CLIENT and player() ~= owner() then return end
+
+sfhBaseFolder = "lkl/prop_recorder"
+sfhHookBase = "LKL_PropRecorder_Player_FileHandler_"
+local fileHandler = require( "lkl/simple_file_handler.txt" )
+
+if CLIENT then return end
+
+
+local perfLimit = 0.8
+local doLoop = true
+local commandPrefix = "/rec"
+
+local playbackData = {}
+local playbackDataIndex = 1
+local playbackDataCount = 0
+local playbackInterval = 0.1
+local playbackOriginPos
+local playbackOriginAng
+local playing = false
+local canPlay = true
+local holos = {}
+local playbackSpeed = 1
+
+local tableInsert = table.insert
+local tableRemove = table.remove
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+tableInsert( inputNames, "PlaybackSpeed" )
+tableInsert( inputTypes, "NUMBER" )
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+
+require( "lkl/queue.txt" )
+
+
+local function makeHolo( pos, ang, mdl, mat, color )
+    if not hologram.canSpawn() then return false end
+
+    local holo = hologram.create( pos, ang, mdl or "models/hunter/blocks/cube025x025x025.mdl" )
+    holo:setColor( color or Color( 255, 255, 255, 255 ) )
+    holo:setMaterial( mat or keyMat )
+
+    tableInsert( holos, holo )
+
+    return holo
+end
+
+local function processHoloSpawnEntry( _, entry )
+    local pos, ang = localToWorld( entry.Pos, entry.Ang, playbackOriginPos, playbackOriginAng )
+    local holo = makeHolo( pos, ang, entry.Model, entry.Material, entry.Color )
+
+    if not holo then return true end
+end
+
+local function holoSpawnFinished( _ )
+    print( "Playback started!" )
+
+    playing = true
+
+    timer.create( "LKL_PropRecorder_Player_PlayStep", playbackInterval / playbackSpeed, 0, function()
+        if not playing then
+            timer.remove( "LKL_PropRecorder_Player_PlayStep" )
+
+            return
+        end
+
+        playbackDataIndex = playbackDataIndex + 1
+
+        if playbackDataIndex > playbackDataCount then
+            if doLoop then
+                playbackDataIndex = 1
+            else
+                timer.remove( "LKL_PropRecorder_Player_PlayStep" )
+                playing = false
+                print( "Playback finished!" )
+
+                for _, holo in pairs( holos ) do
+                    if isValid( holo ) then
+                        holo:remove()
+                    end
+                end
+
+                holos = {}
+            end
+        end
+
+        local playbackStep = playbackData[playbackDataIndex]
+
+        for i, entry in ipairs( playbackStep ) do
+            local holo = holos[i]
+
+            local pos = entry.Pos
+            if pos then
+                local ang = entry.Ang
+                pos, ang = localToWorld( pos, ang, playbackOriginPos, playbackOriginAng )
+
+                holo:setPos( pos )
+                holo:setAngles( ang )
+            end
+
+            --[[
+            if entry.Model then
+                holo:setModel( entry.Model )
+            end
+            --]]
+
+            if entry.Material then
+                holo:setMaterial( entry.Material )
+            end
+
+            if entry.Color then
+                holo:setColor( entry.Color )
+            end
+        end
+    end )
+end
+
+local function playFile( fileName )
+    fileHandler.load( fileName, function( _, data )
+        playbackData = data.Data
+        playbackDataIndex = 1
+        playbackDataCount = #playbackData
+        playbackInterval = data.Interval
+        canPlay = true
+
+        playbackOriginPos = chip():getPos()
+        playbackOriginAng = chip():getAngles()
+
+        local holoSpawnQueue = Queue:new( processHoloSpawnEntry, holoSpawnFinished, playbackData[1], playbackInterval, 10, perfLimit, "HoloSpawn" )
+        holoSpawnQueue:start()
+    end )
+end
+
+local function wireInput( name, value )
+    if name == "PlaybackSpeed" then
+        if value == 0 then
+            value = 1
+        end
+
+        playbackSpeed = math.clamp( value, 0.1, 5 )
+
+        if not timer.exists( "LKL_PropRecorder_Player_PlayStep" ) then return end
+
+        timer.adjust( "LKL_PropRecorder_Player_PlayStep", playbackInterval / playbackSpeed )
+    end
+end
+
+
+hook.add( "input", "LKL_PropRecorder_Player_WireInput", wireInput )
+
+hook.add( "PlayerSay", "LKL_PropRecorder_Player_ChatCommands", function( ply, msg )
+    if ply ~= owner() then return end
+
+    local args = string.split( msg, " " )
+    local prefix = tableRemove( args, 1 )
+    if prefix ~= commandPrefix then return end
+
+    local cmd = tableRemove( args, 1 )
+
+    if cmd == "play" then
+        if playing then
+            print( "Already playing!" )
+            return
+        end
+
+        if not canPlay then
+            print( "Please wait a few seconds before playing again!" )
+            return
+        end
+
+        local fileName = args[1]
+        if not fileName then
+            print( "Please specify a file name!" )
+            return
+        end
+
+        canPlay = false
+
+        print( "Loading file " .. fileName )
+
+        playFile( fileName )
+    elseif cmd == "pause" then
+        if not playing then
+            print( "Not playing!" )
+            return
+        end
+
+        playing = false
+        print( "Playback stopped!" )
+
+        for _, holo in pairs( holos ) do
+            if isValid( holo ) then
+                holo:remove()
+            end
+        end
+
+        holos = {}
+    end
+
+    return ""
+end )
+
+--[[
+timer.simple( 2, function()
+    playFile( "wallkick_tutorial.txt" )
+end )
+--]]
+

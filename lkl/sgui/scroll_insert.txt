@@ -1,0 +1,79 @@
+--@name scroll_insert
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+--[[
+    - SGUI.ScrollInsert
+    - THIS IS AN INTERNAL CLASS, DO NOT USE
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+
+if SGUI.ScrollInsert then return end -- Don't run twice
+
+
+SGUI.ScrollInsert = class( "ScrollInsert", SGUI.Panel )
+
+
+local ScrollInsert = SGUI.ScrollInsert
+
+
+----- STATIC FUNCTIONS -----
+
+function ScrollInsert:initialize( parent )
+    ScrollInsert.super.initialize( self, parent )
+
+    self:setBorderSize( 0 )
+    self:setInnerMargin( 0 )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ScrollInsert:updateScrollPos()
+    local scrollable = self:getScrollable()
+    local scrollX = scrollable:getScrollX()
+    local scrollY = scrollable:getScrollY()
+
+    self:setPos( -scrollX, -scrollY )
+end
+
+function ScrollInsert:updateScrollSize()
+    local scrollable = self:getScrollable()
+
+    self:setSize( scrollable:getScrollSize() )
+end
+
+function ScrollInsert:getScrollable()
+    return self:getParent()
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ScrollInsert:performLayout()
+    self:updateScrollSize()
+    self:updateScrollPos()
+end
+
+function ScrollInsert:handleDrawBackground()
+    -- Do nothing.
+end
+
+function ScrollInsert:getStencilBounds()
+    return self:getScrollable():getInsertBounds()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+

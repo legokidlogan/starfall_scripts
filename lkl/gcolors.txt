@@ -1,0 +1,285 @@
+--@name gColors
+--@author legokidlogan
+--@shared
+
+--[[
+    - A simple collection of colors for standardizing projects and making it easy to get colors quickly.
+    - Feel free to add colors of your own, this is just what I use for my scripts.
+    - Colors can be accessed either through COLORS.name or directly as a global var as c_name.
+        - ex: COLORS.red or c_red
+
+    - You can add or change colors specific to your project by manipulating the COLORS table.
+        - ex: COLORS.my_color_name = Color( 255, 0, 0, 255 )
+        - It's preferable to do this *before* running require( "lkl/gcolors.txt" )
+        - If you do it after, please do it in one of two ways:
+            A.
+                gColors.modifyColor( name, color )
+                -- Auto-updates the colors safely
+            B.
+                COLORS.my_color_name = Color( 255, 0, 0, 255 )
+                gColors.refreshColors()
+                -- Force-refreshes the colors. Will break localized versions of gColors.colorToName(), etc.
+
+    - There's various utility functions here, but this library is mostly just for quickly slapping down some color by using the global vars.
+--]]
+
+
+if COLORS and gColors then return end -- Don't run twice.
+
+COLORS = COLORS or {} -- Where all the colors are stored
+gColors = gColors or {} -- "Global Colors": A few simple library functions are kept here
+
+
+
+----- COLOR DEFINITIONS -----
+
+
+-- Simple colors
+COLORS.white = Color( 255, 255, 255, 255 )
+COLORS.black = Color( 0, 0, 0, 255 )
+COLORS.empty = Color( 0, 0, 0, 0 )
+COLORS.red = Color( 255, 0, 0, 255 )
+COLORS.green = Color( 0, 255, 0, 255 )
+COLORS.blue = Color( 0, 0, 255, 255 )
+COLORS.cyan = Color( 0, 255, 255, 255 )
+COLORS.magenta = Color( 255, 0, 255, 255 )
+COLORS.yellow = Color( 255, 255, 0, 255 )
+COLORS.orange = Color( 255, 150, 0, 255 )
+COLORS.brown = Color( 190, 120, 75, 255 )
+COLORS.grey = Color( 127, 127, 127, 255 )
+    COLORS.gray = COLORS.grey
+COLORS.purple = Color( 150, 0, 255, 255 )
+
+
+-- Modified colors
+COLORS.pale_red = Color( 255, 150, 150, 255 )
+COLORS.pale_green = Color( 150, 255, 150, 255 )
+COLORS.pale_blue = Color( 150, 150, 255, 255 )
+COLORS.pale_yellow = Color( 255, 255, 150, 255 )
+
+COLORS.medium_blue = Color( 90, 90, 220, 255 )
+
+COLORS.dark_brown = Color( 165, 75, 25, 255 )
+COLORS.dark_grey = Color( 65, 65, 65, 255 )
+    COLORS.dark_gray = COLORS.dark_grey
+
+COLORS.light_brown = Color( 225, 170, 140, 255 )
+COLORS.light_grey = Color( 200, 200, 200, 255 )
+    COLORS.light_gray = COLORS.light_grey
+
+
+-- Special colors
+COLORS.alert_red = Color( 150, 0, 0, 255 )
+COLORS.attention_red = Color( 255, 0, 100, 255 )
+COLORS.pend_orange = Color( 255, 127, 0, 255 )
+COLORS.info_blue = Color( 50, 150, 200, 255 )
+COLORS.technical_blue = Color( 0, 130, 255, 255 )
+COLORS.arg_req = Color( 255, 215, 50 )
+COLORS.arg_opt = Color( 145, 190, 230 )
+COLORS.arg_return = Color( 180, 120, 230 )
+COLORS.pvp = Color( 255, 80, 80, 255 )
+COLORS.build = Color( 80, 80, 255, 255 )
+COLORS.leotech_letter = Color( 255, 255, 0, 255 )
+COLORS.leotech_circle = Color( 255, 140, 0, 255 )
+COLORS.ulib_self = Color( 74, 0, 131 )
+COLORS.table = Color( 100, 165, 170, 255 )
+COLORS.custom_type = Color( 120, 120, 215, 255 )
+COLORS.ply_console = Color( 50, 50, 65, 255 )
+
+
+-- Code colors (based off of default colors for the Visual Studio Code glua extension by aStonedPenguin )
+COLORS.code_text = Color( 212, 212, 212, 255 )
+COLORS.code_comment = Color( 106, 153, 85, 255 )
+COLORS.code_number = Color( 181, 206, 168, 255 )
+    COLORS.code_number_sat = Color( 150, 205, 75, 255 ) -- Improved saturation for GMod
+COLORS.code_string = Color( 206, 145, 120, 255 )
+    COLORS.code_string_sat = Color( 205, 120, 80, 255 ) -- Improved saturation for GMod
+COLORS.code_keyword = Color( 187, 134, 192, 255 )
+    COLORS.code_function = COLORS.code_keyword
+COLORS.code_function_name = Color( 220, 220, 170, 255 )
+    COLORS.code_library_function = COLORS.code_function_name
+    COLORS.code_creation_function = COLORS.code_function_name
+COLORS.code_core_constant = Color( 86, 156, 214, 255 )
+    COLORS.code_nil = COLORS.code_core_constant
+    COLORS.code_true = COLORS.code_core_constant
+    COLORS.code_false = COLORS.code_core_constant
+    COLORS.code_boolean = COLORS.code_core_constant
+    COLORS.code_bool = COLORS.code_core_constant
+    COLORS.code_server = COLORS.code_core_constant
+    COLORS.code_client = COLORS.code_core_constant
+COLORS.code_arg = Color( 156, 220, 254, 255 )
+
+
+-- Faded colors
+COLORS.fade = Color( 1, 1, 1, 0.5 )
+COLORS.white_faded = COLORS.white * COLORS.fade
+COLORS.red_faded = COLORS.red * COLORS.fade
+COLORS.green_faded = COLORS.green * COLORS.fade
+COLORS.blue_faded = COLORS.blue * COLORS.fade
+COLORS.yellow_faded = COLORS.yellow * COLORS.fade
+
+
+
+----- LIBRARY FUNCTIONS -----
+
+
+--[[
+    - Refreshes the global color variables, and some library functions that rely on localized values.
+    - If you directly modify the COLORS table, call this function afterwards. Note that this will break any localized versions of gColors.colorToName(), etc.
+        - ex:
+            COLORS.my_color_name = Color( 255, 0, 0, 255 )
+            gColors.refreshColors()
+        - This only applies to direct modifications, however; if you use gColors.modifyColor( name, col ) instead, it automatically updates things without needing a refresh.
+--]]
+function gColors.refreshColors()
+    local stringStartWith = string.startWith
+    local stringSub = string.sub
+
+    local colorNameLookup = {}
+
+    do
+        local colorNames = table.getKeys( COLORS )
+
+        for _, colorName in ipairs( colorNames ) do
+            local color = COLORS[colorName]
+
+            colorNameLookup[color] = colorName
+        end
+    end
+
+
+    --[[
+        - Modifies a global color and safely auto-updates the library.
+    --]]
+    function gColors.modifyColor( name, color )
+        COLORS[name] = color
+        colorNameLookup[color] = name
+
+        return name, color
+    end
+
+    --[[
+        - Converts a color object from the COLORS table into its name
+        - ex:  gColors.colorToName( Color( 255, 255, 255, 255 ) )  ==>  "white"
+        - If the color isn't recognized, output is nil.
+    --]]
+    function gColors.colorToName( color )
+        local str = colorNameLookup[color]
+
+        return str
+    end
+
+    --[[
+        - Converts a color object from the COLORS table into its standalone varaible name
+        - ex:  gColors.colorToVarName( Color( 255, 255, 255, 255 ) )  ==>  "c_white"
+        - If the color isn't recognized, output is nil.
+    --]]
+    function gColors.colorToVarName( color )
+        local str = colorNameLookup[color]
+
+        if not str then return end
+
+        return "c_" .. str
+    end
+
+    --[[
+        - Converts a color object from the COLORS table into its specialized string form
+        - ex:  gColors.colorToString( Color( 255, 255, 255, 255 ) )  ==>  "::c_white"
+        - If the color isn't recognized, output is "::c(r,g,b,a)" where r, g, b, a are the color channels.
+        - Mostly used for packing colors into strings for efficient netowrking.
+    --]]
+    function gColors.colorToString( color )
+        if type( color ) == "string" then return color end
+
+        local str = colorNameLookup[color]
+
+        if not str then
+            if type( color ) ~= "Color" then return end
+
+            return "::c(" .. color.r .. "," .. color.g .. "," .. color.b .. "," .. color.a .. ")"
+        end
+
+        return "::c_" .. str
+    end
+
+    --[[
+        - Converts a string (as name, var name, or specialized string) to its relevant color in the COLORS table
+        - ex:  gColors.stringToColor( "::c_white" )  ==>  c_white  ==>  Color( 255, 255, 255, 255 )
+        - ex:  gColors.stringToColor( "white" )  ==>  c_white  ==>  Color( 255, 255, 255, 255 )
+        - ex:  gColors.stringToColor( "::c(1,2,3,4)" )  ==>  Color( 1, 2, 3, 4 )
+        - If the color isn't recognized, output is nil.
+    --]]
+    function gColors.stringToColor( str )
+        if type( str ) == "Color" then return str end
+
+        if stringStartWith( str, "::c(" ) then
+            str = stringSub( str, 5, -2 )
+
+            --local r, g, b, a = str:match( "(%d+),(%d+),(%d+),(%d+)" )
+            local r, g, b, a = unpack( string.split( str, "," ) )
+            if not r or not g or not b or not a then return end
+
+            --return Color( r, g, b, a )
+            return Color( tonumber( r ), tonumber( g ), tonumber( b ), tonumber( a ) )
+        elseif stringStartWith( str, "::c_" ) then
+            str = stringSub( str, 5 )
+        elseif stringStartWith( str, "c_" ) then
+            str = stringSub( str, 3 )
+        end
+
+        return COLORS[str]
+    end
+
+
+
+    ----- SETUP -----
+
+
+    local nameExceptions = {
+        ["fade"] = true,
+    }
+
+    do -- Globalize the colors (so they can be referenced as c_name instead of COLORS.name)
+        for name, color in pairs( COLORS ) do
+            if not nameExceptions[name] then
+                _G["c_" .. name] = color
+            end
+        end
+    end
+end
+
+--[[
+    - Gets a faded (transparent) version of a color
+    - Ultimately just multiplies against the color's alpha.
+
+    colorOrName: (string or Color)
+        - The color (or the standard name of one) to fade.
+        - If given as a Color, it doesn't need to already be on the COLORS table.
+    fadeOverride: (optional) (number)
+        - Amount to fade by, from 0 to 1.
+        - Defaults to the amount specified in COLORS.fade
+--]]
+function gColors.fadeColor( colorOrName, fadeOverride )
+    local color = gColors.stringToColor( colorOrName )
+    if not color then return end
+
+    if fadeOverride then
+        return color * Color( 1, 1, 1, fadeOverride )
+    end
+
+    local name = gColors.colorToName( color )
+
+    if name then
+        local colorFaded = COLORS[name .. "_faded"]
+
+        if colorFaded then return colorFaded end
+
+        colorFaded = color * COLORS.fade
+        gColors.modifyColor( name, colorFaded )
+    end
+
+    return color * COLORS.fade
+end
+
+
+gColors.refreshColors()

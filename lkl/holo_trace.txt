@@ -1,0 +1,321 @@
+--@name Holo Trace
+--@author legokidlogan
+--@shared
+
+----- VERY OLD -----
+
+
+local holoWhitelist
+local holoBlacklist
+local holoFilterFunc
+local holoClasses = {
+    "gmod_wire_hologram",
+    "starfall_hologram",
+}
+
+local tableInsert = table.insert
+local findByClass = find.byClass
+local findAll = find.all
+local traceIntersectRayWithOBB = trace.intersectRayWithOBB
+local traceLine = trace.trace
+
+
+local function getHolosFilter( ent )
+    if holoWhitelist and not holoWhitelist[ent] then return false end
+    if holoBlacklist and holoBlacklist[ent] then return false end
+    if holoFilterFunc and not holoFilterFunc( ent ) then return false end
+
+    return true
+end
+
+local function makeEntityLookupTable( tbl )
+    if not tbl then return false end
+
+    local lookup = {}
+
+    if tbl[1] then
+        for _, ent in ipairs( tbl ) do
+            if istable( ent ) and isValid( ent ) then
+                lookup[ent] = true
+            end
+        end
+    else
+        for ent in pairs( tbl ) do
+            if istable( ent ) and isValid( ent ) then
+                lookup[ent] = true
+            end
+        end
+    end
+
+    return lookup
+end
+
+local function getHolos( whitelist, blacklist, filterFunc )
+    if whitelist and type( whitelist ) ~= "table" then
+        error( "Whitelist must be a table" )
+    end
+
+    if blacklist and type( blacklist ) ~= "table" then
+        error( "Blacklist must be a table" )
+    end
+
+    if filterFunc and type( filterFunc ) ~= "function" then
+        error( "FilterFunc must be a function" )
+    end
+
+    local holos = {}
+
+    holoWhitelist = makeEntityLookupTable( whitelist )
+    holoBlacklistlist = makeEntityLookupTable( blacklist )
+    holoFilterFunc = filterFunc or false
+
+    local usingFilter = holoWhitelist or holoBlacklist or holoFilterFunc
+
+    for _, class in ipairs( holoClasses ) do
+        for _, ent in pairs( findByClass( class, usingFilter and getHolosFilter or nil ) ) do
+            if isValid( ent ) then
+                tableInsert( holos, ent )
+            end
+        end
+    end
+
+    return holos
+end
+
+local function getGmodTraceFilter( whitelist, blacklist, filterFunc )
+    if whitelist and type( whitelist ) ~= "table" then
+        error( "Whitelist must be a table" )
+    end
+
+    if blacklist and type( blacklist ) ~= "table" then
+        error( "Blacklist must be a table" )
+    end
+
+    if filterFunc and type( filterFunc ) ~= "function" then
+        error( "FilterFunc must be a function" )
+    end
+
+    local allowedEnts = {}
+
+    holoWhitelist = makeEntityLookupTable( whitelist )
+    holoBlacklistlist = makeEntityLookupTable( blacklist )
+    holoFilterFunc = filterFunc or false
+
+    local usingFilter = holoWhitelist or holoBlacklist or holoFilterFunc
+
+    for _, ent in ipairs( findAll ) do
+        if isValid( ent ) and ( ent:isPlayer() or isValid( ent:getPhysicsObject() ) ) then
+            local shouldAdd = usingFilter and getHolosFilter( ent )
+
+            if shouldAdd then
+                allowedEnts[ent] = true
+            end
+        end
+    end
+
+    return function( ent ) return allowedEnts[ent] end
+end
+
+
+-- GLOBAL FUNCTIONS:
+
+
+--[[
+    - Performs a zero-width trace on E2/Starfall holograms.
+    - This uses the box hullof the model, and not the actual mesh itself, so expect oddities with spheres, rings, etc.
+    - If used on Starfall holograms, it will automatically account for any that have been resized with :setScale() or :setSize()
+        - This size adjustment does not apply to E2 holograms, as on serverside that data is only available to Lua.
+
+    traceArgs: (table)
+        {
+            StartPos = VECTOR, -- Required. The position to start the trace from.
+
+            EndPos = VECTOR, -- Required. The position to end the trace at.
+             OR
+            (
+            EndDir = VECTOR, -- Required (alternative). The direction to end the trace in.
+             AND
+            Length = NUMBER, -- Required (alternative). The length of the trace.
+            )
+
+            Whitelist = TABLE, -- Optional. A table of entities to use in the trace. Primarily meant for holograms, but can technically add other entities here as well.
+             OR
+            Blacklist = TABLE, -- Optional (alternative). A table of entities to NOT use in the trace, taking an exclusion from the list of all holograms that exist on the current realm.
+            -- If neither of these are given, the trace will use all holograms that exist on the current realm (server/client). This includes both E2 and Starfall holograms.
+            -- These can either be numerically indexed, or be a lookup table. e.g. { holo1, holo2, holo3 } or { [holo1] = true, [holo2] = true, [holo3] = true }
+
+            FilterFunc = FUNCTION, -- Optional. A function that takes an entity as an argument and returns a boolean. If true, the entity will be used in the trace. If false, the entity will be ignored.
+        }
+        - Examples:
+            {
+                StartPos = Vector( 1, 2, 3 ),
+                EndDir = Vector( 0, 0, 1 ),
+                Length = 100,
+                Whitelist = { hologram1, hologram2, hologram3 },
+            },
+            {
+                StartPos = Vector( 1, 2, 3 ),
+                EndPos = Vector( 1, 2, 4 ),
+                Blacklist = { hologram1 },
+                FilterFunc = function( ent )
+                    return ent:GetModel() == "models/props_junk/PopCan01a.mdl"
+                end,
+            },
+            {
+                StartPos = Vector( 1, 2, 3 ),
+                EndPos = Vector( 1, 2, 4 ),
+            }
+    nonHoloTraceArgs: (optional) (table)
+        - If provided, there will also be a non-hologram trace performed, and the results will be returned alongside the hologram trace results.
+        - Useful for checking if there's line of sight to the hologram 'hit' by the original trace, as it ignores things like props and the world.
+        - Uses the same start and end positions as the hologram trace.
+        {
+            IgnoreWorld = BOOLEAN, -- Optional. Defaults to false. If true, the trace will ignore the world.
+            CollisionGroup = COLLISION_GROUP, -- Optional. Defaults to COLLISION_GROUP_NONE. The collision group to use for the trace.
+            Mask = MASK, -- Optional. Defaults to MASK_SOLID. The mask to use for the trace.
+
+            Whitelist = TABLE, -- Optional.
+             OR
+            Blacklist = TABLE, -- Optional (alternative).
+            -- Same as the hologram trace whitelist/blacklist, but for non-hologram entities.
+
+            FilterFunc = FUNCTION, -- Optional. Same as the hologram trace's FilterFunc.
+        }
+
+
+    RETURNS: traceResult, nonHoloTraceResult, isHoloTraceVisible
+        traceResult: (table)
+            {
+                StartPos = VECTOR, -- Original start position.
+                EndPos = VECTOR, -- Original end position.
+                Normal = VECTOR, -- Unit vector direction of the trace.
+                Length = NUMBER, -- Original length of the trace
+                Hit = BOOLEAN, -- Whether or not the trace hit anything.
+                Entity = ENTITY -- The entity that was hit, if any.
+                HitPos = VECTOR, -- The position of the trace hit.
+                HitLength = NUMBER, -- The length of the trace up to the point of the hit.
+                HitNormal = VECTOR, -- The normal of the trace hit. Keep in mind that the internal function used for this only uses basic rotated box hulls, not the actual model's mesh.
+                Fraction = NUMBER, -- The fraction of the trace that was completed before the hit.
+            }
+        nonHoloTraceResult: (table or nil)
+            - Same format as used by the builtin trace library. https://wiki.facepunch.com/gmod/Structures/TraceResult
+            - Only returned if nonHoloTraceArgs is provided.
+        isHoloTraceVisible: (bool)
+            - If nonHoloTraceArgs is provided, this will be true if the hologram trace hit something *closer* than what thge non-hologram trace hit.
+            - If nonHoloTraceArgs is not provided, this will always be true.
+            - Note that this does not care about whether or not the hologram trace actually hit something. Use traceResult.Hit to check that.
+--]]
+function holoTrace( traceArgs, nonHoloTraceArgs )
+    local startPos = traceArgs.StartPos
+
+    if type( startPos ) ~= "Vector" then
+        error( "StartPos must be a Vector" )
+    end
+
+    local endPos = traceArgs.EndPos
+    local traceDelta
+
+    if endPos == nil then
+        local endDir = traceArgs.EndDir
+        local length = traceArgs.Length
+
+        if type( endDir ) ~= "Vector" then
+            error( "EndDir must be a Vector" )
+        end
+
+        if type( length ) ~= "number" then
+            error( "Length must be a number" )
+        end
+
+        traceDelta = endDir * length
+    else
+        if type( endPos ) ~= "Vector" then
+            error( "EndPos must be a Vector" )
+        end
+
+        traceDelta = endPos - startPos
+    end
+
+    if traceDelta == Vector( 0, 0, 0 ) then
+        error( "Trace cannot have a length of zero" )
+    end
+
+    -- Holo trace:
+    local holos = getHolos( traceArgs.Whitelist or traceArgs.WhiteList, traceArgs.Blacklist or traceArgs.BlackList, traceArgs.FilterFunc or traceArgs.FilterFunction )
+    local traceResult = {}
+    local lowestFraction = 2
+    local traceLength = traceDelta:getLength()
+
+    for _, holo in ipairs( holos ) do
+        local holoCenter = holo:obbCenterW()
+        local holoAngles = holo:getAngles()
+        local holoBoxMin = holo:obbMins()
+        local holoBoxMax = holo:obbMaxs()
+
+        if holo.getScale then
+            local scale = holo:getScale()
+
+            holoBoxMin = holoBoxMin * scale
+            holoBoxMax = holoBoxMax * scale
+        end
+
+        local hitPos, hitNormal, fraction = traceIntersectRayWithOBB( startPos, traceDelta, holoCenter, holoAngles, holoBoxMin, holoBoxMax )
+
+        if fraction and fraction < lowestFraction then
+            lowestFraction = fraction
+            traceResult.HitPos = hitPos
+            traceResult.HitNormal = hitNormal
+            traceResult.Entity = holo
+        end
+    end
+
+
+    -- Non-holo trace:
+    endPos = endPos or ( startPos + traceDelta )
+    local nonHoloTraceResult
+
+    if nonHoloTraceArgs then
+        nonHoloTraceResult = traceLine(
+            startPos,
+            endPos,
+            getGmodTraceFilter( traceArgs.Whitelist or traceArgs.WhiteList, traceArgs.Blacklist or traceArgs.BlackList, traceArgs.FilterFunc or traceArgs.FilterFunction ),
+            nonHoloTraceArgs.Mask,
+            nonHoloTraceArgs.CollisionGroup,
+            nonHoloTraceArgs.IgnoreWorld
+        )
+    end
+
+
+    -- Trace results:
+    if lowestFraction == 2 then
+        traceResult = {
+            StartPos = startPos,
+            EndPos = endPos,
+            Normal = traceDelta / traceLength,
+            Length = traceLength,
+            Hit = false,
+            Entity = nil,
+            HitPos = endPos,
+            HitLength = traceLength,
+            HitNormal = Vector( 0, 0, 0 ),
+            Fraction = 1,
+        }
+    else
+        traceResult = {
+            StartPos = startPos,
+            EndPos = endPos,
+            Normal = traceDelta / traceLength,
+            Length = traceLength,
+            Hit = true,
+            Entity = traceResult.Entity,
+            HitPos = traceResult.HitPos,
+            HitLength = traceLength * lowestFraction,
+            HitNormal = traceResult.HitNormal,
+            Fraction = lowestFraction,
+        }
+    end
+
+    local isHoloTraceVisible = ( not nonHoloTraceResult ) or nonHoloTraceResult.Fraction > traceResult.Fraction
+
+    return traceResult, nonHoloTraceResult, isHoloTraceVisible
+end

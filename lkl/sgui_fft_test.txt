@@ -1,0 +1,227 @@
+--@name SGUI FFT Test
+--@author legokidlogan
+--@client
+--@includedir lkl/sgui
+--@include lkl/easy_bass.txt
+
+-- CONFIG
+local visBins = 2 -- 0-7
+local visInterval = 0.005
+local visHeight = 2
+local visDisplayPortion = 0.15
+local volume = 1
+local url = "https://cdn.discordapp.com/attachments/900470058101375007/903041423224500294/Terraria_Music_-_Mushrooms.mp3"
+-- END CONFIG
+
+
+requiredir( "lkl/sgui" )
+local Panel = SGUI.Panel
+local Label = SGUI.Label
+local Button = SGUI.Button
+local ToggleButton = SGUI.ToggleButton
+local CollapseButton = SGUI.CollapseButton
+local Collapsible = SGUI.Collapsible
+local Draggable = SGUI.Draggable
+local Window = SGUI.Window
+local CloseButton = SGUI.CloseButton
+local Resizable = SGUI.Resizable
+local CheckBox = SGUI.CheckBox
+local Scrollable = SGUI.Scrollable
+local List = SGUI.List
+local LabeledSlider = SGUI.LabeledSlider
+
+require( "lkl/easy_bass.txt" )
+
+
+addPermissions( {
+    "bass.loadFile",
+    "bass.loadURL",
+} )
+setupPermissionRequestSafe( permissions, "See music frequencies from a HUD", true )
+checkPermissions()
+
+
+local visColors = {}
+local visFFTCount
+local visRectPoints = {}
+local snd
+local musicIsPaused = true
+local hasPlayedOnce = false
+local setMusicPaused
+
+
+local mainWindow = Window:new()
+mainWindow:setCanClose( false )
+mainWindow:setPosFractional( 0.7, 0.15 )
+mainWindow:setMinSize( 150, 150 )
+mainWindow:setTitle( "Music" )
+
+
+--[[
+local visPanel = Panel:new( mainWindow )
+visPanel:setDock( DOCK_FILL )
+visPanel:setBorderSize( 0 )
+visPanel:setMargin( 0 )
+--]]
+
+--local visPanel = mainWindow:getCollapseRegion()
+
+local visPanel = Panel:new( mainWindow )
+visPanel:setBorderSize( 0 )
+visPanel:setMargin( 0 )
+
+function mainWindow:onResized()
+    local x, y, w, h = self:getCollapseRegion():getInnerRect( visPanel )
+
+    visPanel:setPos( x, y )
+    visPanel:setSize( w, h )
+end
+
+function visPanel:handleDraw()
+    if not isValid( snd ) then return end
+    if volume == 0 then return end
+    if not visFFTCount then return end
+    if musicIsPaused then return end
+
+    for i = 1, visFFTCount do
+        render.setColor( visColors[i] )
+        render.drawRect( unpack( visRectPoints[i] ) )
+    end
+end
+
+function visPanel:handleDrawBackground()
+    -- Do nothing.
+end
+
+mainWindow:onResized()
+
+
+local controlsList = List:new( mainWindow, LIST_VERTICAL, LIST_ALIGN_TOP_LEFT )
+controlsList:setAnchor( ANCHOR_TOP_LEFT )
+controlsList:setExpand( EXPAND_WIDTH )
+
+function controlsList:handleDrawBackground()
+    -- Do nothing.
+end
+
+
+local volumeSlider = LabeledSlider:new( controlsList )
+volumeSlider:setText( "Volume" )
+volumeSlider:setValue( volume )
+volumeSlider:setRounding( 2 )
+volumeSlider:setExpand( EXPAND_WIDTH )
+
+function volumeSlider:onValueChanged( _, value )
+    volume = value
+
+    if isValid( snd ) then
+        snd:setVolume( volume )
+    end
+end
+
+
+local pauseButton = ToggleButton:new( controlsList, false )
+--pauseButton:setPos( 5, 5 )
+pauseButton:setSize( 75, 75 )
+
+function pauseButton:onToggleChanged( state )
+    setMusicPaused( state )
+    self:setText( state and "Resume" or "Pause" )
+end
+
+
+local function startMusic()
+    if not permissionSatisfied then return end
+
+    easyBass.loadURL(
+        url,
+        {
+            Volume = volume,
+            Target = player(),
+            Loop = true,
+            DestroyWhenDone = false,
+        },
+        function( x )
+            snd = x
+            setMusicPaused( not render.isHUDActive() )
+        end
+    )
+end
+
+setMusicPaused = function( state )
+    musicIsPaused = state
+
+    if not isValid( snd ) then return end
+
+    if musicIsPaused then
+        snd:pause()
+    else
+        snd:play()
+
+        if not hasPlayedOnce then
+            hasPlayedOnce = true
+            mainWindow:onResized()
+        end
+    end
+end
+
+
+timer.create( "LKL_AudioVisualizer_GetFFT", visInterval, 0, function()
+    if not isValid( snd ) then return end
+    if volume == 0 then return end
+    if mainWindow:isCollapsed() then return end
+    if not mainWindow:isVisible() then return end
+    if musicIsPaused then return end
+
+    local visFFT = snd:getFFT( visBins )
+    local visFFTCountNew = math.round( #visFFT * visDisplayPortion )
+    if visFFTCountNew == 0 then return end
+
+    local xPos, yPos = visPanel:getPosEffective()
+    local scrW, scrH = visPanel:getSize()
+
+    visRectPoints = {}
+
+    if not visFFTCount then -- Initialize colors only once
+        visFFTCount = visFFTCountNew
+
+        for i = 1, visFFTCount do
+            visColors[i] = Color( ( i - 1 ) * 360 / visFFTCount, 1, 1 ):hsvToRGB()
+        end
+    end
+
+    local rectWidth = scrW / visFFTCount
+    local rectHeight = scrH * visHeight
+
+    for i = 1, visFFTCount do
+        local h = visFFT[i] * volume * rectHeight
+        local x = ( i - 1 ) * rectWidth
+        local y = scrH - h
+
+        visRectPoints[i] = {
+            x + xPos,
+            y + yPos,
+            rectWidth,
+            h,
+        }
+    end
+end )
+
+hook.add( "permissionrequest", "LKL_AudioVisualizer_PermissionRequest", function()
+    timer.simple( 0.1, startMusic )
+end )
+
+hook.add( "hudconnected", "LKL_AudioVisualizer_HUDConnected", function()
+    timer.simple( 0.1, function()
+        setMusicPaused( pauseButton:getState() )
+    end )
+end )
+
+hook.add( "huddisconnected", "LKL_AudioVisualizer_HUDConnected", function()
+    timer.simple( 0.1, function()
+        setMusicPaused( true )
+    end )
+end )
+
+
+startMusic()

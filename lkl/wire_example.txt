@@ -1,0 +1,65 @@
+--@name Wire Example
+--@author
+--@server
+
+
+-- EXAMPLE 1: Direct setup, always query
+--
+wire.adjustInputs( { "A", "B" }, { "NUMBER", "NUMBER" } )
+wire.adjustOutputs( { "Sum" }, { "NUMBER" } )
+
+
+hook.add( "input", "EXAMPLE_Sum", function()
+    local a = wire.ports.A
+    local b = wire.ports.B
+    local sum = a + b
+
+    wire.ports.Sum = sum
+end )
+--
+
+
+
+-- EXAMPLE 2: Modular setup, store values
+--[[
+-- These are now global variables, allows wire ports to be made across multiple require()'d files
+-- Also makes it easier to edit and keep track of each port entry's name and type
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+-- Inputs:
+table.insert( inputNames, "A" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( inputNames, "A" )
+table.insert( inputTypes, "NUMBER" )
+
+-- Outputs:
+table.insert( inputNames, "Sum" )
+table.insert( inputTypes, "NUMBER" )
+
+
+local a = 0
+local b = 0
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( inputNames, inputTypes )
+
+
+local function applySum()
+    wire.ports.Sum = a + b
+end
+
+
+hook.add( "input", "EXAMPLE_Sum", function( name, value )
+    if name == "A" then
+        a = value
+        applySum()
+    elseif name == "B" then
+        b = value
+        applySum()
+    end
+end )
+--]]

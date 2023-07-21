@@ -1,0 +1,28 @@
+--@name Roman Numeral Tester
+--@author
+--@server
+--@include lkl/math/roman_numeral.txt
+
+require( "lkl/math/roman_numeral.txt" )
+
+
+
+--print( RomanNumeral:romanToNumber( "IXV", true ) )
+--print( RomanNumeral:numberToRoman( "107", true ) )
+
+
+
+local amount = 5
+
+--concmd( "say " .. "[RomanNumerals] Here's " .. amount .. " random roman numerals:" )
+
+timer.create( "test", 1, amount, function()
+    local numStr = tostring( math.random( 0, 5000 ) )
+    local romanNumStr = RomanNumeral:numberToRoman( numStr, true )
+    local numStrBack = RomanNumeral:romanToNumber( romanNumStr, true )
+    local printStr = "[RomanNumerals] " .. numStr .. " -> " .. romanNumStr .. " -> " .. numStrBack
+
+    --concmd( "say " .. printStr )
+    print( printStr )
+end )
+

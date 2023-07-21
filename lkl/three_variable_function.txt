@@ -1,0 +1,351 @@
+--@name Three Variable Function
+--@author legokidlogan
+--@client
+--@include lkl/cl_check_permissions.txt
+--@include lkl/queue.txt
+
+projectNameID = "ThreeVar"
+
+permissions = {
+    "hologram.create",
+}
+permissionSatisfied = false
+permissionRequestSent = false
+setupPermissionRequest( permissions, "See some holos made from math", true )
+
+require( "lkl/cl_check_permissions.txt" )
+require( "lkl/queue.txt" )
+
+checkPermissions()
+timer.simple( 1, checkPermissions )
+
+
+local mCos = math.cos
+local mSin = math.sin
+local mTan = math.tan
+local mSign = math.sign
+local mAbs = math.abs
+local mFloor = math.floor
+local mClamp = math.clamp
+local pi = math.pi
+local tableInsert = table.insert
+
+local function isNan( x )
+    return x <= x - 1
+end
+
+local function scrubNumber( x )
+    if isNan( x ) then
+        return mSign( x ) * 100000
+    end
+
+    return x
+end
+
+
+-- CONFIG:
+local holoAmountX = 15 -- Make sure to use sf_holograms_max_cl to set your max holo limit
+local holoAmountY = 15
+local holoAmountZ = 7
+local holoSize = 10
+local holoAlpha = 50
+local outMode = 4 -- 1 = output is hue; 2 = output is alpha; 3 = output is size; 4 = force change z axis; 5 = force change x,y,z; 6 = set rgb color
+local outScale = Vector( -1, 1, 1 ) -- Min, max, inner mult
+    --local outScale = Vector( -1000, 1000, 1 ) -- Min, max, inner mult
+local outScale2 = 1 -- Mult after clamping
+local doLoop = true -- Loop infinitely, re-processing holos if you have values that change over time.
+local doFullbright = true
+local continueWhenHoloLimitReached = true -- If doLoop is enabled, this allows the script to continue processing the holos that were created before the limit was reached.
+
+local creationBatchSize = 70
+local creationInterval = 0.03
+
+
+--[[
+    - x, y, z are the coordinates of the holo, roughly -holoAmount_/2 to holoAmount_/2
+    - xNorm, yNorm, zNorm are the coordinates of the holo normalized to -1 to 1
+    - index is the holo index, 1 to holoAmountX * holoAmountY * holoAmountZ
+    - out is the single output value
+
+    - Details about outMode:
+        1: Output is hue, automatically converts 0-1 to 0-360
+        2: Output is alpha, automatically converts 0-1 to 0-255
+        3: Output is size, automatically converts 0-1 to 0-holoSize
+        4: Force change z axis, sets holoAmountZ to 1, automatically converts 0-1 to 0-holoSize of true position
+--]]
+local function calc1( x, y, z, xNorm, yNorm, zNorm, index )
+    local out = 0
+    local now = timer.curtime() * 1
+
+    -- Put your calculations here
+
+
+    -- Sphere:
+    --[[
+    out = x^2 + y^2 + z^2
+
+    if out <= 3^2 then
+        out = 255 / 255
+    else
+        out = 50 / 255
+    end
+    --]]
+
+    -- Ellipsoid:
+    --[[
+    local a = 2
+    local b = 2
+    local c = 1
+    out = ( x^2 / a^2 ) + ( y^2 / b^2 ) + ( z^2 / c^2 )
+
+    if out <= 2.5^2 then
+        out = 255 / 255
+    else
+        out = 50 / 255
+    end
+    --]]
+
+    -- RGB Waves:
+    --
+    if outMode == 1 then
+        --out = ( now * 0.25 ) % 1
+        out = ( ( now + index * 0.01 ) * 0.25 ) % 1
+    elseif outMode == 4 then
+        out = mCos( xNorm * pi + now ) + mSin( yNorm * pi + now )
+    end
+    --]]
+
+    -- I forgor
+    --[[
+    local a = 1
+    local b = 1
+    local c = 1
+    out = ( x^2 / a^2 ) - ( y^2 / b^2 )
+
+    if out >= ( z^2 / x^2 ) then
+        out = 255 / 255
+    else
+        out = 50 / 255
+    end
+    --]]
+
+    --out = x^2 + y^2
+    --out = mCos( xNorm * pi )
+    --out = mCos( xNorm * pi ) + mSin( yNorm * pi )
+    --out = mCos( xNorm * pi + now ) + mSin( yNorm * pi + now )
+
+    return out
+end
+
+--[[
+    - Outputs x, y, z instead of a single value
+    - Only used by outMode 5 and 6
+
+    - Details about outMode:
+        5: Force change x,y,z, automatically converts 0-1 to 0-holoSize of true position
+        6: Set rgb color, automatically converts 0-1 to 0-255
+--]]
+local function calc3( x, y, z, xNorm, yNorm, zNorm, index )
+    local now = timer.curtime() * 1
+
+    -- Put your calculations here
+
+    x = xNorm
+    y = yNorm
+    z = zNorm
+
+    return x, y, z
+end
+
+-- END CONFIG
+
+
+
+local function orderToCoord( count, index )
+    local mod2 = count % 2
+    local offset = mod2 + ( count - mod2 ) / 2
+    return index - offset
+end
+
+
+if outMode == 4 then
+    holoAmountZ = 1
+end
+
+local holoEntries = {}
+local holos = {}
+local _xMin = orderToCoord( holoAmountX, 1 )
+local _xMax = orderToCoord( holoAmountX, holoAmountX )
+local _yMin = orderToCoord( holoAmountY, 1 )
+local _yMax = orderToCoord( holoAmountY, holoAmountY )
+local _zMin = orderToCoord( holoAmountZ, 1 )
+local _zMax = orderToCoord( holoAmountZ, holoAmountZ )
+local totalHolos = holoAmountX * holoAmountY * holoAmountZ
+local hModel = "models/hunter/blocks/cube025x025x025.mdl"
+local hMat = "models/debug/debugwhite"
+local hAng = Angle( 0, 0, 0 )
+local holoQueue
+local ignoreHoloLimit = false
+
+if player() == owner() then
+    print( "Creating " .. totalHolos .. " holos." )
+end
+
+local _ind = 1
+for i = _xMin, _xMax, 1 do
+    for j = _yMin, _yMax, 1 do
+        for k = _zMin, _zMax, 1 do
+            local entry = {
+                x = i,
+                y = j,
+                z = k,
+                index = _ind,
+            }
+
+            _ind = _ind + 1
+            tableInsert( holoEntries, entry )
+        end
+    end
+end
+
+local function scrubCalc1( x, y, z, xNorm, yNorm, zNorm, index )
+    local out = calc1( x, y, z, xNorm, yNorm, zNorm, index )
+    out = scrubNumber( out )
+    out = mClamp( out * outScale.z, outScale.x, outScale.y ) * outScale2
+    return out
+end
+
+local function scrubCalc3( x, y, z, xNorm, yNorm, zNorm, index )
+    local xOut, yOut, zOut = calc3( x, y, z, xNorm, yNorm, zNorm, index )
+    xOut = scrubNumber( xOut )
+    yOut = scrubNumber( yOut )
+    zOut = scrubNumber( zOut )
+    xOut = mClamp( xOut * outScale.z, outScale.x, outScale.y ) * outScale2
+    yOut = mClamp( yOut * outScale.z, outScale.x, outScale.y ) * outScale2
+    zOut = mClamp( zOut * outScale.z, outScale.x, outScale.y ) * outScale2
+    return xOut, yOut, zOut
+end
+
+local function processHolo( x, y, z, index )
+    -- 1 = output is hue; 2 = output is alpha; 3 = output is size; 4 = force change z axis; 5 = force change x,y,z; 6 = set rgb color
+
+    local xNorm = x / _xMax
+    local yNorm = y / _yMax
+    local zNorm = z / _zMax
+
+    local color = Color( 255, 255, 255, holoAlpha )
+    local size = holoSize
+    local out
+    local xOut
+    local yOut
+    local zOut
+
+    if mFloor( outMode ) ~= outMode or outMode < 1 or outMode > 6 then
+        outMode = 1
+    end
+
+    ::ReCalc::
+
+    if outMode <= 4 then
+        out = scrubCalc1( x, y, z, xNorm, yNorm, zNorm, index )
+    else
+        xOut, yOut, zOut = scrubCalc3( x, y, z, xNorm, yNorm, zNorm, index )
+    end
+
+    ::ReApply::
+
+    if outMode == 1 then
+        color = Color( out * 360, 1, 1 ):hsvToRGB()
+        color.a = holoAlpha
+    elseif outMode == 2 then
+        color.a = mClamp( out * 255, 0, 255 )
+    elseif outMode == 3 then
+        size = out
+    elseif outMode == 4 then
+        z = out
+    elseif outMode == 5 then
+        x = xOut
+        y = yOut
+        z = zOut
+    elseif outMode == 6 then
+        color.r = xOut
+        color.g = yOut
+        color.b = zOut
+    end
+
+    -- RGB Waves:
+    --
+    if outMode == 4 then
+        outMode = 1
+        goto ReCalc
+    else
+        outMode = 4
+    end
+    --]]
+
+    return x, y, z, color, size
+end
+
+local function holoLimitReached( queue, entry )
+    print( "Hologram limit reached." )
+
+    if doLoop and continueWhenHoloLimitReached then
+        local index = entry.index
+        local amountToDiscard = totalHolos - index + 1
+        ignoreHoloLimit = true
+
+        for _ = 1, amountToDiscard do
+            queue:removeEntry()
+        end
+    else
+        queue:stop()
+    end
+end
+
+local function holoEntryFunc( queue, entry )
+    if not hologram.canSpawn() and not ignoreHoloLimit then
+        if hologram.hologramsLeft() == 0 then
+            holoLimitReached( queue, entry )
+        end
+
+        return true
+    end
+
+    local x = entry.x
+    local y = entry.y
+    local z = entry.z
+    local index = entry.index
+    local color, size
+    x, y, z, color, size = processHolo( x, y, z, index )
+
+    local pos = chip():localToWorld( Vector( x, y, z ) * holoSize )
+    local ang = chip():localToWorldAngles( hAng )
+
+    local holo = holos[index]
+    if not holo then
+        holo = hologram.create( pos, ang, hModel )
+        holos[index] = holo
+        holo:setMaterial( hMat )
+        holo:setParent( chip() )
+        holo:suppressEngineLighting( doFullbright )
+    else
+        holo:setPos( pos )
+        holo:setAngles( ang )
+    end
+
+    holo:setColor( color )
+    holo:setSize( Vector( size ) )
+
+    if doLoop then
+        holoQueue:addEntry( entry )
+    end
+end
+
+local function holoOnComplete( _ )
+    if player() ~= owner() then return end
+
+    print( "Holos successfully created." )
+end
+
+holoQueue = Queue:new( holoEntryFunc, holoOnComplete, holoEntries, creationInterval, creationBatchSize, 0.85, "ThreeVar_HoloCreation" )
+holoQueue:start()

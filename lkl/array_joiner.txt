@@ -1,0 +1,93 @@
+--@name Array Joiner
+--@author legokidlogan
+--@server
+
+local antiLoop = false -- Inserts data into an arbitrary location to prevent self-input, causes output to have an excess value if enabled
+
+local nextUniqueID = 1
+local inputCount
+--local antiLoopKey = "___LKL_ArrayJoiner_AntiLoop"
+local antiLoopKey = -10000
+local inputNames = { "Number_1", "String_1", "Vector_1", "Angle_1", "Entity_1", "Array_1", "Table_1" }
+local inputTypes = { "Number", "String", "Vector", "Angle", "Entity", "Array", "Table" }
+local typeCounts = {}
+local uniqueIDs = {}
+local outTbl = {}
+local outArr = {}
+local wireLink = wire.getWirelink( chip() )
+
+inputCount = #inputNames
+
+if antiLoop then
+    outTbl[antiLoopKey] = antiLoopKey
+    outArr[antiLoopKey] = antiLoopKey
+end
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( { "Array", "Table" }, { "ARRAY", "TABLE" } )
+
+local function upperFirst( str )
+    str = string.trim( str )
+
+    if str == "" then return end
+
+    return string.upper( str:sub( 1, 1 ) ) .. str:sub( 2 )
+end
+
+local function wireInput( name, value )
+    if antiLoop and value[antiLoopKey] == antiLoopKey then return end
+
+    local data = string.explode( "_", name )
+    local curType = data[1]
+    local curInd = tonumber( data[2] )
+    local typeCount = typeCounts[curType]
+    local uniqueID = uniqueIDs[name]
+    local isWired = wireLink:isWired( name )
+
+    if not uniqueID then
+        if not isWired then return end
+
+        uniqueID = nextUniqueID
+        uniqueIDs[name] = uniqueID
+
+        nextUniqueID = nextUniqueID + 1
+    end
+
+    if not typeCount then
+        typeCount = 1
+
+        typeCounts[curType] = typeCount
+    end
+
+    if not isWired then
+        value = nil
+    end
+
+    if curType ~= "Array" and curType ~= "Table" then
+        outArr[uniqueID] = value
+    end
+
+    --outTbl[name] = value
+    outTbl[uniqueID] = value
+
+    wire.ports.Array = outArr
+    wire.ports.Table = outTbl
+
+    if antiLoop then
+        outTbl[antiLoopKey] = antiLoopKey
+        outArr[antiLoopKey] = antiLoopKey
+    end
+
+    if curInd == typeCount then
+        typeCounts[curType] = typeCount + 1
+        inputCount = inputCount + 1
+
+        inputNames[inputCount] = curType .. "_" .. ( curInd + 1 )
+        inputTypes[inputCount] = curType
+
+        wire.adjustInputs( inputNames, inputTypes ) -- Is this command needed again?
+        -- Also may or may not cause issues with all values resetting or re-evaluating when this gets called
+    end
+end
+
+hook.add( "input", "LKL_ArrayJoiner_HandleInput", wireInput )

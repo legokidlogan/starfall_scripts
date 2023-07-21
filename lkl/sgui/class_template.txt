@@ -1,0 +1,47 @@
+--@name Class Template
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+--[[
+    - SGUI.ClassTemplate
+    - Blah
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+
+if SGUI.ClassTemplate then return end -- Don't run twice
+
+
+SGUI.ClassTemplate = class( "ClassTemplate", SGUI.Panel )
+
+
+local ClassTemplate = SGUI.ClassTemplate
+
+
+----- STATIC FUNCTIONS -----
+
+function ClassTemplate:initialize( parent )
+    ClassTemplate.super.initialize( self, parent )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+

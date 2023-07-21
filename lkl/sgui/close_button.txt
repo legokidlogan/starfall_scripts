@@ -1,0 +1,89 @@
+--@name close_button
+--@author legokidlogan
+--@client
+--@include lkl/sgui/button.txt
+
+--[[
+    - SGUI.ClassTemplate
+    - THIS IS AN INTERNAL CLASS, DO NOT USE
+--]]
+
+
+require( "lkl/sgui/button.txt" )
+
+if SGUI.CloseButton then return end -- Don't run twice
+
+
+SGUI.CloseButton = class( "CloseButton", SGUI.Button )
+
+
+local CloseButton = SGUI.CloseButton
+local buttonPoly
+
+local tableInsert = table.insert
+
+
+----- STATIC FUNCTIONS -----
+
+function CloseButton:initialize( parent, initialState )
+    CloseButton.super.initialize( self, parent, initialState )
+
+    self:allowDragParenting( false )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function CloseButton:rerouteChild( _ )
+    error( "Cannot parent to a CloseButton" )
+end
+
+function CloseButton:handleDraw()
+    render.setColor( self:getBackgroundColor() )
+    self:drawPoly( buttonPoly )
+end
+
+function CloseButton:handleDrawBackground()
+    -- Do nothing.
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+local function rotatePolyNinetyDegreesCounter( points )
+    local newPoints = {}
+
+    for _, point in ipairs( points ) do
+        tableInsert( newPoints, {
+            x = 1 - point.y,
+            y = point.x,
+        } )
+    end
+
+    return newPoints
+end
+
+
+buttonPoly = {
+    { x = 8.5 / 17, y = 5 / 17 },
+    { x = 12 / 17, y = 1 / 17 },
+    { x = 14 / 17, y = 0.5 / 17 },
+    { x = 15.75 / 17, y = 2 / 17 },
+    { x = 15.5 / 17, y = 4 / 17 },
+    { x = 12 / 17, y = 8 / 17 },
+}
+
+buttonPoly = table.add( buttonPoly, rotatePolyNinetyDegreesCounter( buttonPoly ) )
+buttonPoly = table.add( buttonPoly, rotatePolyNinetyDegreesCounter( rotatePolyNinetyDegreesCounter( buttonPoly ) ) )

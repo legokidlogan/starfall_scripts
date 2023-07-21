@@ -1,0 +1,19 @@
+--@name Nearest Multiple
+--@author
+--@shared
+
+if math.nearestMultiple then return end
+
+
+function math.nearestMultiple( x, mult )
+    if mult == 0 then return x end
+
+    local positiveMultiple = math.ceil( x / mult ) * mult
+    local negativeMultiple = math.floor( x / mult ) * mult
+
+    if math.abs( x - positiveMultiple ) < math.abs( x - negativeMultiple ) then
+        return positiveMultiple
+    else
+        return negativeMultiple
+    end
+end

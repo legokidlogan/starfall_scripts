@@ -1,0 +1,225 @@
+--@name Teledoor
+--@author legokidlogan
+--@server
+--@include lkl/input_generator.txt
+
+local tableInsert = table.insert
+
+-- CONFIG:
+local doorSounds = {
+    Default = "doors/latchunlocked1.wav", -- Good for normal-looking wood doors
+    --Default = "physics/metal/metal_barrel_impact_hard5.wav", -- Good for vents
+    [1] = nil,
+    [2] = nil,
+    [3] = nil,
+    [4] = nil,
+    [5] = nil,
+    [6] = nil,
+    [7] = nil,
+    [8] = nil,
+    [9] = nil,
+    [10] = nil,
+    [11] = nil,
+}
+-- End Config
+
+--local chairs = {}
+--local chairMap = {}
+local chair
+local doors = {}
+local doorMap = {}
+local exits = {}
+local chairType = ""
+local useRange = 70
+local useRangeSqr = useRange * useRange
+local storePos = Vector( 0, 0, -2000 )
+--local exitOffsetPos = Vector( 90, 0, -11 )
+local exitOffsetPos = Vector( 90, 0, -11 )
+local exitOffsetPlyAdjust = Vector( 0.7, 0, 0 )
+local exitOffsetAng = Angle( 0, 0, 0 )
+local doorOffsetPos
+local doorOffsetAng
+
+
+projectNameID = "TeleDoor." .. chip():entIndex()
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+inGenRepeatMaxDefault = 20
+inGenRepeatNames = inGenRepeatNames or {}
+inGenRepeatTypes = inGenRepeatTypes or {}
+inGenRepeatGroups = inGenRepeatGroups or {}
+inGenRepeatMaxes = inGenRepeatMaxes or {}
+
+tableInsert( inGenRepeatNames, "Door" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Exit" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+require( "lkl/input_generator.txt" )
+
+do
+    prop.setPropUndo( false )
+
+    local spawnables = prop.getSpawnableSents( true ).Vehicles
+    local mainType = "Couch_Furniture_01"
+    local mainEnOP = Vector( 0, 0, -32.894 / 2 )
+    local mainEnOA = Angle( 0, 0, 0 )
+    local fallbackType = "Seat_Airboat"
+    local fallbackEnOP = Vector( 0, 0, -25.042 / 2 )
+    local fallbackEnOA = Angle( 0, -90, 0 )
+    local useMainType = table.hasValue( spawnables, mainType )
+
+    chairType = useMainType and mainType or fallbackType
+    doorOffsetPos = useMainType and mainEnOP or fallbackEnOP
+    doorOffsetAng = useMainType and mainEnOA or fallbackEnOA
+end
+
+
+local function spawnChair( ind )
+    --if isValid( chairs[ind] ) then return end
+    if isValid( chair ) then return end
+
+    local ent
+
+    pcall( function()
+        ent = prop.createSent( storePos, Angle( 0, 0, 0 ), chairType, true )
+    end )
+
+    if isValid( ent ) then
+        --chairs[ind] = ent
+        --chairMap[ent] = ind
+        chair = ent
+        ent:setNocollideAll( true )
+        ent:setMass( 50000 )
+        ent:setColor( Color( 255, 255, 255, 0 ) )
+
+        return true
+    end
+
+    timer.simple( 1, function()
+        spawnChair( ind )
+    end )
+
+    return false
+end
+
+local function wireInput( name, value )
+    local baseName, id = inGenGetInfo( name )
+
+    if baseName == "Door" then
+        local oldDoor= doors[id]
+
+        if isValid( oldDoor ) then
+            doorMap[oldDoor] = nil
+        end
+
+        local door = isValid( value ) and value
+        doors[id] = door or nil
+
+        if door then
+            doorMap[door] = id
+        end
+    elseif baseName == "Exit" then
+        exits[id] = isValid( value ) and value
+    end
+end
+
+hook.add( "input", "LKL_TeleDoor_WireInput", wireInput )
+
+hook.add( "PlayerEnteredVehicle", "LKL_TeleDoor_EnterChair", function( ply, ent )
+    if not isValid( ent ) then return end
+    if ent ~= chair then return end
+
+    --local ind = chairMap[ent]
+    local ind = chair.teledoorTargetInd
+
+    if not ind then
+        chair:ejectDriver()
+
+        return
+    end
+    if ent.teledoorIsBusy then
+        chair:ejectDriver()
+
+        return
+    end
+
+    local door = doors[ind]
+    local exit = exits[ind]
+
+    if not isValid( door ) or not isValid( exit ) then return end
+
+    local plySize = ply:obbSize()
+    local exitBox = exit:obbSize()
+    plySize = ( math.abs( plySize[1] ) + math.abs( plySize[2] ) ) / 2
+    exitBox = Vector( exitBox[1] / 2, 0, 0 )
+
+    ent.teledoorIsBusy = true
+    ent:lock()
+    ent:setParent()
+    ent:enableMotion( false )
+    ent:setPos( exit:localToWorld( exitOffsetPos + exitOffsetPlyAdjust * plySize + exitBox ) )
+    ent:setAngles( exit:localToWorldAngles( exitOffsetAng ) )
+
+    timer.simple( 0.1, function()
+        if not isValid( ent ) then return end
+
+        ent:emitSound( doorSounds[ind] or doorSounds.Default, 75, 100, 1 )
+        ent:unlock()
+        ent:ejectDriver()
+
+        timer.simple( 0.1, function()
+            if not isValid( ent ) then return end
+            if not isValid( door ) then return end
+
+            --ent:setPos( door:localToWorld( doorOffsetPos ) )
+            --ent:setAngles( door:localToWorldAngles( doorOffsetAng ) )
+            --ent:setParent( door )
+            ent:setPos( storePos )
+
+            timer.simple( 0.1, function()
+                if not isValid( ent ) then return end
+
+                ent.teledoorIsBusy = false
+                ent.teledoorTargetInd = false
+            end )
+        end )
+    end )
+end )
+
+hook.add( "KeyPress", "LKL_TeleDoor_UseDoor", function( ply, key )
+    if key ~= IN_KEY.USE then return end
+
+    if not isValid( chair ) then
+        spawnChair()
+
+        return
+    end
+
+    if chair.teledoorIsBusy then return end
+
+    local tr = ply:getEyeTrace()
+    local ent = tr.Entity
+
+    if not isValid( ent ) then return end
+
+    local ind = doorMap[ent]
+
+    if not ind then return end
+    if tr.StartPos:getDistanceSqr( tr.HitPos ) > useRangeSqr then return end
+
+    chair.teledoorTargetInd = ind
+    chair:setPos( ply:getEyePos() + ply:getEyeAngles():getForward() * 10 + doorOffsetPos )
+end )
+
+
+timer.simple( 1, function()
+    spawnChair()
+end )

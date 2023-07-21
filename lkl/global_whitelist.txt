@@ -1,0 +1,734 @@
+--@name Global Whitelist
+--@author legokidlogan
+--@shared
+--@include lkl/gcolors.txt
+--@include lkl/hook_remote_fix.txt
+
+if glist and glist.filterPlayer then return end -- Don't run twice
+
+glist = glist or {}
+glist.groupName = glist.groupName or "__Default" -- Make sure to define this before require()'ing this file. It cannot be changed later.
+glist.startupSyncDelay = glist.startupSyncDelay or 2 -- You can listen for when this completes with hook.add( "LKL_GList_StartupSync_Complete", ... )
+
+
+
+projectNameID = projectNameID or ( "GList|" .. chip():getChipName() )
+printName = printName or ( "[" .. projectNameID .. "]" )
+
+require( "lkl/gcolors.txt" )
+require( "lkl/hook_remote_fix.txt" )
+
+
+local whitelist = {}
+local blacklist = {}
+local whitelistEnabled = true
+local blacklistEnabled = true
+local startupSyncComplete = false
+local whitelistHasEntries = false
+local blacklistHasEntries = false
+local groupNameCached = glist.groupName
+local myRemoteGroupName = "GList." .. groupNameCached
+
+
+local function validateList( choice )
+    local chosenList = choice and whitelist or blacklist
+
+    for ply in pairs( chosenList ) do
+        if not isValid( ply ) then
+            chosenList[ply] = nil
+        end
+    end
+end
+
+local function modifyList( choice, ply, state, isDirect )
+    if not startupSyncComplete then error( "Startup sync is not complete!" ) end
+    if not isValid( ply ) then return end
+    if not ply.isPlayer or not ply:isPlayer() then return end
+
+    local chosenList = choice and whitelist or blacklist
+    local chosenListStr = choice and "Whitelist" or "Blacklist"
+    local listHasEntries
+
+    if state == nil then -- Toggle
+        local currentState = chosenList[ply] or false
+
+        return modifyList( choice, ply, not currentState, isDirect )
+    end
+
+    validateList( choice )
+
+    if state then
+        chosenList[ply] = true
+        listHasEntries = true
+    else
+        whitelist[ply] = nil
+        listHasEntries = table.count( chosenList ) > 0
+    end
+
+    if choice then
+        whitelistHasEntries = listHasEntries
+    else
+        blacklistHasEntries = listHasEntries
+    end
+
+    if not isDirect then
+        hookRunRemoteMyOwnersGroup( "LKL_GList_Modify" .. chosenListStr, ply, state )
+    end
+
+    if SERVER then
+        net.start( "LKL_GList_Modify" .. chosenListStr )
+        net.writeEntity( chip() )
+        net.writeEntity( ply )
+        net.writeBool( state )
+        net.send()
+    end
+end
+
+local function modifyWhitelist( ply, state, isDirect )
+    modifyList( true, ply, state, isDirect )
+end
+
+local function modifyBlacklist( ply, state, isDirect )
+    modifyList( false, ply, state, isDirect )
+end
+
+local function setListState( choice, state, isDirect )
+    local chosenListStr = choice and "Whitelist" or "Blacklist"
+
+    if choice then
+        whitelistEnabled = state
+    else
+        blacklistEnabled = state
+    end
+
+    if not isDirect then
+        hookRunRemoteMyOwnersGroup( "LKL_GList_Set" .. chosenListStr .. "State", state )
+    end
+
+    if SERVER then
+        net.start( "LKL_GList_Set" .. chosenListStr .. "State" )
+        net.writeEntity( chip() )
+        net.writeBool( state )
+        net.send()
+    end
+end
+
+local function setWhitelistState( state, isDirect )
+    setListState( true, state and true or false, isDirect )
+end
+
+local function setBlacklistState( state, isDirect )
+    setListState( false, state and true or false, isDirect )
+end
+
+
+-- GLOBAL FUNCTIONS ------------------------------------------------------------
+
+--[[
+    - Adds a player to the whitelist.
+    - This and other list modification functions will be synced to all chips of the same group owned by you.
+        - If called on SERVER, it will be synced to both SERVER and CLIENT.
+        - If called on CLIENT, it will sync to CLIENT but not to SERVER.
+    - These modification functions cannot be called until startup sync is complete.
+        - The rough delay for this is controlled by glist.startupSyncDelay
+        - You can listen for when this completes with hook.add( "LKL_GList_StartupSync_Complete", ... )
+        - Getter and filter functions will be unreliable until syncing completes, defaulting to all players being disallowed.
+--]]
+function glist.whitelistAdd( ply )
+    modifyWhitelist( ply, true )
+end
+
+-- Removes a player from the whitelist.
+function glist.whitelistRemove( ply )
+    modifyWhitelist( ply, false )
+end
+
+-- Toggles a player's whitelist state.
+function glist.whitelistToggle( ply )
+    modifyWhitelist( ply, nil )
+end
+
+--[[
+    - Modifies a player's whitelist state.
+
+    ply: (Player)
+        - The player to modify.
+    state: (boolean)
+        - The state to set the player to.
+        - true = whitelisted
+        - false = not whitelisted
+        - nil = toggle
+--]]
+function glist.whitelistModify( ply, state )
+    modifyWhitelist( ply, state )
+end
+
+-- Adds a player to the blacklist.
+function glist.blacklistAdd( ply )
+    modifyBlacklist( ply, true )
+end
+
+-- Removes a player from the blacklist.
+function glist.blacklistRemove( ply )
+    modifyBlacklist( ply, false )
+end
+
+--[[
+    - Toggles a player's blacklist state.
+
+    ply: (Player)
+        - The player to modify.
+    state: (boolean)
+        - The state to set the player to.
+        - true = blacklisted
+        - false = not blacklisted
+        - nil = toggle
+--]]
+function glist.blacklistToggle( ply )
+    modifyBlacklist( ply, nil )
+end
+
+-- Enables/disables the whitelist.
+function glist.setWhitelistState( state )
+    setWhitelistState( state )
+end
+
+-- Returns whether or not the whitelist is enabled.
+function glist.getWhitelistState()
+    return whitelistEnabled
+end
+
+-- Enables/disables the blacklist.
+function glist.setBlacklistState( state )
+    setBlacklistState( state )
+end
+
+-- Returns whether or not the blacklist is enabled.
+function glist.getBlacklistState()
+    return blacklistEnabled
+end
+
+--[[
+    - Returns true/false based on whether the player is allowed.
+    - A player is allowed if one of these is true:
+        - The whitelist is active and the player is whitelisted, but not blacklisted (or the blacklist is inactive).
+            - e.g. WL = { A, B }, BL = { C, D }, player = A
+        - The whitelist is inactive, the blacklist is active, and the player is not blacklisted.
+            - e.g. WL = {}, BL = { C, D }, player = A
+        - Note that a list is 'active' if it is both enabled and has at least one entry.
+        - If both lists are inactive, all players are not allowed.
+
+    ent: (Player)
+        - The player to check.
+        - If given as a non-player entity or a non-entity value, will always return false.
+--]]
+function glist.filterPlayer( ent )
+    if not isValid( ent ) then return false end
+    if not ent.isPlayer or not ent:isPlayer() then return false end
+
+    local useWhitelist = whitelistEnabled and whitelistHasEntries
+    local useBlacklist = blacklistEnabled and blacklistHasEntries
+
+    if useWhitelist then
+        return not ( useBlacklist and blacklist[ent] ) and whitelist[ent] or false
+    end
+
+    if useBlacklist then
+        return not ( blacklist[ent] or false )
+    end
+
+    return false
+end
+
+--[[
+    - Filters a list of players, returning a sequential table.
+
+    ents: (table)
+        - A table of players to filter.
+        - The keys can be anything, but the values must be players you want to filter.
+            - e.g. { 1 = Ply1, 2 = Ply2, 3 = Ply3 }
+--]]
+function glist.filterPlayers( ents )
+    local out = {}
+    local count = 0
+
+    for _, ply in pairs( ents ) do
+        if glist.filterPlayer( ply ) then
+            count = count + 1
+            out[count] = ply
+        end
+    end
+
+    return out
+end
+
+--[[
+    - Filters a lookup table of players, returning a lookup table.
+
+    ents: (table)
+        - A lookup table of players to filter.
+        - The values can be anything, but the keys must be players you want to filter.
+            - e.g. { Ply1 = true, Ply2 = true, Ply3 = true }
+--]]
+function glist.filterPlayersLookup( ents )
+    local out = {}
+
+    for ply in pairs( ents ) do
+        if glist.filterPlayer( ply ) then
+            out[ply] = true
+        end
+    end
+
+    return out
+end
+
+--[[
+    - Filters a list of players, returning a lookup table.
+
+    ents: (table)
+        - A table of players to filter.
+        - The keys can be anything, but the values must be players you want to filter.
+            - e.g. { 1 = Ply1, 2 = Ply2, 3 = Ply3 }
+--]]
+function glist.filterPlayersListToLookup( ents )
+    local out = {}
+
+    for _, ply in pairs( ents ) do
+        if glist.filterPlayer( ply ) then
+            out[ply] = true
+        end
+    end
+
+    return out
+end
+
+-- Returns true/false based on whether the player is in the whitelist.
+-- This is not the same as them being fully allowed.
+function glist.isWhitelisted( ply )
+    return whitelist[ply or false] or false
+end
+
+-- Returns true/false based on whether the player is in the blacklist.
+-- This is not the same as them being fully disallowed.
+function glist.isBlacklisted( ply )
+    return blacklist[ply or false] or false
+end
+
+-- Returns the whitelist as a sequential table.
+function glist.getWhitelist()
+    local out = {}
+    local count = 0
+
+    for ply in pairs( whitelist ) do
+        count = count + 1
+        out[count] = ply
+    end
+
+    return out
+end
+
+-- Returns the whitelist as a lookup table.
+function glist.getWhitelistLookup()
+    local out = {}
+
+    for ply in pairs( whitelist ) do
+        out[ply] = true
+    end
+
+    return out
+end
+
+-- Returns the blacklist as a sequential table.
+function glist.getBlacklist()
+    local out = {}
+    local count = 0
+
+    for ply in pairs( blacklist ) do
+        count = count + 1
+        out[count] = ply
+    end
+
+    return out
+end
+
+-- Returns the blacklist as a lookup table.
+function glist.getBlacklistLookup()
+    local out = {}
+
+    for ply in pairs( blacklist ) do
+        out[ply] = true
+    end
+
+    return out
+end
+
+-- END GLOBAL FUNCTIONS --------------------------------------------------------
+
+
+hook.add( "Remote_LKL_GList_ModifyWhitelist", "LKL_GList_HandleModification", function( callingChip, callingPlayer, ply, state )
+    if callingChip == chip() then return end
+    if callingPlayer ~= owner() then return end
+
+    modifyWhitelist( ply, state, true )
+end )
+
+hook.add( "Remote_LKL_GList_ModifyBlacklist", "LKL_GList_HandleModification", function( callingChip, callingPlayer, ply, state )
+    if callingChip == chip() then return end
+    if callingPlayer ~= owner() then return end
+
+    modifyBlacklist( ply, state, true )
+end )
+
+hook.add( "Remote_LKL_GList_SetWhitelistState", "LKL_GList_HandleModification", function( callingChip, callingPlayer, state )
+    if callingChip == chip() then return end
+    if callingPlayer ~= owner() then return end
+
+    setWhitelistState( state, true )
+end )
+
+hook.add( "Remote_LKL_GList_SetBlacklistState", "LKL_GList_HandleModification", function( callingChip, callingPlayer, state )
+    if callingChip == chip() then return end
+    if callingPlayer ~= owner() then return end
+
+    setBlacklistState( state, true )
+end )
+
+
+if CLIENT then
+    net.receive( "LKL_GList_ModifyWhitelist", function()
+        if net.readEntity() ~= chip() then return end
+
+        local ply = net.readEntity()
+        if not isValid( ply ) then return end
+
+        local state = net.readBool()
+        modifyWhitelist( ply, state )
+    end )
+
+    net.receive( "LKL_GList_ModifyBlacklist", function()
+        if net.readEntity() ~= chip() then return end
+
+        local ply = net.readEntity()
+        if not isValid( ply ) then return end
+
+        local state = net.readBool()
+        modifyBlacklist( ply, state )
+    end )
+
+    net.receive( "LKL_GList_SetWhitelistState", function()
+        if net.readEntity() ~= chip() then return end
+
+        local state = net.readBool()
+        setWhitelistState( state )
+    end )
+
+    net.receive( "LKL_GList_SetBlacklistState", function()
+        if net.readEntity() ~= chip() then return end
+
+        local state = net.readBool()
+        setBlacklistState( state )
+    end )
+else
+    local isMainResponder = false
+    local isRemoving = false
+
+
+    local function becomeMainResponder()
+        if isMainResponder then return end
+        if isRemoving then return end
+
+        isMainResponder = true
+    end
+
+    local function checkForMainResponder()
+        if isMainResponder then return end
+        if isRemoving then return end
+
+        local results = hookRunRemoteMyOwnersGroup( "LKL_GList_CheckMainResponder" )
+
+        for _, result in pairs( results ) do
+            if result[1] == "IAmMainResponder" then return end
+        end
+
+        becomeMainResponder()
+    end
+
+    local function commandHelp()
+        print(
+            c_white, printName .. " Help:",
+            c_info_blue, "\n - ",
+                c_white, "The available commands are ",
+                c_yellow, "help", c_white, ", ",
+                c_yellow, "whitelist", c_white, ", ",
+                c_white, "and ",
+                c_yellow, "blacklist", c_white, ".",
+            c_info_blue, "\n - ",
+                c_white, "The whitelist and blacklist commands can be given a player's name to add/remove them from the list.",
+            c_info_blue, "\n - ",
+                c_white, "However, they can also be given one of the following special arguments instead:",
+                c_info_blue, "\n   - ",
+                    c_yellow, "::all:: ", c_white, "to add all players.",
+                c_info_blue, "\n   - ",
+                    c_yellow, "::none:: ", c_white, "to remove all players.",
+                c_info_blue, "\n   - ",
+                    c_yellow, "::enable:: ", c_white, "to enable a list.",
+                c_info_blue, "\n   - ",
+                    c_yellow, "::disable:: ", c_white, "to disable a list.",
+                c_info_blue, "\n   - ",
+                    c_white, "Or no arguments to show the current players in the list."
+        )
+    end
+
+    local function commandWBList( choice, ... )
+        local argsAsStr = table.concat( { ... }, " " )
+        local chosenList = choice and whitelist or blacklist
+        local chosenListStr = choice and "whitelist" or "blacklist"
+
+        if argsAsStr == "" then
+            local printTbl = {
+                c_white, printName .. " ",
+                c_white, "The current " .. chosenListStr .. " is: ",
+            }
+
+            validateList( choice )
+
+            for ply in pairs( choice and whitelist or blacklist ) do
+                table.insert( printTbl, team.getColor( ply:getTeam() ) )
+                table.insert( printTbl, ply:getName() )
+                table.insert( printTbl, c_white )
+                table.insert( printTbl, ", " )
+            end
+
+            table.remove( printTbl )
+            table.remove( printTbl )
+
+            print( unpack( printTbl ) )
+        elseif argsAsStr == "::all::" then
+            for _, ply in ipairs( find.allPlayers() ) do
+                modifyList( choice, ply, true )
+            end
+
+            print(
+                c_white, printName .. " ",
+                c_white, "Added all players to the " .. chosenListStr .. "."
+            )
+        elseif argsAsStr == "::none::" then
+            for _, ply in ipairs( find.allPlayers() ) do
+                modifyList( choice, ply, false )
+            end
+
+            print(
+                c_white, printName .. " ",
+                c_white, "Removed all players from the " .. chosenListStr .. "."
+            )
+        elseif argsAsStr == "::enable::" then
+            setListEnabled( choice, true )
+
+            print(
+                c_white, printName .. " ",
+                c_white, "The " .. chosenListStr .. " is now ",
+                c_pale_green, "enabled",
+                c_white, "."
+            )
+        elseif argsAsStr == "::disable::" then
+            setListEnabled( choice, false )
+
+            print(
+                c_white, printName .. " ",
+                c_white, "The " .. chosenListStr .. " is now ",
+                c_pale_red, "disabled",
+                c_white, "."
+            )
+        else
+            local ply = find.playersByName( argsAsStr )[1]
+
+            if not isValid( ply ) then
+                print(
+                    c_white, printName .. " ",
+                    c_red, "Could not find a player by the name of ",
+                    c_yellow, argsAsStr
+                )
+
+                return
+            end
+
+            modifyList( choice, ply, nil )
+
+            local newState = chosenList[ply]
+
+            print(
+                c_white, printName .. " ",
+                team.getColor( ply:getTeam() ), ply:getName() .. " ",
+                c_white, "has been ",
+                newState and c_pale_green or c_pale_red, newState and "added to " or "removed from ",
+                c_white, "the " .. chosenListStr .. "."
+            )
+        end
+    end
+
+    local function commandWhitelist( ... )
+        commandWBList( true, ... )
+    end
+
+    local function commandBlacklist( ... )
+        commandWBList( false, ... )
+    end
+
+
+    local commands = {
+        help = commandHelp,
+        whitelist = commandWhitelist,
+        wl = commandWhitelist,
+        blacklist = commandBlacklist,
+        bl = commandBlacklist,
+    }
+
+    hook.add( "PlayerSay", "LKL_GList_ChatCommands", function( ply, msg )
+        if ply ~= owner() then return end
+
+        local args = string.split( msg, " " )
+        local prefix = table.remove( args, 1 )
+        if prefix ~= "/glist" then return end
+
+        checkForMainResponder()
+        if not isMainResponder then return end
+
+        local groupName = table.remove( args, 1 ) or ""
+
+        if groupName == "" then
+            print(
+                c_white, printName .. " ",
+                c_red, "Please specify a group to target."
+            )
+
+            return ""
+        end
+
+        if groupName ~= groupNameCached then return end
+
+        local cmd = table.remove( args, 1 ) or ""
+
+        if cmd == "" then
+            print(
+                c_white, printName .. " ",
+                c_red, "Please specify a command to run."
+            )
+
+            return ""
+        end
+
+        local command = commands[cmd]
+
+        if not command then
+            print(
+                c_white, printName .. " ",
+                c_yellow, cmd .. " ",
+                c_red, "is not a valid command."
+            )
+
+            return ""
+        end
+
+        command( unpack( args ) )
+
+        return ""
+    end )
+
+    hook.add( "PlayerDisconnected", "LKL_GList_RemovePlayer", function( ply )
+        if not isValid( ply ) then return end
+        if not startupSyncComplete then return end
+
+        modifyWhitelist( ply, false )
+        modifyBlacklist( ply, false )
+    end )
+
+    hook.add( "Remote_LKL_GList_CheckMainResponder", "LKL_GList_ReportMainResponder", function( callingChip, callingPlayer )
+        if callingChip == chip() then return end
+        if callingPlayer ~= owner() then return end
+
+        if isMainResponder then return "IAmMainResponder" end
+    end )
+end
+
+
+-- Startup Sync ----------------------------------------------------------------
+
+local function completeStartupSync()
+    startupSyncComplete = true
+
+    hook.run( "LKL_GList_StartupSync_Complete" )
+
+    print(
+        c_white, printName .. " ",
+        c_green, "Startup sync complete for ",
+        c_yellow, tostring( chip() )
+    )
+end
+
+if SERVER then
+    timer.simple( glist.startupSyncDelay, function()
+        setRemoteGroupName( myRemoteGroupName )
+    end )
+end
+
+hook.add( "Remote_RemoteGroupChanged", "LKL_GList_StartupSync", function( callingChip, callingPlayer )
+    if startupSyncComplete then return end
+    if callingChip ~= chip() then return end
+    if callingPlayer ~= owner() then return end
+
+    --local results = hookRunRemoteGroup( myRemoteGroupName, owner(), "StartupSync_RequestData" )
+    local results = hookRunRemoteMyOwnersGroup( "LKL_GList_StartupSync_RequestData" )
+    local resultWhitelist
+    local resultBlacklist
+    local resultWhitelistEnabled
+    local resultBlacklistEnabled
+
+    for _, result in ipairs( results ) do
+        if result[1] == "Success" then
+            resultWhitelist = result[2]
+            resultBlacklist = result[3]
+            resultWhitelistEnabled = result[4]
+            resultBlacklistEnabled = result[5]
+
+            break
+        end
+    end
+
+    if not resultWhitelist then
+        completeStartupSync()
+
+        return
+    end
+
+    table.empty( whitelist )
+    table.empty( blacklist )
+
+    if resultWhitelist then
+        for _, ply in ipairs( resultWhitelist ) do
+            whitelist[ply] = true
+        end
+    end
+
+    if resultBlacklist then
+        for _, ply in ipairs( resultBlacklist ) do
+            blacklist[ply] = true
+        end
+    end
+
+    whitelistEnabled = resultWhitelistEnabled
+    blacklistEnabled = resultBlacklistEnabled
+    whitelistHasEntries = #resultWhitelist > 0
+    blacklistHasEntries = #resultBlacklist > 0
+
+    completeStartupSync()
+end )
+
+hook.add( "Remote_LKL_GList_StartupSync_RequestData", "LKL_GList_StartupSync_Respond", function( callingChip, callingPlayer )
+    if not startupSyncComplete then return end
+    if callingChip == chip() then return end
+    if callingPlayer ~= owner() then return end
+
+    return "Success", glist.getWhitelist(), glist.getBlacklist(), whitelistEnabled, blacklistEnabled
+end )
+
+-- END Startup Sync ------------------------------------------------------------

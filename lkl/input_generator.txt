@@ -1,0 +1,332 @@
+--@name Input Generator
+--@author legokidlogan
+--@server
+--@include lkl/table_tracker.txt
+--@include lkl/better_userdata.txt
+
+require( "lkl/table_tracker.txt" )
+require( "lkl/better_userdata.txt" )
+
+inputNames = inputNames or {} -- Don't include repeat names and types on startup
+inputTypes = inputTypes or {}
+
+projectNameID = projectNameID or chip():entIndex()
+inGenRepeatMaxDefault = inGenRepeatMaxDefault or 0 -- 0 means infinite
+inGenRepeatNames = inGenRepeatNames or {}
+inGenRepeatTypes = inGenRepeatTypes or {}
+inGenRepeatGroups = inGenRepeatGroups or {} -- A group of 0 means no group
+inGenRepeatMaxes = inGenRepeatMaxes or {}
+
+local inputCount = #inputNames
+local inGenNonRepeatNames = {}
+local inGenNonRepeatTypes = {}
+local inGenRepeatCounts = {}
+local inGenRepeatNameLookup = {}
+local inGenRepeatGroupLookup = {}
+local inGenWireLinkStates = {}
+local chipLink = wire.getWirelink( chip() )
+
+inGenOldInputVals = {}
+
+local real_inputNames
+local real_inputTypes
+
+local mathMax = math.max
+local stringExplode = string.explode
+local tableRemoveByValue = table.removeByValue
+
+for i, baseName in ipairs( inGenRepeatNames ) do
+    local groupInd = inGenRepeatGroups[i] or false
+    groupInd = groupInd ~= 0 and groupInd
+    local group = inGenRepeatGroupLookup[groupInd]
+
+    if groupInd then
+        if not group then
+            group = {
+                count = 0
+            }
+            inGenRepeatGroupLookup[groupInd] = group
+        end
+
+        local groupCount = group.count + 1
+
+        group[groupCount] = i
+        group.count = groupCount
+    end
+
+    inGenRepeatNameLookup[baseName] = i
+end
+
+
+--[[
+    name: (string)
+        - The full name of the wire input (same as what is given by the input hook).
+
+    RETURNS: baseName, id
+        baseName: (string)
+            - Base name of the wire input (e.g. "Ent" for "Ent__1", "Ent__2", etc.)
+            - For non-repeat inputs, this is the same as name.
+        id: (nil, false, number)
+            - If the input is a repeat input, this is the number of the input (e.g. 1 for "Ent__1", 2 for "Ent__2", etc.)
+            - If the input is not a repeat input, this is nil.
+            - If the input is a repeat input but has invalid formatting (e.g. "Ent__g"), this is false. If you're using the library correctly, this should never occur.
+--]]
+function inGenGetInfo( name )
+    if type( name ) ~= "string" then return end
+
+    local info = stringExplode( "__", name )
+    local id = info[2]
+
+    if id then
+        id = tonumber( id )
+
+        if not id or id < 1 then
+            id = false
+        end
+    end
+
+    return info[1], id
+end
+
+--[[
+    - Cleanses the outputNames and outputTypes tables of problematic entries.
+    - Ex: "wirelink", which gets auto-added by WireMod after wire.adjustOutputs(), and will cause an error if you later modify the outputs and run wire.adjustOutputs() a second time.
+--]]
+function inGenClearBadOutputs()
+    for i = #outputNames, 1, -1 do
+        if outputNames[i] == "wirelink" then
+            table.remove( outputNames, i )
+            table.remove( outputTypes, i )
+        end
+    end
+end
+
+
+inputNames = tableTracker.trackTbl( inputNames,
+    function( proxyTbl, realTbl, key ) -- read
+        real_inputNames = real_inputNames or realTbl
+    end,
+
+    function( proxyTbl, realTbl, key, val ) -- write
+        real_inputNames = real_inputNames or realTbl
+--print("inputName write", "key: " .. tostring( key ), "curVal: " .. tostring( realTbl[key] ), "val: " .. tostring( val ) )
+        if val == nil then
+            local curVal = realTbl[key]
+
+            if curVal == nil then return end
+
+            local baseName, ind = inGenGetInfo( curVal )
+
+            if ind then
+                local curCount = inGenRepeatCounts[baseName] or 1
+
+                if curCount < 2 then
+                    return true, key, curVal
+                end
+
+                inGenRepeatCounts[baseName] = curCount - 1
+            else
+                tableRemoveByValue( inGenNonRepeatNames, curVal )
+            end
+
+            inputCount = inputCount - 1
+        else
+            local curVal = realTbl[key]
+            local baseName, ind = inGenGetInfo( val )
+
+            if curVal == nil then
+                if ind then
+                    local curCount = inGenRepeatCounts[baseName] or 0
+                    local nameInd = inGenRepeatNameLookup[baseName]
+--print( curCount )
+                    if not nameInd then
+                        return true, key, nil
+                    end
+
+                    if curCount >= ( inGenRepeatMaxes[nameInd] or inGenRepeatMaxDefault ) then
+                        return true, key, nil
+                    end
+
+                    local groupInd = inGenRepeatGroups[nameInd]
+                    groupInd = groupInd ~= 0 and groupInd
+
+                    if groupInd then
+                        local group = inGenRepeatGroupLookup[groupInd] or {}
+                        local groupCount = group.count or 0
+
+                        for i = 1, groupCount do
+                            local liInd = group[i] -- linkedInputInd
+
+                            --if liInd == nameInd then continue end
+
+                            local liName = inGenRepeatNames[liInd]
+                            local liMax = inGenRepeatMaxes[liInd] or inGenRepeatMaxDefault
+                            local liCount = inGenRepeatCounts[liName] or 0
+
+                            if liCount < liMax then
+                                inputCount = inputCount + 1
+                                liCount = liCount + 1
+                                inGenRepeatCounts[liName] = liCount
+
+                                --real_inputNames[inputCount + 1] = liName .. "__" .. liCount
+                                --real_inputTypes[inputCount + 1] = inGenRepeatTypes[liInd]
+                                real_inputNames[inputCount] = liName .. "__" .. liCount
+                                real_inputTypes[inputCount] = inGenRepeatTypes[liInd]
+
+                                local udInd = liInd * 2
+
+                                editUserdata( "InputGenerator", udInd - 1, liName )
+                                editUserdata( "InputGenerator", udInd, mathMax( liCount, readUserdata( "InputGenerator", udInd ) or 0 ) )
+
+                                hook.run( "LKL_" .. projectNameID .. "_InputGenerator_NewInput", liName, liCount )
+                            end
+                        end
+
+                        return true, key, real_inputNames[key]
+                    else
+                        curCount = curCount + 1
+                        inGenRepeatCounts[baseName] = curCount
+                        inputTypes[inputCount + 1] = inGenRepeatTypes[nameInd]
+
+                        local udInd = nameInd * 2
+
+                        editUserdata( "InputGenerator", udInd - 1, baseName )
+                        editUserdata( "InputGenerator", udInd, mathMax( curCount, readUserdata( "InputGenerator", udInd ) or 0 ) )
+
+                        hook.run( "LKL_" .. projectNameID .. "_InputGenerator_NewInput", baseName, nameInd )
+                    end
+                else
+                    inGenNonRepeatNames[#inGenNonRepeatNames + 1] = val
+                end
+
+                inputCount = inputCount + 1
+            else
+                local curBaseName, curInd = inGenGetInfo( curVal )
+
+                if curInd then
+                    return true, key, curVal
+                end
+            end
+
+            baseName, ind = inGenGetInfo( curVal )
+        end
+--print( "inputcount c", inputCount + 1 )
+    end
+)
+
+inputTypes = tableTracker.trackTbl( inputTypes,
+    function( proxyTbl, realTbl, key ) -- read
+        real_inputTypes = real_inputTypes or realTbl
+    end,
+
+    function( proxyTbl, realTbl, key, val ) -- write
+        real_inputTypes = real_inputTypes or realTbl
+    end
+)
+
+do
+    -- Access input name/tpye tables to instantiate the real_ vars
+    local _ = inputNames._
+    _ = inputTypes._
+end
+
+local function inGenWireInput( name, value )
+    if not value then return end
+
+    local baseName, id = inGenGetInfo( name )
+    local oldVal = inGenOldInputVals[name]
+    local hasChanged = oldVal ~= value
+    local wasLinked = inGenWireLinkStates[name]
+    local isLinked = chipLink:isWired( name )
+
+    inGenOldInputVals[name] = value
+    inGenWireLinkStates[name] = isLinked
+
+    if not isLinked then
+        if wasLinked then
+            hook.run( "inGenInput", name, value, oldVal, true )
+        end
+
+        return
+    end
+
+    if not id or id < ( inGenRepeatCounts[baseName] or 0 ) then
+        hook.run( "inGenInput", name, value, oldVal, false )
+
+        return
+    end
+
+    if id >= ( inGenRepeatMaxes[inGenRepeatNameLookup[baseName]] or inGenRepeatMaxDefault ) then return end
+
+    inputNames[inputCount + 1] = baseName .. "__" .. ( id + 1 )
+    applyUserdata()
+
+    wire.adjustInputs( inputNames, inputTypes )
+    hook.run( "inGenInput", name, value, oldVal, false )
+end
+
+hook.add( "input", "LKL_InputGenerator_" .. projectNameID .. "AutoGenInputs", inGenWireInput )
+
+do
+    -- Count up, track, and categorize all current inputs
+    local nonRepCount = #inGenNonRepeatNames
+    local nonRepKeys = table.getKeys( inGenNonRepeatNames )
+
+    for i = 1, inputCount do
+        local name = inputNames[i]
+        local baseName, id = inGenGetInfo( name )
+
+        if id then
+            local nameInd = inGenRepeatNameLookup[baseName]
+
+            if not nameInd then continue end
+
+            local count = ( inGenRepeatCounts[baseName] or 0 ) + 1
+
+            inGenRepeatCounts[baseName] = count
+        elseif not nonRepKeys[name] then
+            nonRepCount = nonRepCount + 1
+            inGenNonRepeatNames[nonRepCount] = name
+            inGenNonRepeatTypes[nonRepCount] = inputTypes[i]
+        end
+    end
+
+    -- Ensure at least one of every repeat input
+    for i, baseName in ipairs( inGenRepeatNames ) do
+        if ( inGenRepeatCounts[baseName] or 0 ) < 1 then
+            inputNames[inputCount + 1] = baseName .. "__1"
+        end
+    end
+
+    -- Include repeat inputs from previous chip instance
+    --updateUserdata( force )
+
+    local oldInputs = readUserdata( "InputGenerator" )
+    local baseName = false
+
+    for i = 1, oldInputs.count do
+        if baseName then
+            local oldCount = oldInputs[i]
+            local curCount = inGenRepeatCounts[baseName] or 0
+
+            if curCount >= oldCount then
+                editUserdata( "InputGenerator", i, curCount )
+                baseName = false
+
+                continue
+            end
+
+            for i = curCount + 1, oldCount do
+                inputNames[inputCount + 1] = baseName .. "__" .. i
+            end
+
+            baseName = false
+        else
+            baseName = oldInputs[i]
+        end
+    end
+
+    wire.adjustInputs( inputNames, inputTypes )
+
+    applyUserdata()
+end

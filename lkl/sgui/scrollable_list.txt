@@ -1,0 +1,211 @@
+--@name Scrollable List
+--@author legokidlogan
+--@client
+--@include lkl/sgui/list.txt
+--@include lkl/sgui/scrollable.txt
+
+--[[
+    - SGUI.ScrollableList
+    - Blah
+--]]
+
+
+require( "lkl/sgui/list.txt" )
+require( "lkl/sgui/scrollable.txt" )
+
+if SGUI.ScrollableList then return end -- Don't run twice
+
+
+SGUI.ScrollableList = class( "ScrollableList", SGUI.List )
+
+
+local ScrollableList = SGUI.ScrollableList
+local Scrollable = SGUI.Scrollable
+local scrollDirectionFromListDirection
+
+
+----- STATIC FUNCTIONS -----
+
+function ScrollableList:initialize( parent, listDirection, listAlign )
+    ScrollableList.super.initialize( self, parent, listDirection, listAlign )
+
+    local scrollDirection = scrollDirectionFromListDirection( self:getListDirection() )
+
+    local scrollable = Scrollable( nil, scrollDirection )
+    self._scrollable = scrollable
+    scrollable._partOfList = self
+    scrollable:getScrollInsert()._partOfList = self
+    scrollable:_forceNextParent()
+    scrollable:setParent( self )
+    scrollable:setMargin( 0 )
+    scrollable:setBorderSize( self:getBorderSize() )
+    scrollable:setInnerMargin( self:getInnerMargin() )
+
+    self:setMinSize( self:getMinSize() )
+    self:setAutoExpand( true )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Whether or not to adjust the ScrollableList's size opposite to its direction to fit its elements.
+    - e.g. A vertical list expanding its width to fit its an extra large element.
+    - True by default.
+--]]
+function ScrollableList:setAutoExpand( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._autoExpand = state
+end
+
+function ScrollableList:getAutoExpand()
+    return self._autoExpand
+end
+
+function ScrollableList:setScrollBarSize( size )
+    self:getScrollable():setScrollBarSize( size )
+end
+
+function ScrollableList:getScrollBarSize()
+    return self:getScrollable():getScrollBarSize()
+end
+
+function ScrollableList:getScrollable()
+    return self._scrollable
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ScrollableList:getElements()
+    local scrollable = self:getScrollable()
+    if not scrollable then return {} end
+
+    return scrollable:getScrollInsert():getChildren()
+end
+
+function ScrollableList:_insert( index, panel )
+    panel:setParent( self:getScrollable() )
+    panel:moveToOrderIndex( index )
+    self:invalidateLayout()
+end
+
+function ScrollableList:_remove( panel )
+    panel:setParent()
+    self:invalidateLayout()
+end
+
+function ScrollableList:handleListResize( width, height )
+    local scrollable = self:getScrollable()
+    local doAutoExpand = self:getAutoExpand()
+
+    if self:getListDirection() == LIST_VERTICAL then
+        width = doAutoExpand and ( width + scrollable:getScrollBarSize() ) or self:getWidth()
+        self:setWidth( width )
+        scrollable:setWidth( width )
+    else
+        height = doAutoExpand and ( height + scrollable:getScrollBarSize() ) or self:getHeight()
+        self:setHeight( height )
+        scrollable:setHeight( height )
+    end
+
+    scrollable:setScrollSize( width, height )
+end
+
+function ScrollableList:setMinWidth( width )
+    ScrollableList.super.setMinWidth( self, width )
+
+    local scrollable = self:getScrollable()
+    if not scrollable then return end
+
+    scrollable:setWidth( width )
+end
+
+function ScrollableList:setMinHeight( height )
+    ScrollableList.super.setMinHeight( self, height )
+
+    local scrollable = self:getScrollable()
+    if not scrollable then return end
+
+    scrollable:setHeight( height )
+end
+
+function ScrollableList:setListDirection( listDirection )
+    local oldDirection = self:getListDirection()
+    ScrollableList.super.setListDirection( self, listDirection )
+
+    if oldDirection == nil then return end -- Setup is not complete yet.
+
+    local scrollable = self:getScrollable()
+    local scrollDirection = scrollDirectionFromListDirection( listDirection )
+
+    scrollable:setScrollDirection( scrollDirection )
+
+    if listDirection == LIST_VERTICAL then
+        self:setWidth( scrollable:getScrollWidth() )
+        self:setHeight( self:getMinHeight() )
+    else
+        self:setWidth( self:getMinWidth() )
+        self:setHeight( scrollable:getScrollHeight() )
+    end
+end
+
+function ScrollableList:setBorderSize( size )
+    local scrollable = self:getScrollable()
+    if not scrollable then return ScrollableList.super.setBorderSize( self, size ) end
+
+    scrollable:setBorderSize( size )
+end
+
+function ScrollableList:getBorderSize()
+    local scrollable = self:getScrollable()
+    if not scrollable then return ScrollableList.super.getBorderSize( self ) end
+
+    return scrollable:getBorderSize()
+end
+
+function ScrollableList:setInnerMargin( left, top, right, bottom )
+    local scrollable = self:getScrollable()
+    if not scrollable then return ScrollableList.super.setInnerMargin( self, left, top, right, bottom ) end
+
+    scrollable:setInnerMargin( left, top, right, bottom )
+end
+
+function ScrollableList:getInnerMargin()
+    local scrollable = self:getScrollable()
+    if not scrollable then return ScrollableList.super.getInnerMargin( self ) end
+
+    return scrollable:getInnerMargin()
+end
+
+function ScrollableList:acceptMouseInput( state )
+    local scrollable = self:getScrollable()
+    if not scrollable then return end
+
+    scrollable:acceptMouseInput( state )
+end
+
+function ScrollableList:doesAcceptMouseInput()
+    return self:getScrollable():doesAcceptMouseInput()
+end
+
+function ScrollableList:handleDrawBackground()
+    -- Do nothing.
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+scrollDirectionFromListDirection = function( listDirection )
+    if listDirection == LIST_VERTICAL then return SCROLL_VERTICAL end
+    if listDirection == LIST_HORIZONTAL then return SCROLL_HORIZONTAL end
+end
+
+
+----- SETUP -----
+

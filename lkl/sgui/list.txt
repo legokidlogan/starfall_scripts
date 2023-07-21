@@ -1,0 +1,321 @@
+--@name List
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+--[[
+    - SGUI.List
+    - Places elements in a vertical/horizontal list and adjusts its size to fit them.
+    - Avoid using Panel:moveToOrderIndex() and related function on the elements of a List.
+        - If you do, you will need to call List:invalidateLayout() to update the layout.
+        - Sibling order influences the layout of a List.
+    - Elements of a list will automatically have the following applied:
+        - :setDock( DOCK_NONE )
+        - :setAnchor( ANCHOR_NONE )
+        - :setExpand( EXPAND_NONE ) if the list is vertical and the element uses EXPAND_HEIGHT.
+        - :setExpand( EXPAND_NONE ) if the list is horizontal and the element uses EXPAND_WIDTH.
+    - Do not use regular parenting (via :setParent() or parent arg in :new()) to add elements to a list.
+        - Use List:add() or List:insert() instead.
+    - Use :setMinSize() instead of :setSize() and equivalents.
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+
+if SGUI.List then return end -- Don't run twice
+
+
+SGUI.List = class( "List", SGUI.Panel )
+
+
+local List = SGUI.List
+local Panel = SGUI.Panel
+
+local mathFloor = math.floor
+local mathMax = math.max
+local tableHasValue = table.hasValue
+local tableKeyFromValue = table.keyFromValue
+local validateExpand
+
+
+----- STATIC FUNCTIONS -----
+
+function List:initialize( parent, listDirection, listAlign )
+    List.super.initialize( self, parent )
+
+    self:setListDirection( listDirection or LIST_VERTICAL )
+    self:setListAlign( listAlign or LIST_ALIGN_TOP_LEFT )
+    self:setMinSize( self:getSize() )
+    self:setSpacing( 1 )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Sets the direction the elements will be placed in.
+    - Accepts LIST_VERTICAL or LIST_HORIZONTAL.
+--]]
+function List:setListDirection( listDirection )
+    SGUI.expectValidList( listDirection, 1, "listDirection" )
+
+    self._listDirection = listDirection
+    self:invalidateLayout()
+
+    for i = 1, #self:getElements() do
+        validateExpand( self, self:getElement( i ) )
+    end
+end
+
+function List:getListDirection()
+    return self._listDirection
+end
+
+--[[
+    - Sets the per-element alignment for the List.
+        - LIST_ALIGN_TOP_LEFT: Aligns elements to the top/left depending on the list direction.
+        - LIST_ALIGN_BOTTOM_RIGHT: Aligns elements to the bottom/right depending on the list direction.
+        - LIST_ALIGN_CENTER: Aligns elements to the center.
+--]]
+function List:setListAlign( listAlign )
+    SGUI.expectValidListAlign( listAlign, 1, "listAlign" )
+
+    self._listAlign = listAlign
+    self:invalidateLayout()
+end
+
+function List:getListAlign()
+    return self._listAlign
+end
+
+function List:setSpacing( spacing )
+    if type( spacing ) ~= "number" then error( "Expected spacing to be a number" ) end
+    spacing = mathFloor( spacing )
+    if spacing < 0 then error( "Expected spacing to be >= 0" ) end
+
+    self._spacing = spacing
+    self:invalidateLayout()
+end
+
+function List:getSpacing()
+    return self._spacing
+end
+
+function List:setMinWidth( minWidth )
+    if type( minWidth ) ~= "number" then error( "Expected minWidth to be a number" ) end
+    minWidth = mathFloor( minWidth )
+    if minWidth < 0 then error( "Expected minWidth to be >= 0" ) end
+
+    self._minWidth = minWidth
+    self:invalidateLayout()
+end
+
+function List:getMinWidth()
+    return self._minWidth
+end
+
+function List:setMinHeight( minHeight )
+    if type( minHeight ) ~= "number" then error( "Expected minHeight to be a number" ) end
+    minHeight = mathFloor( minHeight )
+    if minHeight < 0 then error( "Expected minHeight to be >= 0" ) end
+
+    self._minHeight = minHeight
+    self:invalidateLayout()
+end
+
+function List:getMinHeight()
+    return self._minHeight
+end
+
+function List:setMinSize( minWidth, minHeight )
+    self:setMinWidth( minWidth )
+    self:setMinHeight( minHeight )
+end
+
+function List:getMinSize()
+    return self._minWidth, self._minHeight
+end
+
+function List:add( panel )
+    self:insert( #self:getElements() + 1, panel )
+end
+
+function List:insert( index, panel )
+    Panel:expectValidPanel( panel, 2, "panel" )
+    if self:hasElement( panel ) then error( "The provided panel is already in the list" ) end
+    if type( index ) ~= "number" then error( "Expected index to be a number" ) end
+    if mathFloor( index ) ~= index then error( "Expected index to be an integer" ) end
+    if index < 1 then error( "Expected index to be >= 1" ) end
+
+    local elementCount = #self:getElements()
+    if index > elementCount + 1 then error( "Expected index to be <= elementCount + 1" ) end
+
+    panel:setDock( DOCK_NONE )
+    panel:setAnchor( ANCHOR_NONE )
+    validateExpand( self, panel )
+
+    panel._listInsideOf = self
+    panel:_forceNextParent()
+    self:_insert( index, panel )
+end
+
+function List:remove( index )
+    if type( index ) ~= "number" then error( "Expected index to be a number" ) end
+    if mathFloor( index ) ~= index then error( "Expected index to be an integer" ) end
+    if index < 1 then error( "Expected index to be >= 1" ) end
+    if index > #self:getElements() then error( "Expected index to be <= elementCount" ) end
+
+    local panel = self:getElement( index )
+
+    panel._listInsideOf = nil
+    panel:_forceNextParent()
+    self:_remove( panel )
+end
+
+function List:removeByValue( panel )
+    self:remove( self:getElementIndex( panel ) )
+end
+
+function List:removeAll()
+    for i = #self:getElements(), 1, -1 do
+        self:_remove( i )
+    end
+end
+
+function List:hasElement( panel )
+    return tableHasValue( self:getElements(), panel )
+end
+
+function List:getElementIndex( panel )
+    return tableKeyFromValue( self:getElements(), panel )
+end
+
+function List:getElement( index )
+    return self:getElements()[index]
+end
+
+function List:getElements()
+    return self:getChildren()
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+--[[
+    - Called when the list's size changes due to adding/removing/resizing elements.
+    - By default, will set the list's size to fit its elements.
+--]]
+function List:handleListResize( width, height )
+    self:setSize( width, height )
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function List:performLayout()
+    local spacing = self:getSpacing()
+    local listDirection = self:getListDirection()
+    local listAlign = self:getListAlign()
+    local elementCount = #self:getElements()
+    local innerMarginLeft, innerMarginTop, innerMarginRight, innerMarginBottom = self:getInnerMargin()
+
+    local spacingTotal = spacing * mathMax( elementCount - 1, 0 )
+    local widthTotal = innerMarginLeft + innerMarginRight + ( listDirection == LIST_HORIZONTAL and spacingTotal or 0 )
+    local heightTotal = innerMarginTop + innerMarginBottom + ( listDirection == LIST_VERTICAL and spacingTotal or 0 )
+
+    -- Calculate the total width/height of the elements
+    for i = 1, elementCount do
+        local element = self:getElement( i )
+        local marginLeft, marginTop, marginRight, marginBottom = element:getMargin()
+
+        if listDirection == LIST_HORIZONTAL then
+            widthTotal = widthTotal + element:getWidth() + marginLeft + marginRight
+            heightTotal = mathMax( heightTotal, innerMarginTop + innerMarginBottom + element:getHeight() + marginTop + marginBottom )
+        else
+            widthTotal = mathMax( widthTotal, innerMarginLeft + innerMarginRight + element:getWidth() + marginLeft + marginRight )
+            heightTotal = heightTotal + element:getHeight() + marginTop + marginBottom
+        end
+
+        if element:doesExpand() then
+            element:invalidateLayout()
+        end
+    end
+
+    widthTotal = mathMax( widthTotal, self:getMinWidth() )
+    heightTotal = mathMax( heightTotal, self:getMinHeight() )
+    self:handleListResize( widthTotal, heightTotal )
+
+    -- Reposition elements
+    if listDirection == LIST_HORIZONTAL then
+        local x = innerMarginLeft
+        local yMax = heightTotal - innerMarginBottom
+
+        for i = 1, elementCount do
+            local element = self:getElement( i )
+            local marginLeft, marginTop, marginRight, marginBottom = element:getMargin()
+            local y
+
+            if listAlign == LIST_ALIGN_TOP_LEFT then
+                y = innerMarginTop + marginTop
+            elseif listAlign == LIST_ALIGN_CENTER then
+                y = ( innerMarginTop + yMax - element:getHeight() ) / 2
+            elseif listAlign == LIST_ALIGN_BOTTOM_RIGHT then
+                y = yMax - element:getHeight() - marginBottom
+            end
+
+            element:setPos( x + marginLeft, y )
+            x = x + element:getWidth() + marginLeft + marginRight + spacing
+        end
+    else
+        local y = innerMarginTop
+        local xMax = widthTotal - innerMarginRight
+
+        for i = 1, elementCount do
+            local element = self:getElement( i )
+            local marginLeft, marginTop, marginRight, marginBottom = element:getMargin()
+            local x
+
+            if listAlign == LIST_ALIGN_TOP_LEFT then
+                x = innerMarginLeft + marginLeft
+            elseif listAlign == LIST_ALIGN_CENTER then
+                x = ( innerMarginLeft + xMax - element:getWidth() ) / 2
+            elseif listAlign == LIST_ALIGN_BOTTOM_RIGHT then
+                x = xMax - element:getWidth() - marginRight
+            end
+
+            element:setPos( x, y + marginTop )
+            y = y + element:getHeight() + marginTop + marginBottom + spacing
+        end
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+validateExpand = function( list, panel )
+    if list:getListDirection() == LIST_VERTICAL then
+        if panel:getExpand() == EXPAND_HEIGHT then
+            panel:setExpand( EXPAND_NONE )
+        end
+    else
+        if panel:getExpand() == EXPAND_WIDTH then
+            panel:setExpand( EXPAND_NONE )
+        end
+    end
+end
+
+
+function List:_insert( index, panel )
+    panel:setParent( self )
+    panel:moveToOrderIndex( index )
+    self:invalidateLayout()
+end
+
+function List:_remove( panel )
+    panel:setParent()
+    self:invalidateLayout()
+end
+
+
+----- SETUP -----
+

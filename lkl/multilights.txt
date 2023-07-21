@@ -1,0 +1,300 @@
+--@name MultiLights
+--@author legokidlogan
+--@shared
+--@include lkl/input_generator.txt
+
+-- CONFIG:
+local maxLights = 20
+local defaultColor = Vector( 255, 255, 255 )
+local defaultBrightness = 1
+local defaultRadius = 500
+-- END CONFIG
+
+
+if SERVER then
+    local lightCount = 0
+    local chipLink = chip():getWirelink()
+
+    local tableInsert = table.insert
+
+    projectNameID = "MultiLights"
+
+    inputNames = inputNames or {}
+    inputTypes = inputTypes or {}
+
+    inGenRepeatMaxDefault = maxLights
+    inGenRepeatNames = inGenRepeatNames or {}
+    inGenRepeatTypes = inGenRepeatTypes or {}
+    inGenRepeatGroups = inGenRepeatGroups or {}
+    inGenRepeatMaxes = inGenRepeatMaxes or {}
+
+    tableInsert( inputNames, "ForceAllOn" )
+    tableInsert( inputTypes, "NUMBER" )
+
+    tableInsert( inGenRepeatNames, "State" )
+    tableInsert( inGenRepeatTypes, "NUMBER" )
+    tableInsert( inGenRepeatGroups, 1 )
+    tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+    tableInsert( inGenRepeatNames, "AttachPoint" )
+    tableInsert( inGenRepeatTypes, "ENTITY" )
+    tableInsert( inGenRepeatGroups, 1 )
+    tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+    tableInsert( inGenRepeatNames, "Color" )
+    tableInsert( inGenRepeatTypes, "VECTOR" )
+    tableInsert( inGenRepeatGroups, 1 )
+    tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+    tableInsert( inGenRepeatNames, "Brightness" )
+    tableInsert( inGenRepeatTypes, "NUMBER" )
+    tableInsert( inGenRepeatGroups, 1 )
+    tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+    tableInsert( inGenRepeatNames, "Radius" )
+    tableInsert( inGenRepeatTypes, "NUMBER" )
+    tableInsert( inGenRepeatGroups, 1 )
+    tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+    require( "lkl/input_generator.txt" )
+
+    wire.adjustInputs( inputNames, inputTypes )
+
+
+    local function setLightState( id, state )
+        id = id or 0 -- 0 is equivalent to all lights
+
+        if id <= 0 then
+            net.start( "LKL_MultiLights_SetAllOn" )
+            net.writeEntity( chip() )
+            net.writeBool( state )
+            net.send()
+
+            return
+        end
+
+        net.start( "LKL_MultiLights_SetState" )
+        net.writeEntity( chip() )
+        net.writeUInt( id, 10 )
+        net.writeBool( state )
+        net.send()
+    end
+
+    local function setLightAttachPoint( id, ent )
+        ent = isValid( ent ) and ent or game.getWorld()
+
+        net.start( "LKL_MultiLights_SetAttachPoint" )
+        net.writeEntity( chip() )
+        net.writeUInt( id, 10 )
+        net.writeEntity( ent )
+        net.send()
+    end
+
+    local function setLightColor( id, color )
+        net.start( "LKL_MultiLights_SetColor" )
+        net.writeEntity( chip() )
+        net.writeUInt( id, 10 )
+        net.writeVector( color )
+        net.send()
+    end
+
+    local function setLightBrightness( id, brightness )
+        net.start( "LKL_MultiLights_SetBrightness" )
+        net.writeEntity( chip() )
+        net.writeUInt( id, 10 )
+        net.writeFloat( brightness )
+        net.send()
+    end
+
+    local function setLightRadius( id, radius )
+        net.start( "LKL_MultiLights_SetRadius" )
+        net.writeEntity( chip() )
+        net.writeUInt( id, 10 )
+        net.writeFloat( radius )
+        net.send()
+    end
+
+    local function wireInput( name, value )
+        local baseName, id = inGenGetInfo( name )
+
+        if id then
+            local isWired = chipLink:isWired( name )
+
+            if id > lightCount then
+                lightCount = id
+
+                net.start( "LKL_MultiLights_SetCount" )
+                net.writeEntity( chip() )
+                net.writeUInt( lightCount, 10 )
+                net.send()
+            end
+
+            if baseName == "State" then
+                setLightState( id, value ~= 0 )
+            elseif baseName == "AttachPoint" then
+                setLightAttachPoint( id, value )
+            elseif baseName == "Color" then
+                value = isWired and value or defaultColor
+
+                setLightColor( id, value )
+            elseif baseName == "Brightness" then
+                value = isWired and value or defaultBrightness
+
+                setLightBrightness( id, value )
+            elseif baseName == "Radius" then
+                value = isWired and value or defaultRadius
+
+                setLightRadius( id, value )
+            end
+        else
+            if name == "ForceAllOn" then
+                setLightState( 0, value ~= 0 )
+            end
+        end
+    end
+
+    hook.add( "input", "LKL_MultiLights_WireInput", wireInput )
+
+
+    timer.simple( 1, function()
+        for _, inputName in ipairs( inputNames ) do
+            wireInput( inputName, wire.ports[inputName] )
+        end
+    end )
+else -- CLIENT
+    local allLightsOn = false
+    local lightCount = 0
+    local lights = {}
+
+
+    local function createLight( id )
+        if not id then return end
+        if id < 1 then return end
+        if lights[id] then return lights[id] end
+
+        if id > ( lightCount or 0 ) then
+            lightCount = id
+        end
+
+        local lightData = {
+            Light = light.create( Vector(), defaultRadius, defaultBrightness, Color() ),
+            State = false,
+            AttachPoint = false,
+        }
+
+        lights[id] = lightData
+
+        return lightData
+    end
+
+    local function setLightState( id, state )
+        id = id or 0 -- 0 is equivalent to all lights
+
+        if id <= 0 then
+            allLightsOn = state
+
+            return
+        end
+
+        local lightData = lights[id] or createLight( id )
+
+        lightData.State = state
+    end
+
+    local function setLightAttachPoint( id, ent )
+        local lightData = lights[id] or createLight( id )
+
+        lightData.AttachPoint = ent
+    end
+
+    local function setLightColor( id, color )
+        local lightData = lights[id] or createLight( id )
+
+        if type( color ) == "Vector" then
+            color = Color( color.x, color.y, color.z )
+        end
+
+        lightData.Light:setColor( color )
+    end
+
+    local function setLightBrightness( id, brightness )
+        local lightData = lights[id] or createLight( id )
+
+        lightData.Light:setBrightness( brightness )
+    end
+
+    local function setLightRadius( id, radius )
+        local lightData = lights[id] or createLight( id )
+
+        lightData.Light:setSize( radius )
+    end
+
+
+    hook.add( "think", "LKL_MultiLights_DrawLights", function()
+        if not lightCount then return end
+
+        for i = 1, lightCount do
+            local lightData = lights[i]
+            if not lightData then continue end
+            if not allLightsOn and not lightData.State then continue end
+
+            local attachPoint = lightData.AttachPoint
+            if not isValid( attachPoint ) then continue end
+
+            local lightObj = lightData.Light
+
+            lightObj:setPos( attachPoint:getPos() )
+            lightObj:draw()
+        end
+    end )
+
+
+    net.receive( "LKL_MultiLights_SetCount", function()
+        if net.readEntity() ~= chip() then return end
+
+        local oldCount = lightCount or 0
+
+        lightCount = math.max( net.readUInt( 10 ), oldCount )
+        if lightCount <= oldCount then return end
+
+        for i = oldCount + 1, lightCount do
+            createLight( i )
+        end
+    end )
+
+    net.receive( "LKL_MultiLights_SetState", function()
+        if net.readEntity() ~= chip() then return end
+
+        setLightState( net.readUInt( 10 ), net.readBool() )
+    end )
+
+    net.receive( "LKL_MultiLights_SetAllOn", function()
+        if net.readEntity() ~= chip() then return end
+
+        setLightState( 0, net.readBool() )
+    end )
+
+    net.receive( "LKL_MultiLights_SetAttachPoint", function()
+        if net.readEntity() ~= chip() then return end
+
+        setLightAttachPoint( net.readUInt( 10 ), net.readEntity() )
+    end )
+
+    net.receive( "LKL_MultiLights_SetColor", function()
+        if net.readEntity() ~= chip() then return end
+
+        setLightColor( net.readUInt( 10 ), net.readVector() )
+    end )
+
+    net.receive( "LKL_MultiLights_SetBrightness", function()
+        if net.readEntity() ~= chip() then return end
+
+        setLightBrightness( net.readUInt( 10 ), net.readFloat() )
+    end )
+
+    net.receive( "LKL_MultiLights_SetRadius", function()
+        if net.readEntity() ~= chip() then return end
+
+        setLightRadius( net.readUInt( 10 ), net.readFloat() )
+    end )
+end

@@ -1,0 +1,47 @@
+--@name Anamorphosis
+--@author legokidlogan
+--@server
+
+local minDist = 200
+local maxDist = 1000
+local spawnRate = 0.1
+
+local spawning = false
+
+
+prop.setPropUndo( false )
+
+local function safeSpawn( pos, ang, model, frozen )
+    if not prop.canSpawn() then return end
+
+    local ent
+
+    pcall( function()
+        ent = prop.create( pos, ang, model, frozen )
+    end )
+
+    return ent
+end
+
+hook.add( "KeyPress", "LKL_Anamorphosis_KeyPress", function( ply, key )
+    if ply ~= owner() or key ~= IN_KEY.USE then return end
+
+    spawning = true
+end )
+
+hook.add( "KeyRelease", "LKL_Anamorphosis_KeyRelease", function( ply, key )
+    if ply ~= owner() or key ~= IN_KEY.USE then return end
+
+    spawning = false
+end )
+
+timer.create( "LKL_Anamorphosis_Spawn", spawnRate, 0, function()
+    if not spawning then return end
+
+    local ent = safeSpawn( owner():getEyePos() + owner():getEyeAngles():getForward() * math.rand( minDist, maxDist ), Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", true )
+
+    if not isValid( ent ) then return end
+
+    ent:setMaterial( "models/debug/debugwhite" )
+    ent:setColor( Color( 0, 255, 0, 255 ) )
+end )

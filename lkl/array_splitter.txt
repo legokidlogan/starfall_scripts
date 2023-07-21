@@ -1,0 +1,58 @@
+--@name Array Splitter
+--@author legokidlogan
+--@server
+
+local inputType = "ARRAY"
+--local inputType = "TABLE"
+
+wire.adjustInputs( { "Array" }, { inputType } )
+
+local function upperFirst( str )
+    str = string.trim( str )
+
+    if str == "" then return end
+
+    return string.upper( str:sub( 1, 1 ) ) .. str:sub( 2 )
+end
+
+local function wireInput( name, value )
+    local outNames = {}
+    local outTypes = {}
+    local outValues = {}
+    local typeCounts = {}
+
+    local ind = 1
+
+    for k, v in pairs( value ) do
+        local curType = upperFirst( type( v ) )
+        local curName
+
+        typeCounts[curType] = ( typeCounts[curType] or 0 ) + 1
+
+        if type( k ) == "string" then
+            curName = upperFirst( k )
+
+            if not curName then
+                curName = curType .. typeCounts[curType]
+            end
+        else
+            curName = curType .. typeCounts[curType]
+        end
+
+        outNames[ind] = curName
+        outTypes[ind] = curType
+        outValues[curName] = v
+
+        ind = ind + 1
+    end
+
+    wire.adjustOutputs( outNames, outTypes )
+
+    for k, v in pairs( outValues ) do
+        pcall( function()
+            wire.ports[k] = v
+        end )
+    end
+end
+
+hook.add( "input", "LKL_ArraySplitter_HandleInput", wireInput )

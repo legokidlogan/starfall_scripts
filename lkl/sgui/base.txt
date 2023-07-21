@@ -1,0 +1,437 @@
+--@name base
+--@author legokidlogan
+--@client
+--@include lkl/color_scheme.txt
+--@include lkl/cl_check_permissions.txt
+
+-- Base library for SGUI
+
+
+if SGUI then return end -- Don't run twice
+
+require( "lkl/color_scheme.txt" )
+require( "lkl/cl_check_permissions.txt" )
+
+permissions = permissions or {}
+addPermissions( {
+    "input",
+} )
+setupPermissionRequestSafe( permissions, "Use SGUI", true )
+checkPermissions()
+
+
+local quotaMax = chip():getQuotaMax()
+local chipEnt = chip()
+local isChatOpen = false
+
+local mathFloor = math.floor
+local mathRad = math.rad
+local mathCos = math.cos
+local mathSin = math.sin
+local tableInsert = table.insert
+
+
+----- VARIABLES -----
+
+SGUI = {}
+SGUI.PERF_LIMIT = 0.8
+SGUI.DEFAULT_COLOR_SCHEME = ColorScheme:new( "SGUI", nil, nil, {
+    ["Text"] = Color( 205, 200, 230 ),
+    ["TextSelected"] = Color( 219, 218, 229 ),
+    ["TextSelectedBackground"] = Color( 70, 80, 228 ),
+    ["TextEnabled"] = Color( 205, 200, 230 ),
+    ["TextEnabledSelected"] = Color( 219, 218, 229 ),
+    ["TextEnabledSelectedBackground"] = Color( 70, 80, 228 ),
+    ["TextDisabled"] = Color( 108, 107, 142 ),
+    ["TextDisabledSelected"] = Color( 133, 132, 165 ),
+    ["TextDisabledSelectedBackground"] = Color( 70, 80, 228 ),
+
+    ["PanelBackground"] = Color( 70, 80, 130 ),
+    ["PanelBorder"] = Color( 40, 55, 105 ),
+
+    ["CollapsibleBar"] = Color( 78, 93, 173 ),
+    ["CollapsibleBackground"] = Color( 77, 88, 145 ),
+
+    ["WindowBackground"] = Color( 70, 80, 130 ),
+    ["WindowBar"] = Color( 85, 100, 160 ),
+    ["WindowButtonContainer"] = Color( 105, 125, 190 ),
+    ["WindowCollapseButton"] = Color( 147, 162, 234 ),
+
+    ["ScrollableBackground"] = Color( 55, 65, 115 ),
+    ["ScrollBarBackground"] = Color( 91, 101, 153 ),
+    ["ScrollThumbBackground"] = Color( 55, 65, 115 ),
+    ["ScrollButtonArrow"] = Color( 55, 65, 115 ),
+
+    ["ButtonBackground"] = Color( 55, 55, 130 ),
+    ["ButtonBackgroundHovered"] = Color( 50, 50, 120 ),
+    ["ButtonBackgroundPressed"] = Color( 45, 45, 110 ),
+    ["ButtonDisabledBackground"] = Color( 67, 72, 119 ),
+    ["ButtonBorder"] = Color( 40, 55, 105 ),
+
+    ["CollapseButtonArrow"] = Color( 105, 120, 191 ),
+
+    ["CloseButton"] = Color( 129, 80, 130 ),
+    ["CloseButtonBackground"] = Color( 129, 80, 130 ),
+    ["CloseButtonBackgroundHovered"] = Color( 129, 80, 130 ),
+    ["CloseButtonBackgroundPressed"] = Color( 129, 80, 130 ),
+    ["CloseButtonDisabledBackground"] = Color( 152, 130, 153 ),
+
+    ["LabelBackground"] = Color( 0, 0, 0, 0 ),
+    ["LabelBorder"] = Color( 0, 0, 0, 0 ),
+
+    ["TextFieldBackground"] = Color( 55, 65, 115 ),
+    ["TextFieldBorder"] = Color( 40, 55, 105 ),
+    ["TextFieldDisabledBackground"] = Color( 65, 75, 125 ),
+    ["TextFieldDisabledBorder"] = Color( 60, 71, 117 ),
+
+    ["CheckBoxBackground"] = Color( 61, 71, 122 ),
+    ["CheckBoxBackgroundHovered"] = Color( 51, 62, 114 ),
+    ["CheckBoxBackgroundPressed"] = Color( 39, 49, 94 ),
+    ["CheckBoxBorder"] = Color( 40, 55, 105 ),
+    ["CheckBoxCheckmark"] = Color( 120, 45, 110 ),
+    ["CheckBoxDisabledBackground"] = Color( 71, 79, 119 ),
+    ["CheckBoxDisabledBorder"] = Color( 67, 74, 112 ),
+    ["CheckBoxDisabledCheckmark"] = Color( 114, 80, 110 ),
+
+    ["Divider"] = Color( 61, 71, 122 ),
+
+    ["ComboBoxBackground"] = Color( 55, 65, 115 ),
+    ["ComboBoxBorder"] = Color( 40, 55, 105 ),
+    ["ComboBoxArrow"] = Color( 105, 120, 191 ),
+    ["ComboBoxSelectionBackground"] = Color( 55, 65, 115 ),
+    ["ComboBoxDisabledBackground"] = Color( 65, 75, 125 ),
+    ["ComboBoxDisabledBorder"] = Color( 60, 71, 117 ),
+    ["ComboBoxDisabledArrow"] = Color( 84, 94, 140 ),
+
+    ["SliderBar"] = Color( 48, 57, 102 ),
+    ["SliderNotch"] = Color( 100, 50, 100 ),
+    ["SliderDisabledBar"] = Color( 62, 72, 119 ),
+    ["SliderDisabledNotch"] = Color( 85, 75, 100 ),
+    ["SliderButtonKnob"] = Color( 55, 55, 130 ),
+    ["SliderButtonKnobHovered"] = Color( 50, 50, 120 ),
+    ["SliderButtonKnobPressed"] = Color( 45, 45, 110 ),
+    ["SliderButtonDisabledKnob"] = Color( 65, 75, 125 ),
+
+    --["DEFINEME"] = Color( 255, 255, 255 ),
+} )
+
+DOCK_MIN = 0
+DOCK_NONE = 0
+DOCK_FILL = 1
+DOCK_LEFT = 2
+DOCK_RIGHT = 3
+DOCK_TOP = 4
+DOCK_BOTTOM = 5
+DOCK_MAX = 5
+
+EXPAND_MIN = 0
+EXPAND_NONE = 0
+EXPAND_WIDTH = 1
+EXPAND_HEIGHT = 2
+EXPAND_MAX = 2
+
+ANCHOR_MIN = 0
+ANCHOR_NONE = 0
+ANCHOR_TOP_LEFT = 1
+ANCHOR_TOP = 2
+ANCHOR_TOP_RIGHT = 3
+ANCHOR_LEFT = 4
+ANCHOR_CENTER = 5
+ANCHOR_RIGHT = 6
+ANCHOR_BOTTOM_LEFT = 7
+ANCHOR_BOTTOM = 8
+ANCHOR_BOTTOM_RIGHT = 9
+ANCHOR_MAX = 9
+
+DRAG_RELEASE_MIN = 0
+DRAG_RELEASE_NONE = 0
+DRAG_RELEASE_HOVERED = 1
+DRAG_RELEASE_ORIGINAL = 2
+DRAG_RELEASE_MAX = 2
+
+DIR_MIN = 0
+DIR_NONE = 0
+DIR_TOP_LEFT = 1
+DIR_TOP = 2
+DIR_TOP_RIGHT = 3
+DIR_RIGHT = 4
+DIR_BOTTOM_RIGHT = 5
+DIR_BOTTOM = 6
+DIR_BOTTOM_LEFT = 7
+DIR_LEFT = 8
+DIR_MAX = 8
+
+DRAW_ORDER_MIN = 1
+DRAW_ORDER_EARLY = 1
+DRAW_ORDER_NORMAL = 2
+DRAW_ORDER_LATE = 3
+DRAW_ORDER_VERY_LATE = 4
+DRAW_ORDER_MAX = 4
+
+SCROLL_MIN = 0
+SCROLL_HORIZONTAL = 1
+SCROLL_VERTICAL = 2
+SCROLL_BOTH = 3
+SCROLL_MAX = 3
+
+LIST_MIN = 0
+LIST_HORIZONTAL = 1
+LIST_VERTICAL = 2
+LIST_MAX = 2
+
+LIST_ALIGN_MIN = 0
+LIST_ALIGN_TOP_LEFT = 1
+LIST_ALIGN_CENTER = 2
+LIST_ALIGN_BOTTOM_RIGHT = 3
+LIST_ALIGN_MAX = 3
+
+TEXT_ALIGN_LEFT = TEXT_ALIGN.LEFT
+TEXT_ALIGN_CENTER = TEXT_ALIGN.CENTER
+TEXT_ALIGN_RIGHT = TEXT_ALIGN.RIGHT
+TEXT_ALIGN_TOP = TEXT_ALIGN.TOP
+TEXT_ALIGN_BOTTOM = TEXT_ALIGN.BOTTOM
+
+
+----- GLOBAL FUNCTIONS -----
+
+function SGUI.perfCheck( frac )
+    frac = frac or SGUI.PERF_LIMIT
+    local limit = quotaMax * frac
+
+    return chipEnt:getQuotaAverage() < limit and chipEnt:getQuotaUsed() < limit
+end
+
+function SGUI.expectValidDock( dock, argNum, argName )
+    if type( dock ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if dock < DOCK_MIN or dock > DOCK_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. DOCK_MIN .. " and " .. DOCK_MAX .. ", see the DOCK enum in sgui/base" ) end
+    if mathFloor( dock ) ~= dock then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidExpand( expand, argNum, argName )
+    if type( expand ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if expand < EXPAND_MIN or expand > EXPAND_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. EXPAND_MIN .. " and " .. EXPAND_MAX .. ", see the EXPAND enum in sgui/base" ) end
+    if mathFloor( expand ) ~= expand then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidAnchor( anchor, argNum, argName )
+    if type( anchor ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if anchor < ANCHOR_MIN or anchor > ANCHOR_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. ANCHOR_MIN .. " and " .. ANCHOR_MAX .. ", see the ANCHOR enum in sgui/base" ) end
+    if mathFloor( anchor ) ~= anchor then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidDragRelease( mode, argNum, argName )
+    if type( mode ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if mode < DRAG_RELEASE_MIN or mode > DRAG_RELEASE_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. DRAG_RELEASE_MIN .. " and " .. DRAG_RELEASE_MAX .. ", see the DRAG_RELEASE enum in sgui/base" ) end
+    if mathFloor( mode ) ~= mode then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidDir( dir, argNum, argName )
+    if type( dir ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if dir < DIR_MIN or dir > DIR_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. DIR_MIN .. " and " .. DIR_MAX .. ", see the DIR enum in sgui/base" ) end
+    if mathFloor( dir ) ~= dir then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidDrawOrder( order, argNum, argName )
+    if type( order ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if order < DRAW_ORDER_MIN or order > DRAW_ORDER_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. DRAW_ORDER_MIN .. " and " .. DRAW_ORDER_MAX .. ", see the DRAW_ORDER enum in sgui/base" ) end
+    if mathFloor( order ) ~= order then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidScroll( scroll, argNum, argName )
+    if type( scroll ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if scroll < SCROLL_MIN or scroll > SCROLL_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. SCROLL_MIN .. " and " .. SCROLL_MAX .. ", see the SCROLL enum in sgui/base" ) end
+    if mathFloor( scroll ) ~= scroll then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidList( list, argNum, argName )
+    if type( list ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if list < LIST_MIN or list > LIST_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. LIST_MIN .. " and " .. LIST_MAX .. ", see the LIST enum in sgui/base" ) end
+    if mathFloor( list ) ~= list then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidListAlign( align, argNum, argName )
+    if type( align ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if align < LIST_ALIGN_MIN or align > LIST_ALIGN_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. LIST_ALIGN_MIN .. " and " .. LIST_ALIGN_MAX .. ", see the LIST_ALIGN enum in sgui/base" ) end
+    if mathFloor( align ) ~= align then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
+end
+
+function SGUI.expectValidHorizontalTextAlign( xAlign, argNum, argName )
+    if xAlign ~= TEXT_ALIGN_LEFT and xAlign ~= TEXT_ALIGN_CENTER and xAlign ~= TEXT_ALIGN_RIGHT then
+        error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER, or TEXT_ALIGN_RIGHT" )
+    end
+end
+
+function SGUI.expectValidVerticalTextAlign( yAlign, argNum, argName )
+    if yAlign ~= TEXT_ALIGN_TOP and yAlign ~= TEXT_ALIGN_CENTER and yAlign ~= TEXT_ALIGN_BOTTOM then
+        error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be TEXT_ALIGN_TOP, TEXT_ALIGN_CENTER, or TEXT_ALIGN_BOTTOM" )
+    end
+end
+
+function SGUI.isChatOpen()
+    return isChatOpen
+end
+
+function SGUI.canEnableCursor()
+    return checkPermissions and render.isHUDActive() and not SGUI.isChatOpen()
+end
+
+function SGUI.enableCursor( state )
+    if not SGUI.canEnableCursor() then return end
+
+    input.enableCursor( state )
+end
+
+function SGUI.isCursorEnabled()
+    return input.getCursorVisbile()
+end
+
+function SGUI.canLockControls()
+    return input.canLockControls() and not SGUI.isChatOpen()
+end
+
+function SGUI.lockControls( state )
+    local canForceUnlock = not state and SGUI.areControlsLocked()
+    if not canForceUnlock and not SGUI.canLockControls() then return end
+
+    input.lockControls( state )
+end
+
+function SGUI.areControlsLocked()
+    return input.isControlLocked()
+end
+
+--[[
+    - Similar to render.drawPoly(), but scales and positions relative to the given values.
+    - For the poly coords, 0 is far top/left, 1 is far bottom/right.
+    - http://thegrb93.github.io/StarfallEx/#Libraries.render.drawPoly
+--]]
+function SGUI.drawPoly( points, xPos, yPos, width, height )
+    local newPoints = {}
+
+    for i = 1, #points do
+        local point = points[i]
+        newPoints[i] = {
+            x = xPos + point.x * width,
+            y = yPos + point.y * height,
+            u = point.u,
+            v = point.v,
+        }
+    end
+
+    render.drawPoly( newPoints )
+end
+
+function SGUI.polyFlipHorizontal( points )
+    local newPoints = {}
+
+    for _, point in ipairs( points ) do
+        tableInsert( newPoints, 1, {
+            x = 1 - point.x,
+            y = point.y,
+            u = point.u,
+            v = point.v,
+        } )
+    end
+
+    return newPoints
+end
+
+function SGUI.polyFlipVertical( points )
+    local newPoints = {}
+
+    for _, point in ipairs( points ) do
+        tableInsert( newPoints, 1, {
+            x = point.x,
+            y = 1 - point.y,
+            u = point.u,
+            v = point.v,
+        } )
+    end
+
+    return newPoints
+end
+
+-- Rotates clockwise around (0,0).
+function SGUI.polyRotate( points, degrees )
+    local newPoints = {}
+    local rad = mathRad( degrees )
+
+    for _, point in ipairs( points ) do
+        tableInsert( newPoints, {
+            x = point.x * mathCos( rad ) - point.y * mathSin( rad ),
+            y = point.x * mathSin( rad ) + point.y * mathCos( rad ),
+            u = point.u,
+            v = point.v,
+        } )
+    end
+
+    return newPoints
+end
+
+-- Rotates clockwise around the given point, or around the bounding box center of the poly if no point is given.
+function SGUI.polyRotateAround( points, degrees, xAnchor, yAnchor )
+    if not xAnchor and not yAnchor then
+        local xMin, xMax, yMin, yMax = math.huge, -math.huge, math.huge, -math.huge
+
+        for _, point in ipairs( points ) do
+            local x = point.x
+            local y = point.y
+
+            if x < xMin then xMin = x end
+            if x > xMax then xMax = x end
+            if y < yMin then yMin = y end
+            if y > yMax then yMax = y end
+        end
+
+        xAnchor = ( xMin + xMax ) / 2
+        yAnchor = ( yMin + yMax ) / 2
+    end
+
+    points = SGUI.polyTranslate( points, -xAnchor, -yAnchor )
+    points = SGUI.polyRotate( points, degrees )
+    points = SGUI.polyTranslate( points, xAnchor, yAnchor )
+
+    return points
+end
+
+function SGUI.polyTranslate( points, xOff, yOff )
+    local newPoints = {}
+
+    for _, point in ipairs( points ) do
+        tableInsert( newPoints, {
+            x = point.x + xOff,
+            y = point.y + yOff,
+            u = point.u,
+            v = point.v,
+        } )
+    end
+
+    return newPoints
+end
+
+function SGUI.polyMakeCircleFilled( x, y, radius, numSegments, numDegrees, degreeOffset )
+    local circle = {}
+
+    circle[1] = { x = x, y = y, u = 0.5, v = 0.5 }
+
+    numDegrees = numDegrees or 360
+    degreeOffset = degreeOffset or 0
+
+    for i = 0, numSegments do
+        local a = mathRad( ( i / numSegments ) * -numDegrees + degreeOffset )
+        circle[i + 2] = { x = x + mathSin( a ) * radius, y = y + mathCos( a ) * radius, u = mathSin( a ) / 2 + 0.5, v = mathCos( a ) / 2 + 0.5 }
+    end
+
+    return circle
+end
+
+
+----- SETUP -----
+
+hook.add( "StartChat", "LKL_SGUI_DetectChatOpen", function()
+    isChatOpen = true
+end )
+
+hook.add( "FinishChat", "LKL_SGUI_DetectChatClosed", function()
+    isChatOpen = false
+end )

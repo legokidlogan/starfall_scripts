@@ -1,0 +1,63 @@
+--@name SGUI Panel Sin Wave
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+require( "lkl/sgui/panel.txt" )
+
+local Panel = SGUI.Panel
+local scrW, scrH = render.getGameResolution()
+
+
+local count = 100
+local panelWidth = 1 + scrW / count
+local panelHeight = 50
+local spacing = 50
+local speed = 1
+local speedHSV = 50
+local posAmplitude = 100
+local numWaves = 1
+local updateRate = 0.1
+local doHSV = true
+
+
+local panels = {}
+local yOrigin = ( scrH - panelHeight ) / 2
+
+local mathPi = math.pi
+local mathSin = math.sin
+local realtime = timer.realtime
+
+spacing = math.min( spacing, scrW / count )
+
+for i = 1, count do
+    local panel = Panel:new()
+    panel:setSize( panelWidth, panelHeight )
+    panel:setXPos( ( i - 1 ) * spacing )
+    panel:setBorderSize( 0 )
+
+    panels[i] = panel
+end
+
+
+timer.create( "LKL_SGUI_PSW_UpdatePanels", updateRate, 0, function()
+    if not render.isHUDActive() then return end
+
+    local now = -realtime()
+    local timeOffset = now * speed
+    local timeOffsetHSV = now * speedHSV
+    local thetaMult = numWaves * 2 * mathPi / count
+    local hsvMult = 360 / count
+
+    for i = 1, count do
+        local panel = panels[i]
+        local theta = i * thetaMult + timeOffset
+        local y = mathSin( theta ) * posAmplitude
+
+        panel:setYPos( yOrigin + y )
+
+        if doHSV then
+            panel:setBackgroundColor( Color( i * hsvMult + timeOffsetHSV, 1, 1 ):hsvToRGB() )
+        end
+    end
+end )

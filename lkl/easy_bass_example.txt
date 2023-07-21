@@ -1,0 +1,64 @@
+--@name Easy Bass Example
+--@author
+--@client
+--@include lkl/easy_bass.txt
+
+require( "lkl/easy_bass.txt" )
+
+if player() ~= owner() then return end
+
+
+local bassObj
+
+-- LoadFile Test
+--
+easyBass.loadFile(
+    "buttons/button1.wav",
+    {
+        Flags = "3d stereo noblock noplay",
+        Volume = 1,
+        Pitch = 1,
+        FadeStart = 700,
+        FadeEnd = 2000,
+        FadeIn = 0,
+        FadeOut = 0,
+        Duration = nil,
+        Target = chip(),
+        Loop = false,
+        DestroyWhenDone = true,
+        StaleThreshold = 30,
+    },
+    function( x )
+        bassObj = x
+
+        -- Blah
+    end
+)
+--]]
+
+
+-- Fade In/Out Test
+--[[
+easyBass.loadFile(
+    "synth/pink_noise.wav",
+    {
+        Flags = "3d stereo noblock noplay",
+        Volume = 0.5,
+        Pitch = 1,
+        FadeStart = 700,
+        FadeEnd = 2000,
+        FadeIn = 1,
+        FadeOut = 1,
+        Duration = 3,
+        Target = chip(),
+        Loop = false,
+        DestroyWhenDone = true,
+        StaleThreshold = 30,
+    },
+    function( x )
+        bassObj = x
+
+        -- Blah
+    end
+)
+--]]

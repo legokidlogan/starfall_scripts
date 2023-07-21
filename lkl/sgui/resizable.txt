@@ -1,0 +1,448 @@
+--@name Resizable
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+--[[
+    - SGUI.Resizable
+    - Blah
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+
+if SGUI.Resizable then return end -- Don't run twice
+
+
+SGUI.Resizable = class( "Resizable", SGUI.Panel )
+SGUI.Resizable.static.ARROW_SIZE_FRACTION = 0.03
+SGUI.Resizable.static.ARROW_OUTLINE_SIZE_FRACTION = 0.006
+SGUI.Resizable.static.DETECTION_LENGTH = 15
+SGUI.Resizable.static.DETECTION_LENGTH_INNER = 3
+
+
+local Resizable = SGUI.Resizable
+local Panel = SGUI.Panel
+local arrowPolys = {}
+local mouseIsDown = false
+local mouseStartX = 0
+local mouseStartY = 0
+local isPointWithinBounds
+local getBoundsForDirection
+local calcHoveredDirection
+local applyMinMaxSize
+
+local mathMin = math.min
+local mathMax = math.max
+local mathClamp = math.clamp
+local mathFloor = math.floor
+local tableEmpty = table.empty
+
+
+----- STATIC FUNCTIONS -----
+
+function Resizable:initialize( parent )
+    Resizable.super.initialize( self, parent )
+
+    self._resizeDirection = DIR_NONE
+    self._resizeDirections = {}
+    self._resizeDirectionsLookup = {}
+
+    self:setMinSize( self:getSize() )
+    self:setMaxSize( math.huge, math.huge )
+    self:setResizeDirections( true )
+    self:setExtraDrawOrder( DRAW_ORDER_VERY_LATE )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Resizable:setMinWidth( width )
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    if width < 0 then error( "Expected width to be positive" ) end
+
+    self._minWidth = mathMin( mathFloor( width ), self._maxWidth or math.huge )
+    applyMinMaxSize( self )
+end
+
+function Resizable:setMinHeight( height )
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    if height < 0 then error( "Expected height to be positive" ) end
+
+    self._minHeight = mathMin( mathFloor( height ), self._maxHeight or math.huge )
+    applyMinMaxSize( self )
+end
+
+function Resizable:setMinSize( width, height )
+    self:setMinWidth( width )
+    self:setMinHeight( height )
+end
+
+function Resizable:getMinWidth()
+    return self._minWidth
+end
+
+function Resizable:getMinHeight()
+    return self._minHeight
+end
+
+function Resizable:getMinSize()
+    return self._minWidth, self._minHeight
+end
+
+function Resizable:setMaxWidth( width )
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    if width < 0 then error( "Expected width to be positive" ) end
+
+    self._maxWidth = mathMax( mathFloor( width ), self._minWidth or 1 )
+    applyMinMaxSize( self )
+end
+
+function Resizable:setMaxHeight( height )
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    if height < 0 then error( "Expected height to be positive" ) end
+
+    self._maxHeight = mathMax( mathFloor( height ), self._minHeight or 1 )
+    applyMinMaxSize( self )
+end
+
+function Resizable:setMaxSize( width, height )
+    self:setMaxWidth( width )
+    self:setMaxHeight( height )
+end
+
+function Resizable:getMaxWidth()
+    return self._maxWidth
+end
+
+function Resizable:getMaxHeight()
+    return self._maxHeight
+end
+
+function Resizable:getMaxSize()
+    return self._maxWidth, self._maxHeight
+end
+
+--[[
+    - Sets the allowed resize directions for the Panel.
+
+    directions: (boolean or table)
+        - BOOLEAN:
+            - All directions will be enabled/disabled.
+        - TABLE:
+            - The directions specified in the table will be enabled, all others will be disabled.
+            - The table must be sequential.
+            - The values should be part of the DIR enum, excluding DIR_NONE.
+--]]
+function Resizable:setResizeDirections( directions )
+    directions = directions or {}
+
+    if directions == true then
+        directions = { DIR_TOP, DIR_TOP_RIGHT, DIR_RIGHT, DIR_BOTTOM_RIGHT, DIR_BOTTOM, DIR_BOTTOM_LEFT, DIR_LEFT, DIR_TOP_LEFT }
+    end
+
+    if type( directions ) ~= "table" then error( "Expected directions to be a boolean or a table" ) end
+
+    tableEmpty( self._resizeDirections )
+    tableEmpty( self._resizeDirectionsLookup )
+
+    for i, dir in ipairs( directions ) do
+        SGUI.expectValidDir( dir, 1, "directions[" .. i .. "]" )
+        if dir == DIR_NONE then error( "Expected directions to not contain DIR_NONE" ) end
+
+        self._resizeDirections[i] = dir
+        self._resizeDirectionsLookup[dir] = true
+    end
+end
+
+function Resizable:getResizeDirections()
+    return self._resizeDirections
+end
+
+function Resizable:getResizeDirectionsLookup()
+    return self._resizeDirectionsLookup
+end
+
+-- The direction associated with where the player's mouse is hovering over the Panel.
+function Resizable:getResizeDirection()
+    return self._resizeDirection
+end
+
+function Resizable:isResizing()
+    return self:getResizeDirection() ~= DIR_NONE and mouseIsDown
+end
+
+--[[
+    - Changes which Panel will move around when this Resizable is resized.
+    - nil will default it to this Resizable.
+    - Mostly useful for resizing a parent.
+--]]
+function Resizable:setResizeTarget( panel )
+    if self:isResizing() then error( "Cannot change resize target while resizing" ) end
+
+    if panel ~= nil then
+        Panel:expectValidPanel( panel, 1, "panel" )
+    end
+
+    self._resizeTarget = panel
+end
+
+function Resizable:getResizeTarget()
+    return self._resizeTarget or self
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function Resizable:onResized( resizeTarget, x, y, width, height, dir, expandDirX, expandDirY )
+    resizeTarget:setPos( x, y )
+    resizeTarget:setSize( width, height )
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Resizable:handleOrderedDraw()
+    local dir = self:getResizeDirection()
+    if not dir or dir == DIR_NONE then return end
+
+    local mouseX, mouseY = Panel:getMouseContext()
+    if not mouseX then return end -- Shouldn't happen at this point
+
+    local _, scrH = render.getResolution()
+    local size = Resizable.ARROW_SIZE_FRACTION * scrH
+    local sizeOutline = size + Resizable.ARROW_OUTLINE_SIZE_FRACTION * scrH
+    local polySections = arrowPolys[dir]
+    local polySectionsCount = #polySections
+
+    render.setColor( c_black )
+
+    for i = 1, polySectionsCount do
+        SGUI.drawPoly( polySections[i], mouseX, mouseY, sizeOutline, sizeOutline )
+    end
+
+    render.setColor( c_white )
+
+    for i = 1, polySectionsCount do
+        SGUI.drawPoly( polySections[i], mouseX, mouseY, size, size )
+    end
+end
+
+function Resizable:think()
+    local dir
+
+    if mouseIsDown then
+        dir = self:getResizeDirection()
+    else
+        dir = calcHoveredDirection( self )
+        self._resizeDirection = dir
+    end
+
+    if dir == DIR_NONE then return end
+    if not mouseIsDown then return end
+
+    local mouseX, mouseY = Panel:getMouseContext()
+    if not mouseX then return end
+
+    local xDelta = mouseX - mouseStartX
+    local yDelta = mouseY - mouseStartY
+    local widthStart = self._resizeWidthStart
+    local heightStart = self._resizeHeightStart
+    local xStart = self._resizeXStart
+    local yStart = self._resizeYStart
+    local wDelta
+    local hDelta
+
+    if dir == DIR_TOP then
+        wDelta = 0
+        hDelta = -yDelta
+    elseif dir == DIR_TOP_RIGHT then
+        wDelta = xDelta
+        hDelta = -yDelta
+    elseif dir == DIR_RIGHT then
+        wDelta = xDelta
+        hDelta = 0
+    elseif dir == DIR_BOTTOM_RIGHT then
+        wDelta = xDelta
+        hDelta = yDelta
+    elseif dir == DIR_BOTTOM then
+        wDelta = 0
+        hDelta = yDelta
+    elseif dir == DIR_BOTTOM_LEFT then
+        wDelta = -xDelta
+        hDelta = yDelta
+    elseif dir == DIR_LEFT then
+        wDelta = -xDelta
+        hDelta = 0
+    elseif dir == DIR_TOP_LEFT then
+        wDelta = -xDelta
+        hDelta = -yDelta
+    end
+
+    local xDir = self._resizeXDir
+    local yDir = self._resizeYDir
+    local minWidth, minHeight = self:getMinSize()
+    local maxWidth, maxHeight = self:getMaxSize()
+
+    local width = mathClamp( widthStart + wDelta, minWidth, maxWidth )
+    local height = mathClamp( heightStart + hDelta, minHeight, maxHeight )
+    local x = xStart + xDir * width
+    local y = yStart + yDir * height
+
+    self:onResized( self:getResizeTarget(), x, y, width, height, dir, xDir, yDir )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+isPointWithinBounds = function( x, y, xMin, yMin, xMax, yMax )
+    return x >= xMin and x <= xMax and y >= yMin and y <= yMax
+end
+
+getBoundsForDirection = function( dir, panelXPos, panelYPos, panelWidth, panelHeight )
+    local length = Resizable.DETECTION_LENGTH
+    local lengthInner = Resizable.DETECTION_LENGTH_INNER
+
+    if dir == DIR_TOP then
+        return panelXPos + lengthInner, panelYPos - length, panelXPos + panelWidth - lengthInner, panelYPos + lengthInner
+    elseif dir == DIR_TOP_RIGHT then
+        return panelXPos + panelWidth - lengthInner, panelYPos - length, panelXPos + panelWidth + length, panelYPos + lengthInner
+    elseif dir == DIR_RIGHT then
+        return panelXPos + panelWidth - lengthInner, panelYPos + lengthInner, panelXPos + panelWidth + length, panelYPos + panelHeight - lengthInner
+    elseif dir == DIR_BOTTOM_RIGHT then
+        return panelXPos + panelWidth - lengthInner, panelYPos + panelHeight - lengthInner, panelXPos + panelWidth + length, panelYPos + panelHeight + length
+    elseif dir == DIR_BOTTOM then
+        return panelXPos + lengthInner, panelYPos + panelHeight - lengthInner, panelXPos + panelWidth - lengthInner, panelYPos + panelHeight + length
+    elseif dir == DIR_BOTTOM_LEFT then
+        return panelXPos - length, panelYPos + panelHeight - lengthInner, panelXPos + lengthInner, panelYPos + panelHeight + length
+    elseif dir == DIR_LEFT then
+        return panelXPos - length, panelYPos + lengthInner, panelXPos - lengthInner, panelYPos + panelHeight - lengthInner
+    elseif dir == DIR_TOP_LEFT then
+        return panelXPos - length, panelYPos - length, panelXPos + lengthInner, panelYPos + lengthInner
+    end
+end
+
+calcHoveredDirection = function( resizable )
+    local mouseX, mouseY, screen = Panel:getMouseContext()
+    local resizeTarget = resizable:getResizeTarget()
+    if not mouseX or screen ~= resizeTarget:getAssociatedScreenEffective() then return DIR_NONE end
+
+    local panelXPos, panelYPos = resizeTarget:getPosEffective()
+    local panelWidth, panelHeight = resizeTarget:getSize()
+    local directions = resizable:getResizeDirections()
+
+    for _, dir in ipairs( directions ) do
+        local xMin, yMin, xMax, yMax = getBoundsForDirection( dir, panelXPos, panelYPos, panelWidth, panelHeight )
+
+        if isPointWithinBounds( mouseX, mouseY, xMin, yMin, xMax, yMax ) then return dir end
+    end
+
+    return DIR_NONE
+end
+
+applyMinMaxSize = function( resizable )
+    local resizeTarget = resizable:getResizeTarget()
+    local x, y = resizeTarget:getPos()
+    local width, height = resizeTarget:getSize()
+    local minWidth, minHeight = resizable:getMinSize()
+    local maxWidth, maxHeight = resizable:getMaxSize()
+
+    width = mathClamp( width, minWidth or 0, maxWidth or 0 )
+    height = mathClamp( height, minHeight or math.huge, maxHeight or math.huge )
+
+    resizable:onResized( resizeTarget, x, y, width, height, DIR_BOTTOM_RIGHT, 0, 0 )
+end
+
+
+----- SETUP -----
+
+do
+    local arrowPoly_A = {
+        { x = 50 / 100, y = 0 / 100 },
+        { x = 62 / 100, y = 25 / 100 },
+        { x = 38 / 100, y = 25 / 100 },
+    }
+    local arrowPoly_B = SGUI.polyFlipVertical( arrowPoly_A )
+    local arrowPoly_C = {
+        { x = 52 / 100, y = 25 / 100 },
+        { x = 52 / 100, y = 75 / 100 },
+        { x = 48 / 100, y = 75 / 100 },
+        { x = 48 / 100, y = 25 / 100 },
+    }
+    local arrowPolySections = {
+        SGUI.polyTranslate( arrowPoly_A, -0.5, -0.5 ),
+        SGUI.polyTranslate( arrowPoly_B, -0.5, -0.5 ),
+        SGUI.polyTranslate( arrowPoly_C, -0.5, -0.5 ),
+    }
+
+    for i = 1, DIR_MAX do
+        arrowPolys[i] = {}
+    end
+
+    for i = 1, #arrowPolySections do
+        local section = arrowPolySections[i]
+
+        arrowPolys[DIR_TOP][i] = section
+        arrowPolys[DIR_TOP_RIGHT][i] = SGUI.polyRotate( arrowPolys[DIR_TOP][i], 45 )
+        arrowPolys[DIR_RIGHT][i] = SGUI.polyRotate( arrowPolys[DIR_TOP_RIGHT][i], 45 )
+        arrowPolys[DIR_BOTTOM_RIGHT][i] = SGUI.polyRotate( arrowPolys[DIR_RIGHT][i], 45 )
+        arrowPolys[DIR_BOTTOM][i] = SGUI.polyRotate( arrowPolys[DIR_BOTTOM_RIGHT][i], 45 )
+        arrowPolys[DIR_BOTTOM_LEFT][i] = SGUI.polyRotate( arrowPolys[DIR_BOTTOM][i], 45 )
+        arrowPolys[DIR_LEFT][i] = SGUI.polyRotate( arrowPolys[DIR_BOTTOM_LEFT][i], 45 )
+        arrowPolys[DIR_TOP_LEFT][i] = SGUI.polyRotate( arrowPolys[DIR_LEFT][i], 45 )
+    end
+end
+
+
+hook.add( "LKL_SGUI_MouseClk", "LKL_SGUI_Resizable_HandleClick", function( state )
+    mouseIsDown = state
+
+    local allResizables = Panel:getAllInstancesOf( Resizable )
+
+    if not mouseIsDown then
+        for _, resizable in ipairs( allResizables ) do
+            if resizable:getResizeDirection() ~= DIR_NONE then
+                resizable._resizeDirection = DIR_NONE
+            end
+        end
+
+        return
+    end
+
+    mouseStartX, mouseStartY = Panel:getMouseContext()
+
+    for _, resizable in ipairs( allResizables ) do
+        local dir = resizable:getResizeDirection()
+
+        if dir ~= DIR_NONE then
+            local resizeTarget = resizable:getResizeTarget()
+            local x, y = resizeTarget:getPos()
+            local width, height = resizeTarget:getSize()
+
+            resizable._resizeWidthStart = width
+            resizable._resizeHeightStart = height
+
+            if dir == DIR_RIGHT or dir == DIR_BOTTOM_RIGHT or dir == DIR_BOTTOM then
+                resizable._resizeXStart = x
+                resizable._resizeYStart = y
+                resizable._resizeXDir = 0
+                resizable._resizeYDir = 0
+            elseif dir == DIR_LEFT or dir == DIR_TOP_LEFT or dir == DIR_TOP then
+                resizable._resizeXStart = x + width
+                resizable._resizeYStart = y + height
+                resizable._resizeXDir = -1
+                resizable._resizeYDir = -1
+            elseif dir == DIR_TOP_RIGHT then
+                resizable._resizeXStart = x
+                resizable._resizeYStart = y + height
+                resizable._resizeXDir = 0
+                resizable._resizeYDir = -1
+            else -- DIR_BOTTOM_LEFT
+                resizable._resizeXStart = x + width
+                resizable._resizeYStart = y
+                resizable._resizeXDir = -1
+                resizable._resizeYDir = 0
+            end
+        end
+    end
+end )
