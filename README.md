@@ -1,5 +1,5 @@
 # starfall_scripts
-This is a collection of [Starfall](https:/github.com/thegrb93/StarfallEx) scripts I've made for use in GarrysMod. \
+This is a collection of [Starfall](https://github.com/thegrb93/StarfallEx) scripts I've made for use in GarrysMod. \
 You're welcome to use or edit these for making projects of your own, just don't claim them as your own, sell them, etc.
 
 ## DISCLAIMER
@@ -17,7 +17,7 @@ Take caution when using any scripts which have `----- VERY OLD -----` at the top
     - This is to ensure the scripts don't conflict with any of your personal files and are easier to update.
 - Many of these scripts use each other as dependencies, so be sure to check the `--@include` details if you aren't downloading the entire repo.
 - **Do NOT rename the starfall files!** Doing so will break the includes.
-- Some subfolders, such as [lkl/utlity_chips_dir/](/lkl/utlity_chips_dir) will have their own README for additional info.
+- Some subfolders, such as [lkl/utility_chips_dir/](/lkl/utility_chips_dir) will have their own README for additional info.
     - Said README files will be wrapped in a lua comment block to ensure they don't cause any havoc if you download the entire repo directly.
 - *Most* scripts will put their configs at the top of their respecive SERVER/CLIENT blocks, and will specify the number of config areas it has.
 
@@ -35,7 +35,7 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
     - Handles all sorts of boilerplate to do the following for you:
         - Auto-check permission status when a player interacts with the chip's permission popup.
         - Bring up permission popup if needed when a player connects to the chip's HUD.
-        - Safely handle non-base-addon permissions like how [CFC Servers]() adds `print.chat`, `print.console`, and `print.color` that normally don't exist.
+        - Safely handle non-base-addon permissions like how [CFC Servers](https://cfcservers.org) adds `print.chat`, `print.console`, and `print.color` that normally don't exist.
         - Automatically prevent the chip from erroring when calling `sendPermissionRequest()` twice or not HUD-connected.
     - Behaves nicely with multi-file projects, using `addPermissions( tbl )` and `checkPermissions()` to build onto the current list.
     - Simple example usage can be found in [cl_check_permissions_example.txt](/lkl/cl_check_permissions_example.txt)
@@ -142,8 +142,8 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
 - [advanced_entity_marker.txt](/lkl/advanced_entity_marker.txt)
     - Recreates the functionality of the [Wiremod](https://github.com/wiremod/wire) AdvEntMarker, but compresses multiple marker lists into one chip, and has several quality of life improvements.
 - [sh_propinfo.txt](/lkl/sh_propinfo.txt)
-    - If your server doesn't have [Customizable Prop Info](https:/github.com/legokidlogan/customizable_prop_info) but you need accurate info of whatever you're looking at to make building easier or to find the owner of a prop, why not try the addon's predecessor?
+    - If your server doesn't have [Customizable Prop Info](https://github.com/legokidlogan/customizable_prop_info) but you need accurate info of whatever you're looking at to make building easier or to find the owner of a prop, why not try the addon's predecessor?
     - Take this with a grain of salt, though. Because of the addon, *I will not be maintaining the Starfall version anymore*.
     - This requires [sv_propinfo.txt](/lkl/sv_propinfo.txt) and [cl_propinfo.txt](/lkl/cl_propinfo.txt) as well.
 - [hitmarkers.txt](/lkl/hitmarkers.txt)
-    - By the same token, here's the predecessor to [Customizable Hitmarkers](https:/github.com/legokidlogan/customizable_hitmarkers)
+    - By the same token, here's the predecessor to [Customizable Hitmarkers](https://github.com/legokidlogan/customizable_hitmarkers)
