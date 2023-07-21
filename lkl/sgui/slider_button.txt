@@ -1,0 +1,149 @@
+--@name slider_button
+--@author legokidlogan
+--@client
+--@include lkl/sgui/draggable.txt
+
+--[[
+    - SGUI.SliderButton
+    - THIS IS AN INTERNAL CLASS, DO NOT USE
+--]]
+
+
+require( "lkl/sgui/draggable.txt" )
+
+if SGUI.SliderButton then return end -- Don't run twice
+
+
+SGUI.SliderButton = class( "SliderButton", SGUI.Draggable )
+
+
+local CIRCLE_SEGMENTS = 18
+
+local SliderButton = SGUI.SliderButton
+local circlePoly
+
+
+----- STATIC FUNCTIONS -----
+
+function SliderButton:initialize( parent )
+    SliderButton.super.initialize( self, parent )
+
+    self:setMargin( 0 )
+    self:setDragParent( true )
+    self:setDragReleaseMode( DRAG_RELEASE_ORIGINAL )
+    self:allowDragParenting( false )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function SliderButton:setRadius( radius )
+    self._radius = radius
+    self:setSize( radius * 2, radius * 2 )
+end
+
+function SliderButton:getRadius()
+    return self._radius
+end
+
+function SliderButton:setKnobColor( color )
+    self:setColor( self.class.name .. "Knob", color )
+end
+
+function SliderButton:getKnobColor( fallbackColor, ... )
+    return self:getClassColor( "Knob", fallbackColor, ... )
+end
+
+function SliderButton:setHoveredKnobColor( color )
+    self:setColor( self.class.name .. "KnobHovered", color )
+end
+
+function SliderButton:getHoveredKnobColor( fallbackColor, ... )
+    return self:getClassColor( "KnobHovered", fallbackColor, ... )
+end
+
+function SliderButton:setPressedKnobColor( color )
+    self:setColor( self.class.name .. "KnobPressed", color )
+end
+
+function SliderButton:getPressedKnobColor( fallbackColor, ... )
+    return self:getClassColor( "KnobPressed", fallbackColor, ... )
+end
+
+function SliderButton:setDisabledKnobColor( color )
+    self:setColor( self.class.name .. "DisabledKnob", color )
+end
+
+function SliderButton:getDisabledKnobColor( fallbackColor, ... )
+    return self:getClassColor( "DisabledKnob", fallbackColor, ... )
+end
+
+function SliderButton:getKnobColorEffective( fallbackColor, ... )
+    local suffix = "Knob"
+
+    if self:isDisabled() then
+        suffix = "DisabledKnob"
+    elseif self:isMouseHeld() then
+        suffix = "KnobPressed"
+    elseif self:isHovered() then
+        suffix = "KnobHovered"
+    end
+
+    return self:getClassColor( suffix, fallbackColor, ... )
+end
+
+function SliderButton:updatePosOnSlider()
+    self:setXPos( self:getPosFromSlideFrac() )
+end
+
+function SliderButton:getSlideFracFromPos()
+    local pos = self:getXPos()
+    local slideSize = self:getSlider():getWidth() - self:getWidth()
+
+    return pos / slideSize
+end
+
+function SliderButton:getPosFromSlideFrac()
+    local slider = self:getSlider()
+    local slideFrac = slider:getValueFractional()
+    local slideSize = slider:getWidth() - self:getWidth()
+
+    return slideFrac * slideSize
+end
+
+function SliderButton:getSlider()
+    return self:getParent()
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function SliderButton:rerouteChild( _ )
+    error( "Cannot parent to a SliderButton" )
+end
+
+function SliderButton:handleDrawBackground()
+    render.setColor( self:getKnobColorEffective() )
+    self:drawPoly( circlePoly )
+end
+
+function SliderButton:dragThink()
+    self:getSlider():setValueFractional( self:getSlideFracFromPos() )
+end
+
+function SliderButton:onDragEnded()
+    self:updatePosOnSlider()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+circlePoly = SGUI.polyMakeCircleFilled( 0.5, 0.5, 0.5, CIRCLE_SEGMENTS )

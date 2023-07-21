@@ -1,0 +1,2341 @@
+--@name Panel
+--@author legokidlogan
+--@client
+--@include lkl/middleclass_extras.txt
+--@include lkl/sgui/base.txt
+
+--[[
+    - SGUI.Panel
+    - The most basic SGUI element which all others derive from.
+
+    - HOOKS:
+        LKL_SGUI_HoveredPanelChanged( oldHoveredPanel, hoveredPanel )
+            - Called when the hovered Panel changes.
+
+            oldHoveredPanel: (Panel or nil)
+                - The Panel that was previously hovered.
+                - nil if there was no previously hovered Panel.
+                - Can be an invalid Panel, if the change occured due to Panel destruction.
+            hoveredPanel: (Panel or nil)
+                - The Panel that is now hovered.
+                - nil if there is no currently hovered Panel.
+
+
+        LKL_SGUI_HeldPanelChanged( oldHeldPanel, heldPanel )
+            - Called when the held Panel changes.
+
+            oldHeldPanel: (Panel or nil)
+                - The Panel that was previously held.
+                - nil if there was no previously held Panel.
+                - Can be an invalid Panel, if the change occured due to Panel destruction.
+            heldPanel: (Panel or nil)
+                - The Panel that is now held.
+                - nil if there is no currently held Panel.
+
+
+        LKL_SGUI_MouseClk( state )
+            - Called when the mouse is clicked or released.
+
+            state: (boolean)
+                - true if the mouse was clicked.
+                - false if the mouse was released.
+--]]
+
+
+require( "lkl/sgui/base.txt" )
+
+if SGUI.Panel then return end -- Don't run twice
+
+require( "lkl/middleclass_extras.txt" )
+
+
+SGUI.Panel = class( "Panel" )
+
+--[[
+    - Whether or not to cache ColorScheme colors for optimization.
+    - If enabled, use Panel:refreshColorSchemeCache() when you modify its ColorScheme.
+        - The cache will auto-refresh when you use :setColorScheme(), but not if you modify the ColorScheme directly.
+    - Does not affect color overrides from Panel:setColor(), which is already a cache of its own.
+--]]
+SGUI.Panel.static.CACHE_SCHEME_COLORS = true
+
+
+local MOUSE_LEFT = MOUSE.LEFT
+
+local Panel = SGUI.Panel
+local hoveredPanel
+local heldPanel
+local tickAimedScreen
+local tickAimedScreenPrev
+local tickAimedScreenIsUpdated = false
+local tickMouseX
+local tickMouseY
+local tickMouseXVel
+local tickMouseYVel
+local tickMouseIsUpdated = false
+local thinkDelta = 0
+local lastThinkTime = 0
+local slidOffHeldPanel = true
+local mouseIsDown = false
+local thinkIsEnabled = true
+local allPanels = {}
+local parentlessPanels = {}
+local extraDrawCalls = {}
+local boundaryStacks = {}
+local boundaryStacksActive = false
+local boundaryStacksEffMinX = 0
+local boundaryStacksEffMinY = 0
+local boundaryStacksEffMaxX = 0
+local boundaryStacksEffMaxY = 0
+local unremovableFuncs = {
+    __tostring = true,
+    isInstanceOf = true,
+    isValid = true,
+}
+local isPointWithinBounds
+local mouseClk
+local destroyedFunc
+local panelIsCRC
+local setCachedColor
+local getCachedColor
+local _performLayout
+local addDockedChild
+local removeDockedChild
+local addExpandingChild
+local removeExpandingChild
+local addAnchoredChild
+local removeAnchoredChild
+local updatePosEffective
+local startStencil
+local stopStencil
+local pushBoundaryStack
+local popBoundaryStack
+local calcBoundaryStacksEff
+
+local mathFloor = math.floor
+local mathMax = math.max
+local mathMin = math.min
+local tableInsert = table.insert
+local tableRemove = table.remove
+local tableRemoveByValue = table.removeByValue
+local tableKeyFromValue = table.keyFromValue
+local tableHasValue = table.hasValue
+local tableEmpty = table.empty
+local realtime = timer.realtime
+
+
+----- STATIC FUNCTIONS -----
+
+function Panel:initialize( parent )
+    self._children = {}
+    self._colorOverrides = {}
+    self._colorSchemeCache = {}
+    self._dockedChildren = {}
+    self._expandingChildren = {}
+    self._anchoredChildren = {}
+    self._dock = DOCK_NONE
+    self._expand = EXPAND_NONE
+    self._anchor = ANCHOR_NONE
+
+    self:acceptMouseInput( false )
+    self:setAutoDraw( true )
+    self:setColorScheme()
+    self:setPos( 0, 0 )
+    self:setSize( 100, 100 )
+    self:setBorderSize( 3 )
+    self:setBackgroundRadius( 0 )
+    self:setBackgroundRoundedCorners( true, true, true, true )
+    self:setMargin( 1 )
+    self:setInnerMargin( self:getBorderSize() )
+    self:setParent( parent )
+    self:setVisible( true )
+    self:allowDragParenting( true )
+
+    tableInsert( allPanels, self )
+
+    if parent == nil then
+        tableInsert( parentlessPanels, self )
+    end
+end
+
+function Panel.static:isValidPanel( panel )
+    if not isValid( panel ) then return false end
+    if not isInstanceOf( panel, Panel ) then return false end
+
+    return true
+end
+
+function Panel.static:expectValidPanel( panel, argNum, argName )
+    if not Panel:isValidPanel( panel ) then
+        error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a valid Panel or subclass", 3 )
+    end
+end
+
+--[[
+    - Returns mouseX, mouseY, screen for the current mouse postion giving what the player is doing.
+    - screen is nil if not rendering to a screen.
+    - All values will be nil if not in a context valid for auto-draw.
+    - Will return nothing if permissions aren't granted (due to input perm).
+        - This will cause all mouse hover/click detection to fail.
+--]]
+function Panel.static:getMouseContext()
+    if not permissionSatisfied then return end
+    if tickMouseIsUpdated then return tickMouseX, tickMouseY, tickAimedScreen end
+
+    local screen = Panel:getAimedScreen()
+    local prevMouseX = tickMouseX
+    local prevMouseY = tickMouseY
+
+    if isValid( screen ) then
+        tickMouseX, tickMouseY = render.cursorPos( nil, screen )
+        if not tickMouseX then return end
+    elseif input.getCursorVisible() then
+        tickMouseX, tickMouseY = input.getCursorPos()
+    else
+        tickMouseX = nil
+        tickMouseY = nil
+    end
+
+    prevMouseX = prevMouseX or tickMouseX
+    prevMouseY = prevMouseY or tickMouseY
+    tickMouseXVel = tickMouseX and ( tickMouseX - prevMouseX ) or 0
+    tickMouseYVel = tickMouseY and ( tickMouseY - prevMouseY ) or 0
+    tickMouseIsUpdated = true
+
+    return tickMouseX, tickMouseY, screen
+end
+
+function Panel.static:getMouseVelocity()
+    if tickMouseIsUpdated then return tickMouseXVel, tickMouseYVel end
+
+    Panel:getMouseContext()
+
+    return tickMouseXVel, tickMouseYVel
+end
+
+--[[
+    - Returns the Panel currently being hovered over.
+    - This does not include the Panel currently being held. See Panel:getHeldPanel()
+    - Panels need :acceptMouseInput( true ) to be hovered over.
+--]]
+function Panel.static:getHoveredPanel()
+    return hoveredPanel
+end
+
+--[[
+    - Returns the Panel currently being held.
+    - This is the panel where the mouse was first pressed on top of, up until the mouse is released.
+--]]
+function Panel.static:getHeldPanel()
+    return heldPanel
+end
+
+--[[
+    - Returns the Panel currently being held over.
+    - This is the hovered panel, but only if the mouse is down. Otherwise, it's nil.
+    - This will never be the same as the held panel. See Panel:getHeldPanel()
+--]]
+function Panel.static:getHeldOverPanel()
+    if not mouseIsDown then return nil end
+
+    return hoveredPanel
+end
+
+function Panel.static:getAimedScreen()
+    if tickAimedScreenIsUpdated then return tickAimedScreen end
+
+    tickAimedScreenPrev = tickAimedScreen
+
+    if input.getCursorVisible() then
+        tickAimedScreen = nil
+    else
+        tickAimedScreen = player():getEyeTrace().Entity
+        tickAimedScreen = isValid( tickAimedScreen ) and tickAimedScreen:getClass() == "starfall_screen" and tickAimedScreen or nil
+    end
+
+    tickAimedScreenIsUpdated = true
+
+    return tickAimedScreen
+end
+
+function Panel.static:isMouseDown()
+    return mouseIsDown
+end
+
+-- Checks to see if a coordinate is within a rectangle.
+function Panel.static:isPointWithinBounds( x, y, xMin, yMin, xMax, yMax )
+    return isPointWithinBounds( x, y, xMin, yMin, xMax, yMax )
+end
+
+--[[
+    - Checks to see if the mouse is within a rectangle.
+    - Doesn't care about which screen the player is looking at.
+--]]
+function Panel.static:isMouseWithinBounds( xMin, yMin, xMax, yMax )
+    local mouseX, mouseY = Panel:getMouseContext()
+    if not mouseX then return false end
+
+    return isPointWithinBounds( mouseX, mouseY, xMin, yMin, xMax, yMax )
+end
+
+-- Enables/diasables :think() on all Panels globally.
+function Panel.static:setThinkEnabled( state )
+    thinkIsEnabled = state and true or false
+end
+
+function Panel.static:isThinkEnabled()
+    return thinkIsEnabled
+end
+
+-- Returns the time since the last :think() call. Returns 0 if called outside of Panel:think().
+function Panel.static:getThinkDelta()
+    return thinkDelta
+end
+
+function Panel.static:getAll()
+    local out = {}
+
+    for i = 1, #allPanels do
+        out[i] = allPanels[i]
+    end
+
+    return out
+end
+
+function Panel.static:getAllInstancesOf( classObj )
+    local out = {}
+    local count = 0
+
+    for i = 1, #allPanels do
+        local panel = allPanels[i]
+
+        if panel:isInstanceOf( classObj ) then
+            count = count + 1
+            out[count] = panel
+        end
+    end
+
+    return out
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Panel:isValid()
+    return true
+end
+
+-- Destroys the Panel and its children.
+function Panel:destroy()
+    self:onDestroyed()
+    self:setParent()
+
+    local children = self:getChildren()
+
+    for i = #children, 1, -1 do
+        children[i]:destroy()
+    end
+
+    tableRemoveByValue( allPanels, self )
+    tableRemoveByValue( parentlessPanels, self )
+
+    for funcName in pairs( self.class.__declaredMethods ) do
+        if not unremovableFuncs[funcName] then
+            self[funcName] = destroyedFunc
+        end
+    end
+
+    function self:isValid()
+        return false
+    end
+end
+
+-- Invalidate the Panel's layout, causing it to be recalculated next time it's needed.
+function Panel:invalidateLayout()
+    self._layoutIsValid = false
+end
+
+--[[
+    - Returns the width and height of the HUD/screen this Panel is associated with.
+    - scrW and scrH can be passed to override the values.
+--]]
+function Panel:getScreenSize( scrW, scrH )
+    if scrW and scrH then return scrW, scrH end
+
+    local w = 512
+    local h = 512
+
+    if self:isHUD() then
+        w, h = render.getGameResolution()
+    end
+
+    return scrW or w, scrH or h
+end
+
+function Panel:setXPos( xPos )
+    if self:isDocked() then return end
+    if self:getExpand() == EXPAND_WIDTH then return end
+    if self:isAnchored() then return end
+    if type( xPos ) ~= "number" then error( "Expected xPos to be a number" ) end
+
+    self._xPos = mathFloor( xPos )
+    updatePosEffective( self )
+end
+
+function Panel:getXPos()
+    return self._xPos
+end
+
+function Panel:setYPos( yPos )
+    if self:isDocked() then return end
+    if self:getExpand() == EXPAND_HEIGHT then return end
+    if self:isAnchored() then return end
+    if type( yPos ) ~= "number" then error( "Expected yPos to be a number" ) end
+
+    self._yPos = mathFloor( yPos )
+    updatePosEffective( self )
+end
+
+function Panel:getYPos()
+    return self._yPos
+end
+
+function Panel:setPos( xPos, yPos )
+    if self:isDocked() then return end
+    if self:isAnchored() then return end
+    if self:getExpand() == EXPAND_WIDTH then return self:setYPos( yPos ) end
+    if self:getExpand() == EXPAND_HEIGHT then return self:setXPos( xPos ) end
+    if type( xPos ) ~= "number" then error( "Expected xPos to be a number" ) end
+    if type( yPos ) ~= "number" then error( "Expected yPos to be a number" ) end
+
+    self._xPos = mathFloor( xPos )
+    self._yPos = mathFloor( yPos )
+    updatePosEffective( self )
+end
+
+function Panel:getPos()
+    return self._xPos, self._yPos
+end
+
+function Panel:getXPosEffective()
+    return self._xPosEffective
+end
+
+function Panel:getYPosEffective()
+    return self._yPosEffective
+end
+
+-- Position of the panel relative to the top left of the screen after all parent offsets have been applied.
+function Panel:getPosEffective()
+    return self._xPosEffective, self._yPosEffective
+end
+
+-- Position of this Panel relative to panel, which can be any valid Panel, or nil to use the screen.
+function Panel:getPosRelativeToPanel( panel )
+    if panel == nil then return self:getPosEffective() end
+    Panel:expectValidPanel( panel, 1, "panel" )
+
+    local x, y = self:getPosEffective()
+    local x2, y2 = panel:getPosEffective()
+
+    return x - x2, y - y2
+end
+
+function Panel:getPosEffectiveFractional()
+    local scrW, scrH = self:getScreenSize()
+    local x, y = self:getPosEffective()
+
+    return x / scrW, y / scrH
+end
+
+function Panel:setXPosFractional( xPos, scrW )
+    scrW = scrW or self:getScreenSize()
+
+    self:setXPos( xPos * scrW )
+end
+
+function Panel:getXPosFractional( scrW )
+    scrW = scrW or self:getScreenSize()
+
+    return self:getXPos() / scrW
+end
+
+function Panel:setYPosFractional( yPos, scrH )
+    if not scrH then
+        local _
+        _, scrH = self:getScreenSize()
+    end
+
+    self:setYPos( yPos * scrH )
+end
+
+function Panel:getYPosFractional( scrH )
+    if not scrH then
+        local _
+        _, scrH = self:getScreenSize()
+    end
+
+    return self:getYPos() / scrH
+end
+
+function Panel:setPosFractional( xPos, yPos, scrW, scrH )
+    scrW, scrH = self:getScreenSize( scrW, scrH )
+
+    self:setPos( xPos * scrW, yPos * scrH )
+end
+
+function Panel:getPosFractional( scrW, scrH )
+    local xPos, yPos = self:getPos()
+    scrW, scrH = self:getScreenSize( scrW, scrH )
+
+    return xPos / scrW, yPos / scrH
+end
+
+function Panel:setWidth( width )
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    if width < 0 then error( "Expected width to be >= 0" ) end
+    if self:getExpand() == EXPAND_WIDTH then return end
+
+    local dock = self:getDock()
+    if dock == DOCK_FILL or dock == DOCK_TOP or dock == DOCK_BOTTOM then return end
+
+    width = mathFloor( width )
+    if self._width == width then return end
+
+    self._width = width
+    self:invalidateLayout()
+
+    local parent = self:getParent()
+
+    if parent and ( self:isDocked() or self:doesExpand() or self:isAnchored() ) then
+        parent:invalidateLayout()
+    end
+end
+
+function Panel:getWidth()
+    return self._width
+end
+
+function Panel:setHeight( height )
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    if height < 0 then error( "Expected height to be >= 0" ) end
+    if self:getExpand() == EXPAND_HEIGHT then return end
+
+    local dock = self:getDock()
+    if dock == DOCK_FILL or dock == DOCK_LEFT or dock == DOCK_RIGHT then return end
+
+    height = mathFloor( height )
+    if self._height == height then return end
+
+    self._height = height
+    self:invalidateLayout()
+
+    local parent = self:getParent()
+
+    if parent and ( self:isDocked() or self:doesExpand() or self:isAnchored() ) then
+        parent:invalidateLayout()
+    end
+end
+
+function Panel:getHeight()
+    return self._height
+end
+
+function Panel:setSize( width, height )
+    self:setWidth( width )
+    self:setHeight( height )
+end
+
+function Panel:getSize()
+    return self._width, self._height
+end
+
+-- Gets the max bounding box size based on the size and position of the Panel and its children.
+function Panel:getTotalSize()
+    local width, height = self:getSize()
+    local xPos, yPos = self:getPosEffective()
+
+    for _, child in ipairs( self:getChildren() ) do
+        local childWidth, childHeight = child:getTotalSize()
+        local childXPos, childYPos = child:getPosEffective()
+
+        local childXRange = childXPos + childWidth - xPos
+        local childYRange = childYPos + childHeight - yPos
+
+        if childXRange > width then
+            width = childXRange
+        end
+
+        if childYRange > height then
+            height = childYRange
+        end
+    end
+
+    return width, height
+end
+
+function Panel:setWidthFractional( width, scrW )
+    scrW = scrW or self:getScreenSize()
+
+    self:setWidth( width * scrW )
+end
+
+function Panel:getWidthFractional( scrW )
+    scrW = scrW or self:getScreenSize()
+
+    return self:getWidth() / scrW
+end
+
+function Panel:setHeightFractional( height, scrH )
+    if not scrH then
+        local _
+        _, scrH = self:getScreenSize()
+    end
+
+    self:setHeight( height * scrH )
+end
+
+function Panel:getHeightFractional( scrH )
+    if not scrH then
+        local _
+        _, scrH = self:getScreenSize()
+    end
+
+    return self:getHeight() / scrH
+end
+
+function Panel:setSizeFractional( width, height, scrW, scrH )
+    scrW, scrH = self:getScreenSize( scrW, scrH )
+
+    self:setSize( width * scrW, height * scrH )
+end
+
+function Panel:getSizeFractional( scrW, scrH )
+    local width, height = self:getSize()
+    scrW, scrH = self:getScreenSize( scrW, scrH )
+
+    return width / scrW, height / scrH
+end
+
+--[[
+    - Behaves identically to vgui docking.
+        - See https://wiki.facepunch.com/gmod/Panel:Dock
+        - See https://wiki.facepunch.com/gmod/Enums/DOCK  (enums are properly prefixed with DOCK_ in this library, however)
+        - Unlike in vgui, :invalidateLayout() is called automatically.
+    - Docking requires a parent to already be set.
+        - Unparenting a docked child will undock it.
+    - Behavior will become unreliable if Panels are docked/expanded after one DOCK_FILL sibling is already present.
+        - Same goes for if enough docked Panels are present to reach past the center of the parent.
+    - If dock ~= DOCK_NONE and the Panel is using :setExpand(), the expand will automatically be disabled first.
+    - If dock ~= DOCK_NONE and the Panel is using :setAnchor(), the anchor will automatically be disabled first.
+--]]
+function Panel:setDock( dock )
+    if self._dock == dock then return end
+
+    SGUI.expectValidDock( dock, 1, "dock" )
+
+    local parent = self:getParent()
+    if not parent and dock ~= DOCK_NONE then error( "Panel must have a parent to be docked" ) end
+
+    if parent and self:isDocked() then
+        removeDockedChild( parent, self )
+    end
+
+    self._dock = dock
+
+    if dock == DOCK_NONE then return end
+
+    self:setExpand( EXPAND_NONE )
+    self:setAnchor( ANCHOR_NONE )
+    addDockedChild( parent, self )
+end
+
+function Panel:getDock()
+    return self._dock
+end
+
+function Panel:isDocked()
+    return self._dock ~= DOCK_NONE
+end
+
+--[[
+    - Behaves similarly to :setDock( DOCK_FILL ), but only by expanding in one direction.
+        - e.g. EXPAND_WIDTH will maintain vertical size and position, but expand horizontally to fill the remaining space in the parent.
+    - Expanding Panels will not impede the expansion of their siblings.
+    - Expanding Panels are calculated after their docked siblings.
+    - Values are EXPAND_NONE, EXPAND_WIDTH, or EXPAND_HEIGHT.
+    - Behavior will become unreliable if there's a sibling Panel with DOCK_FILL, or enough docked panels to reach past the center of the parent. 
+    - If expand ~= EXPAND_NONE and the Panel is using :setDock(), the dock will automatically be disabled first.
+    - A Panel can be both expanded and anchored at the same time.
+        - However, doing so will have effectively the same result as using DOCK (besides multi-dock interaction) unless you're anchoring to the center.
+--]]
+function Panel:setExpand( expand )
+    if self._expand == expand then return end
+
+    SGUI.expectValidExpand( expand, 1, "expand" )
+
+    local parent = self:getParent()
+    if not parent and expand ~= EXPAND_NONE then error( "Panel must have a parent to be expanded" ) end
+
+    if parent and self:doesExpand() then
+        removeExpandingChild( parent, self )
+    end
+
+    self._expand = expand
+
+    if expand == EXPAND_NONE then return end
+
+    self:setDock( DOCK_NONE )
+    addExpandingChild( parent, self )
+end
+
+function Panel:getExpand()
+    return self._expand
+end
+
+function Panel:doesExpand()
+    return self._expand ~= EXPAND_NONE
+end
+
+--[[
+    - Anchors the Panel to the center or one of 8 corners of its parent.
+    - Anchoring is done after docked siblings are calculated.
+    - Anchoring doesn't affect and is unaffected by sibling expansion.
+    - Anchored Panels do not affect other anchored siblings.
+    - The Panel's position will be adjusted, but its size will not.
+    - The margins of the Panel and its parent will be used as offsets, depending on the anchor selection.
+        - e.g. ANCHOR_TOP_LEFT uses the left and top margins, but not the right and bottom margins.
+        - e.g. ANCHOR_CENTER uses no margins.
+    - Values are ANCHOR_NONE, ANCHOR_TOP_LEFT, ANCHOR_TOP, ANCHOR_TOPRIGHT, ANCHOR_LEFT, ANCHOR_CENTER, ANCHOR_RIGHT, ANCHOR_BOTTOMLEFT, ANCHOR_BOTTOM, or ANCHOR_BOTTOMRIGHT.
+    - Behavior will become unreliable if there's a sibling Panel with DOCK_FILL, or enough docked panels to reach past the center of the parent.
+    - If anchor ~= ANCHOR_NONE and the Panel is using :setDock(), the dock will automatically be disabled first.
+    - A Panel can be both expanded and anchored at the same time.
+        - However, doing so will have effectively the same result as using DOCK (besides multi-dock interaction) unless you're anchoring to the center.
+--]]
+function Panel:setAnchor( anchor )
+    if self._anchor == anchor then return end
+
+    SGUI.expectValidAnchor( anchor, 1, "anchor" )
+
+    local parent = self:getParent()
+    if not parent and anchor ~= ANCHOR_NONE then error( "Panel must have a parent to be anchored" ) end
+
+    if parent and self:isAnchored() then
+        removeAnchoredChild( parent, self )
+    end
+
+    self._anchor = anchor
+
+    if anchor == ANCHOR_NONE then return end
+
+    self:setDock( DOCK_NONE )
+    addAnchoredChild( parent, self )
+end
+
+function Panel:getAnchor()
+    return self._anchor
+end
+
+function Panel:isAnchored()
+    return self._anchor ~= ANCHOR_NONE
+end
+
+--[[
+    - Sets dock/expand margin for the Panel relative to its parent.
+    - Argument order is the same in GMod's vgui library.
+    - Pass only one argument to set all margins to the same value.
+--]]
+function Panel:setMargin( left, top, right, bottom )
+    if not top and not right and not bottom then
+        top = left
+        right = left
+        bottom = left
+    end
+
+    self._marginLeft = mathFloor( left or 0 )
+    self._marginTop = mathFloor( top or 0 )
+    self._marginRight = mathFloor( right or 0 )
+    self._marginBottom = mathFloor( bottom or 0 )
+end
+
+function Panel:getMargin()
+    return self._marginLeft, self._marginTop, self._marginRight, self._marginBottom
+end
+
+--[[
+    - Sets dock/expand margin for the Panel's children relative to it.
+    - Argument order is the same in GMod's vgui library.
+    - Pass only one argument to set all margins to the same value.
+--]]
+function Panel:setInnerMargin( left, top, right, bottom )
+    if not top and not right and not bottom then
+        top = left
+        right = left
+        bottom = left
+    end
+
+    self._innerMarginLeft = mathFloor( left or 0 )
+    self._innerMarginTop = mathFloor( top or 0 )
+    self._innerMarginRight = mathFloor( right or 0 )
+    self._innerMarginBottom = mathFloor( bottom or 0 )
+end
+
+function Panel:getInnerMargin()
+    return self._innerMarginLeft, self._innerMarginTop, self._innerMarginRight, self._innerMarginBottom
+end
+
+--[[
+    - Returns x, y, width, height of the Panel, relative to its parent.
+    - This is the same as the Panel's position and size.
+--]]
+function Panel:getRect()
+    local x, y = self:getPos()
+    local width, height = self:getSize()
+
+    return x, y, width, height
+end
+
+-- Returns xMin, yMin, xMax, yMax of the Panel, relative to its parent.
+function Panel:getBounds()
+    local x, y = self:getPos()
+    local width, height = self:getSize()
+
+    return x, y, x + width, y + height
+end
+
+--[[
+    - Returns x, y, width, height of the Panel, relative to the screen.
+    - This is the same as the Panel's effective position and size.
+--]]
+function Panel:getRectEffective()
+    local x, y = self:getPosEffective()
+    local width, height = self:getSize()
+
+    return x, y, width, height
+end
+
+-- Returns xMin, yMin, xMax, yMax of the Panel, relative to the screen.
+function Panel:getBoundsEffective()
+    local x, y = self:getPosEffective()
+    local width, height = self:getSize()
+
+    return x, y, x + width, y + height
+end
+
+--[[
+    - Returns x, y, width, height for the inner margin bounds of the Panel, relative to itself.
+    - If child is supplied, then the child's outer margins will be accounted for as well.
+--]]
+function Panel:getInnerRect( child )
+    local innerMarginLeft, innerMarginTop, innerMarginRight, innerMarginBottom = self:getInnerMargin()
+    local width, height = self:getSize()
+
+    if child == nil then
+        return innerMarginLeft, innerMarginTop, width - innerMarginLeft - innerMarginRight, height - innerMarginTop - innerMarginBottom
+    end
+
+    Panel:expectValidPanel( child, 1, "child" )
+
+    local marginLeft, marginTop, marginRight, marginBottom = child:getMargin()
+    local left = marginLeft + innerMarginLeft
+    local top = marginTop + innerMarginTop
+
+    return left, top, width - left - innerMarginRight - marginRight, height - top - innerMarginBottom - marginBottom
+end
+
+--[[
+    - Returns xMin, yMin, xMax, yMax for the inner margin bounds of the Panel, relative to itself.
+    - If child is supplied, then the child's outer margins will be accounted for as well.
+--]]
+function Panel:getInnerBounds( child )
+    local innerMarginLeft, innerMarginTop, innerMarginRight, innerMarginBottom = self:getInnerMargin()
+    local width, height = self:getSize()
+
+    if child == nil then
+        return innerMarginLeft, innerMarginTop, width - innerMarginRight, height - innerMarginBottom
+    end
+
+    Panel:expectValidPanel( child, 1, "child" )
+
+    local marginLeft, marginTop, marginRight, marginBottom = child:getMargin()
+
+    return innerMarginLeft + marginLeft, innerMarginTop + marginTop, width - innerMarginRight - marginRight, height - innerMarginBottom - marginBottom
+end
+
+-- Returns x, y, width, height for the outer margin bounds of the Panel, relative to itself.
+function Panel:getOuterRect()
+    local marginLeft, marginTop, marginRight, marginBottom = self:getMargin()
+    local width, height = self:getSize()
+
+    return -marginLeft, -marginTop, width + marginLeft + marginRight, height + marginTop + marginBottom
+end
+
+-- Returns xMin, yMin, xMax, yMax for the outer margin bounds of the Panel, relative to itself.
+function Panel:getOuterBounds()
+    local marginLeft, marginTop, marginRight, marginBottom = self:getMargin()
+    local width, height = self:getSize()
+
+    return -marginLeft, -marginTop, width + marginRight, height + marginBottom
+end
+
+--[[
+    - Whether or not the Panel should automatically draw itself.
+    - This only changes behavior for Panels without a parent, as parents call :draw() on their children.
+    - Auto-drawing will go to the HUD or associated screen, while manual drawing will go to whatever context :draw() is called in.
+    - This is true by default.
+--]]
+function Panel:setAutoDraw( state )
+    self._autoDraw = state and true or false
+end
+
+function Panel:doesAutoDraw()
+    return self._autoDraw
+end
+
+--[[
+    - Associates the Panel with a starfall screen, causing auto-draw to render it there.
+    - Pass nil to associate with the HUD.
+    - If the Panel has a parent, this will be ignored.
+    - If the associated screen is later deleted, then the Panel will be destroyed.
+--]]
+function Panel:associateWithScreen( screen )
+    if self:getParent() then return end
+
+    if screen == nil then
+        self._associatedScreen = nil
+
+        return
+    end
+
+    local success = pcall( render.getScreenInfo, screen )
+    if not success then error( "Expected screen to be nil or a valid starfall screen" ) end
+
+    self._associatedScreen = screen
+end
+
+function Panel:getAssociatedScreen()
+    return self._associatedScreen
+end
+
+function Panel:isHUD()
+    return self:getAssociatedScreenEffective() == nil
+end
+
+-- Traverses up the parent tree to get the associated screen of the Panel.
+function Panel:getAssociatedScreenEffective()
+    return self:getRoot():getAssociatedScreen()
+end
+
+--[[
+    - Manually draws the panel and its children, if visible.
+    - Avoid calling this if the Panel has a parent or has auto-draw enabled.
+    - This function should never be overridden.
+--]]
+function Panel:draw()
+    if not self:isVisible() then return end
+
+    if not self._layoutIsValid then
+        _performLayout( self )
+    end
+
+    local handleOrderedDrawBackground = self.handleOrderedDrawBackground
+    local handleOrderedDraw = self.handleOrderedDraw
+
+    if handleOrderedDrawBackground then
+        tableInsert(
+            extraDrawCalls[self:getExtraDrawOrder()],
+            {
+                handleOrderedDrawBackground,
+                self
+            }
+        )
+    end
+
+    if handleOrderedDraw then
+        tableInsert(
+            extraDrawCalls[self:getExtraDrawOrder()],
+            {
+                handleOrderedDraw,
+                self
+            }
+        )
+    end
+
+    --[[
+    self:handleDrawBackground()
+    self:handleDraw()
+
+    for _, child in ipairs( self:getChildren() ) do
+        child:draw()
+    end
+    --]]
+
+    local didPush = pushBoundaryStack( self )
+
+    if didPush then
+        startStencil()
+    end
+
+    self:handleDrawBackground()
+    self:handleDraw()
+
+    for _, child in ipairs( self:getChildren() ) do
+        child:draw()
+    end
+
+    if didPush then
+        popBoundaryStack()
+
+        if boundaryStacksActive then
+            startStencil()
+        else
+            stopStencil()
+        end
+    end
+end
+
+--[[
+    - Sets whether or not the Panel is visible.
+    - If a Panel is not visible, it will not draw, nor will it draw its children.
+--]]
+function Panel:setVisible( state )
+    self._visible = state and true or false
+
+    if self:isDocked() or ( state and ( self:doesExpand() or self:isAnchored() ) ) then
+        self:getParent():invalidateLayout()
+    end
+end
+
+function Panel:isVisible()
+    return self._visible
+end
+
+--[[
+    - Whether or not this Panel should be counted for mouse hover/click.
+    - False by default.
+--]]
+function Panel:acceptMouseInput( state )
+    self._acceptsMouseInput = state and true or false
+end
+
+-- Recursively sets :acceptMouseInput() on the Panel and all of its children.
+function Panel:acceptMouseInputRecursive( state )
+    -- Some Panel subclasses disable their :acceptMouseInput() function, and middleclass doesn't support outright setting instance functions to nil.
+    pcall( function()
+        self:acceptMouseInput( true )
+    end )
+
+    for _, child in ipairs( self:getChildren() ) do
+        child:acceptMouseInputRecursive( state )
+    end
+end
+
+function Panel:doesAcceptMouseInput()
+    return self._acceptsMouseInput
+end
+
+-- Returns true if the Panel is being hovered over by the mouse.
+function Panel:isHovered()
+    return Panel:getHoveredPanel() == self
+end
+
+-- Returns true if a child of the Panel is being hovered over by the mouse.
+function Panel:isChildHovered()
+    for _, child in ipairs( self:getChildren() ) do
+        if child:isHovered() then return true end
+    end
+
+    return false
+end
+
+-- Returns true if this Panel is being hovered over while the mouse is down.
+function Panel:isMouseHoldingOver()
+    return Panel:getHeldOverPanel() == self
+end
+
+-- Returns true if a child of this Panel is being hovered over while the mouse is down.
+function Panel:isMouseHoldingOverChild()
+    if not Panel:isMouseDown() then return false end
+    return self:isChildHovered()
+end
+
+-- Returns true if this Panel is being held. See Panel:getHeldPanel().
+function Panel:isMouseHeld()
+    return Panel:getHeldPanel() == self
+end
+
+function Panel:isMouseEntered()
+    return self:isHovered() or self:isMouseHeld()
+end
+
+function Panel:isMouseExited()
+    return not self:isMouseEntered()
+end
+
+--[[
+    - Whether or not the mouse is within the Panel's bounds.
+    - Unlike the static Panel:isMouseWithinBounds(), this accounts for the currently-aimed screen.
+    - Unlike regular hover/hold detection, this works even if the panel isn't visible and/or doesn't accept mouse input.
+
+    - Be careful using this, it loops through the Panel's parents and ignores whether or not some other Panel is visually in the way.
+--]]
+function Panel:isMouseWithinMyBounds()
+    local mouseX, mouseY, screen = Panel:getMouseContext()
+    if not mouseX then return false end
+    if screen ~= self:getAssociatedScreenEffective() then return end
+
+    return isPointWithinBounds( mouseX, mouseY, self:getBoundsEffective() )
+end
+
+--[[
+    - Sets the parent of the Panel.
+    - nil to remove the parent.
+    - If called to parent to or unparent from a List, this will automatically use List:add() and List:removeByValue() instead.
+--]]
+function Panel:setParent( parent )
+    local isForced = self._doForceNextParent
+    self._doForceNextParent = nil
+
+    local oldParent = self:getParent()
+    if oldParent == parent then return end
+
+    if not isForced then -- Parent blocking checks go here.
+        -- Remove from old List if in one.
+        if self:isInsideList() then
+            self:getContainingList():removeByValue( self )
+            if not parent then return end -- Don't double-remove.
+        end
+
+        -- Add to new List if parent is a List.
+        if parent and SGUI.List and parent:isInstanceOf( SGUI.List ) then parent:add( self ) return end
+
+        -- Add to List if parent is a Panel that is part of a List.
+        local partOfList = parent and parent._partOfList
+        if isValid( partOfList ) then partOfList:add( self ) return end
+    end
+
+    self:setDock( DOCK_NONE )
+    self:setExpand( EXPAND_NONE )
+    self:setAnchor( ANCHOR_NONE )
+
+    if parent then
+        Panel:expectValidPanel( parent, 1, "parent" )
+        parent = parent:rerouteChild( self )
+        if parent ~= nil then Panel:expectValidPanel( parent, 1, "parent:rerouteChild()" ) end
+        if parent == self then error( "Cannot parent a Panel to itself" ) end
+        if panelIsCRC( self, parent ) then error( "Cannot parent a Panel to its child" ) end
+
+        self._associatedScreen = nil
+    end
+
+    self._parent = parent
+    tableRemoveByValue( oldParent and oldParent:getChildren() or parentlessPanels, self )
+    tableInsert( parent and parent:getChildren() or parentlessPanels, self )
+    updatePosEffective( self )
+end
+
+function Panel:getParent()
+    return self._parent
+end
+
+--[[
+    - Returns the highest-up recursive parent (excluding nil, the redundant root) of this Panel.
+    - If the Panel is not parented, it will return itself.
+--]]
+function Panel:getRoot()
+    local parent = self:getParent()
+    if not parent then return self end
+
+    local nextParent = parent:getParent()
+
+    while nextParent do
+        parent = nextParent
+        nextParent = parent:getParent()
+    end
+
+    return parent
+end
+
+function Panel:getChildren()
+    return self._children
+end
+
+function Panel:hasChild( panel )
+    Panel:expectValidPanel( panel, 1, "panel" )
+
+    return tableHasValue( self:getChildren(), panel )
+end
+
+function Panel:isChildOf( panel )
+    return self:getParent() == panel
+end
+
+--[[
+    - Returns whether or not the Panel is a child of targetParent, or a child of a child of targetParent, etc.
+
+    targetParent: (Panel or nil)
+        - The recursive parent to check for.
+        - If nil and stopEarlyAt is nil/invalid, the return will always be true, as all Panels are subchildren of nil.
+        - If invalid and not nil, the return will always be false, as invalid Panels can't be parents.
+    stopEarlyAt: (optional) (Panel)
+        - Will stop traversing upwards early if this Panel is reached.
+        - Useful if self and targetParent are known subchildren of stopEarlyAt, and you don't need to traverse all the way up to the root.
+            - e.g. Determining which scroll bar someone is hovering over if they're known to be hovering over a Scrollable.
+--]]
+function Panel:isRecursiveChildOf( targetParent, stopEarlyAt )
+    stopEarlyAt = isValid( stopEarlyAt ) and stopEarlyAt
+
+    if targetParent == nil then
+        if not stopEarlyAt then return true end -- All Panels are subchildren of nil.
+    else
+        if not isValid( targetParent ) then return false end -- Invalid Panels can't be parents.
+    end
+
+    local parent = self:getParent()
+
+    while parent and parent ~= stopEarlyAt do
+        if parent == targetParent then return true end
+        parent = parent:getParent()
+    end
+
+    return parent == targetParent
+end
+
+-- Returns the first recursive parent of the Panel that is an instance of the given class and its subclasses.
+function Panel:getParentBySubclass( classObj, stopEarlyAt )
+    if not classObj then error( "Expected classObj" ) end
+
+    stopEarlyAt = isValid( stopEarlyAt ) and stopEarlyAt
+
+    local parent = self:getParent()
+
+    while parent and parent ~= stopEarlyAt do
+        if parent:isInstanceOf( classObj ) then return parent end
+        parent = parent:getParent()
+    end
+
+    return parent and parent:isInstanceOf( classObj ) and parent or nil
+end
+
+-- Returns the first recursive parent of the Panel that is an instance of the exact given class.
+function Panel:getParentByClass( classObj, stopEarlyAt )
+    if not classObj then error( "Expected classObj" ) end
+
+    stopEarlyAt = isValid( stopEarlyAt ) and stopEarlyAt
+
+    local parent = self:getParent()
+
+    while parent and parent ~= stopEarlyAt do
+        if parent.class == classObj then return parent end
+        parent = parent:getParent()
+    end
+
+    return parent and parent.class == classObj and parent or nil
+end
+
+--[[
+    - Returns the children of the Panel's parent (which includes the Panel itself).
+    - If the Panel has no parent, returns the parentlessPanels table.
+--]]
+function Panel:getSiblings()
+    local parent = self:getParent()
+
+    return parent and parent:getChildren() or parentlessPanels
+end
+
+-- Returns whether or not the two panels have the same parent (or lack thereof).
+function Panel:isSibling( panel )
+    Panel:expectValidPanel( panel, 1, "panel" )
+
+    return tableHasValue( self:getSiblings(), panel )
+end
+
+function Panel:moveToOrderIndex( index )
+    if not index then error( "Expected index" ) end
+    if type( index ) ~= "number" then error( "Expected index to be a number" ) end
+
+    local siblings = self:getSiblings()
+    if index < 1 or index > #siblings then error( "Index out of bounds" ) end
+
+    local curInd = tableKeyFromValue( siblings, self )
+    if curInd == index then return end
+
+    tableRemove( siblings, curInd )
+    tableInsert( siblings, index, self )
+end
+
+-- Moves the Panel to the front of its siblings, rendering last out of all of them.
+function Panel:moveToFront()
+    self:moveToOrderIndex( #self:getSiblings() )
+end
+
+-- Moves the Panel to the back of its siblings, rendering first out of all of them.
+function Panel:moveToBack()
+    self:moveToOrderIndex( 1 )
+end
+
+-- Moves the Panel forward by the specified amount of indices among its siblings.
+function Panel:moveForward( amount )
+    local newInd = self:getOrderIndex() + ( amount or 1 )
+    newInd = mathClamp( newInd, 1, #self:getSiblings() )
+
+    self:moveToOrderIndex( newInd )
+end
+
+-- Moves the Panel backward by the specified amount of indices among its siblings.
+function Panel:moveBackward( amount )
+    local newInd = self:getOrderIndex() - ( amount or 1 )
+    newInd = mathClamp( newInd, 1, #self:getSiblings() )
+
+    self:moveToOrderIndex( newInd )
+end
+
+-- Moves the Panel to draw after the specified sibling.
+function Panel:moveToAfter( sibling )
+    Panel:expectValidPanel( sibling, 1, "sibling" )
+    if sibling == self then error( "Cannot move a Panel after itself, use :moveForward()" ) end
+    if not self:isSibling( sibling ) then error( "Cannot move a Panel after a non-sibling" ) end
+
+    local myInd = self:getOrderIndex()
+    local siblingInd = sibling:getOrderIndex()
+    if myInd > siblingInd then return end
+
+    self:moveToOrderIndex( siblingInd )
+end
+
+-- Moves the Panel to draw before the specified sibling.
+function Panel:moveToBefore( sibling )
+    Panel:expectValidPanel( sibling, 1, "sibling" )
+    if sibling == self then error( "Cannot move a Panel before itself, use :moveBackward()" ) end
+    if not self:isSibling( sibling ) then error( "Cannot move a Panel before a non-sibling" ) end
+
+    local myInd = self:getOrderIndex()
+    local siblingInd = sibling:getOrderIndex()
+    if myInd < siblingInd then return end
+
+    self:moveToOrderIndex( siblingInd )
+end
+
+-- Gets the Panel's index among its siblings.
+function Panel:getOrderIndex()
+    return tableKeyFromValue( self:getSiblings(), self )
+end
+
+-- Gets the List that the Panel is inside of, if any.
+function Panel:getContainingList()
+    return self._listInsideOf
+end
+
+-- Returns whether or not the Panel is inside of a List.
+function Panel:isInsideList()
+    return self:getContainingList() ~= nil
+end
+
+--[[
+    - Allows Draggables to be parented to this Panel via DRAG_RELEASE_HOVERED.
+    - True by default.
+--]]
+function Panel:allowDragParenting( state )
+    self._dragParentingAllowed = state
+end
+
+function Panel:doesAllowDragParenting()
+    return self._dragParentingAllowed
+end
+
+--[[
+    - Sets the draw order for the extra draw calls of the Panel.
+    - See :handleOrderedDraw() and :handleOrderedDrawBackground() for more information.
+    - This does NOT affect :handleDraw() or :handleDrawBackground().
+--]]
+function Panel:setExtraDrawOrder( order )
+    SGUI.expectValidDrawOrder( order, 1, "order" )
+
+    self._extraDrawOrder = order
+end
+
+function Panel:getExtraDrawOrder()
+    return self._extraDrawOrder
+end
+
+function Panel:setColorScheme( colorScheme )
+    colorScheme = colorScheme or SGUI.DEFAULT_COLOR_SCHEME
+    if not isValid( colorScheme ) or not isInstanceOf( colorScheme, ColorScheme ) then error( "Expected a valid ColorScheme" ) end
+
+    self._colorScheme = colorScheme
+    self:refreshColorSchemeCache()
+end
+
+function Panel:getColorScheme()
+    return self._colorScheme
+end
+
+--[[
+    - Sets/removes a color override for one of the Panel's colors.
+    - This causes the named color to bypass the Panel's ColorScheme.
+    - Note that ColorScheme colors can yield varargs, while this override only supports one exact color object.
+
+    name: (string)
+        - The name of the color to override.
+    color: (nil, Color, or function)
+        - NIL: Removes the override, causing the Panel to use its ColorScheme for the color.
+        - COLOR: Sets the override to a static color.
+        - FUNCTION: Sets the override to a function of the form  function( panel, ... ) return COLOR end
+            - ... will be passed to the function when :getColor( name, fallbackColor, ... ) is called.
+--]]
+function Panel:setColor( name, color )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+
+    if color == nil then
+        self._colorOverrides[name] = nil
+
+        return
+    end
+
+    if type( color ) ~= "Color" and type( color ) ~= "function" then error( "Expected color to be nil, a Color, or a function" ) end
+
+    self._colorOverrides[name] = color
+end
+
+--[[
+    - Gets a named color from the Panel.
+    - If the Panel has a color override for the named color, the override is returned.
+        - Otherwise, the Panel's ColorScheme is used to get the color.
+    - If the resulting color is a function, it will receive the args  self, ...
+--]]
+function Panel:getColor( name, fallbackColor, ... )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+
+    local override = self._colorOverrides[name]
+
+    if override == nil then
+        local cachedColor = getCachedColor( self, name )
+        if cachedColor then return unpack( cachedColor ) end
+
+        return setCachedColor( self, name, self:getColorScheme():getColor( name, fallbackColor, self, ... ) )
+    end
+
+    if type( override ) == "function" then
+        return override( self, ... )
+    end
+
+    return override
+end
+
+-- Same as :getColor(), but returns  boolean, nil_or_varargs_color  instead of  varargs_color
+function Panel:hasColor( name, fallbackColor, ... )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+
+    local override = self._colorOverrides[name]
+
+    if override == nil then
+        local cachedColor = getCachedColor( self, name )
+        if cachedColor then return true, unpack( cachedColor ) end
+
+        local results = { self:getColorScheme():hasColor( name, fallbackColor, self, ... ) }
+        if not results[1] then return false end
+
+        return true, setCachedColor( self, name, unpack( results, 2 ) )
+    end
+
+    if type( override ) == "function" then
+        return true, override( self, ... )
+    end
+
+    return true, override
+end
+
+-- Same as :getColor(), but uses  name = className .. suffix  and searches superclasses if needed.
+function Panel:getClassColor( suffix, fallbackColor, ... )
+    if type( suffix ) ~= "string" then error( "Expected suffix to be a string" ) end
+
+    local super = self.class
+    local cachedName = super.name .. suffix
+    local override = self._colorOverrides[cachedName]
+
+    if override == nil then
+        local cachedColor = getCachedColor( self, cachedName )
+        if cachedColor then return unpack( cachedColor ) end
+
+        while super do
+            local results = { self:hasColor( super.name .. suffix, fallbackColor, self, ... ) }
+            if results[1] then return setCachedColor( self, cachedName, unpack( results, 2 ) ) end
+
+            super = super.super
+        end
+    end
+
+    if type( override ) == "function" then
+        return override( self, ... )
+    end
+
+    return override
+end
+
+-- Wipes the ColorScheme color cache for this Panel. See Panel.static.CACHE_SCHEME_COLORS for more details.
+function Panel:refreshColorSchemeCache()
+    if not Panel.CACHE_SCHEME_COLORS then return end
+
+    tableEmpty( self._colorSchemeCache )
+end
+
+function Panel:setBackgroundColor( color )
+    self:setColor( self.class.name .. "Background", color )
+end
+
+function Panel:getBackgroundColor( fallbackColor, ... )
+    return self:getClassColor( "Background", fallbackColor, ... )
+end
+
+function Panel:setBorderColor( color )
+    self:setColor( self.class.name .. "Border", color )
+end
+
+function Panel:getBorderColor( fallbackColor, ... )
+    return self:getClassColor( "Border", fallbackColor, ... )
+end
+
+function Panel:setBorderSize( size )
+    if type( size ) ~= "number" then error( "Expected a number" ) end
+    if size < 0 then error( "Expected a number >= 0" ) end
+
+    self._borderSize = size
+end
+
+function Panel:getBorderSize()
+    return self._borderSize
+end
+
+--[[
+    - Sets the Panel's border size and adjusts the inner dock margin to compensate.
+--]]
+function Panel:setBorderAndInnerMargin( size )
+    if type( size ) ~= "number" then error( "Expected a number" ) end
+    if size < 0 then error( "Expected a number >= 0" ) end
+
+    size = mathFloor( size )
+
+    local borderSize = self:getBorderSize()
+    local innerMarginLeft, innerMarginTop, innerMarginRight, innerMarginBottom = self:getInnerMargin()
+    local marginAdjustment = size - borderSize
+
+    self:setBorderSize( size )
+    self:setInnerMargin(
+        mathMax( innerMarginLeft + marginAdjustment, 0 ),
+        mathMax( innerMarginTop + marginAdjustment, 0 ),
+        mathMax( innerMarginRight + marginAdjustment, 0 ),
+        mathMax( innerMarginBottom + marginAdjustment, 0 )
+    )
+end
+
+--[[
+    - Sets the radius for drawing the background with rounded corners.
+    - If nil or 0, the background will be drawn with square corners.
+    - Only takes effect if the Panel uses simple background drawing, which is the default.
+--]]
+function Panel:setBackgroundRadius( radius )
+    radius = radius or 0
+    if type( radius ) ~= "number" then error( "Expected a number" ) end
+    if radius < 0 then error( "Expected a number >= 0" ) end
+
+    self._backgroundRadius = radius
+end
+
+function Panel:getBackgroundRadius()
+    return self._backgroundRadius
+end
+
+--[[
+    - Sets whether or not each corner of the background should be rounded.
+    - Only takes effect if the Panel uses simple background drawing and has a background radius > 0.
+--]]
+function Panel:setBackgroundRoundedCorners( topLeft, topRight, bottomLeft, bottomRight )
+    self._backgroundRoundTopLeft = topLeft and true or false
+    self._backgroundRoundTopRight = topRight and true or false
+    self._backgroundRoundBottomLeft = bottomLeft and true or false
+    self._backgroundRoundBottomRight = bottomRight and true or false
+end
+
+function Panel:getBackgroundRoundedCorners()
+    return self._backgroundRoundTopLeft, self._backgroundRoundTopRight, self._backgroundRoundBottomLeft, self._backgroundRoundBottomRight
+end
+
+function Panel:drawSimpleBackground( backgroundColor, borderColor )
+    backgroundColor = backgroundColor or self:getBackgroundColor()
+    borderColor = borderColor or self:getBorderColor()
+    local backgroundAlphaIsZero = backgroundColor.a == 0
+    local borderAlphaIsZero = borderColor.a == 0
+    if backgroundAlphaIsZero and borderAlphaIsZero then return end
+
+    local xPos, yPos = self:getPosEffective()
+    local w, h = self:getSize()
+
+    if not backgroundAlphaIsZero then
+        render.setColor( backgroundColor )
+        render.drawRectFast( xPos, yPos, w, h )
+    end
+
+    if not borderAlphaIsZero then
+        local borderSize = self:getBorderSize()
+
+        if borderSize > 0 then
+            render.setColor( borderColor )
+            render.drawRectOutline( xPos, yPos, w, h, borderSize )
+        end
+    end
+end
+
+function Panel:drawSimpleBackgroundRounded( backgroundColor, borderColor, radius, topLeft, topRight, bottomLeft, bottomRight )
+    backgroundColor = backgroundColor or self:getBackgroundColor()
+    borderColor = borderColor or self:getBorderColor()
+    local backgroundAlphaIsZero = backgroundColor.a == 0
+    local borderAlphaIsZero = borderColor.a == 0
+    if backgroundAlphaIsZero and borderAlphaIsZero then return end
+
+    local xPos, yPos = self:getPosEffective()
+    local w, h = self:getSize()
+    local tl, tr, bl, br = self:getBackgroundRoundedCorners()
+    local borderSize = self:getBorderSize()
+    local doDrawBorder = not borderAlphaIsZero and borderSize > 0
+    radius = radius or self:getBackgroundRadius()
+
+    if topLeft == nil then topLeft = tl end
+    if topRight == nil then topRight = tr end
+    if bottomLeft == nil then bottomLeft = bl end
+    if bottomRight == nil then bottomRight = br end
+
+    if doDrawBorder then
+        render.setColor( borderColor )
+        render.drawRoundedBoxEx( radius, xPos, yPos, w, h, topLeft, topRight, bottomLeft, bottomRight )
+        render.setMaterial() -- Fix oversight in render.drawRoundedBoxEx()
+    end
+
+    if not backgroundAlphaIsZero then
+        local sizeAdjust = doDrawBorder and -borderSize or 0
+        local posAdjust = doDrawBorder and borderSize / 2 or 0
+
+        render.setColor( backgroundColor )
+        render.drawRoundedBoxEx( radius - posAdjust, xPos + posAdjust, yPos + posAdjust, w + sizeAdjust, h + sizeAdjust, topLeft, topRight, bottomLeft, bottomRight )
+        render.setMaterial() -- Fix oversight in render.drawRoundedBoxEx()
+    end
+end
+
+--[[
+    - SGUI.drawPoly() but uses the Panel's position and size.
+    - Has optional position offsets and size overrides.
+--]]
+function Panel:drawPoly( points, xOff, yOff, widthOverride, heightOverride )
+    xOff = xOff or 0
+    yOff = yOff or 0
+
+    local x, y = self:getPosEffective()
+    local w, h = self:getSize()
+
+    SGUI.drawPoly( points, x + xOff, y + yOff, widthOverride or w, heightOverride or h )
+end
+
+function Panel:__concat( other )
+    return tostring( self ) .. tostring( other )
+end
+
+function Panel:__tostring()
+    local address = table.address( self )
+    local tostringInner = ( self.tostringInner and self:tostringInner() ) or ""
+    local customType = self.class.name or self.__type
+    local out = customType .. " "
+
+    if not isValid( self ) then
+        out = out .. "(INVALID) "
+    end
+
+    if tostringInner ~= "" then
+        out = out .. "[" .. tostringInner .. "]"
+    end
+
+    out = out .. "[" .. address .. "]"
+
+    return out
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+-- Appends to the Panel's tostring() output for easy debugging.
+function Panel:tostringInner()
+    return ""
+end
+
+--[[
+    - Determines how to draw the Panel's background.
+    - Separated from :handleDraw() for clarity and easier overriding.
+    - When overriding, you can make this do whatever, but ideally it should be something that's only affected by size and position.
+--]]
+function Panel:handleDrawBackground()
+    if self:getBackgroundRadius() == 0 then
+        self:drawSimpleBackground()
+    else
+        self:drawSimpleBackgroundRounded()
+    end
+end
+
+-- Determines how to render the Panel itself.
+function Panel:handleDraw()
+
+end
+
+--[[
+    - An extra draw background call that occurs after all other Panels have been drawn.
+    - The order of these extra calls amongst themselves is determined by :setExtraDrawOrder().
+    - This function is nil on the Panel class for performance reasons.
+        - Definining it in your subclass will cause it to be called.
+    - Anything rendered in here will not be clipped by Panel stencils, if any are active.
+
+    function Panel:handleOrderedDrawBackground()
+
+    end
+--]]
+
+--[[
+    - An extra draw call that occurs after all other Panels have been drawn.
+    - The order of these extra calls amongst themselves is determined by :setExtraDrawOrder().
+    - This function is nil on the Panel class for performance reasons.
+        - Definining it in your subclass will cause it to be called.
+    - Anything rendered in here will not be clipped by Panel stencils, if any are active.
+
+    function Panel:handleOrderedDraw()
+
+    end
+--]]
+
+--[[
+    - If defined, will cause the Panel to clip the rendering and hovering detection of its children to its bounds.
+    - The function should return xMin, yMin, xMax, yMax.
+        - The positions are global, i.e. relative to the HUD/screen the Panel belongs to.
+    - An example implementation is provided below.
+
+    function Panel:getStencilBounds()
+        local xMin, yMin = self:getPosEffective()
+        local width, height = self:getSize()
+
+        return xMin, yMin, xMin + width, yMin + height
+    end
+--]]
+
+-- Perform and cache your intensive layout calculations here.
+function Panel:performLayout()
+
+end
+
+--[[
+    - Called once per client tick if the Panel is visible.
+    - If the Panel is associated with the HUD (true by default), this will only be called if the player is connected to the chip's HUD.
+--]]
+function Panel:think()
+
+end
+
+-- Called when the Panel is destroyed.
+function Panel:onDestroyed()
+
+end
+
+-- Called when the mouse starts to hover over this Panel.
+function Panel:onMouseEntered()
+
+end
+
+--[[
+    - Called when the mouse stops hovering over / holding this Panel.
+    - Occurs when either the mouse is hovered over the Panel, or the Panel is being held, and then both of those conditions become false.
+--]]
+function Panel:onMouseExited()
+
+end
+
+--[[
+    - Called when the mouse is pressed on this Panel.
+    - Occurs when the mouse is not down and is hovered over the Panel, then presses.
+    - Immediately before this, the "held" Panel is nil, while the "hovered" Panel is this Panel.
+        - During the call to this function, the "held" Panel is this Panel, while the "hovered" panel is something else.
+    - Ideal for changing a button to its pressed state/color, before having triggered its effect.
+--]]
+function Panel:onMousePressed()
+
+end
+
+--[[
+    - Called when the mouse is released on this Panel.
+    - Only occurs if the mouse is hovered over the Panel, presses, and then releases without moving away.
+    - :onMouseLetGo() will be called regardless of whether the mouse moved away.
+    - Immediately before this, this Panel is the "held" Panel, while the "hovered" Panel is something else.
+        - During the call to this function, the "held" Panel becomes nil, while the "hovered" Panel remains the same.
+        - Immediately after this call, the "hovered" Panel will be recalculated. Unless this callback rearranges anything, that should become this Panel.
+    - This is ideal for triggering the effect of button-style events.
+--]]
+function Panel:onMouseReleased()
+
+end
+
+--[[
+    - Called when the mouse is pressed on this Panel and then moves off of it.
+    - Only occurs if the mouse is hovered over the Panel, presses, and then moves off of it without releasing.
+    - During the call to this function, the "held" Panel is this Panel, while the "hovered" panel is something else.
+--]]
+function Panel:onMouseSlideOff()
+
+end
+
+--[[
+    - Called when this Panel stops being held.
+    - Occurs when the mouse is hovered over the Panel, presses, and then releases with/without un-hovering.
+    - Immediately-before and during-call states for "held" and "hovered" panels are the same as in :onMouseReleased().
+        - Immediately after this call, the "hovered" Panel will be recalculated, and here it's not predictable what that will be.
+    - This is ideal for drag-n-drop-style events, or for reverting a button to its normal state/color.
+--]]
+function Panel:onMouseLetGo()
+
+end
+
+--[[
+    - When somePanel is about to call somePanel:setParent( thisPanel ), it will call thisPanel:rerouteChild( somePanel ).
+    - This is used to place the child on a different panel as the parent.
+    - You should return the Panel that the child should be placed on.
+    - Returning nil will leav the child unparented.
+--]]
+function Panel:rerouteChild( child )
+    return self
+end
+
+----- PRIVATE FUNCTIONS -----
+
+--[[
+    - Forces the next :setParent() call.
+    - Doesn't affect :rerouteChild() calls.
+    - Only call if you know what you're doing.
+--]]
+function Panel:_forceNextParent()
+    self._doForceNextParent = true
+end
+
+
+local function checkForMouseHover( panel, mouseX, mouseY )
+    if not panel:isVisible() then return end
+
+    -- Ignore this panel and its children if mouse is outside of its bounds.
+    if panel.getStencilBounds then
+        local xMin, yMin, xMax, yMax = panel:getStencilBounds()
+
+        if not isPointWithinBounds( mouseX, mouseY, xMin, yMin, xMax, yMax ) then return end
+    end
+
+    -- Check if the mouse is hovering over this panel.
+    if panel ~= heldPanel and panel:doesAcceptMouseInput() then
+        local xPos, yPos = panel:getPosEffective()
+        local w, h = panel:getSize()
+
+        if isPointWithinBounds( mouseX, mouseY, xPos, yPos, xPos + w, yPos + h ) then
+            hoveredPanel = panel
+        end
+    end
+
+    -- Propogate to children.
+    for _, childPanel in ipairs( panel:getChildren() ) do
+        checkForMouseHover( childPanel, mouseX, mouseY )
+    end
+end
+
+local function calcHoveredPanel()
+    hoveredPanel = nil
+
+    local mouseX, mouseY, screen = Panel:getMouseContext()
+
+    -- Check for if there's a valid mouse context and that, if the mouse is on the HUD, that the HUD is active.
+    if not mouseX or screen == nil and not render.isHUDActive() then
+        -- If the user was previously holding the mouse down in the HUD screen, then hides their cursor, treat it as if they released the mouse.
+        if mouseDown and tickAimedScreenPrev == nil then
+            mouseClk( MOUSE_LEFT, false )
+        end
+
+        return
+    end
+
+    for _, panel in ipairs( parentlessPanels ) do
+        if panel:doesAutoDraw() and panel:getAssociatedScreen() == screen then
+            checkForMouseHover( panel, mouseX, mouseY )
+        end
+    end
+end
+
+local function checkForHeldSlideOff()
+    if not isValid( heldPanel ) then return end
+
+    local mouseX, mouseY, screen = Panel:getMouseContext()
+    local isOverPanel = false
+
+    if mouseX and screen == heldPanel:getAssociatedScreenEffective() then
+        local xPos, yPos = heldPanel:getPosEffective()
+        local w, h = heldPanel:getSize()
+        isOverPanel = isPointWithinBounds( mouseX, mouseY, xPos, yPos, xPos + w, yPos + h )
+    end
+
+    if not isOverPanel and not slidOffHeldPanel then
+        slidOffHeldPanel = true
+        heldPanel:onMouseSlideOff()
+    end
+end
+
+local function performDockLayout( panel )
+    local innerMarginLeft, innerMarginTop, innerMarginRight, innerMarginBottom = panel:getInnerMargin()
+    local baseWidth, baseHeight = panel:getSize()
+    local baseWidthHalf = baseWidth / 2
+    local baseHeightHalf = baseHeight / 2
+
+    local remainingTop = baseHeightHalf - innerMarginTop
+    local remainingBottom = baseHeightHalf - innerMarginBottom
+    local remainingLeft = baseWidthHalf - innerMarginLeft
+    local remainingRight = baseWidthHalf - innerMarginRight
+
+    -- Docked children
+    for _, child in ipairs( panel._dockedChildren ) do
+        if not child:isVisible() then continue end
+
+        local dock = child:getDock()
+        local w, h = child:getSize()
+        local marginLeft, marginTop, marginRight, marginBottom = child:getMargin()
+
+        child._dock = DOCK_NONE -- Bypass :setPos() and :setSize() restrictions on docked panels.
+
+        if dock == DOCK_FILL then
+            child:setPos( baseWidthHalf - remainingLeft + marginLeft, baseHeightHalf - remainingTop + marginTop )
+            child:setSize( mathMax( remainingLeft + remainingRight - marginLeft - marginRight, 0 ), mathMax( remainingTop + remainingBottom - marginTop - marginBottom, 0 ) )
+            remainingTop = 0
+            remainingBottom = 0
+            remainingLeft = 0
+            remainingRight = 0
+            child._dock = dock
+
+            break -- Can't have any more docked children after a DOCK_FILL.
+        elseif dock == DOCK_TOP then
+            if remainingTop <= 0 then continue end
+
+            remainingTop = remainingTop - marginTop
+            child:setPos( baseWidthHalf - remainingLeft + marginLeft, baseHeightHalf - remainingTop )
+            child:setWidth( remainingLeft + remainingRight - marginLeft - marginRight )
+            remainingTop = remainingTop - h - marginBottom
+        elseif dock == DOCK_BOTTOM then
+            if remainingBottom <= 0 then continue end
+
+            remainingBottom = remainingBottom - marginBottom
+            child:setPos( baseWidthHalf - remainingLeft + marginLeft, baseHeightHalf + remainingBottom - h )
+            child:setWidth( remainingLeft + remainingRight - marginLeft - marginRight )
+            remainingBottom = remainingBottom - h - marginTop
+        elseif dock == DOCK_LEFT then
+            if remainingLeft <= 0 then continue end
+
+            remainingLeft = remainingLeft - marginLeft
+            child:setPos( baseWidthHalf - remainingLeft, baseHeightHalf - remainingTop + marginTop )
+            child:setHeight( remainingTop + remainingBottom - marginTop - marginBottom )
+            remainingLeft = remainingLeft - w - marginRight
+        else -- DOCK_RIGHT
+            if remainingRight <= 0 then continue end
+
+            remainingRight = remainingRight - marginRight
+            child:setPos( baseWidthHalf + remainingRight - w, baseHeightHalf - remainingTop + marginTop )
+            child:setHeight( remainingTop + remainingBottom - marginTop - marginBottom )
+            remainingRight = remainingRight - w - marginLeft
+        end
+
+        child._dock = dock
+    end
+
+    local leftX = baseWidthHalf - remainingLeft
+    local rightX = baseWidthHalf + remainingRight
+    local topY = baseHeightHalf - remainingTop
+    local bottomY = baseHeightHalf + remainingBottom
+    local remainingHorizontal = remainingLeft + remainingRight
+    local remainingVertical = remainingTop + remainingBottom
+
+    -- Expanding children
+    for _, child in ipairs( panel._expandingChildren ) do
+        if not child:isVisible() then continue end
+
+        local expand = child:getExpand()
+        local anchor = child:getAnchor()
+        local marginLeft, marginTop, marginRight, marginBottom = child:getMargin()
+
+        child._expand = EXPAND_NONE -- Bypass :setPos() and :setSize() restrictions on expanding panels.
+        child._anchor = ANCHOR_NONE
+
+        if expand == EXPAND_WIDTH then
+            child:setXPos( leftX + marginLeft )
+            child:setWidth( remainingHorizontal - marginLeft - marginRight )
+        else -- EXPAND_HEIGHT
+            child:setYPos( topY + marginTop )
+            child:setHeight( remainingVertical - marginTop - marginBottom )
+        end
+
+        child._expand = expand
+        child._anchor = anchor
+    end
+
+    -- Anchored children
+    for _, child in ipairs( panel._anchoredChildren ) do
+        if not child:isVisible() then continue end
+
+        local anchor = child:getAnchor()
+        local w, h = child:getSize()
+        local marginLeft, marginTop, marginRight, marginBottom = child:getMargin()
+
+        child._anchor = ANCHOR_NONE -- Bypass :setPos() and :setSize() restrictions on anchored panels.
+
+        if anchor == ANCHOR_TOP_LEFT then
+            child:setPos( leftX + marginLeft, topY + marginTop )
+        elseif anchor == ANCHOR_TOP then
+            child:setPos( ( leftX + rightX - w ) / 2, topY + marginTop )
+        elseif anchor == ANCHOR_TOP_RIGHT then
+            child:setPos( rightX - marginRight - w, topY + marginTop )
+        elseif anchor == ANCHOR_LEFT then
+            child:setPos( leftX + marginLeft, ( topY + bottomY - h ) / 2 )
+        elseif anchor == ANCHOR_CENTER then
+            child:setPos( ( leftX + rightX - w ) / 2, ( topY + bottomY - h ) / 2 )
+        elseif anchor == ANCHOR_RIGHT then
+            child:setPos( rightX - marginRight - w, ( topY + bottomY - h ) / 2 )
+        elseif anchor == ANCHOR_BOTTOM_LEFT then
+            child:setPos( leftX + marginLeft, bottomY - marginBottom - h )
+        elseif anchor == ANCHOR_BOTTOM then
+            child:setPos( ( leftX + rightX - w ) / 2, bottomY - marginBottom - h )
+        else -- ANCHOR_BOTTOM_RIGHT
+            child:setPos( rightX - marginRight - w, bottomY - marginBottom - h )
+        end
+
+        child._anchor = anchor
+    end
+end
+
+local function _calcPosEffective( panel )
+    local xPos, yPos = panel:getPos()
+    local parent = panel:getParent()
+
+    while parent do
+        local parentX, parentY = parent:getPos()
+        xPos = xPos + parentX
+        yPos = yPos + parentY
+
+        parent = parent:getParent()
+    end
+
+    return xPos, yPos
+end
+
+local function propogateThink( panel )
+    if not panel:isVisible() then return end
+    if panel:getAssociatedScreen() == nil and not render.isHUDActive() then return end
+
+    panel:think()
+
+    for _, child in ipairs( panel:getChildren() ) do
+        propogateThink( child )
+    end
+end
+
+local function wipeExtraDrawCalls()
+    for i = DRAW_ORDER_MIN, DRAW_ORDER_MAX do
+        extraDrawCalls[i] = {}
+    end
+end
+
+local function handleExtraDrawCalls()
+    for i = DRAW_ORDER_MIN, DRAW_ORDER_MAX do
+        local callInfos = extraDrawCalls[i]
+
+        for _, callInfo in ipairs( callInfos ) do
+            local func = callInfo[1]
+            local obj = callInfo[2]
+
+            func( obj )
+        end
+    end
+end
+
+isPointWithinBounds = function( x, y, xMin, yMin, xMax, yMax )
+    return x >= xMin and x <= xMax and y >= yMin and y <= yMax
+end
+
+mouseClk = function( key, state )
+    if key ~= MOUSE_LEFT then return end
+    if mouseIsDown == state then return end
+
+    local oldHeldPanel = heldPanel
+    local oldHoveredPanel = hoveredPanel
+
+    mouseIsDown = state
+
+    if mouseIsDown then
+        heldPanel = isValid( hoveredPanel ) and hoveredPanel or nil
+
+        if heldPanel then
+            calcHoveredPanel()
+            slidOffHeldPanel = false
+            heldPanel:onMousePressed()
+
+            if isValid( hoveredPanel ) then
+                hoveredPanel:onMouseEntered()
+            end
+        end
+    else
+        heldPanel = nil
+
+        if isValid( oldHeldPanel ) then
+            if not slidOffHeldPanel then
+                oldHeldPanel:onMouseReleased()
+            end
+
+            if isValid( oldHeldPanel ) then -- In case the above callback destroyed the panel.
+                oldHeldPanel:onMouseLetGo()
+            end
+
+            calcHoveredPanel()
+
+            if oldHeldPanel ~= hoveredPanel and isValid( oldHeldPanel ) then
+                oldHeldPanel:onMouseExited()
+            end
+
+            if oldHoveredPanel ~= hoveredPanel then
+                if isValid( oldHoveredPanel ) then
+                    oldHoveredPanel:onMouseExited()
+                end
+
+                if hoveredPanel ~= oldHeldPanel and isValid( hoveredPanel ) then
+                    hoveredPanel:onMouseEntered()
+                end
+            end
+        end
+    end
+
+    if oldHoveredPanel ~= hoveredPanel then
+        hook.run( "LKL_SGUI_HoveredPanelChanged", oldHoveredPanel, hoveredPanel )
+    end
+
+    if oldHeldPanel ~= heldPanel then
+        hook.run( "LKL_SGUI_HeldPanelChanged", oldHeldPanel, heldPanel )
+    end
+
+    hook.run( "LKL_SGUI_MouseClk", state )
+end
+
+destroyedFunc = function( panel )
+    error( "Invalid " .. panel.class.name )
+end
+
+panelIsCRC = function( panel, chainPanel )
+    if panel == chainPanel then return true end
+    if not chainPanel then return false end
+
+    local parentPanel = chainPanel:getParent()
+
+    if parentPanel then
+        return panelIsCRC( panel, parentPanel )
+    end
+
+    return false
+end
+
+setCachedColor = function( panel, name, ... )
+    if not Panel.CACHE_SCHEME_COLORS then return ... end
+
+    panel._colorSchemeCache[name] = { ... }
+
+    return ...
+end
+
+getCachedColor = function( panel, name )
+    if not Panel.CACHE_SCHEME_COLORS then return end
+
+    return panel._colorSchemeCache[name]
+end
+
+_performLayout = function( panel )
+    if not SGUI.perfCheck() then return end -- Currently using too much CPU, perform layout on a different frame.
+
+    panel._layoutIsValid = true
+
+    performDockLayout( panel )
+    panel:performLayout()
+
+    for _, childPanel in ipairs( panel:getChildren() ) do
+        childPanel:invalidateLayout()
+    end
+end
+
+updatePosEffective = function( panel )
+    local xPos, yPos = _calcPosEffective( panel )
+    panel._xPosEffective = xPos
+    panel._yPosEffective = yPos
+
+    for _, child in ipairs( panel:getChildren() ) do
+        updatePosEffective( child )
+    end
+end
+
+addDockedChild = function( panel, child )
+    tableInsert( panel._dockedChildren, child )
+    panel:invalidateLayout()
+end
+
+removeDockedChild = function( panel, child )
+    tableRemoveByValue( panel._dockedChildren, child )
+    panel:invalidateLayout()
+end
+
+addExpandingChild = function( panel, child )
+    tableInsert( panel._expandingChildren, child )
+    panel:invalidateLayout()
+end
+
+removeExpandingChild = function( panel, child )
+    tableRemoveByValue( panel._expandingChildren, child )
+    panel:invalidateLayout()
+end
+
+addAnchoredChild = function( panel, child )
+    tableInsert( panel._anchoredChildren, child )
+    panel:invalidateLayout()
+end
+
+removeAnchoredChild = function( panel, child )
+    tableRemoveByValue( panel._anchoredChildren, child )
+    panel:invalidateLayout()
+end
+
+startStencil = function()
+    render.enableScissorRect( boundaryStacksEffMinX, boundaryStacksEffMinY, boundaryStacksEffMaxX, boundaryStacksEffMaxY )
+end
+
+stopStencil = function()
+    render.disableScissorRect()
+end
+
+pushBoundaryStack = function( panel )
+    if not panel.getStencilBounds then return false end
+
+    tableInsert( boundaryStacks, { panel:getStencilBounds() } )
+    boundaryStacksActive = true
+    calcBoundaryStacksEff()
+
+    return true
+end
+
+popBoundaryStack = function()
+    boundaryStacks[#boundaryStacks] = nil
+
+    if #boundaryStacks == 0 then
+        boundaryStacksActive = false
+    else
+        calcBoundaryStacksEff()
+    end
+end
+
+calcBoundaryStacksEff = function()
+    boundaryStacksEffMinX = 0
+    boundaryStacksEffMinY = 0
+    boundaryStacksEffMaxX = math.huge
+    boundaryStacksEffMaxY = math.huge
+
+    for i = 1, #boundaryStacks do
+        local stack = boundaryStacks[i]
+        local xMin = stack[1]
+        local yMin = stack[2]
+        local xMax = stack[3]
+        local yMax = stack[4]
+
+        boundaryStacksEffMinX = mathMax( boundaryStacksEffMinX, xMin )
+        boundaryStacksEffMinY = mathMax( boundaryStacksEffMinY, yMin )
+        boundaryStacksEffMaxX = mathMin( boundaryStacksEffMaxX, xMax )
+        boundaryStacksEffMaxY = mathMin( boundaryStacksEffMaxY, yMax )
+    end
+end
+
+
+----- SETUP -----
+
+hook.add( "drawhud", "LKL_SGUI_AutoDraw", function()
+    wipeExtraDrawCalls()
+
+    for _, panel in ipairs( parentlessPanels ) do
+        if panel:doesAutoDraw() and panel:isHUD() then
+            panel:draw()
+        end
+    end
+
+    handleExtraDrawCalls()
+end )
+
+hook.add( "render", "LKL_SGUI_AutoDraw", function()
+    local screen = render.getScreenEntity()
+    if not screen then return end
+
+    wipeExtraDrawCalls()
+
+    for _, panel in ipairs( parentlessPanels ) do
+        if panel:doesAutoDraw() and panel:getAssociatedScreen() == screen then
+            panel:draw()
+        end
+    end
+
+    handleExtraDrawCalls()
+end )
+
+hook.add( "think", "LKL_SGUI_MouseHoverAndThink", function()
+    local oldHoveredPanel = isValid( hoveredPanel ) and hoveredPanel or nil
+
+    tickAimedScreenIsUpdated = false
+    tickMouseIsUpdated = false
+    checkForHeldSlideOff()
+    calcHoveredPanel()
+
+    if oldHoveredPanel ~= hoveredPanel then
+        if oldHoveredPanel then
+            oldHoveredPanel:onMouseExited()
+        end
+
+        if hoveredPanel then
+            hoveredPanel:onMouseEntered()
+        end
+
+        hook.run( "LKL_SGUI_HoveredPanelChanged", oldHoveredPanel, hoveredPanel )
+    end
+
+    if not Panel:isThinkEnabled() then return end
+
+    local now = realtime()
+
+    thinkDelta = now - lastThinkTime
+    lastThinkTime = now
+
+    for _, panel in ipairs( parentlessPanels ) do
+        propogateThink( panel )
+    end
+
+    thinkDelta = 0
+end )
+
+hook.add( "inputPressed", "LKL_SGUI_InputPressed", function( key )
+    mouseClk( key, true )
+end )
+
+hook.add( "inputReleased", "LKL_SGUI_InputReleased", function( key )
+    mouseClk( key, false )
+end )
+
+hook.add( "EntityRemoved", "LKL_SGUI_RemoveAssociatedPanels", function( ent )
+    if not isValid( ent ) then return end
+    if ent:getClass() ~= "starfall_component" then return end
+
+    for i = #parentlessPanels, 1, -1 do
+        local panel = parentlessPanels[i]
+
+        if panel:getAssociatedScreen() == ent then
+            panel:destroy()
+        end
+    end
+end )

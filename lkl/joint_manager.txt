@@ -1,0 +1,2228 @@
+--@name Joint Manager
+--@author legokidlogan
+--@server
+
+--@include lkl/gcolors.txt
+--@include lkl/lib_ik.txt
+--@include lkl/extra_timers.txt
+--@include lkl/simple_ratelimit.txt
+--@include lkl/table_clone_deep.txt
+
+--@include lkl/jm_default_joints.txt
+--@include lkl/jm_default_poses.txt
+--@include lkl/jm_default_anims.txt
+
+----- VERY OLD -----
+
+
+local tableInsert = table.insert
+local stringExplode = string.explode
+
+extraTimerPrecision = extraTimerPrecision or 2
+ikDisableWire = true
+
+require( "lkl/gcolors.txt" )
+require( "lkl/lib_ik.txt" )
+require( "lkl/extra_timers.txt" )
+require( "lkl/simple_ratelimit.txt" )
+require( "lkl/table_clone_deep.txt" )
+
+
+
+-- Typical orientation definers.
+-- For limb/finger-like joints, the default values given here will work best with models where Forward is the longest axis (such as with SProps)
+-- These are used for defining most TrueForward/TrueRight/TrueUp values for joints, and are relative to the model's standard orientations.
+vecTypicalForward = vecTypicalForward or Vector( 1, 0, 0 )
+vecTypicalRight = vecTypicalRight or Vector( 0, 1, 0 )
+vecTypicalUp = vecTypicalUp or Vector( 0, 0, 1 )
+
+-- Typical orientation definers, but for joints on the left side of the body.
+-- Usually these are the same as the non-mirrored directions, except the up direction is reversed.
+vecMirrorForward = vecMirrorForward or vecTypicalForward
+vecMirrorRight = vecMirrorRight or vecTypicalRight
+vecMirrorUp = vecMirrorUp or -vecTypicalUp
+
+
+-- Typical inverse-kinimatics points.
+-- These are relative to the joint's 'true' orientations, and are scaled by half of the object's box size.
+-- It's highly unlikely that you will need to modify these, but you still can.
+vecTypicalIKOrigin = vecTypicalIKOrigin or Vector( -1, 0, 0 )
+vecTypicalIKEnd = vecTypicalIKEnd or Vector( 1, 0, 0 )
+
+vecMirrorIKOrigin = vecMirrorIKOrigin or Vector( -1, 0, 0 )
+vecMirrorIKEnd = vecMirrorIKEnd or Vector( 1, 0, 0 )
+
+
+--[[
+    NOTE: Like the rest of my starfall scripts, you MUST handle wire inputs and outputs like this with global tables:
+        inputNames = inputNames or {}
+        inputTypes = inputTypes or {}
+        outputNames = outputNames or {}
+        outputTypes = outputTypes or {}
+
+        table.insert( inputNames, "Blah" )
+        table.insert( inputTypes, "Blah" )
+
+        table.insert( outputNames, "Blah" )
+        table.insert( outputTypes, "Blah" )
+
+        require( "lkl/blah.txt" )
+
+        wire.adjustInputs( inputNames, inputTypes )
+        wire.adjustOutputs( outputNames, outputTypes )
+    -- This allows for dependencies to add onto the wire ports safely and easily.
+--]]
+
+
+-- Config:
+    -- Each chip will likely have wildly different joint configs to handle a specific setup and design.
+    -- In the parent chip include'ing this file, make sure to define jointConfig as a non-local table before require()'ing this.
+    -- Whether you define the three config tables directly in the parent chip or via an include, MAKE SURE YOU SET THE CONFIGS BEFORE THIS FILE GETS require()'d !
+        -- Additionally, do not try to modify the configs after this file has been require()'d, the new info will NOT get applied.
+    -- NEVER put two consecutive underscores ("__") in the names for your joints, as it is used for wire indexing.
+    -- To attach a joint to one of the non-joint bases, set  Parent = "BASE__baseID", where baseID is that base's order in the wire inputs.
+        -- It's recommended to have bases be models/hunter/plates/plate.mdl or something similar.
+
+    -- Default config:
+    jointConfig = jointConfig or {
+        NumBases = 1,
+        SeparateInputs = true, -- Whether the inputs for joints should be separated or combined into a single array input. For the array, the order matches the order used for the jointConfig.
+        UpdateInterval = 100, -- Update rate for the joints, in milliseconds. A smaller number means smoother joints, but more CPU usage and server lag. Min value is 15, as servers with a tickrate of 66 cannot go faster.
+        UpdateIntervalHoldables = 100, -- UpdateInterval, but for holdables.
+        QuotaCheckMult = 1, -- Multiplies against CPU quota checks, lower values mean JM will try to stay below a lower threshold. Recommended to not touch.
+    }
+
+    -- These three are *very* important configs for setting up the bone structure, poses, and animations. There are examples of each in the provided files. Make sure to define these tables globaly!
+    jointInfos = jointInfos or require( "lkl/jm_default_joints.txt" )
+    jointPoses = jointPoses or require( "lkl/jm_default_poses.txt" )
+    jointAnims = jointAnims or require( "lkl/jm_default_anims.txt" )
+
+-- End Config
+
+local mMax = math.max
+local mMin = math.min
+local mClamp = math.clamp
+local mAbs = math.abs
+local mSign = math.sign
+local mSqrt = math.sqrt
+local mRound = math.round
+local mFloor = math.floor
+
+local tableEmpty = table.empty
+
+local realtime = timer.realtime
+
+local timerCreateExtra = timer.createExtra
+local timerSimpleExtra = timer.simpleExtra
+local timerRemoveExtra = timer.removeExtra
+
+local quotaAverage = quotaAverage
+
+projectNameID = projectNameID or "JointManager." .. chip():entIndex()
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+jointEnts = jointEnts or {}
+jointLookup = jointLookup or {}
+jointNameToID = jointNameToID or {}
+jointBaseEnts = jointBaseEnts or {}
+jointHoldables = jointHoldables or {}
+jointHoldableLookup = jointHoldableLookup or {}
+jointHoldableCount = #jointHoldables
+jointActivePoses = jointActivePoses or {}
+jointActiveAnims = jointActiveAnims or {}
+jointRemoteFuncs = jointRemoteFuncs or {}
+jointAnimDurationTotals = jointAnimDurationTotals or {}
+--jointManips = jointManips or {}
+jointRemotePrefix = "LKL_JointManager_RemoteFunc_"
+
+local initialized = false
+local forceTPose = false
+local nextIndManip = 1
+local nextIndHoldable = 1
+local prevManipProcessTime = realtime()
+local prevHodableProcessTime = realtime()
+local quotaMaxVal = quotaMax()
+local numBases = jointConfig.NumBases or 1
+local separateInputs = jointConfig.SeparateInputs
+local updateInterval = jointConfig.UpdateInterval or 50
+local updateIntervalHoldables = jointConfig.UpdateIntervalHoldables or 50
+local quotaCheckMult = mClamp( jointConfig.QuotaCheckMult or 1, 0, 1 )
+--local jointInfos = jointConfig.Joints
+local jointCount = #jointInfos
+local jointsWithBaseParents = {}
+local jointsWithBaseParentsCount = 0
+local jointManips = {}
+--local jointManipOrders = {} --------------------------------------
+--local jointManipOrderLookup = {} --------------------------------------
+local jointPosesFormatted = {}
+local jointAnimKFPosesFormatted = {}
+local jointAnimKFManipsFormatted = {}
+local jointAnimKFHoldablesFormatted = {}
+local jointAnimCurrentKeyframes = {}
+local wireEnts = {}
+local wireNames = {}
+--local jointHoldableParams = {}
+
+local printName = "[" .. projectNameID .. "]"
+local chipLink = wire.getWirelink( chip() )
+local ang0 = Angle( 0, 0, 0 )
+local vecRightNeg = Vector( 1, -1, 1 )
+local vecForward = Vector( 1, 0, 0 )
+local vecRight = Vector( 0, 1, 0 )
+local vecUp = Vector( 0, 0, 1 )
+
+updateInterval = mMax( updateInterval, 15 ) / 1000
+updateIntervalHoldables = mMax( updateIntervalHoldables, 15 ) / 1000
+
+
+local function getInputInfo( name )
+    if type( name ) ~= "string" then return end
+
+    local info = stringExplode( "__", name )
+    local id = info[2]
+
+    if id then
+        id = tonumber( id )
+
+        if id < 1 then
+            id = false
+        end
+    end
+
+    return info[1], id, info[3]
+end
+
+local function addRemoteFunc( funcName, func )
+    jointRemoteFuncs[jointRemotePrefix .. funcName] = func
+end
+
+local function getKeyframeOrCopy( animData, kfInd, kfData, prevInds )
+    kfData = kfData or animData[kfInd] or {}
+    prevInds = prevInds or {}
+
+    local copyInd = kfData.CopyInd
+
+    if not copyInd then return kfData end
+
+    --prevInds[copyInd] = true
+
+    --if prevInds[kfInd] then return {} end -- Avoid circular copy loops
+    if prevInds[copyInd] then return kfData end -- Avoid circular copy loops
+
+    prevInds[copyInd] = true
+
+    if not kfData.CopyComplete then
+        local overrideData = kfData.OverrideData
+        local sourceData = getKeyframeOrCopy( animData, copyInd, nil, prevInds )
+
+        kfData = table.cloneDeep( sourceData )
+        animData[kfInd] = kfData
+
+        if overrideData then
+            for key, value in pairs( overrideData ) do
+                kfData[key] = value
+            end
+
+            kfData.OverrideData = overrideData
+        end
+
+        kfData.CopyInd = copyInd
+        kfData.CopyComplete = true
+    end
+
+    return kfData
+end
+
+
+do
+    tableInsert( inputNames, "Holdables" )
+    tableInsert( inputTypes, "ARRAY" )
+
+    for i = 1, numBases do
+        tableInsert( inputNames, "Base__" .. i )
+        tableInsert( inputTypes, "ENTITY" )
+    end
+
+    for i = 1, jointCount do
+        local jointInfo = jointInfos[i]
+        local name = jointInfo.Name
+        local parentName, parentBaseID = getInputInfo( jointInfo.Parent )
+
+        if parentName == "BASE" then
+            if not parentBaseID then
+                parentBaseID = 1
+                jointInfo.Parent = "BASE__" .. parentBaseID
+            end
+
+            jointInfo.ParentIsBase = true
+            jointInfo.ParentBaseID = parentBaseID
+
+            jointsWithBaseParentsCount = jointsWithBaseParentsCount + 1
+            jointsWithBaseParents[jointsWithBaseParentsCount] = i
+        else
+            jointInfo.ParentID = false
+            jointInfo.ParentIsBase = false
+        end
+
+        local trueForward = jointInfo.TrueForward
+        local trueRight = jointInfo.TrueRight
+        local trueUp = jointInfo.TrueUp
+        local forwardModified = trueForward ~= Vector( 1, 0, 0 )
+        local rightModified = trueRight ~= Vector( 0, -1, 0 )
+        local upModified = trueUp ~= Vector( 0, 0, 1 )
+
+        jointNameToID[name] = i
+        jointInfo.ID = i
+        jointInfo.ForwardModified = forwardModified
+        jointInfo.RightModified = rightModified
+        jointInfo.UpModified = upModified
+    end
+
+    for i = 1, jointCount do
+        local jointInfo = jointInfos[i]
+        local parentName = getInputInfo( jointInfo.Parent )
+
+        if not jointInfo.ParentIsBase then
+            jointInfo.ParentID = jointInfo.ParentID or jointNameToID[parentName] or 1
+        end
+    end
+
+    for animName, animData in pairs( jointAnims ) do
+        local durationTotal = 0
+
+        for kfInd, kfData in pairs( animData ) do
+            if type( kfData ) == "table" then
+                kfData = getKeyframeOrCopy( animData, kfInd, kfData )
+
+                durationTotal = durationTotal + ( kfData.Duration or 0 )
+            end
+        end
+
+        jointAnimDurationTotals[animName] = durationTotal
+    end
+
+    if separateInputs then
+        for i = 1, jointCount do
+            local jointInfo = jointInfos[i]
+
+            tableInsert( inputNames, "Joint__" .. i .. "__" .. jointInfo.Name )
+            tableInsert( inputTypes, "ENTITY" )
+        end
+    else
+        tableInsert( inputNames, "Joints" )
+        tableInsert( inputTypes, "ARRAY" )
+    end
+
+    wire.adjustInputs( inputNames, inputTypes )
+end
+
+local checkQuota
+local function quotaAlert( fraction, msg )
+    print(
+        c_white, printName .. " ",
+        c_alert_red, "Exceeded ",
+        c_yellow, mRound( fraction * 100 ) .. "% ",
+        c_alert_red, "of CPU limit on ",
+        c_pale_yellow, msg
+    )
+end
+
+if quotaCheckMult == 1 then
+    checkQuota = function( fraction, msg )
+        local fractionEff = fraction or 0.9
+        local belowQuota = quotaAverage() < ( quotaMaxVal * fractionEff )
+
+        if belowQuota or not msg then return belowQuota end
+
+        simpleRatelimit( quotaAlert, 1, "QuotaExceeded__" .. msg, fraction, msg )
+    end
+else
+    checkQuota = function( fraction, msg )
+        local fractionEff = ( fraction or 0.9 ) * quotaCheckMult
+        local belowQuota = quotaAverage() < ( quotaMaxVal * fractionEff )
+
+        if belowQuota or not msg then return belowQuota end
+
+        simpleRatelimit( quotaAlert, 1, "QuotaExceeded__" .. msg, fraction, msg )
+    end
+end
+
+local function formatPose( poseName ) -- Prepares a pose for faster usage with manipulateJoints(), doing it on the fly for faster startup times (and coroutines are a hassle)
+    local poseForm = jointPosesFormatted[poseName]
+
+    if poseForm then return poseForm end
+
+    local poseData = jointPoses[poseName]
+    local poseIDs = {}
+    local poseAngs = {}
+    local count = 0
+
+    for jointName, ang in pairs( poseData ) do
+        count = count + 1
+
+        poseIDs[count] = jointName
+        poseAngs[count] = ang
+    end
+
+    poseForm = {
+        IDs = poseIDs,
+        Angs = poseAngs
+    }
+
+    jointPosesFormatted[poseName] = poseForm
+
+    return poseForm
+end
+
+local function createHoldableParamFuncGen( func, holdInd, endAtTime )
+    if type( func ) ~= "function" then return  function() return func end  end
+
+    if endAtTime then
+        return function( isReverse )
+            if isReverse then
+                return function( timeEx, parent )
+                    timeEx = endAtTime - timeEx
+
+                    if timeEx >= endAtTime then
+                        setHoldableParams( holdInd, false )
+
+                        return nil
+                    end
+
+                    return func( timeEx, parent )
+                end
+            end
+
+            return function( timeEx, parent )
+                if timeEx >= endAtTime then
+                    setHoldableParams( holdInd, false )
+
+                    return nil
+                end
+
+                return func( timeEx, parent )
+            end
+        end
+    end
+
+    return function( isReverse )
+        if isReverse then
+            return function( timeEx, parent )
+                return func( -timeEx, parent )
+            end
+        end
+
+        return func
+    end
+end
+
+local function formatKeyframe( animName, kfInd )
+    if not animName then return end
+
+    local animData = jointAnims[animName]
+
+    if not animData then return end
+
+    local kfData = getKeyframeOrCopy( animData, kfInd )
+
+    local kfDuration = mAbs( kfData.Duration or 0 )
+    local numKeyframes = animData.Count or #animData
+
+    if kfDuration == 0 then return end
+
+    local animPoseForms = jointAnimKFPosesFormatted[animName]
+    local animManipForms = jointAnimKFManipsFormatted[animName]
+    local animHoldableForms = jointAnimKFHoldablesFormatted[animName]
+
+    if not animPoseForms then
+        animPoseForms = {}
+        jointAnimKFPosesFormatted[animName] = animPoseForms
+    end
+
+    if not animManipForms then
+        animManipForms = {}
+        jointAnimKFManipsFormatted[animName] = animManipForms
+    end
+
+    if not animHoldableForms then
+        animHoldableForms = {}
+        jointAnimKFHoldablesFormatted[animName] = animHoldableForms
+    end
+
+    local kfPoseForms = animPoseForms[kfInd]
+    local kfManipForms = animManipForms[kfInd]
+    local kfHoldableForms = animHoldableForms[kfInd]
+
+    if kfPoseForms or kfManipForms or kfHoldableForms then return kfPoseForms, kfManipForms, kfHoldableForms end -- Anim has already been formatted previously
+
+    -- Format pose for keyframe (primarily just clamp and store time values to fit into keyframes)
+    local kfPoses = kfData.Poses or {}
+    local poseCount = 0
+    kfPoseForms = {}
+
+    for poseName, poseArgs in pairs( kfPoses ) do
+        if not jointPoses[poseName] then continue end
+
+        local poseSmoothTime = ( poseArgs.SmoothTime or kfDuration )
+        local poseDuration = ( poseArgs.Duration or kfDuration )
+
+        poseSmoothTime = mClamp( poseSmoothTime, -kfDuration, kfDuration )
+        poseDuration = mClamp( poseDuration, -kfDuration, kfDuration )
+
+        --[[
+        if poseDuration == 0 then
+            poseDuration = kfDuration
+        end
+        --]]
+
+        poseCount = poseCount + 1
+        kfPoseForms[poseCount] = {
+            Name = poseName,
+            SmoothTime = poseSmoothTime,
+            Duration = poseDuration,
+            FlexScale = poseArgs.FlexScale or 1,
+            ForceIsOverride = poseArgs.ForceIsOverride,
+        }
+    end
+
+    kfPoseForms.Count = poseCount
+    animPoseForms[kfInd] = kfPoseForms
+
+    -- Format manips for keyframe
+    local kfManips = {}
+    local manipIDs = {}
+    local manipAngs = {}
+    local manipAngsByName = {}
+    local manipPrevAngs = {}
+    local manipPrevAngsByName = {}
+    local manipSmoothTimes = {}
+    --local manipDurations = {}
+    --local manipFlexScales = {}
+    local manipIsOverrides = {}
+    local manipDisableVals = {}
+    local manipCount = 0
+
+    kfManips = table.cloneDeep( kfData.Manips or kfData.Manipulations or {} )
+    kfData.EffManips = kfManips -- Don't override original data when adjusting info to account for previous keyframes
+
+    if kfInd > 1 then
+
+        local _, prevKfManipForms = formatKeyframe( animName, kfInd - 1 )
+
+        manipPrevAngs = table.cloneDeep( prevKfManipForms.Angs ) -- Don't touch the target angles of the previous keyframe
+        manipPrevAngsByName = table.cloneDeep( prevKfManipForms.AngsByName )
+
+        -- This keyframe should smoothly 'reset' hanging manips from the previous frame, so add more target angles for this frame
+        for jointName, manipArgs in pairs( manipPrevAngsByName ) do
+            if not kfManips[jointName] and ( manipArgs.Ang or ang0 ) ~= ang0 then
+                kfManips[jointName] = {
+                    Ang = Angle( 0, 0, 0 ),
+                    SmoothTime = kfDuration,
+                    --Duration = kfDuration,
+                    --FlexScale = 1,
+                    IsOverride = manipArgs.IsOverride,
+                }
+            end
+        end
+    end
+
+    for jointName, manipArgs in pairs( kfManips ) do
+        local manipSmoothTime = mAbs( manipArgs.SmoothTime or kfDuration )
+        --local manipDuration = mAbs( manipArgs.Duration or kfDuration )
+        local ang = manipArgs.Ang or Angle( 0, 0, 0 )
+
+        --[[
+        manipDuration = mMin( manipDuration, kfDuration )
+
+        if manipDuration == 0 then
+            manipDuration = kfDuration
+        end
+        --]]
+
+        --manipSmoothTime = mMin( manipSmoothTime, manipDuration )
+        manipSmoothTime = mMin( manipSmoothTime, kfDuration )
+
+        manipCount = manipCount + 1
+        manipIDs[manipCount] = jointName
+        manipAngs[manipCount] = ang
+        manipAngsByName[jointName] = ang
+        manipSmoothTimes[manipCount] = manipSmoothTime
+        --manipDurations[manipCount] = manipDuration
+        --manipFlexScales[manipCount] = manipArgs.FlexScale or 1
+        manipIsOverrides[manipCount] = manipArgs.IsOverride
+        manipDisableVals[manipCount] = -1
+
+        if kfInd == 1 then
+            manipPrevAngsByName[jointName] = Angle( 0, 0, 0 )
+            manipPrevAngs[manipCount] = Angle( 0, 0, 0 )
+        elseif not manipPrevAngsByName[jointName] then -- Ensure our initial and target angle lists have matching counts
+            manipPrevAngsByName[jointName] = Angle( 0, 0, 0 )
+            tableInsert( manipPrevAngs, Angle( 0, 0, 0 ) )
+        end
+    end
+
+    kfManipForms = {
+        Count = manipCount,
+        IDs = manipIDs,
+        Angs = manipAngs,
+        AngsByName = manipAngsByName,
+        PrevAngs = manipPrevAngs,
+        PrevAngsByName = manipPrevAngsByName,
+        SmoothTimes = manipSmoothTimes,
+        --Durations = manipDurations,
+        --FlexScales = manipFlexScales,
+        IsOverrides = manipIsOverrides,
+        DisableVals = manipDisableVals,
+    }
+    animManipForms[kfInd] = kfManipForms
+
+    -- Format holdable params for keyframe
+    local kfHolds = kfData.HoldParams or kfData.HoldableParams or kfData.HoldableParameters or kfData.HoldParameters or {}
+    local holdCount = 0
+    kfHoldableForms = {}
+
+    for holdInd, holdArgs in pairs( kfHolds ) do
+        local posFunc = holdArgs.Pos or holdArgs.PosFunc
+        local angFunc = holdArgs.Ang or holdArgs.AngFunc
+        local endWithKeyframe = holdArgs.EndWithKeyframe
+        local endWithAnim = holdArgs.EndWithAnim
+        local endAtTime
+
+        if endWithKeyframe then
+            endAtTime = kfDuration
+        elseif endWithAnim then
+            endAtTime = kfDuration
+
+            for i = kfInd + 1, numKeyframes do
+                local otherKfData = animData[i] or {}
+                endAtTime = endAtTime + mAbs( otherKfData.Duration or 0 )
+            end
+        end
+
+        local posFuncGen = createHoldableParamFuncGen( posFunc, holdInd, endAtTime )
+        local angFuncGen = createHoldableParamFuncGen( angFunc, holdInd, endAtTime )
+
+        holdCount = holdCount + 1
+        kfHoldableForms[holdCount] = {
+            HoldableInd = holdInd,
+            JointIdentifier = holdArgs.JointIdentifier,
+            PosFuncGen = posFuncGen,
+            AngFuncGen = angFuncGen,
+        }
+    end
+
+    kfHoldableForms.Count = holdCount
+    animHoldableForms[kfInd] = kfHoldableForms
+
+    return kfPoseForms, kfManipForms, kfHoldableForms
+end
+
+
+-- Clears the cached data for a given pose (or all if provided nil) so you can edit the pose somewhat on the fly.
+-- Expect abnormal behavior if you run this while the pose is actively playing. This is mainly intended for things like a pose/animation creator.
+-- Poses get cached whenever they get called upon.
+function jointClearPoseCache( poseName )
+    if not poseName then
+        tableEmpty( jointPosesFormatted )
+
+        return
+    end
+
+    jointPosesFormatted[poseName] = nil
+end
+addRemoteFunc( "JointClearPoseCache", jointClearPoseCache )
+
+-- Same as jointClearPoseCache(), but for animations.
+function jointClearAnimCache( animName )
+    if not animName then
+        tableEmpty( jointAnimKFPosesFormatted )
+        tableEmpty( jointAnimKFManipsFormatted )
+        tableEmpty( jointAnimKFHoldablesFormatted )
+        tableEmpty( jointAnimDurationTotals )
+
+        return
+    end
+
+    jointAnimKFPosesFormatted[animName] = nil
+    jointAnimKFManipsFormatted[animName] = nil
+    jointAnimKFHoldablesFormatted[animName] = nil
+    jointAnimDurationTotals[animName] = nil
+end
+addRemoteFunc( "JointClearAnimCache", jointClearAnimCache )
+
+function jointUnparentChildren( ent )
+    local children = ent.jointChildren
+
+    if not children then return end
+
+    for k, v in pairs( children ) do -- Will unparent regardless of the table using numerical or ent indeces
+        if type( k ) == "Entity" and isValid( k ) then
+            k:setParent( nil )
+        elseif type( v ) == "Entity" and isValid( v ) then
+            v:setParent( nil )
+        end
+    end
+end
+addRemoteFunc( "JointUnparentChildren", jointUnparentChildren )
+
+function jointParentChildren( ent )
+    if not isValid( ent ) then return end
+
+    local children = ent.jointChildren
+
+    if not children then return end
+
+    for i, child in pairs( children ) do -- Will parent regardless of the table using numerical or ent indeces
+        if type( k ) == "Entity" and isValid( k ) then
+            k:setParent( nil )
+            k:setParent( ent )
+        elseif type( v ) == "Entity" and isValid( v ) then
+            v:setParent( nil )
+            v:setParent( ent )
+        end
+    end
+end
+addRemoteFunc( "JointParentChildren", jointParentChildren )
+
+function jointIDAndEntFromAny( jointEntOrNameOrInd )
+    local id
+    local joint
+    local jointInputType = type( jointEntOrNameOrInd )
+
+    if jointInputType == "number" then
+        id = jointEntOrNameOrInd
+        joint = jointEnts[id]
+    elseif jointInputType == "string" then
+        id = jointNameToID[jointEntOrNameOrInd]
+        joint = jointEnts[id]
+    elseif jointInputType == "Entity" then
+        joint = jointEntOrNameOrInd
+        id = jointLookup[joint]
+    end
+
+    return id, isValid( joint ) and joint
+end
+addRemoteFunc( "JointIDAndEntFromAny", jointIDAndEntFromAny )
+
+function jointGetTrueDirs( ent, jointInfo, skipForward, skipRight, skipUp )
+    if not isValid( ent ) then return end
+
+    jointInfo = jointInfo or ent.jointInfo
+
+    if not jointInfo then
+        return ent:getForward(), ent:getRight(), ent:getUp()
+    end
+
+    local trueForward
+    local trueRight
+    local trueUp
+
+    if not skipForward and jointInfo.ForwardModified then
+        trueForward = ent:getForward():rotateAroundAxis( jointInfo.ForwardAdjustAxis, jointInfo.ForwardAdjustDeg )
+    else
+        trueForward = ent:getForward()
+    end
+
+    if not skipRight and jointInfo.RightModified then
+        trueRight = ent:getRight():rotateAroundAxis( jointInfo.RightAdjustAxis, jointInfo.RightAdjustDeg )
+    else
+        trueRight = ent:getRight()
+    end
+
+    if not skipUp and jointInfo.UpModified then
+        trueUp = ent:getUp():rotateAroundAxis( jointInfo.UpAdjustAxis, jointInfo.UpAdjustDeg )
+    else
+        trueUp = ent:getUp()
+    end
+
+    return trueForward, trueRight, trueUp
+end
+addRemoteFunc( "JointGetTrueDirs", jointGetTrueDirs )
+
+function convertTrueLocalToStandardLocal( ent, locPos )
+    if not isValid( ent ) then return locPos end
+    if not locPos then return locPos end
+
+    local jointInfo = ent.jointInfo
+
+    if not jointInfo then
+        return locPos
+    end
+
+    local forwardAxis = jointInfo.TrueForward or vecForward
+    local rightAxis = jointInfo.TrueRight or vecRight
+    local upAxis = jointInfo.TrueUp or vecUp
+
+    return locPos[1] * forwardAxis + locPos[2] * rightAxis + locPos[3] * upAxis
+end
+addRemoteFunc( "ConvertTrueLocalToStandardLocal", convertTrueLocalToStandardLocal )
+
+function convertStandardLocalToTrueLocal( ent, locPos )
+    if not isValid( ent ) then return locPos end
+    if not locPos then return locPos end
+
+    local jointInfo = ent.jointInfo
+
+    if not jointInfo then
+        return locPos
+    end
+
+    local forwardAxis = jointInfo.TrueForward or vecForward
+    local rightAxis = jointInfo.TrueRight or vecRight
+    local upAxis = jointInfo.TrueUp or vecUp
+
+    return Vector( locPos:dot( forwardAxis ), locPos:dot( rightAxis ), locPos:dot( upAxis ) )
+end
+addRemoteFunc( "ConvertStandardLocalToTrueLocal", convertStandardLocalToTrueLocal )
+
+function intendedWorldAngToJointAng( jointIdentifier, worldAng )
+    local _, joint = jointIDAndEntFromAny( jointIdentifier )
+
+    if not joint then return end
+
+    local parent = joint.jointParent
+
+    if not isValid( parent ) then return end
+
+    local parentPos = parent:getPos()
+    local rotAxisWorldPitch = parent:localToWorld( joint.jointRotAxisPitch ) - parentPos
+    local rotAxisWorldYaw = parent:localToWorld( joint.jointRotAxisYaw ) - parentPos
+    local rotAxisWorldRoll = parent:localToWorld( joint.jointRotAxisRoll ) - parentPos
+
+    local initAng = parent:localToWorldAngles( joint.jointInitAngStandard )
+
+    local CQ = initAng:getQuaternion()
+    local TQ = worldAng:getQuaternion()
+    local Q = TQ / CQ
+    local rotAxis = Q:getRotationAxis()
+    local rotAmount = Q:getRotationAngle()
+
+    local finalAng = Angle(
+        rotAmount * rotAxis:dot( rotAxisWorldPitch ),
+        rotAmount * rotAxis:dot( rotAxisWorldYaw ),
+        rotAmount * rotAxis:dot( rotAxisWorldRoll )
+    )
+
+    return finalAng
+end
+addRemoteFunc( "IntendedWorldAngToJointAng", intendedWorldAngToJointAng )
+
+local function getIKUpAndBend( joint, parent, lineDir, tiltDeg )
+    tiltDeg = tiltDeg or 0
+
+    local parentPos = parent:getPos()
+    local initUpDir = parent:localToWorld( joint.jointRotAxisYaw ) - parentPos
+
+    local ikUpDir = initUpDir:rotateAroundAxis( lineDir, -tiltDeg )
+    local bendDir = lineDir:cross( ikUpDir )
+    local bendLengthCheck = bendDir[1]^2 + bendDir[2]^2 + bendDir[3]^2
+
+    if bendLengthCheck ~= 1 then -- If parentAUp and lineDir are not perpendicular, bendDir isn't a unit vector and needs to be fixed
+        bendDir = bendDir / mSqrt( bendLengthCheck )
+    end
+
+    return ikUpDir, bendDir
+end
+
+local function getIKJointAng( joint, parent, targetOriginPos, targetEndPos, ikUpDir )
+    local parentPos = parent:getPos()
+    local hingePosWorld = parent:localToWorld( joint.jointHingePosFromParent )
+    local rotAxisWorldPitch = parent:localToWorld( joint.jointRotAxisPitch ) - parentPos
+    local rotAxisWorldYaw = parent:localToWorld( joint.jointRotAxisYaw ) - parentPos
+    local rotAxisWorldRoll = parent:localToWorld( joint.jointRotAxisRoll ) - parentPos
+
+    local initEndPosWorld = parent:localToWorld( joint.jointIKEndFromParent )
+    local initHingeToEndAngWorld = ( initEndPosWorld - hingePosWorld ):getAngleEx( rotAxisWorldYaw )
+
+    local targetHingeToEndAngWorld = ( targetEndPos - hingePosWorld ):getAngleEx( ikUpDir )
+
+
+    local CQ = initHingeToEndAngWorld:getQuaternion()
+    local TQ = targetHingeToEndAngWorld:getQuaternion()
+    local Q = TQ / CQ
+    local rotAxis = Q:getRotationAxis()
+    local rotAmount = Q:getRotationAngle()
+
+    --local initAngWorld = parent:localToWorldAngles( joint.jointInitAngStandard )
+    --local intendedAngWorld = initAngWorld:rotateAroundAxis( rotAxis, rotAmount )
+
+    local finalAng = Angle(
+        rotAmount * rotAxis:dot( rotAxisWorldPitch ),
+        rotAmount * rotAxis:dot( rotAxisWorldYaw ),
+        rotAmount * rotAxis:dot( rotAxisWorldRoll )
+    )
+
+    return finalAng
+    --return finalAng, intendedAngWorld
+end
+
+--[[
+
+--]]
+function jointTwoSegIK( jointIdentifierA, jointIdentifierB, endPos, tiltDeg )
+    local _, jointA = jointIDAndEntFromAny( jointIdentifierA )
+    local _, jointB = jointIDAndEntFromAny( jointIdentifierB )
+
+    if not jointA or not jointB then return end
+
+    local parentA = jointA.jointParent
+    local parentB = jointB.jointParent
+
+    if not isValid( parentA ) or not isValid( parentB ) then return end -- ALL joints should have a valid parent if you're moving them!
+
+    local startPos = parentA:localToWorld( jointA.jointIKOriginFromParent )
+    local lineDir = endPos - startPos
+    local L = lineDir:getLength()
+    local LA = jointA.jointIKLength
+    local LB = jointB.jointIKLength
+
+    lineDir = lineDir / L
+
+    local ikUpDir, bendDir = getIKUpAndBend( jointA, parentA, lineDir, tiltDeg )
+    local bendPos = ikTwoSeg( startPos, endPos, LA, LB, bendDir, lineDir, L )
+
+    local tiltSign = tiltDeg == 0 and 1 or mSign( tiltDeg )
+
+    ikUpDir = ( bendPos - startPos ):cross( ikUpDir ):getNormalized() * tiltSign
+
+    local finalAngA = getIKJointAng( jointA, parentA, startPos, bendPos, ikUpDir )
+    local finalAngB = getIKJointAng( jointB, parentB, bendPos, endPos, ikUpDir )
+
+    return finalAngA, finalAngB, bendPos
+end
+addRemoteFunc( "JointTwoSegIK", jointTwoSegIK )
+
+--[[
+
+--]]
+function jointThreeSegIK( jointIdentifierA, jointIdentifierB, jointIdentifierC, endPos, LX, tiltDeg1, tiltDeg2 )
+    local _, jointA = jointIDAndEntFromAny( jointIdentifierA )
+    local _, jointB = jointIDAndEntFromAny( jointIdentifierB )
+    local _, jointC = jointIDAndEntFromAny( jointIdentifierC )
+
+    if not jointA or not jointB or not jointC then return end
+
+    local parentA = jointA.jointParent
+    local parentB = jointB.jointParent
+    local parentC = jointC.jointParent
+
+    if not isValid( parentA ) or not isValid( parentB ) or not isValid( parentC ) then return end -- ALL joints should have a valid parent if you're moving them!
+
+    --local startPos = jointA:localToWorld( jointA.jointIKOrigin )
+    local startPos = parentA:localToWorld( jointA.jointIKOriginFromParent )
+    local lineDir1 = endPos - startPos
+    local L1 = lineDir1:getLength()
+    local LA = jointA.jointIKLength
+    local LB = jointB.jointIKLength
+    local LC = jointC.jointIKLength
+
+    lineDir1 = lineDir1 / L1
+
+    local ikUpDir1, bendDir1 = getIKUpAndBend( jointA, parentA, lineDir1, tiltDeg1 )
+    local bendPos1 = ikTwoSeg( startPos, endPos, LA, LX, bendDir1, lineDir1, L1 )
+
+    local lineDir2 = endPos - bendPos1
+    local L2 = LX
+    lineDir2 = lineDir2 / L2
+
+    local ikUpDir2, bendDir2 = getIKUpAndBend( jointB, parentB, lineDir2, tiltDeg2 )
+    local bendPos2 = ikTwoSeg( bendPos1, endPos, LB, LC, bendDir2, lineDir2, L2 )
+
+    local tiltSign1 = tiltDeg1 == 0 and 1 or mSign( tiltDeg1 )
+    local tiltSign2 = tiltDeg2 == 0 and 1 or mSign( tiltDeg2 )
+
+    ikUpDir1 = ( bendPos1 - startPos ):cross( ikUpDir1 ):getNormalized() * tiltSign1
+    ikUpDir2 = ( bendPos2 - bendPos1 ):cross( ikUpDir2 ):getNormalized() * tiltSign2
+
+    local finalAngA = getIKJointAng( jointA, parentA, startPos, bendPos1, ikUpDir1 )
+    local finalAngB = getIKJointAng( jointB, parentB, bendPos1, bendPos2, ikUpDir2 )
+    local finalAngC = getIKJointAng( jointC, parentC, bendPos2, endPos, ikUpDir2 )
+
+    return finalAngA, finalAngB, finalAngC, bendPos1, bendPos2
+end
+addRemoteFunc( "JointThreeSegIK", jointThreeSegIK )
+
+--[[
+
+--]]
+function jointFourSegIK( jointIdentifierA, jointIdentifierB, jointIdentifierC, jointIdentifierD, endPos, LX1, LX2, tiltDeg1, tiltDeg2, tiltDeg3 )
+    local _, jointA = jointIDAndEntFromAny( jointIdentifierA )
+    local _, jointB = jointIDAndEntFromAny( jointIdentifierB )
+    local _, jointC = jointIDAndEntFromAny( jointIdentifierC )
+    local _, jointD = jointIDAndEntFromAny( jointIdentifierD )
+
+    if not jointA or not jointB or not jointC or not jointD then return end
+
+    local parentA = jointA.jointParent
+    local parentB = jointB.jointParent
+    local parentC = jointC.jointParent
+    local parentD = jointD.jointParent
+
+    if not isValid( parentA ) or not isValid( parentB ) or not isValid( parentC ) or not isValid( parentD ) then return end -- ALL joints should have a valid parent if you're moving them!
+
+    local startPos = parentA:localToWorld( jointA.jointIKOriginFromParent )
+    local lineDir1 = endPos - startPos
+    local L1 = lineDir1:getLength()
+    local LA = jointA.jointIKLength
+    local LB = jointB.jointIKLength
+    local LC = jointC.jointIKLength
+    local LD = jointD.jointIKLength
+
+    lineDir1 = lineDir1 / L1
+
+    local ikUpDir1, bendDir1 = getIKUpAndBend( jointA, parentA, lineDir1, tiltDeg1 )
+    local bendPos1 = ikTwoSeg( startPos, endPos, LA, LX1, bendDir1, lineDir1, L1 )
+
+    local lineDir2 = endPos - bendPos1
+    local L2 = LX1
+    lineDir2 = lineDir2 / L2
+
+    local ikUpDir2, bendDir2 = getIKUpAndBend( jointB, parentB, lineDir2, tiltDeg2 )
+    local bendPos2 = ikTwoSeg( bendPos1, endPos, LB, LX2, bendDir2, lineDir2, L2 )
+
+    local lineDir3 = endPos - bendPos2
+    local L3 = LX2
+    lineDir3 = lineDir3 / L3
+
+    local ikUpDir3, bendDir3 = getIKUpAndBend( jointC, parentC, lineDir3, tiltDeg3 )
+    local bendPos3 = ikTwoSeg( bendPos2, endPos, LC, LD, bendDir3, lineDir3, L3 )
+
+    local tiltSign1 = tiltDeg1 == 0 and 1 or mSign( tiltDeg1 )
+    local tiltSign2 = tiltDeg2 == 0 and 1 or mSign( tiltDeg2 )
+    local tiltSign3 = tiltDeg3 == 0 and 1 or mSign( tiltDeg3 )
+
+    ikUpDir1 = ( bendPos1 - startPos ):cross( ikUpDir1 ):getNormalized() * tiltSign1
+    ikUpDir2 = ( bendPos2 - bendPos1 ):cross( ikUpDir2 ):getNormalized() * tiltSign2
+    ikUpDir3 = ( bendPos3 - bendPos2 ):cross( ikUpDir3 ):getNormalized() * tiltSign3
+
+    local finalAngA = getIKJointAng( jointA, parentA, startPos, bendPos1, ikUpDir1 )
+    local finalAngB = getIKJointAng( jointB, parentB, bendPos1, bendPos2, ikUpDir2 )
+    local finalAngC = getIKJointAng( jointC, parentC, bendPos2, bendPos3, ikUpDir3 )
+    local finalAngD = getIKJointAng( jointD, parentD, bendPos3, endPos, ikUpDir3 )
+
+    return finalAngA, finalAngB, finalAngC, finalAngD, bendPos1, bendPos2, bendPos3
+end
+addRemoteFunc( "JointFourSegIK", jointFourSegIK )
+
+--[[
+    entOrInd:
+        - A holdableEnt entity or its wire input index
+    jointEntOrNameOrInd:
+        - Any entity (including non-joint ents, though not recommended), or the name or numerical ID of a joint.
+            - Will parent the holdable to that entity, and use pos as local coords. Will automatically utilize any orientation redefinitions you gave in jointConfig for that joint.
+            - If jointEntOrNameOrInd is not valid, will deparent the holdable and use world coords.
+    pos: (optional)
+        - A vector or  function( timeEx, parent ) return VECTOR end  where timeEx is the time passed since this parameter was set, in seconds.
+        - If the holdable is given a valid parent entity (as described above), then pos will be in local coords (using orient. redef. if applicable). Otherwise, it will be world coords.
+        - If pos as a function returns false, then it will not change the holdable's position. If it returns nil, it will remove the function (to make it easier to discard when finished).
+    ang: (optional)
+        - An angle or  function( timeEx, parent ) return ANGLE end  where timeEx is the time passed since this parameter was set, in seconds.
+        - Will always be in world coords.
+        - If ang as a function returns false, then it will not change the holdable's angles. If it returns nil, it will remove the function (to make it easier to discard when finished).
+--]]
+function setHoldableParams( entOrInd, jointEntOrNameOrInd, pos, ang )
+    local ent
+
+    if type( entOrInd ) == "Entity" then
+        if not isValid( entOrInd ) or not jointHoldableLookup( entOrInd ) then return end
+
+        ent = entOrInd
+    else
+        ent = jointHoldables[entOrInd]
+
+        if not isValid( ent ) then return end
+    end
+
+    local _, parent = jointIDAndEntFromAny( jointEntOrNameOrInd )
+    local oldParent = ent.jointHoldParent or ent:getParent()
+    local parentIsJoint = true
+    oldParent = isValid( oldParent ) and oldParent or nil
+
+    if not parent then
+        parent = isValid( jointEntOrNameOrInd ) and jointEntOrNameOrInd
+        parentIsJoint = false
+    end
+
+    if oldParent ~= parent and isValid( oldParent ) then
+        ent:setParent( nil )
+        ent.jointHoldParent = nil
+
+        local childrenTbl = oldParent.jointChildren
+
+        if childrenTbl then
+            childrenTbl[ent] = nil
+        end
+    end
+
+    if parent then
+        ent:setParent( parent )
+        ent.jointHoldParent = parent
+
+        local childrenTbl = parent.jointChildren
+
+        if not childrenTbl then
+            childrenTbl = {}
+            parent.jointChildren = childrenTbl
+        end
+
+        childrenTbl[ent] = true
+    end
+
+    if type( pos ) == "function" then
+        local posFunc
+
+        if parentIsJoint then
+            posFunc = function( timeEx ) return convertTrueLocalToStandardLocal( parent, pos( timeEx, parent ) ) end
+        else
+            posFunc = function( timeEx ) return pos( timeEx, parent ) end
+        end
+
+        local result = posFunc( 0 )
+
+        if result == nil then
+            ent.jointHoldPosFunc = nil
+            ent.jointHoldPosTimeex = nil
+        else
+            ent.jointHoldPosFunc = posFunc
+            ent.jointHoldPosTimeex = 0
+
+            if result then
+                ent:setPos( result )
+            end
+        end
+    else
+        ent.jointHoldPosFunc = nil
+        ent.jointHoldPosTimeex = nil
+
+        if pos then
+            if parentIsJoint then
+                ent:setPos( convertTrueLocalToStandardLocal( parent, pos ) )
+            else
+                ent:setPos( pos )
+            end
+        end
+    end
+
+    if type( ang ) == "function" then
+        local angFunc = function( timeEx ) return ang( timeEx, parent ) end
+
+        ent.jointHoldAngFunc = angFunc
+        ent.jointHoldAngTimeex = 0
+
+        local result = angFunc( 0 )
+
+        if result == nil then
+            ent.jointHoldAngFunc = nil
+            ent.jointHoldAngTimeex = nil
+        elseif result then
+            ent:setAngles( result )
+        end
+    else
+        ent.jointHoldAngFunc = nil
+        ent.jointHoldAngTimeex = nil
+
+        if ang then
+            ent:setAngles( ang )
+        end
+    end
+end
+addRemoteFunc( "SetHoldableParams", setHoldableParams )
+
+--[[
+    jointEntOrNameOrInd:
+        - A joint entity, ID, or name.
+    ang:
+        - The target angle for this manipulation.
+        - If instead set to the number -1, will immediately remove this manipulation and skip to other details. Requires manipSlot.
+    smoothTime:
+        - How many seconds it will take to reach the target angle. If == 0, will be instant.
+        - If either smoothTime or duration are < 0, the manipulation will be played backwards. This is almost the same as swapping ang and startAng, but also accounts for the ending plataeu
+    duration:
+        - How long the manipulation will last for. If == 0, will last forever.
+    isOverride:
+        - Specifies that this manipulation should override other manips, instead of adding onto them. Will cause all other manips for the joint to be ignored while this is active.
+    drawOrder: --------------------------------------------
+        - ?????????????
+    manipSlot: (optional, highly recommended)
+        - The slot/ID for this manipulation, to allow for multiple to stack up. Defaults to "_GenericManip"
+    startAng: (optional)
+        - Starts the manipulation at a specific angle instead of ang0. Used by animations for switching between keyframes.
+        - Note that you can get a joint's current total angle with joint.jointCurAng for seamless override manips.
+--]]
+--function manipulateJoint( jointEntOrNameOrInd, ang, smoothTime, duration, isOverride, drawOrder, manipSlot, startAng )
+function manipulateJoint( jointEntOrNameOrInd, ang, smoothTime, duration, isOverride, manipSlot, startAng )
+    local id, joint = jointIDAndEntFromAny( jointEntOrNameOrInd )
+
+    if not joint then return end
+
+    manipSlot = manipSlot or "_GenericManip"
+    local timerName = "LKL_JointManager_JointManipulateFinish_" .. id .. "_" .. manipSlot
+
+    if ang == -1 then
+        local manips = jointManips[id] or {}
+
+        timerRemoveExtra( timerName )
+        manips[manipSlot] = nil
+
+        return
+    end
+
+    ang = ang or Angle( 0, 0, 0 )
+    duration = duration or 0
+    smoothTime = smoothTime or 0
+    --drawOrder = drawOrder or 0
+
+    local manips = jointManips[id]
+    local isInstant = smoothTime == 0
+    local isPermanent = duration == 0
+    local isReverse = smoothTime < 0 or duration < 0
+    local curAng
+
+    if isReverse then
+        smoothTime = mAbs( smoothTime )
+        duration = mAbs( duration )
+    end
+
+    if not isPermanent then
+        smoothTime = mMin( smoothTime, duration )
+    end
+
+    if not manips then
+        manips = {}
+        jointManips[id] = manips
+    end
+
+    local TQ
+    local rotAxis
+    local rotDist
+    local rotStep
+
+    if not isInstant then
+        curAng = startAng and startAng:clone() or Angle( 0, 0, 0 )
+        TQ = ang:getQuaternion()
+
+        local Q = TQ / curAng:getQuaternion()
+
+        rotAxis = Q:getRotationVector():getNormalized()
+        rotDist = Q:getRotationAngle()
+        rotStep = rotDist / ( smoothTime / updateInterval )
+
+        if rotDist <= 0 or rotDist <= rotStep then
+            isInstant = true
+        elseif isReverse then
+            if duration == smoothTime or isPermanent then
+                if not startAng then
+                    local manip = manips[manipSlot] or {}
+
+                    startAng = manip.CurAng or Angle( 0, 0, 0 )
+                end
+
+                manipulateJoint( jointEntOrNameOrInd, startAng, smoothTime, duration, isOverride, manipSlot, ang )
+            else
+                smoothTime = mMin( smoothTime, duration )
+                local plateauDuration = duration - smoothTime
+
+                manipulateJoint( jointEntOrNameOrInd, ang, 0, 0, isOverride, manipSlot, Angle( 0, 0, 0 ) )
+
+                timerCreateExtra( "LKL_JointManager_ManipReverseFromPlateau_" .. id .. "_" .. manipSlot, plateauDuration, 1, function()
+                    manipulateJoint( jointEntOrNameOrInd, Angle( 0, 0, 0 ), smoothTime, duration, isOverride, manipSlot, ang )
+                end )
+            end
+
+            return
+        end
+    end
+
+    manips[manipSlot] = {
+        CurAng = isInstant and ang or curAng,
+        CurRot = 0,
+        TargetAng = ang,
+        RotLength = rotDist,
+        RotAxis = rotAxis,
+        RotStep = rotStep,
+        Moving = not isInstant,
+        IsOverride = isOverride or false,
+        --DrawOrder = drawOrder,
+    }
+
+    if isPermanent then
+        timerRemoveExtra( timerName )
+    else
+        timerCreateExtra( timerName, duration, 1, function()
+            manips[manipSlot] = nil
+        end )
+    end
+end
+addRemoteFunc( "ManipulateJoint", manipulateJoint )
+
+-- Runs manipulateJoint() across multiple joints with args taken as tables, which must be numerically indexed.
+-- timeMult is a single, optional number to multiply against all time values, including for reversing the manipulation.
+-- flexScale and flexScaleStart multiply against the target and starting angles
+-- All values other than 'ids' can be given as a single non-table value, which will apply to all of the provided joints
+function manipulateJoints( ids, angs, smoothTimes, durations, isOverrides, manipSlots, startAngs, flexScale, flexScaleStart, timeMult )
+    if type( ids ) ~= "table" then return end
+
+    local singleAng = type( angs ) ~= "table"
+    local singleSmoothTime = type( smoothTimes ) ~= "table"
+    local singleDuration = type( durations ) ~= "table"
+    local singleIsOverride = type( isOverrides ) ~= "table"
+    local singleManipSlot = type( manipSlots ) ~= "table"
+    local singleStartAng = type( startAngs ) ~= "table"
+
+    angs = angs or {}
+    smoothTimes = smoothTimes or {}
+    durations = durations or {}
+    manipSlots = manipSlots or {}
+    timeMult = timeMult or 1
+    flexScale = flexScale or 1
+    flexScaleStart = flexScaleStart or 1
+
+    if singleStartAng then
+        startAngs = startAngs or Angle( 0, 0, 0 )
+    else
+        startAngs = startAngs or {}
+    end
+
+    if singleIsOverride then -- Boolean values mess with the ternary op. method
+        for i = 1, #ids do
+            manipulateJoint( ids[i],
+                ( singleAng and angs or angs[i] or ang0 ) * flexScale,
+                singleSmoothTime and smoothTimes or smoothTimes[i],
+                ( singleDuration and durations or durations[i] ) * timeMult,
+                isOverrides,
+                singleManipSlot and manipSlots or manipSlots[i],
+                ( singleStartAng and startAngs or startAngs[i] or ang0 ) * flexScaleStart
+            )
+        end
+    else
+        for i = 1, #ids do
+            manipulateJoint( ids[i],
+                ( singleAng and angs or angs[i] or ang0 ) * flexScale,
+                singleSmoothTime and smoothTimes or smoothTimes[i],
+                ( singleDuration and durations or durations[i] ) * timeMult,
+                isOverrides[i],
+                singleManipSlot and manipSlots or manipSlots[i],
+                ( singleStartAng and startAngs or startAngs[i] or ang0 ) * flexScaleStart
+            )
+        end
+    end
+end
+addRemoteFunc( "ManipulateJoints", manipulateJoints )
+
+--[[
+    Runs manipulateJoint() across multiple joints, taking one numerically indexed table of the following form:
+
+    manipDatas = {
+        {
+            ID = INTEGER or STRING or ENTITY, -- The joint to manipulate for this entry, based on joint ID, name, or entity
+            Ang = ANGLE,
+            SmoothTime = NUMBER >= 0,
+            Duration = NUMBER >= SmoothTime,
+            IsOverride = BOOLEAN,
+            ManipSlot = STRING,
+            StartAng = ANGLE
+        },
+        ...
+    }
+
+    flexScale: (optional, default 1)
+        - Multiplies against the target angles
+    flexScaleStart: (optional, default 1)
+        - Multiplies against the starting angles
+    timeMult: (optional, default 1)
+        - Multiplies against the various smoothTimes and durations. Equivalent to  timeDir / speedMult
+--]]
+function manipulateJointsGrouped( manipDatas, flexScale, flexScaleStart, timeMult )
+    if type( manipDatas ) ~= "table" then return end
+
+    for i = 1, #manipDatas do
+        local data = manipDatas[i]
+
+        manipulateJoint( data.ID, data.Ang, data.SmoothTime, data.Duration, data.IsOverride, data.ManipSlot, data.StartAng, flexScale, flexScaleStart, timeMult )
+    end
+end
+addRemoteFunc( "ManipulateJointsGrouped", manipulateJointsGrouped )
+
+function stopAllJointManips()
+    for i = 1, jointCount do
+        local manips = jointManips[i]
+
+        if manips then
+            for manipSlot, _ in pairs( manips ) do
+                manipulateJoint( i, -1, nil, nil, nil, manipSlot )
+            end
+        end
+    end
+end
+addRemoteFunc( "StopAllJointManips", stopAllJointManips )
+
+--[[
+    Applies a pre-defined pose from jointPoses, where only one instance of a specific pose can be active at the same time.
+    If a pose is called while another instance of it is already active, the new parameters will be used and the old pose will be discarded.
+
+    smoothTime:
+        - If false or not provided, will forcefully stop this pose if it's already active
+        - If negative, will play the pose in reverse.
+        - Otherwise behaves as normal in manipulateJoint()
+    duration:
+        - If negative, will play the pose in reverse.
+        - Otherwise behaves as normal in manipulateJoint()
+    flexScale:
+        - Multiplies against the angles of the pose to make it weaker or stronger. Default is 1.
+    forceIsOverride:
+        - If supplied as a non-nil value, will force the pose to use/not use IsOverride regardless of its normal config settings.
+--]]
+function jointApplyPose( poseName, smoothTime, duration, flexScale, forceIsOverride )
+    if not poseName then return end
+
+    local poseData = jointPoses[poseName]
+
+    if not poseData then return end
+
+    local poseAlreadyActive = jointActivePoses[poseName]
+    local manipSlot = "_PoseManip_" .. poseName
+    local poseForm = formatPose( poseName )
+
+    if not smoothTime then
+        if not poseAlreadyActive then return end
+
+        manipulateJoints( poseForm.IDs, -1, 0, 0, false, manipSlot, ang0 )
+        timerRemoveExtra( "LKL_JointManager_PoseFinished_" .. poseName )
+        timerRemoveExtra( "LKL_JointManager_PoseReverseFromPlateau_" .. poseName )
+        jointActivePoses[poseName] = nil
+
+        return
+    end
+
+    duration = duration or 0
+    flexScale = flexScale or 1
+
+    local isOverride
+    local jointIDs = poseForm.IDs
+    local jointAngs = poseForm.Angs
+    local startAngs = Angle( 0, 0, 0 )
+    local count
+    local isReverse = smoothTime < 0 or duration < 0
+
+    if isReverse then
+        smoothTime = mAbs( smoothTime )
+        duration = mAbs( duration )
+    end
+
+    if forceIsOverride == nil then
+        isOverride = poseData.IsOverride
+    else
+        isOverride = forceIsOverride
+    end
+
+    if flexScale ~= 1 then
+        local jointAngsModified = {} -- Don't directly edit the memory of the original copy
+        count = count or #jointIDs
+
+        for i = 1, count do
+            local ang = jointAngs[i] or ang0
+
+            jointAngsModified[i] = ang * flexScale
+        end
+
+        jointAngs = jointAngsModified
+    end
+
+    if poseAlreadyActive then
+        startAngs = {}
+        count = count or #jointIDs
+
+        for i = 1, count do
+            local id = jointIDs[i]
+
+            local manips = jointManips[id] or {}
+            local manip = manips[manipSlot] or {}
+
+            startAngs[i] = manip.CurAng or Angle( 0, 0, 0 )
+        end
+    end
+
+    if isReverse and smoothTime ~= 0 then
+        if duration == smoothTime or duration == 0 then
+            manipulateJoints( jointIDs, Angle( 0, 0, 0 ), smoothTime, duration, isOverride, manipSlot, jointAngs )
+        else
+            smoothTime = mMin( smoothTime, duration )
+            local plateauDuration = duration - smoothTime
+
+            manipulateJoints( jointIDs, jointAngs, 0, 0, isOverride, manipSlot, startAngs )
+
+            timerCreateExtra( "LKL_JointManager_PoseReverseFromPlateau_" .. poseName, plateauDuration, 1, function()
+                manipulateJoints( jointIDs, Angle( 0, 0, 0 ), smoothTime, duration, isOverride, manipSlot, jointAngs )
+            end )
+        end
+    else
+        manipulateJoints( jointIDs, jointAngs, smoothTime, duration, isOverride, manipSlot, startAngs )
+    end
+
+    jointActivePoses[poseName] = true
+
+    if duration > 0 then
+        timerCreateExtra( "LKL_JointManager_PoseFinished_" .. poseName, duration, 1, function()
+            jointActivePoses[poseName] = nil
+        end )
+    end
+end
+addRemoteFunc( "JointApplyPose", jointApplyPose )
+
+--[[
+    Applies a pre-made animation from jointAnims, consisting of mutliple keyframes, which each have multiple durations, poses, joint manipulations, holdable parameters, and custom functions.
+    Only one instance of an animation can play at the same time, new calls will restart the anim and override it with the new values.
+
+    animName:
+        - The name of the animation to play.
+    speedMult: (optional, default 1)
+        - Larger numbers make the animation faster, smaller numbers make it slower.
+        - A negative speedMult will make the animation play in reverse.
+    flexScale: (optional, default 1)
+        - Multiplies against the angles of all poses and manips to make them weaker or stronger.
+    startFrameInd: (optional, default 1)
+        - The keyframe index to start the animation at.
+        - If playing in reverse:
+            - 1 -> Will instead start at numKeyframes and count down.
+            - x -> Starts from x and counts down.
+    endFrameInd: (optional, default numKeyframes)
+        - The keyframe index to end the animation at.
+        - If playing in reverse:
+            - numKeyframes -> Will instead end at 1.
+            - x -> Ends at x.
+    stopAnim: (optional)
+        - Set to true to instead stop the animation.
+    ignoreFuncs: (optional)
+        - Prevents custom keyframe functions from running.
+    ...: (optional)
+        - Variable arguments, will be passed to keyframe funcs, which are of the form  function( animName, keyframeInd, kfDuration, timeMult, timeDir, ... ) end
+--]]
+function jointApplyAnim( animName, speedMult, flexScale, startFrameInd, endFrameInd, stopAnim, ignoreFuncs, ... )
+    if not animName then return end
+
+    local animData = jointAnims[animName]
+
+    if not animData then return end
+
+    local numKeyframes = animData.Count
+    local timerBase = "LKL_JointManager_AnimKeyframe_" .. animName .. "_"
+    local manipSlot = "_AnimManip_" .. animName
+    local durationTotal = jointAnimDurationTotals[animName]
+
+    if not numKeyframes then ----------------------------------------
+        numKeyframes = #animData
+        animData.Count = numKeyframes
+    end
+
+    if not durationTotal then
+        durationTotal = 0
+
+        for kfInd, kfData in pairs( animData ) do
+            if type( kfData ) == "table" then
+                kfData = getKeyframeOrCopy( animData, kfInd, kfData )
+
+                durationTotal = durationTotal + ( kfData.Duration or 0 )
+            end
+        end
+
+        jointAnimDurationTotals[animName] = durationTotal
+    end
+
+    local currentKeyframe = jointAnimCurrentKeyframes[animName] or numKeyframes
+
+    if jointActiveAnims[animData] then -- Stop current anim
+        for i = 1, numKeyframes do
+            timerRemoveExtra( timerBase .. i )
+        end
+
+        for i = 1, currentKeyframe do
+            local kfPoseForms, kfManipForms, kfHoldableForms = formatKeyframe( animName, i )
+
+            for poseInd = 1, kfPoseForms.Count or 0 do
+                jointApplyPose( kfPoseForms[poseInd].Name, false )
+            end
+
+            manipulateJoints( kfManipForms.IDs, kfManipForms.DisableVals )
+
+            for holdInd = 1, kfHoldableForms.Count do
+                setHoldableParams( kfHoldableForms[holdInd].HoldableInd, false )
+            end
+        end
+    end
+
+    if stopAnim then return end
+
+    speedMult = speedMult or 1
+    flexScale = flexScale or 1
+    startFrameInd = mClamp( mFloor( startFrameInd or 1 ), 1, numKeyframes )
+    endFrameInd = mClamp( mFloor( endFrameInd or numKeyframes ), 1, numKeyframes )
+
+    if speedMult == 0 then return end
+
+    local isReverse = speedMult < 0
+    local timeDir = isReverse and -1 or 1
+    local timeMult = 1 / mAbs( speedMult )
+    local delay = 0
+
+    if isReverse then
+        if startFrameInd == 1 then
+            startFrameInd = numKeyframes
+        end
+
+        if endFrameInd == numKeyframes then
+            endFrameInd = 1
+        end
+
+        if endFrameInd > startFrameInd then return end
+    else
+        if endFrameInd < startFrameInd then return end
+    end
+
+    jointAnimCurrentKeyframes[animName] = startFrameInd
+
+    --local indInit = isReverse and numKeyframes or 1
+    --local indEnd = isReverse and 1 or numKeyframes
+
+    local passedArgs = {}
+
+    for i = 1, select( "#", ... ) do
+        passedArgs[i] = select( i, ... )
+    end
+
+    for i = startFrameInd, endFrameInd, timeDir do
+        local kfData = animData[i] or {}
+        local kfDuration = mAbs( kfData.Duration or 0 )
+
+        --if kfDuration == 0 then continue end
+
+        local kfFuncs = kfData.Funcs or kfData.Functions or {}
+        local timerName = timerBase .. i
+        local kfDurationEff = kfDuration * timeMult
+
+        timerCreateExtra( timerName, delay, 1, function()
+            local kfPoseForms, kfManipForms, kfHoldableForms = formatKeyframe( animName, i )
+
+            jointAnimCurrentKeyframes[animName] = i
+
+            for poseInd = 1, kfPoseForms.Count or 0 do
+                local poseArgs = kfPoseForms[poseInd]
+                local poseSmoothTime = poseArgs.SmoothTime * timeMult * timeDir
+                local poseDuration = poseArgs.Duration * timeMult * timeDir
+
+                jointApplyPose( poseArgs.Name, poseSmoothTime, poseDuration, poseArgs.FlexScale * flexScale, poseArgs.ForceIsOverride )
+            end
+
+            manipulateJoints( kfManipForms.IDs, kfManipForms.Angs, kfManipForms.SmoothTimes, kfDuration, kfManipForms.IsOverrides, manipSlot, kfManipForms.PrevAngs, flexScale, timeMult * timeDir )
+
+            for holdInd = 1, kfHoldableForms.Count do
+                local holdArgs = kfHoldableForms[holdInd]
+
+                setHoldableParams( holdArgs.HoldableInd, holdArgs.JointIdentifier, holdArgs.PosFuncGen( isReverse ), holdArgs.AngFuncGen( isReverse ) )
+            end
+
+            if ignoreFuncs then return end
+
+            for _, func in pairs( kfFuncs ) do
+                func( animName, i, kfDuration, timeMult, timeDir, unpack( passedArgs ) )
+            end
+        end )
+
+        delay = delay + kfDurationEff
+    end
+end
+addRemoteFunc( "JointApplyAnim", jointApplyAnim )
+
+
+local function setJointAng( joint, ang )
+    local info = joint.jointInfo
+
+    if not isValid( joint ) or not info then return end
+
+    local curAng = joint.jointCurAng or Angle( 0, 0, 0 )
+
+    if not ang or ang == curAng then return end
+
+    local parent = joint.jointParent
+    local angMin = info.AngleMin
+    local angMax = info.AngleMax
+    local newP = mClamp( ang[1], angMin[1], angMax[1] )
+    local newY = mClamp( ang[2], angMin[2], angMax[2] )
+    local newR = mClamp( ang[3], angMin[3], angMax[3] )
+    local newAng = Angle( newP, newY, newR )
+
+    parent = isValid( parent ) and parent
+
+    if not parent then return end
+
+    local parentPos = parent:getPos()
+    local hingePosWorld = parent:localToWorld( joint.jointHingePosFromParent )
+    local hingeToModelOrigin = parent:localToWorld( joint.jointHingePosToModelOrigin ) - parentPos
+
+    local initAngWorld = parent:localToWorldAngles( joint.jointInitAngStandard )
+    local rotAxisWorldPitch = parent:localToWorld( joint.jointRotAxisPitch ) - parentPos
+    local rotAxisWorldYaw = parent:localToWorld( joint.jointRotAxisYaw ) - parentPos
+    local rotAxisWorldRoll = parent:localToWorld( joint.jointRotAxisRoll ) - parentPos
+
+    local finalPos = hingeToModelOrigin
+    local finalAng = initAngWorld
+
+    -- Starfall always forcefully normalizes the incoming axis with a square root without bothering to check if it's a unit vector
+    -- As such, compressing it down to just these 2 sqrt calls is better than the 3 we'd get from calling vec:rotateAroundAxis() 3 times
+    -- Starfall doesn't normalize when called on angles, so this is 3->2 sqrt's instead of 6->3, but we still save on extra RAA calls
+    local combinedAxis = rotAxisWorldPitch * newP + rotAxisWorldYaw * newY + rotAxisWorldRoll * newR
+    local combinedRot = combinedAxis:getLength() -- Don't get length from raw angle values in case the axes aren't perp. and partially cancel each other
+
+    if combinedRot == 0 then
+        joint.jointCurAng = newAng
+        joint:setPos( parent:worldToLocal( hingeToModelOrigin + hingePosWorld ) )
+        joint:setAngles( initAngWorld )
+
+        return
+    end
+
+    combinedAxis = combinedAxis / combinedRot
+
+    finalPos = finalPos:rotateAroundAxis( combinedAxis, combinedRot )
+    finalAng = finalAng:rotateAroundAxis( combinedAxis, combinedRot )
+
+    finalPos = parent:worldToLocal( finalPos + hingePosWorld )
+
+    joint.jointCurAng = newAng
+    joint:setPos( finalPos )
+    joint:setAngles( finalAng )
+end
+
+local function processManipsOnJoint( id, timeMult )
+    local joint = jointEnts[id]
+
+    if not isValid( joint ) then return end
+
+    if forceTPose then
+        setJointAng( joint, Angle( 0, 0, 0 ) )
+
+        return
+    end
+
+    local jointAngNew = Angle( 0, 0, 0 )
+    local manips = jointManips[id]
+
+    if not manips then
+        setJointAng( joint, jointAngNew )
+
+        return
+    end
+
+    for _, manipData in pairs( manips ) do
+        local curAng = manipData.CurAng
+
+        if manipData.Moving then
+            local curRot = manipData.CurRot
+            local rotLength = manipData.RotLength
+            local rotStep = manipData.RotStep * timeMult
+            local rotDist = rotLength - curRot
+            if rotDist <= rotStep then
+                curAng = manipData.TargetAng
+                manipData.Moving = false
+            else
+                curAng = curAng:rotateAroundAxis( manipData.RotAxis, rotStep )
+                manipData.CurRot = curRot + rotStep
+            end
+
+            manipData.CurAng = curAng
+        end
+
+        if manipData.IsOverride then
+            jointAngNew = curAng
+
+            break
+        else
+            jointAngNew = jointAngNew + curAng
+        end
+    end
+
+    setJointAng( joint, jointAngNew )
+end
+
+local function revertInput( name, oldLinkEnt, oldLinkName )
+    local rewired = false
+
+    if isValid( oldLinkEnt ) then
+        rewired = pcall( function()
+            wire.create( chip(), oldLinkEnt, name, oldLinkName )
+        end )
+    end
+
+    if not rewired then
+        wire.delete( chip(), name )
+    end
+end
+
+local function onLast()
+    for i = 1, jointCount do
+        local ent = jointEnts[i]
+
+        if isValid( ent ) then
+            ent:setParent( nil )
+            jointUnparentChildren( ent )
+        end
+    end
+end
+
+local function getDirAdjustors( ent, entPos, entDir, entDirUp, newDirLocal )
+    local trueDirPos = ent:localToWorld( newDirLocal )
+    local trueDirWorld = trueDirPos - entPos
+
+    local CQ = entDir:getQuaternion( entDirUp )
+    local TQ = trueDirWorld:getAngle():getQuaternion()
+    local Q = TQ / CQ
+
+    return Q:getRotationAxis(), Q:getRotationAngle()
+end
+
+local function setupJoint( joint, id, base )
+    if not initialized then
+        timerSimpleExtra( 0.5, function()
+            setupJoint( joint, id, base )
+        end )
+
+        return
+    end
+
+    if not isValid( joint ) then return end
+
+    local info = jointInfos[id] or {}
+    local jointPos = joint:getPos()
+    local jointForward = joint:getForward()
+    local jointRight = joint:getRight()
+    local jointUp = joint:getUp()
+    local parent = jointEnts[info.ParentID or false]
+
+    base = base or jointBaseEnts[info.ParentBaseID or false]
+    base = isValid( base ) and base
+    parent = isValid( parent ) and parent
+
+    local parentEff = parent or base
+
+    if info.ForwardModified then
+        local adjustAxis, adjustDeg = getDirAdjustors( joint, jointPos, jointForward, jointUp, info.TrueForward * vecRightNeg )
+
+        info.ForwardAdjustAxis = adjustAxis
+        info.ForwardAdjustDeg = adjustDeg
+    end
+
+    if info.RightModified then
+        local adjustAxis, adjustDeg = getDirAdjustors( joint, jointPos, jointRight, jointUp, info.TrueRight * vecRightNeg )
+
+        info.RightAdjustAxis = adjustAxis
+        info.RightAdjustDeg = adjustDeg
+    end
+
+    if info.UpModified then
+        local adjustAxis, adjustDeg = getDirAdjustors( joint, jointPos, jointUp, -jointForward, info.TrueUp * vecRightNeg )
+
+        info.UpAdjustAxis = adjustAxis
+        info.UpAdjustDeg = adjustDeg
+    end
+
+    local boxHalf = joint:obbSize() / 2
+    local ikOriginStandard = convertTrueLocalToStandardLocal( joint, boxHalf * info.IKOrigin )
+    local ikEndStandard = convertTrueLocalToStandardLocal( joint, boxHalf * info.IKEnd )
+    local hingePos = boxHalf * info.HingePosScaled + info.HingePos
+    local hingePosStandard = convertTrueLocalToStandardLocal( joint, hingePos )
+
+    joint.jointInfo = info
+    joint.jointParent = parentEff
+    joint.jointCurAng = Angle( 0, 0, 0 )
+    joint.jointAngleMin = info.AngleMin
+    joint.jointAngleMax = info.AngleMax
+    joint.jointHingePos = hingePos
+    joint.jointHingePosStandard = hingePosStandard
+    joint.jointIKOriginStandard = ikOriginStandard
+    joint.jointIKEndStandard = ikEndStandard -- unneeded?
+    joint.jointIKLength = ikOriginStandard:getDistance( ikEndStandard )
+
+    local trueForwardWorld, trueRightWorld, trueUpWorld = jointGetTrueDirs( joint, info )
+
+    if parentEff then
+        local parentPos = parentEff:getPos()
+        local ikOriginWorld = joint:localToWorld( ikOriginStandard )
+        local ikEndWorld = joint:localToWorld( ikEndStandard )
+        local hingePosWorld = joint:localToWorld( hingePosStandard )
+
+        joint:setParent( nil )
+        joint:setParent( parentEff )
+        joint:setNocollideAll( false )
+
+        joint.jointInitAngStandard = parentEff:worldToLocalAngles( joint:getAngles() )
+        joint.jointRotAxisPitch = parentEff:worldToLocal( parentPos - trueRightWorld )
+        joint.jointRotAxisYaw = parentEff:worldToLocal( parentPos + trueUpWorld )
+        joint.jointRotAxisRoll = parentEff:worldToLocal( parentPos + trueForwardWorld )
+        joint.jointIKOriginFromParent = parentEff:worldToLocal( ikOriginWorld )
+        joint.jointIKEndFromParent = parentEff:worldToLocal( ikEndWorld )
+        joint.jointHingePosFromParent = parentEff:worldToLocal( hingePosWorld )
+        joint.jointHingePosToModelOrigin = parentEff:worldToLocal( parentPos + jointPos - hingePosWorld )
+    else
+        joint.jointInitAngStandard = nil
+        joint.jointRotAxisPitch = nil
+        joint.jointRotAxisYaw = nil
+        joint.jointRotAxisRoll = nil
+        joint.jointIKOriginFromParent = nil
+        joint.jointIKEndFromParent = nil
+        joint.jointHingePosFromParent = nil
+        joint.jointHingePosToModelOrigin = nil
+    end
+
+    jointEnts[id] = joint
+    jointLookup[joint] = id
+end
+
+local function setupBase( base, id )
+    if not initialized then
+        timerSimpleExtra( 0.5, function()
+            setupBase( base, id )
+        end )
+
+        return
+    end
+
+    if not isValid( base ) then return end
+
+    for i = 1, jointsWithBaseParentsCount do
+        local ind = jointsWithBaseParents[i]
+        local joint = jointEnts[ind]
+
+        if isValid( joint ) then
+            local jointPos = joint:getPos()
+            local parentPos = base:getPos()
+            local ikOriginWorld = joint:localToWorld( joint.jointIKOriginStandard )
+            local ikEndWorld = joint:localToWorld( joint.jointIKEndStandard )
+            local hingePosWorld = joint:localToWorld( joint.jointHingePosStandard )
+            local trueForwardWorld, trueRightWorld, trueUpWorld = jointGetTrueDirs( joint )
+
+            joint.jointParent = base
+            joint:setParent( nil )
+            joint:setParent( base )
+            joint:setNocollideAll( false )
+
+            joint.jointInitAngStandard = base:worldToLocalAngles( joint:getAngles() )
+            joint.jointRotAxisPitch = base:worldToLocal( parentPos - trueRightWorld )
+            joint.jointRotAxisYaw = base:worldToLocal( parentPos + trueUpWorld )
+            joint.jointRotAxisRoll = base:worldToLocal( parentPos + trueForwardWorld )
+            joint.jointIKOriginFromParent = base:worldToLocal( ikOriginWorld )
+            joint.jointIKEndFromParent = base:worldToLocal( ikEndWorld )
+            joint.jointHingePosFromParent = base:worldToLocal( hingePosWorld )
+            joint.jointHingePosToModelOrigin = base:worldToLocal( parentPos + jointPos - hingePosWorld )
+        end
+    end
+
+    jointBaseEnts[id] = base
+end
+
+local function wireInput( name, value )
+    local inType, id, _ = getInputInfo( name )
+    local oldLinkEnt = wireEnts[name]
+    local oldLinkName = wireNames[name]
+
+    wireEnts[name] = chipLink:isWired( name ) and chipLink:getWiredTo( name )
+    wireNames[name] = chipLink:getWiredToName( name )
+
+    if inType == "Holdables" then
+        value = value or {}
+
+        jointHoldables = table.cloneDeep( value )
+        tableEmpty( jointHoldableLookup )
+
+        jointHoldableCount = #jointHoldables
+
+        for i = 1, jointHoldableCount do
+            jointHoldableLookup[jointHoldables[i]] = i
+        end
+    elseif inType == "Base" then
+        local base = isValid( value ) and value
+        local oldBase = oldLinkEnt
+
+        if oldBase == base then return end
+
+        if isValid( oldBase ) then
+            for i = 1, jointsWithBaseParentsCount do
+                local ind = jointsWithBaseParents[i]
+                local info = jointInfos[i] or {}
+                local joint = jointEnts[ind]
+
+                if info.ParentBaseID == id and isValid( joint ) then
+                    joint:setParent( nil )
+                    joint.jointParent = false
+                    joint.jointInitAngStandard = nil
+                    joint.jointRotAxisPitch = nil
+                    joint.jointRotAxisYaw = nil
+                    joint.jointRotAxisRoll = nil
+                    joint.jointHingePosFromParent = nil
+                    joint.jointHingePosToModelOrigin = nil
+                end
+            end
+        end
+
+        jointBaseEnts[id] = bil
+        setupBase( base, id )
+    elseif inType == "Joint" or inType == "Joints" then
+        local remJoints = {}
+        local newJoints = {}
+
+        if separateInputs then
+            local oldJoint = jointEnts[id]
+
+            if isValid( oldJoint ) then
+                remJoints[id] = oldJoint
+            end
+
+            if isValid( value ) then
+                newJoints[id] = value
+            end
+        else
+            value = value or {}
+
+            for i, jointIn in ipairs( value ) do
+                local oldJoint = jointEnts[i]
+
+                if oldJoint ~= jointIn then
+                    if isValid( oldJoint ) then
+                        remJoints[i] = oldJoint
+                    end
+
+                    if isValid( jointIn ) then
+                        newJoints[i] = jointIn
+                    end
+                end
+            end
+        end
+
+        for i, joint in pairs( remJoints ) do
+            if type( joint ) == "Entity" and isValid( joint ) and joint.jointInfo then
+                local parent = joint.jointParent
+                local jointInd = jointLookup[joint]
+
+                if isValid( parent ) and joint:getParent() == parent then
+                    joint:setParent( nil )
+                end
+
+                if jointInd then
+                    jointLookup[joint] = nil
+                    jointEnts[jointInd] = nil
+                end
+
+                jointUnparentChildren( joint )
+
+                joint.jointInfo = nil
+                joint.jointChildren = nil
+                joint.jointReady = nil
+            end
+        end
+
+        for i, joint in pairs( newJoints ) do
+            local base = jointBaseEnts[( jointInfos[i] or {} ).ParentBaseID or false]
+
+            if type( i ) ~= "number" or i < 1 or i > jointCount then
+                print(
+                    c_white, printName .. " ",
+                    c_red, "Tried to add a joint entity ",
+                    c_yellow, tostring( joint ) .. " ",
+                    c_pale_yellow, "(" .. type( joint ) .. ") ",
+                    c_red, "at an invalid joint ind ",
+                    c_yellow, tostring( i )
+                )
+            elseif type( joint ) ~= "Entity" or not isValid( joint ) then
+                print(
+                    c_white, printName .. " ",
+                    c_red, "Tried to add an invalid joint entity ",
+                    c_yellow, tostring( joint ) .. " ",
+                    c_pale_yellow, "(" .. type( joint ) .. ") ",
+                    c_red, "at joint ind/name ",
+                    c_yellow, tostring( i ),
+                    c_red, "/",
+                    c_yellow, tostring( ( jointInfos[i] or {} ).Name )
+                )
+            elseif jointLookup[joint] then
+                if separateInputs then
+                    revertInput( name, oldLinkEnt, oldLinkName )
+                end
+
+                print(
+                    c_white, printName .. " ",
+                    c_yellow, tostring( joint ),
+                    c_red, " is already a joint, and cannot be used twice!"
+                )
+            elseif base == joint then
+                if separateInputs then
+                    revertInput( name, oldLinkEnt, oldLinkName )
+                end
+
+                print(
+                    c_white, printName .. " ",
+                    c_yellow, tostring( joint ),
+                    c_red, " cannot be its own base!"
+                )
+            else
+                setupJoint( joint, id, base )
+            end
+        end
+    end
+end
+
+hook.add( "input", "LKL_" .. projectNameID .. "_WireInput", wireInput )
+
+hook.add( "Removed", "LKL_" .. projectNameID .. "_UnparentEnts", onLast )
+
+hook.add( "PlayerSay", "LKL_" .. projectNameID .. "_PlayerSay", function( ply, msg )
+    if ply ~= owner() then return end
+
+    local LS = string.explode( " ", msg )
+
+    if LS[1] ~= "/jm" then return end
+
+    local command = LS[2]
+
+    if command == "tpose" then
+        forceTPose = not forceTPose
+
+        if forceTPose then
+            print(
+                c_white, printName .. " ",
+                c_pale_green, "T-Pose mode has been enabled."
+            )
+        else
+            print(
+                c_white, printName .. " ",
+                c_pale_red, "T-Pose mode has been disabled."
+            )
+        end
+    end
+
+    return ""
+end )
+
+hook.add( "remote", "LKL_" .. projectNameID .. "_Remote", function( caller, callerOwner, hookIn, ... )
+    if calllerOwner ~= owner() then return end
+
+    local func = jointRemoteFuncs[hookIn] or jointRemoteFuncs[jointRemotePrefix .. hookIn]
+
+    if not func then return end
+    if not initialized then return false, "uninitialized" end
+
+    return func( ... )
+end )
+
+timerCreateExtra( "LKL_" .. projectNameID .. "_MoveJoints", updateInterval, 0, function()
+    local quotaExceeded = false
+    local curTime = realtime()
+    local timeMult = ( curTime - prevManipProcessTime ) / updateInterval
+
+    for i = nextIndManip, jointCount do
+        if not checkQuota( 0.9, "TimerLoop__MoveJoints" ) then
+            nextIndManip = i
+            quotaExceeded = true
+
+            break
+        end
+
+        processManipsOnJoint( i, timeMult )
+    end
+
+    if not quotaExceeded then
+        nextIndManip = 1
+        prevManipProcessTime = realtime()
+    end
+end )
+
+timerCreateExtra( "LKL_" .. projectNameID .. "_MoveHoldables", updateIntervalHoldables, 0, function()
+    local quotaExceeded = false
+    local curTime = realtime()
+    local timeGap = curTime - prevHodableProcessTime
+
+    for i = nextIndHoldable, jointHoldableCount do
+        if not checkQuota( 0.9, "TimerLoop__MoveHoldables" ) then
+            nextIndHoldable = i
+            quotaExceeded = true
+
+            break
+        end
+
+        local ent = jointHoldables[i]
+
+        if isValid( ent ) then
+            local posFunc = ent.jointHoldPosFunc
+            local angFunc = ent.jointHoldAngFunc
+
+            if posFunc then
+                --local timeEx = ( ent.jointHoldPosTimeex or 0 ) + updateIntervalHoldables
+                local timeEx = ( ent.jointHoldPosTimeex or 0 ) + timeGap
+                ent.jointHoldPosTimeex = timeEx
+
+                local pos = posFunc( timeEx )
+
+                if pos then
+                    ent:setPos( pos )
+                elseif pos == nil then
+                    ent.jointHoldPosFunc = nil
+                    ent.jointHoldPosTimeex = nil
+                end
+            end
+
+            if angFunc then
+                --local timeEx = ( ent.jointHoldAngTimeex or 0 ) + updateIntervalHoldables * timeMult
+                local timeEx = ( ent.jointHoldAngTimeex or 0 ) + timeGap
+                ent.jointHoldAngTimeex = timeEx
+
+                local ang = angFunc( timeEx )
+
+                if ang then
+                    ent:setAngles( ang )
+                elseif ang == nil then
+                    ent.jointHoldAngFunc = nil
+                    ent.jointHoldAngTimeex = nil
+                end
+            end
+        end
+    end
+
+    if not quotaExceeded then
+        nextIndHoldable = 1
+        prevHodableProcessTime = realtime()
+    end
+end )
+
+timerSimpleExtra( 3, function()
+    for i = 1, #inputNames do
+        local name = inputNames[i]
+
+        wireInput( inputNames[i], wire.ports[name] )
+    end
+
+    initialized = true
+
+    local ownerChips = find.byClass( "starfall_processor", function( ent )
+        if ent:getOwner() ~= owner() then return false end
+
+        return true
+    end )
+
+    -- Recalculate duration total for just in case it has changed or been newly added since chip startup (which is bad practice on the user's part, but oh well)
+    for animName, animData in pairs( jointAnims ) do
+        local durationTotal = 0
+
+        for kfInd, kfData in pairs( animData ) do
+            if type( kfInd ) == "number" and type( kfData ) == "table" then
+                kfData = getKeyframeOrCopy( animData, kfInd, kfData )
+
+                durationTotal = durationTotal + ( kfData.Duration or 0 )
+            end
+        end
+
+        jointAnimDurationTotals[animName] = durationTotal
+    end
+
+    for _, ent in pairs( ownerChips ) do
+        pcall( function() hook.runRemote( ent, "LKL_JointManager_Initialized", jointConfig, jointInfos, jointPoses, jointAnims, jointRemoteFuncs ) end )
+    end
+end )

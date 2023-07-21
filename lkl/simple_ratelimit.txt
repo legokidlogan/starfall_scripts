@@ -1,0 +1,21 @@
+--@name Simple Ratelimit
+--@author legokidlogan
+--@shared
+
+local realtime = timer.realtime
+
+local releaseTimes = {}
+
+function simpleRatelimit( func, gap, broadIdentifier, ... )
+    if not func then return end
+
+    local id = broadIdentifier or func
+    local canUseAfter = releaseTimes[id]
+    local curTime = realtime()
+
+    if not canUseAfter or curTime > canUseAfter then
+        releaseTimes[id] = curTime + ( gap or 0.5 )
+
+        return func( ... )
+    end
+end

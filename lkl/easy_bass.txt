@@ -1,0 +1,315 @@
+--@name Easy Bass
+--@author legokidlogan
+--@client
+
+if easyBass then return end
+
+easyBass = {}
+
+local allBassObjs = {}
+
+local mathMin = math.min
+local realtime = timer.realtime
+
+
+local function handleFadeInOut( bassObj, volume )
+    local now = realtime()
+    local fadeInDuration = bassObj._fadeInDuration
+    local fadeOutDuration = bassObj._fadeOutDuration
+
+    if fadeOutDuration then
+        local endTime = bassObj._endTime
+        local timeUntilEnd = endTime - now
+
+        if timeUntilEnd < fadeOutDuration then
+            local newVolume = volume * ( timeUntilEnd / fadeOutDuration )
+
+            return newVolume
+        end
+    end
+
+    if fadeInDuration then
+        local startTime = bassObj._startTime
+        local timeSinceStart = now - startTime
+
+        if timeSinceStart < fadeInDuration then
+            local newVolume = volume * ( timeSinceStart / fadeInDuration )
+
+            return newVolume
+        end
+    end
+end
+
+-- IGModAudioChannel (the glua object created by starfall bass) doesn't properly become silent outside of the fadeEnd range, so we have to do it manually.
+local function handleDistanceClipping( bassObj, sndPos, fadeEndSqr )
+    local plyPos = eyePos()
+    local distSqr = ( plyPos - sndPos ):getLengthSqr()
+
+    if distSqr > fadeEndSqr then
+        bassObj._isDistanceClipped = true
+        bassObj:setVolumeEffective( 0 ) -- Silence the sound without changing its original desired volume. Don't pause it either, so time doesn't desync when the player returns.
+    else
+        local volume = bassObj._volume or 1
+        local newVolume = handleFadeInOut( bassObj, volume ) or volume
+
+        bassObj._isDistanceClipped = false
+        bassObj:setVolumeEffective( newVolume )
+    end
+end
+
+local function destroyBassObj( bassObj )
+    allBassObjs[bassObj or false] = nil
+
+    if isValid( bassObj ) then
+        bassObj:pause()
+        bassObj:stop()
+    end
+end
+
+local function startFollowingTarget( bassObj, target, soundID, fadeEndSqr )
+    hook.add( "Think", "LKL_EasyBass_MoveSound_" .. soundID, function()
+        if not isValid( bassObj ) or not isValid( target ) then
+            destroyBassObj( bassObj )
+            hook.remove( "Think", "LKL_EasyBass_MoveSound_" .. soundID )
+
+            return
+        end
+
+        local sndPos = target:getPos()
+
+        bassObj:setPos( sndPos )
+        handleDistanceClipping( bassObj, sndPos, fadeEndSqr )
+    end )
+end
+
+local function startTrackingVolumeForDestruction( bassObj, soundID )
+    hook.add( "Think", "LKL_EasyBass_DeleteWhenDonePlaying_" .. soundID, function()
+        if not isValid( bassObj ) then
+            destroyBassObj( bassObj )
+            hook.remove( "Think", "LKL_EasyBass_DeleteWhenDonePlaying_" .. soundID )
+
+            return
+        end
+
+        if not bassObj:isPlaying() then return end
+
+        local volL, volR = bassObj:getLevels()
+        if volL ~= 0 or volR ~= 0 then return end
+
+        local staleStacks = ( bassObj._staleStacks or 0 ) + 1
+        bassObj._staleStacks = staleStacks
+
+        if staleStacks > bassObj._staleThreshold then
+            destroyBassObj( bassObj )
+            hook.remove( "Think", "LKL_EasyBass_DeleteWhenDonePlaying_" .. soundID )
+        end
+    end )
+end
+
+local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
+    if type( path ) ~= "string" then
+        error( "Expected path to be a string" )
+    end
+
+    if bassObj and isValid( bassObj ) then
+        allBassObjs[bassObj] = nil
+        bassObj:stop()
+        bassObj = false
+    end
+
+    settings = settings or {}
+    local flags = settings.Flags or "3d stereo noblock noplay"
+    local volume = settings.Volume or 1
+    local pitch = settings.Pitch or 1
+    local fadeStart = settings.FadeStart or 700
+    local fadeEnd = settings.FadeEnd or 2000
+    local fadeIn = settings.FadeIn or 0
+    local fadeOut = settings.FadeOut or 0
+    local duration = settings.Duration or 0
+    local target = settings.Target or chip()
+    local loop = settings.Loop or false
+    local destroyWhenDone = false
+    local staleThreshold = settings.StaleThreshold or 30
+
+    duration = math.max( duration, 0 )
+
+    if duration == 0 then
+        duration = false
+        fadeOut = 0
+
+        if settings.DestroyWhenDone == nil then
+            destroyWhenDone = true
+        else
+            destroyWhenDone = settings.DestroyWhenDone
+        end
+    end
+
+    if fadeIn <= 0 then
+        falseIn = false
+    end
+
+    if fadeOut <= 0 then
+        fadeOut = false
+    end
+
+    local fadeEndSqr = fadeEnd * fadeEnd
+
+    soundID = soundID or ( timer.curtime() .. "-" .. math.random( 1, 100000 ) )
+    timer.remove( "LKL_EasyBass_RetrySound_" .. soundID )
+
+    loadFunc( path, flags, function( x, errNum, errName )
+        local success, err
+        success, err = pcall( function()
+            local now = realtime()
+            bassObj = x
+
+            if not bassObj then
+                success = false
+
+                return
+            end
+
+            allBassObjs[bassObj] = true
+            bassObj._setVolume = bassObj._setVolume or bassObj.setVolume
+            bassObj._play = bassObj._play or bassObj.play
+            bassObj._pause = bassObj._pause or bassObj.pause
+            bassObj._staleThreshold = staleThreshold
+
+            function bassObj:setVolume( vol )
+                if self._volume == vol then return end
+
+                self._volume = vol
+
+                if self._isDistanceClipped then return end
+
+                self:_setVolume( mathMin( vol, self:getVolumeEffective() ) )
+            end
+
+            function bassObj:getVolume()
+                return self._volume or 1
+            end
+
+            function bassObj:setVolumeEffective( vol )
+                if self._volumeEffective == vol then return end
+                if self._isDistanceClipped and vol ~= 0 then return end
+
+                self._volumeEffective = vol
+                self:_setVolume( vol )
+            end
+
+            function bassObj:getVolumeEffective()
+                return self._volumeEffective or 1
+            end
+
+            function bassObj:play()
+                self._isPlaying = true
+                self:_play()
+            end
+
+            function bassObj:pause()
+                self._isPlaying = false
+                self:_pause()
+            end
+
+            function bassObj:isPlaying()
+                return self._isPlaying or false
+            end
+
+            bassObj._startTime = now
+            bassObj._fadeInDuration = fadeIn
+            bassObj._fadeOutDuration = fadeOut
+            bassObj:setVolume( volume )
+            bassObj:setPitch( pitch )
+            bassObj:setLooping( loop )
+            bassObj:setFade( fadeStart, fadeEnd )
+            bassObj:play()
+
+            if duration then
+                bassObj._endTime = now + duration
+
+                timer.simple( duration, function()
+                    if not isValid( bassObj ) then return end
+
+                    destroyBassObj( bassObj )
+                end )
+            end
+
+            if type( target ) == "Vector" then
+                bassObj:setPos( target )
+            elseif isValid( target ) then
+                startFollowingTarget( bassObj, target, soundID, fadeEndSqr )
+            end
+
+            if destroyWhenDone then
+                startTrackingVolumeForDestruction( bassObj, soundID )
+            end
+
+            if callback then
+                callback( bassObj, errNum, errName )
+            end
+        end )
+
+        if not success then
+            if isValid( bassObj ) then
+                destroyBassObj( bassObj )
+                bassObj = false
+            end
+
+            if errNum and errName then
+                print( errNum, errName )
+            end
+
+            print( type( err ) == "table" and ( err.message or err.msg ) or err )
+
+            timer.create( "LKL_EasyBass_RetrySound_" .. soundID, 1, 1, function()
+                loadBass( loadFunc, path, settings, bassObj, callback, soundID )
+            end )
+        end
+    end )
+end
+
+
+--[[
+    - Creates a bassObj from a clientside game sound file.
+    - Automatically silences the sound past fadeEnd, fixing a long-running sf/gmod bug.
+    - If bassObj is supplied, it will automatically destroy that sound instance.
+    - callback behaves identically to the callback in bass.loadFile.
+
+    - settings: A table of settings for the sound. All settings are optional, and will default to the following if not specified:
+        {
+            Flags = "3d stereo noblock noplay", -- Flags to pass to bass.loadFile.
+            Volume = 1, -- Volume to play the sound at.
+            Pitch = 1, -- Pitch to play the sound at.
+            FadeStart = 700, -- Distance at which the sound starts to fade.
+            FadeEnd = 2000, -- Distance at which the sound is completely silent.
+            FadeIn = 0, -- Time in seconds to fade in the sound.
+            FadeOut = 0, -- Time in seconds from the end to fade out the sound. Disabled if Duration is not given.
+            Duration = nil, -- Duration of the sound in seconds. If nil, the duration will be automatically calculated.
+            Target = chip(), -- The entity or vector to play the sound at.
+            Loop = false, -- Whether or not to loop the sound.
+            DestroyWhenDone = true, -- Whether or not to destroy the sound when it finishes playing. Disabled if Duration is provided.
+            StaleThreshold = 30, -- How many ticks of silence must occur in a row for a sound to be considered done, for use with DestroyWhenDone.
+        }
+--]]
+function easyBass.loadFile( path, settings, callback )
+    if not string.startWith( path, "sound/" ) then
+        path = "sound/" .. path
+    end
+
+    loadBass( bass.loadFile, path, settings, nil, callback )
+end
+
+-- Behaves identically to easyBass.loadFile, but loads a sound from a URL instead.
+function easyBass.loadURL( link, settings, callback )
+    loadBass( bass.loadURL, link, settings, nil, callback )
+end
+
+
+hook.add( "Removed", "LKL_EasyBass_DestroyBassObjects", function()
+    for bassObj in pairs( allBassObjs ) do
+        if isValid( bassObj ) then
+            bassObj:pause()
+            bassObj:stop()
+        end
+    end
+end )

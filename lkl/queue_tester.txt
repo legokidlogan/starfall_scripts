@@ -1,0 +1,56 @@
+--@name Queue Tester
+--@author
+--@server
+--@include lkl/queue.txt
+
+
+require( "lkl/queue.txt" )
+
+
+local hModel = "models/hunter/blocks/cube025x025x025.mdl"
+local hMat = "models/debug/debugwhite"
+local hAng = Angle( 0, 0, 0 )
+
+
+local holo1 = hologram.create( chip():localToWorld( Vector( 0, 0, 50 ) ), hAng, hModel )
+holo1:setColor( Color( 255, 255, 255, 100 ) )
+holo1:setMaterial( hMat )
+holo1:setSize( Vector( 5 ) )
+
+
+local queue1 = Queue:new(
+    function( queue, entry )
+        local range = 50
+        local pos = chip():localToWorld( Vector( math.rand( -1, 1 ), math.rand( -1, 1 ), math.rand( -1, 1 ) ) * range )
+
+        holo1:setPos( pos )
+
+        queue:addEntry( entry + 1 )
+
+        pcall( function()
+            print( entry )
+        end )
+    end,
+    function( queue )
+        pcall( function()
+            print( queue .. " finished" )
+        end )
+    end,
+    {
+        --unpack( string.split( string.rep( "e", 200 ), "" ) )
+        1
+    },
+    0.1, 0, 0.9, "TEST-1"
+)
+
+
+queue1:start()
+
+timer.simple( 2, function()
+    queue1:removeEntry( 1 )
+end )
+
+
+
+
+

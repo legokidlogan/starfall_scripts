@@ -1,0 +1,269 @@
+--@name Dial Button
+--@author legokidlogan
+--@server
+--@include lkl/key_globalizer.txt
+
+
+-- Config:
+local ownerOwnly = false
+local allowMultipleGrabs = true
+local interactRange = 200 -- Based on eye position to eye trace.
+local forceUngrabRange = 200 -- Based on player position to dial position.
+local roundAmount = 1 -- 2 rounds to the nearest ten, 1 rounds to the nearest whole number, 0 doesn't round, -1 rounds to the nearest tenth, etc. Can also give 'math.log10( r ) + 1' to round to the nearest r.
+    --roundAmount = math.log10( 3.33333333 ) + 1
+local minRotations = -1 -- Set to -1 for infinite
+local maxRotations = -1 -- Set to -1 for infinite
+local updateInterval = 0.05
+local baseDirRemap = {
+    Forward = function( ent ) return ent:getForward() end,
+    Right = function( ent ) return ent:getRight() end,
+    Up = function( ent ) return ent:getUp() end,
+}
+-- End Config
+
+--[[ Notes:
+    - Rounding is handled like this:  fancyRound( 100 * numFullRotations )
+--]]
+
+
+local vecUp = Vector( 0, 0, 1 )
+local dialAngInit = Angle( 0, 0, 0 )
+local dialRot = 0
+local dialRotDeltaBuildup = 0
+local grabberCount = 0
+local interactRangeSqr = interactRange ^ 2
+local forceUngrabRangeSqr = forceUngrabRange ^ 2
+local baseEnt
+local dialEnt
+local grabbers = {}
+
+local mMin = math.min
+local mMax = math.max
+local mRound = math.round
+local mClamp = math.clamp
+local tableInsert = table.insert
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+tableInsert( inputNames, "Base" )
+tableInsert( inputTypes, "ENTITY" )
+
+tableInsert( inputNames, "Dial" )
+tableInsert( inputTypes, "ENTITY" )
+
+
+tableInsert( outputNames, "Value_Scale1" )
+tableInsert( outputTypes, "NUMBER" )
+
+tableInsert( outputNames, "Value_Scale100" )
+tableInsert( outputTypes, "NUMBER" )
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+
+require( "lkl/key_globalizer.txt" )
+
+
+local function getBaseDir( dirStr )
+    return baseDirRemap[dirStr]( baseEnt )
+end
+
+local function fancyRound( x, amt )
+    amt = amt or roundAmount
+
+    if amt == 0 then return x end
+    if amt < 0 then return mRound( x, -amt ) end
+
+    x = mRound( x )
+    local trunc = x % ( 10 ^ ( amt - 1 ) )
+
+    return x - trunc
+end
+
+-- Clockwise is positive, opposite to math angles.
+local function getAngleOnDial( pos )
+    if not isValid( baseEnt ) or not isValid( dialEnt ) then return end
+
+    --local posLocal = baseEnt:worldToLocal( pos )
+    pos = pos - dialEnt:getPos()
+    local x = pos:dot( getBaseDir( "Right" ) )
+    local y = pos:dot( getBaseDir( "Forward" ) )
+
+    return math.deg( -math.atan2( y, x ) )
+end
+
+local function angleChange( degFrom, degTo )
+    local change = degTo - degFrom
+
+    if change > 180 then
+        change = change - 360
+    elseif change < -180 then
+        change = change + 360
+    end
+
+    return change
+end
+
+local function setDialEnt( ent )
+    if not isValid( ent ) then return end
+
+    dialEnt = ent
+
+    if not isValid( baseEnt ) then return end
+
+    dialAngInit = baseEnt:worldToLocalAngles( dialEnt:getAngles() )
+    dialAngInit = dialAngInit:rotateAroundAxis( vecUp, dialRot )
+end
+
+local function setBaseEnt( ent )
+    if not isValid( ent ) then return end
+
+    baseEnt = ent
+    setDialEnt( dialEnt )
+end
+
+local function turnTheDial( degDelta, degSet )
+    if not isValid( dialEnt ) or not isValid( baseEnt ) then return end
+    if degDelta == 0 and not degSet then return end
+
+    dialRot = degSet or ( dialRot + angleChange( dialRot, dialRot + degDelta + dialRotDeltaBuildup ) )
+
+    local dialRotPreRounding = dialRot
+    dialRot = fancyRound( dialRot * 100 / 360 ) * 360 / 100
+    dialRotDeltaBuildup = dialRotPreRounding - dialRot -- Account for rotations lost from rounding, keep adding it up until we have enough to go to the next rounding chunk.
+
+    if minRotations == -1 then
+        if maxRotations ~= -1 then
+            dialRot = mMin( dialRot, maxRotations * 360 )
+        end
+    elseif maxRotations == -1 then
+        dialRot = mMax( dialRot, -minRotations * 360 )
+    else
+        dialRot = mClamp( dialRot, -minRotations * 360, maxRotations * 360 )
+    end
+
+    local ang = dialAngInit:rotateAroundAxis( vecUp, -dialRot )
+    dialEnt:setAngles( baseEnt:localToWorldAngles( ang ) )
+
+    --local dialValue100 = fancyRound( dialRot * 100 / 360 )
+    local dialValue100 = dialRot * 100 / 360
+    wire.ports.Value_Scale1 = dialValue100 / 100
+    wire.ports.Value_Scale100 = dialValue100
+end
+
+local function isLookingAt( ply, ent )
+    local eyePos = ply:getEyePos()
+    local eyeTrace = ply:getEyeTrace()
+
+    if eyeTrace.Entity ~= ent then return false end
+    if eyeTrace.HitPos:getDistanceSqr( eyePos ) > interactRangeSqr then return false end
+
+    return true
+end
+
+local function canAddGrabber( ply )
+    if not isValid( ply ) or not ply:isValid() then return false end
+    if ownerOwnly and ply ~= owner() then return false end
+    if not allowMultipleGrabs and grabberCount > 0 then return false end
+    if not isLookingAt( ply, dialEnt ) then return false end
+
+    return true
+end
+
+local function addGrabber( ply )
+    if grabbers[ply] then return end
+
+    local eyeTrace = ply:getEyeTrace()
+
+    grabberCount = grabberCount + 1
+    grabbers[ply] = {
+        LastRot = getAngleOnDial( eyeTrace.HitPos ),
+    }
+end
+
+local function removeGrabber( ply )
+    if not grabbers[ply] then return end
+
+    grabberCount = grabberCount - 1
+    grabbers[ply] = nil
+end
+
+local function getGrabberRotChange( ply )
+    local grabData = grabbers[ply]
+    local eyeTrace = ply:getEyeTrace()
+    local rot = getAngleOnDial( eyeTrace.HitPos )
+    local lastRot = grabData.LastRot
+
+    grabData.LastRot = rot
+
+    return angleChange( lastRot, rot )
+end
+
+local function purgeDistantGrabbers()
+    for ply in pairs( grabbers ) do
+        local pos = ply:getPos()
+
+        if pos:getDistanceSqr( dialEnt:getPos() ) > forceUngrabRangeSqr then
+            removeGrabber( ply )
+        end
+    end
+end
+
+local function grabberThink()
+    if not isValid( dialEnt ) or not isValid( baseEnt ) then return end
+
+    purgeDistantGrabbers()
+
+    local rotChange = 0
+
+    for ply in pairs( grabbers ) do
+        rotChange = rotChange + getGrabberRotChange( ply )
+    end
+
+    turnTheDial( rotChange )
+end
+
+local function keyPress( ply, key, state )
+    if key == IN_USE then
+        if ownerOwnly and ply ~= owner() then return end
+
+        if state then
+            if not canAddGrabber( ply ) then return end
+
+            addGrabber( ply )
+        else
+            removeGrabber( ply )
+        end
+    elseif key == IN_RELOAD then
+        if not state then return end
+        if not isLookingAt( ply, dialEnt ) then return end
+
+        turnTheDial( nil, 0 )
+    end
+end
+
+local function wireInput( name, value )
+    if name == "Base" then
+        setBaseEnt( value )
+    elseif name == "Dial" then
+        setDialEnt( value )
+    end
+end
+
+
+hook.add( "input", "LKL_DialButton_WireInput", wireInput )
+
+hook.add( "KeyPress", "LKL_DialButton_KeyPress", function( ply, key )
+    keyPress( ply, key, true )
+end )
+
+hook.add( "KeyRelease", "LKL_DialButton_KeyRelease", function( ply, key )
+    keyPress( ply, key, false )
+end )
+
+
+timer.create( "LKL_DialButton_UpdateDial", updateInterval, 0, grabberThink )

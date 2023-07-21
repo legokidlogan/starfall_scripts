@@ -1,0 +1,345 @@
+--@name Slider
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+--@include lkl/sgui/slider_button.txt
+--@include lkl/math/nearest_multiple.txt
+
+--[[
+    - SGUI.Slider
+    - Don't use :setDock( DOCK_RIGHT or DOCK_LEFT or DOCK_FILL ), :setExpand( EXPAND_HEIGHT ), or :setHeight() on this class.
+        - :setExpand( EXPAND_WIDTH ), :setWidth(), and :setButtonRadius() are fine.
+    - Use :setButtonRadius() instead of :setHeight()
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+require( "lkl/sgui/slider_button.txt" )
+require( "lkl/math/nearest_multiple.txt" )
+
+if SGUI.Slider then return end -- Don't run twice
+
+
+SGUI.Slider = class( "Slider", SGUI.Panel )
+
+
+local Slider = SGUI.Slider
+local SliderButton = SGUI.SliderButton
+
+local mathClamp = math.clamp
+local mathFloor = math.floor
+local mathLerp = math.lerp
+
+
+----- STATIC FUNCTIONS -----
+
+function Slider:initialize( parent )
+    Slider.super.initialize( self, parent )
+
+    local sliderButton = SliderButton:new()
+    self._sliderButton = sliderButton
+    sliderButton:setParent( self )
+
+    self:setValueSnap( 0 )
+    self:setMinMaxValues( 0, 1 )
+    self:setValue( 0 )
+    self:setMargin( 2 )
+    self:setButtonRadius( 6 )
+    self:setSliderThickness( 2 )
+    self:setEnabled( true )
+    self:allowDragParenting( false )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Slider:setValue( value )
+    if type( value ) ~= "number" then error( "Expected value to be a number" ) end
+
+    value = mathClamp( math.nearestMultiple( value, self:getValueSnap() ), self:getMinValue() or 0, self:getMaxValue() or 1 )
+
+    local oldValue = self:getValue()
+    if oldValue == value then return end
+
+    self._value = value
+    self:getSliderButton():updatePosOnSlider()
+    self:onValueChanged( oldValue or 0, value )
+end
+
+function Slider:getValue()
+    return self._value or 0
+end
+
+function Slider:setValueFractional( frac )
+    if type( frac ) ~= "number" then error( "Expected frac to be a number" ) end
+
+    self:setValue( mathLerp( frac, self:getMinValue(), self:getMaxValue() ) )
+end
+
+function Slider:getValueFractional()
+    return ( self:getValue() - self:getMinValue() ) / ( self:getMaxValue() - self:getMinValue() )
+end
+
+function Slider:setMinValue( min )
+    if type( min ) ~= "number" then error( "Expected min to be a number" ) end
+
+    local oldValue = self:getMinValue()
+    if oldValue == min then return end
+
+    self._valueMin = min
+    self:onMinValueChanged( oldValue or 0, min )
+    self:setValue( self:getValue() )
+end
+
+function Slider:getMinValue()
+    return self._valueMin
+end
+
+function Slider:setMaxValue( max )
+    if type( max ) ~= "number" then error( "Expected max to be a number" ) end
+
+    local oldValue = self:getMaxValue()
+    if oldValue == max then return end
+
+    self._valueMax = max
+    self:onMaxValueChanged( oldValue or 0, max )
+    self:setValue( self:getValue() )
+end
+
+function Slider:getMaxValue()
+    return self._valueMax
+end
+
+function Slider:setMinMaxValues( min, max )
+    self:setMinValue( min )
+    self:setMaxValue( max )
+end
+
+function Slider:getMinMaxValues()
+    return self:getMinValue(), self:getMaxValue()
+end
+
+--[[
+    - Snaps :setValue() to multiples of this value.
+    - 0 to not snap.
+--]]
+function Slider:setValueSnap( snap )
+    if type( snap ) ~= "number" then error( "Expected snap to be a number" ) end
+    if snap < 0 then error( "Expected snap to be >= 0" ) end
+
+    self._valueSnap = snap
+
+    if self._value then
+        self:setValue( self:getValue() )
+    end
+end
+
+function Slider:getValueSnap()
+    return self._valueSnap
+end
+
+function Slider:setEnabled( state )
+    self._enabled = state
+    self:getSliderButton():setEnabled( state )
+end
+
+function Slider:enable()
+    self:setEnabled( true )
+end
+
+function Slider:disable()
+    self:setEnabled( false )
+end
+
+function Slider:isEnabled()
+    return self._enabled
+end
+
+function Slider:isDisabled()
+    return not self._enabled
+end
+
+function Slider:setButtonRadius( radius )
+    if type( radius ) ~= "number" then error( "Expected radius to be a number" ) end
+    radius = mathFloor( radius )
+    if radius <= 0 then error( "Expected radius to be > 0" ) end
+
+    self._sliderButtonRadius = radius
+    self:setHeight( radius * 2 )
+    self:getSliderButton():setRadius( radius )
+end
+
+function Slider:getButtonRadius()
+    return self._sliderButtonRadius or 1
+end
+
+function Slider:setSliderThickness( thickness )
+    if type( thickness ) ~= "number" then error( "Expected thickness to be a number" ) end
+    thickness = mathFloor( thickness )
+    if thickness <= 0 then error( "Expected thickness to be > 0" ) end
+
+    self._sliderThickness = thickness
+end
+
+function Slider:getSliderThickness()
+    return self._sliderThickness
+end
+
+function Slider:setBarColor( color )
+    self:setColor( self.class.name .. "Bar", color )
+end
+
+function Slider:getBarColor( fallbackColor, ... )
+    return self:getClassColor( "Bar", fallbackColor, ... )
+end
+
+function Slider:setDisabledBarColor( color )
+    self:setColor( self.class.name .. "DisabledBar", color )
+end
+
+function Slider:getDisabledBarColor( fallbackColor, ... )
+    return self:getClassColor( "DisabledBar", fallbackColor, ... )
+end
+
+function Slider:getBarColorEffective( fallbackColor, ... )
+    local suffix = "Bar"
+
+    if self:isDisabled() then
+        suffix = "DisabledBar"
+    end
+
+    return self:getClassColor( suffix, fallbackColor, ... )
+end
+
+function Slider:setNotchColor( color )
+    self:setColor( self.class.name .. "Notch", color )
+end
+
+function Slider:getNotchColor( fallbackColor, ... )
+    return self:getClassColor( "Notch", fallbackColor, ... )
+end
+
+function Slider:setDisabledNotchColor( color )
+    self:setColor( self.class.name .. "DisabledNotch", color )
+end
+
+function Slider:getDisabledNotchColor( fallbackColor, ... )
+    return self:getClassColor( "DisabledNotch", fallbackColor, ... )
+end
+
+function Slider:getNotchColorEffective( fallbackColor, ... )
+    local suffix = "Notch"
+
+    if self:isDisabled() then
+        suffix = "DisabledNotch"
+    end
+
+    return self:getClassColor( suffix, fallbackColor, ... )
+end
+
+function Slider:getSliderButton()
+    return self._sliderButton
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function Slider:onValueChanged( oldValue, newValue )
+
+end
+
+function Slider:onMinValueChanged( oldValue, newValue )
+
+end
+
+function Slider:onMaxValueChanged( oldValue, newValue )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Slider:rerouteChild( child )
+    if child == self:getSliderButton() then return self end
+
+    error( "Cannot parent to a Slider" )
+end
+
+function Slider:setDock( dock )
+    if dock == DOCK_RIGHT then error( self.class.name .. " cannot use DOCK_RIGHT" ) end
+    if dock == DOCK_LEFT then error( self.class.name .. " cannot use DOCK_LEFT" ) end
+    if dock == DOCK_FILL then error( self.class.name .. " cannot use DOCK_FILL" ) end
+
+    Slider.super.setDock( self, dock )
+end
+
+function Slider:setExpand( expand )
+    if expand == EXPAND_HEIGHT then error( self.class.name .. " cannot use EXPAND_HEIGHT" ) end
+
+    Slider.super.setExpand( self, expand )
+end
+
+function Slider:setWidth( width )
+    if width == self:getWidth() then return end
+
+    Slider.super.setWidth( self, width )
+
+    local sliderButton = self:getSliderButton()
+    if not sliderButton then return end
+
+    sliderButton:updatePosOnSlider()
+end
+
+function Slider:setHeight( height )
+    if self._height and height ~= self:getButtonRadius() * 2 then return end
+
+    Slider.super.setHeight( self, height )
+end
+
+function Slider:handleDraw()
+    local x, y = self:getPosEffective()
+    local width = self:getWidth()
+    local thickness = self:getSliderThickness()
+    local buttonRadius = self:getButtonRadius()
+
+    local barWidth = width - buttonRadius * 2
+    local barHeight = thickness * 2
+    local barX = x + buttonRadius
+    local barY = y + buttonRadius - thickness
+
+    -- Slider bar
+    render.setColor( self:getBarColorEffective() )
+    render.drawRoundedBox( thickness, barX, barY, barWidth, barHeight )
+    render.setMaterial() -- Fix oversight in render.drawRoundedBox()
+
+    -- Snap notches
+    local snap = self:getValueSnap()
+    if snap == 0 then return end
+
+    local notchCount = mathFloor( ( self:getMaxValue() - self:getMinValue() ) / snap )
+    if notchCount <= 1 then return end
+
+    local notchGap = barWidth / notchCount
+    if mathFloor( notchGap ) <= 0 then return end
+
+    notchCount = notchCount - 1
+    render.setColor( self:getNotchColorEffective() )
+
+    for i = 1, notchCount do
+        local notchX = barX + notchGap * i
+
+        render.drawRect( notchX, barY, 1, barHeight )
+    end
+end
+
+function Slider:handleDrawBackground()
+    -- Do nothing.
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+

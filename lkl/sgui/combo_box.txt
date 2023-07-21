@@ -1,0 +1,459 @@
+--@name Combo Box
+--@author legokidlogan
+--@client
+--@include lkl/sgui/scrollable_list.txt
+--@include lkl/sgui/button.txt
+
+
+--[[
+    - SGUI.ComboBox
+    - Blah
+--]]
+
+
+require( "lkl/sgui/scrollable_list.txt" )
+require( "lkl/sgui/button.txt" )
+
+if SGUI.ComboBox then return end -- Don't run twice
+
+
+SGUI.ComboBox = class( "ComboBox", SGUI.Button )
+
+
+local ComboBox = SGUI.ComboBox
+local Panel = SGUI.Panel
+local ScrollableList = SGUI.ScrollableList
+local Button = SGUI.Button
+local validateIndex
+local adjustScrolList
+local createChoiceButton
+local arrowPoly
+
+local mathFloor = math.floor
+local tableInsert = table.insert
+local tableRemove = table.remove
+
+
+----- STATIC FUNCTIONS -----
+
+function ComboBox:initialize( parent )
+    ComboBox.super.initialize( self, parent )
+
+    self._choiceTexts = {}
+    self._choiceDatas = {}
+    self._choiceTextLookup = {}
+    self._choiceDataLookup = {}
+    self._scrollListHeight = 10
+
+
+    local scrollList = ScrollableList:new( nil, LIST_VERTICAL, LIST_ALIGN_TOP_LEFT )
+    self._scrollList = scrollList
+    scrollList:setParent( self )
+    scrollList:setAutoExpand( false )
+
+
+    self:setBorderSize( 2 )
+    self:setBackgroundRadius( 0 )
+    self:setSize( 100, 25 )
+    self:setListHeight( 100 )
+    self:setTextAlign( TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER )
+    self:setDefaultText( "Options" )
+    self:selectChoice( 0 )
+    self:collapse()
+    self:allowDragParenting( false )
+    self:acceptMouseInputRecursive( true )
+
+    function self:setText()
+        error( "This function does not exist" )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+-- Text to display on the main button when no item is selected.
+function ComboBox:setDefaultText( text )
+    if type( text ) ~= "string" then error( "Expected text to be a string" ) end
+    if self:getChoiceIndexByText( text ) then error( "That text is already in use" ) end
+
+    self._defaultText = text
+end
+
+function ComboBox:getDefaultText()
+    return self._defaultText
+end
+
+-- Sets the height of the list that appears when the ComboBox is open.
+function ComboBox:setListHeight( height )
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    if mathFloor( height ) ~= height then error( "Expected height to be an integer" ) end
+    if height < 1 then error( "Expected height to be > 0" ) end
+
+    self._scrollListHeight = height
+    adjustScrolList( self )
+end
+
+function ComboBox:getListHeight()
+    return self._scrollListHeight
+end
+
+--[[
+    - Sets the currently selected choice by its index.
+    - 0 to select nothing.
+--]]
+function ComboBox:selectChoice( index )
+    local oldIndex = self:getSelectedIndex()
+    if index == oldIndex then return end
+    validateIndex( self, index, true, false )
+
+    oldIndex = oldIndex or 0
+    self._selectedChoiceIndex = index
+
+    local text = self:getChoiceText( index )
+
+    ComboBox.super.setText( self, text )
+    self:onSelectionChanged( oldIndex, index )
+end
+
+--[[
+    - Sets the currently selected choice by its text.
+    - nil to select nothing.
+--]]
+function ComboBox:selectChoiceByText( text )
+    self:selectChoice( self:getChoiceIndexByText( text ) )
+end
+
+--[[
+    - Sets the currently selected choice by its data.
+    - nil to select nothing.
+--]]
+function ComboBox:selectChoiceByData( data )
+    self:selectChoice( self:getChoiceIndexByData( data ) )
+end
+
+-- Returns the selected choice index.
+function ComboBox:getSelectedIndex()
+    return self._selectedChoiceIndex
+end
+
+-- Returns the selected choice text.
+function ComboBox:getSelectedText()
+    return self:getChoiceText( self:getSelectedIndex() )
+end
+
+-- Returns the selected choice data.
+function ComboBox:getSelectedData()
+    return self:getChoiceData( self:getSelectedIndex() )
+end
+
+--[[
+    - Returns  index, text, data  of the selected choice.
+    - Will be  0, defaultText, nil  if nothing is selected.
+--]]
+function ComboBox:getSelectedChoice()
+    local index = self:getSelectedIndex()
+
+    return index, self:getChoiceText( index ), self:getChoiceData( index )
+end
+
+--[[
+    - Adds a choice to the list.
+
+    text: (string)
+        - The text to display for the choice.
+        - Must be unique.
+    data: (any)
+        - The data to associate with the choice.
+        - Can be anything other than nil.
+        - Must be unique.
+--]]
+function ComboBox:addChoice( text, data )
+    self:insertChoice( self:getChoiceCount() + 1, text, data )
+end
+
+-- Adds a choice at a specific index.
+function ComboBox:insertChoice( index, text, data )
+    validateIndex( self, index, false, true )
+
+    if type( text ) ~= "string" then error( "Expected text to be a string" ) end
+    if self:getChoiceIndexByText( text ) then error( "That text is already in use" ) end
+
+    if data == nil then error( "Expected data to be anything other than nil" ) end
+    if self:getChoiceIndexByData( data ) then error( "That data is already in use" ) end
+
+    createChoiceButton( self, index, text )
+    tableInsert( self._choiceTexts, index, text )
+    tableInsert( self._choiceDatas, index, data )
+    self._choiceTextLookup[text] = index
+    self._choiceDataLookup[data] = index
+end
+
+--[[
+    - Removes a choice by its index.
+    - If that choice was currently selected, the selection will move to the default.
+--]]
+function ComboBox:removeChoice( index )
+    validateIndex( self, index, false, false )
+
+    local scrollList = self:getScrollList()
+    local choiceButton = scrollList:getElement( index )
+    local text = self:getChoiceText( index )
+    local data = self:getChoiceData( index )
+
+    choiceButton:destroy()
+    tableRemove( self._choiceTexts, index )
+    tableRemove( self._choiceDatas, index )
+    self._choiceTextLookup[text] = nil
+    self._choiceDataLookup[data] = nil
+
+    if index == self:getSelectedIndex() then
+        self:selectChoice( 0 )
+    end
+end
+
+-- Returns the index of the choice with this text, or false if none of them do.
+function ComboBox:getChoiceIndexByText( text )
+    if text == nil then return false end
+
+    return self._choiceTextLookup[text] or false
+end
+
+-- Returns the index of the choice with this data, or false if none of them do.
+function ComboBox:getChoiceIndexByData( data )
+    if data == nil then return 0 end
+
+    return self._choiceDataLookup[data] or false
+end
+
+--[[
+    - Returns the display text of a choice.
+    - 0 to get the default text, same as :getDefaultText().
+--]]
+function ComboBox:getChoiceText( index )
+    if index == 0 then return self:getDefaultText() end
+    validateIndex( self, index, true, false )
+
+    return self._choiceTexts[index]
+end
+
+--[[
+    - Returns the data of a choice.
+    - 0 to get the default data, which is always nil.
+--]]
+function ComboBox:getChoiceData( index )
+    if index == 0 then return nil end
+    validateIndex( self, index, true, false )
+
+    return self._choiceDatas[index]
+end
+
+-- Returns text, data
+function ComboBox:getChoice( index )
+    return self:getChoiceText( index ), self:getChoiceData( index )
+end
+
+function ComboBox:getChoiceCount()
+    return #self._choiceTexts
+end
+
+function ComboBox:isCollapsed()
+    return self._collapsed
+end
+
+function ComboBox:collapse()
+    if self:isCollapsed() then return end
+
+    self._collapsed = true
+    self:getScrollList():setVisible( false )
+end
+
+function ComboBox:uncollapse()
+    if self:isDisabled() then return end
+    if not self:isCollapsed() then return end
+
+    self._collapsed = false
+    self:getScrollList():setVisible( true )
+end
+
+function ComboBox:setArrowColor( color )
+    self:setColor( self.class.name .. "Arrow", color )
+end
+
+function ComboBox:getArrowColor( fallbackColor, ... )
+    return self:getClassColor( "Arrow", fallbackColor, ... )
+end
+
+function ComboBox:setDisabledArrowColor( color )
+    self:setColor( self.class.name .. "DisabledArrow", color )
+end
+
+function ComboBox:getDisabledArrowColor( fallbackColor, ... )
+    return self:getClassColor( "DisabledArrow", fallbackColor, ... )
+end
+
+function ComboBox:getArrowColorEffective( fallbackColor, ... )
+    local suffix = "Arrow"
+
+    if self:isDisabled() then
+        suffix = "DisabledArrow"
+    end
+
+    return self:getClassColor( suffix, fallbackColor, ... )
+end
+
+function ComboBox:getScrollList()
+    return self._scrollList
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function ComboBox:onSelectionChanged( oldIndex, newIndex )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ComboBox:onClicked()
+    if self:isCollapsed() then
+        self:uncollapse()
+    else
+        self:collapse()
+    end
+end
+
+function ComboBox:rerouteChild( child )
+    if child == self:getScrollList() then return self end
+
+    error( "Cannot parent to a ComboBox" )
+end
+
+function ComboBox:handleDraw()
+    ComboBox.super.handleDraw( self )
+
+    local width, height = self:getSize()
+    local borderSize = self:getBorderSize()
+    local arrowSize = height - borderSize * 2
+
+    render.setColor( self:getArrowColorEffective() )
+    self:drawPoly( arrowPoly, width - arrowSize - borderSize, borderSize, arrowSize, arrowSize )
+end
+
+function ComboBox:setBorderSize( size )
+    ComboBox.super.setBorderSize( self, size )
+
+    adjustScrolList( self )
+end
+
+function ComboBox:setWidth( width )
+    ComboBox.super.setWidth( self, width )
+
+    adjustScrolList( self )
+end
+
+function ComboBox:setHeight( height )
+    ComboBox.super.setHeight( self, height )
+
+    adjustScrolList( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+validateIndex = function( comboBox, index, allowZero, allowCountPlusOne )
+    if type( index ) ~= "number" then error( "Expected index to be a number" ) end
+    if mathFloor( index ) ~= index then error( "Expected index to be an integer" ) end
+
+    if allowZero then
+        if index < 0 then error( "Expected index to be >= 0" ) end
+    else
+        if index < 1 then error( "Expected index to be >= 1" ) end
+    end
+
+    local count = comboBox:getChoiceCount()
+
+    if allowCountPlusOne then
+        if index > count + 1 then error( "Expected index to be <= choiceCount + 1" ) end
+    else
+        if index > count then error( "Expected index to be <= choiceCount" ) end
+    end
+end
+
+adjustScrolList = function( comboBox )
+    local scrollList = comboBox:getScrollList()
+    if not scrollList then return end
+
+    local width, height = comboBox:getSize()
+    local listHeight = comboBox:getListHeight()
+    local borderSize = comboBox:getBorderSize()
+    local scrollBarSize = scrollList:getScrollBarSize()
+
+    scrollList:setMinSize( width - scrollBarSize, listHeight )
+    scrollList:setYPos( height - borderSize )
+    scrollList:setBorderSize( borderSize )
+end
+
+createChoiceButton = function( comboBox, index, text )
+    local scrollList = comboBox:getScrollList()
+    local button = Button:new()
+    scrollList:insert( index, button )
+    button:setHeight( comboBox:getHeight() )
+    button:setBorderSize( 0 )
+    button:setBackgroundRadius( 0 )
+    button:setText( text )
+    button:setExpand( EXPAND_WIDTH )
+
+    function button:onClicked()
+        comboBox:selectChoice( index )
+    end
+
+    return button
+end
+
+
+----- SETUP -----
+
+
+arrowPoly = {
+    { x = 50 / 100, y = 51 / 100 },
+    { x = 73 / 100, y = 28 / 100 },
+    { x = 78 / 100, y = 26 / 100 },
+    { x = 83 / 100, y = 27 / 100 },
+    { x = 88 / 100, y = 32 / 100 },
+    { x = 89 / 100, y = 37 / 100 },
+    { x = 87 / 100, y = 42 / 100 },
+    { x = 64 / 100, y = 65 / 100 },
+    { x = 58 / 100, y = 71 / 100 },
+    { x = 55 / 100, y = 73 / 100 },
+    { x = 52 / 100, y = 74 / 100 },
+}
+local arrowPolyFlipped = SGUI.polyFlipHorizontal( arrowPoly )
+arrowPolyFlipped[#arrowPolyFlipped] = nil -- Last point is redundant.
+
+arrowPoly = table.add( arrowPoly, arrowPolyFlipped )
+
+
+local function closeIfUnfocused( wasHover, old, new )
+    if old == nil then return end -- Going from not hovered to hovered will never mean focus was lost.
+
+    local oldComboBox = old:isInstanceOf( ComboBox ) and old or old:getParentBySubclass( ComboBox )
+    if not oldComboBox then return end -- Wasn't hovering over a ComboBox.
+
+    local newComboBox = new and ( new:isInstanceOf( ComboBox ) and new or new:getParentBySubclass( ComboBox ) )
+    if oldComboBox == newComboBox then return end -- Still hovering over the same ComboBox.
+
+    local otherPanel = wasHover and Panel:getHeldPanel() or Panel:getHoveredPanel()
+    local otherComboBox = otherPanel and ( otherPanel:isInstanceOf( ComboBox ) and otherPanel or otherPanel:getParentBySubclass( ComboBox ) )
+    if oldComboBox == otherComboBox then return end -- Still holding the same ComboBox.
+
+    oldComboBox:collapse()
+end
+
+hook.add( "LKL_SGUI_HoveredPanelChanged", "LKL_SGUI_ComboBox_CloseIfUnfocused", function( old, new )
+    closeIfUnfocused( true, old, new )
+end )
+
+hook.add( "LKL_SGUI_HeldPanelChanged", "LKL_SGUI_ComboBox_CloseIfUnfocused", function( old, new )
+    closeIfUnfocused( false, old, new )
+end )

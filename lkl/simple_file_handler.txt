@@ -1,0 +1,174 @@
+--@name Simple File Handler
+--@author legokidlogan
+--@shared
+
+if CLIENT and player() ~= owner() then return end
+
+
+-- Note that these only take effect when set by the parent script BEFORE require()'ing this file.
+    -- This allows multiple separate instances of SFH in the same chip.
+sfhBaseFolder = sfhBaseFolder or ""
+sfhHookBase = sfhHookBase or "LKL_FileHandler_"
+
+
+local baseFolder = sfhBaseFolder
+local hookBase = sfhHookBase
+local fileHandler = {}
+
+if baseFolder ~= "" then
+    if string.endsWith( baseFolder, "/" ) then
+        baseFolder = string.sub( baseFolder, 1, -2 )
+    end
+
+    if CLIENT then
+        file.createDir( baseFolder )
+    end
+
+    baseFolder = baseFolder .. "/"
+end
+
+
+if SERVER then
+    local uidCounter = 0
+    local fileCallbacks = {}
+
+    local function fixFilePath( fileName )
+        local extension = string.getExtensionFromFilename( fileName )
+
+        if not extension or extension == "" then
+            fileName = fileName .. ".txt"
+        end
+
+        return fileName
+    end
+
+    function fileHandler.save( fileName, data, cb, hidePrint )
+        local str = json.encode( data )
+        uidCounter = uidCounter + 1
+        local uid = uidCounter
+        local fileNameOld = fileName
+        fileName = fixFilePath( fileName )
+
+        fileCallbacks[uid] = {
+            Callback = cb,
+            FileName = fileNameOld,
+            FileNameEff = fileName,
+            TimeStart = timer.realtime(),
+            HidePrint = hidePrint,
+        }
+
+        net.start( hookBase .. "SaveFile" )
+        net.writeEntity( chip() )
+        net.writeUInt( uid, 32 )
+        net.writeString( fileName )
+        net.writeStream( str, false )
+        net.send( owner() )
+    end
+
+    function fileHandler.load( fileName, cb, hidePrint )
+        uidCounter = uidCounter + 1
+        local uid = uidCounter
+        local fileNameOld = fileName
+        fileName = fixFilePath( fileName )
+
+        fileCallbacks[uid] = {
+            Callback = cb,
+            FileName = fileNameOld,
+            FileNameEff = fileName,
+            TimeStart = timer.realtime(),
+            HidePrint = hidePrint,
+        }
+
+        net.start( hookBase .. "LoadFile" )
+        net.writeEntity( chip() )
+        net.writeUInt( uid, 32 )
+        net.writeString( fileName )
+        net.send( owner() )
+    end
+
+
+    net.receive( hookBase .. "SaveFileFinished", function()
+        if net.readEntity() ~= chip() then return end
+
+        local uid = net.readUInt( 32 )
+        local cbInfo = fileCallbacks[uid]
+        fileCallbacks[uid] = nil
+
+        if not cbInfo then return end
+
+        local timeTaken = timer.realtime() - cbInfo.TimeStart
+        local fileName = cbInfo.FileNameEff
+        local hidePrint = cbInfo.HidePrint
+        cbInfo.TimeTaken = timeTaken
+
+        if not hidePrint then
+            print( "File " .. fileName .. " saved in " .. timeTaken .. " seconds." )
+        end
+
+        if cbInfo.Callback then
+            cbInfo.Callback( cbInfo )
+        end
+    end )
+
+    net.receive( hookBase .. "LoadFileFinished", function()
+        if net.readEntity() ~= chip() then return end
+
+        local uid = net.readUInt( 32 )
+        local cbInfo = fileCallbacks[uid]
+        fileCallbacks[uid] = nil
+
+        if not cbInfo then return end
+
+        local timeTaken = timer.realtime() - cbInfo.TimeStart
+        local fileName = cbInfo.FileNameEff
+        local hidePrint = cbInfo.HidePrint
+        cbInfo.TimeTaken = timeTaken
+
+        if cbInfo.Callback then
+            net.readStream( function( dataStr )
+                if not hidePrint then
+                    print( "File " .. fileName .. " loaded in " .. timeTaken .. " seconds." )
+                end
+
+                local data = json.decode( dataStr )
+                cbInfo.Callback( cbInfo, data )
+            end )
+        elseif not hidePrint then
+            print( "File " .. fileName .. " loaded in " .. timeTaken .. " seconds. There was no callback, however." )
+        end
+    end )
+else
+    net.receive( hookBase .. "SaveFile", function()
+        if net.readEntity() ~= chip() then return end
+
+        local uid = net.readUInt( 32 )
+        local fileName = net.readString()
+
+        net.readStream( function( dataStr )
+            file.write( baseFolder .. fileName, dataStr )
+
+            net.start( hookBase .. "SaveFileFinished" )
+            net.writeEntity( chip() )
+            net.writeUInt( uid, 32 )
+            net.send()
+        end )
+    end )
+
+    net.receive( hookBase .. "LoadFile", function()
+        if net.readEntity() ~= chip() then return end
+
+        local uid = net.readUInt( 32 )
+        local fileName = net.readString()
+
+        local dataStr = file.read( baseFolder .. fileName )
+
+        net.start( hookBase .. "LoadFileFinished" )
+        net.writeEntity( chip() )
+        net.writeUInt( uid, 32 )
+        net.writeStream( dataStr, false )
+        net.send()
+    end )
+end
+
+
+return fileHandler

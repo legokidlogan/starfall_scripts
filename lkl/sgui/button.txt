@@ -1,0 +1,154 @@
+--@name Button
+--@author legokidlogan
+--@client
+--@include lkl/sgui/label.txt
+
+--[[
+    - SGUI.Button
+    - Blah
+--]]
+
+
+require( "lkl/sgui/label.txt" )
+
+if SGUI.Button then return end -- Don't run twice
+
+
+SGUI.Button = class( "Button", SGUI.Label )
+
+
+local Button = SGUI.Button
+
+
+----- STATIC FUNCTIONS -----
+
+function Button:initialize( parent )
+    Button.super.initialize( self, parent )
+
+    self:setBackgroundRadius( 15 )
+    self:setBorderSize( 0 )
+    self:enable()
+    self:setText( "Button" )
+
+    function self:acceptMouseInput()
+        error( "This function does not exist" )
+    end
+
+    function self:setTextColor()
+        error( "This function does not exist" )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Button:setEnabled( state )
+    self._enabled = state
+    SGUI.Panel.acceptMouseInput( self, state )
+    SGUI.Label.setTextColor( self, state and self:getEnabledTextColor() or self:getDisabledTextColor() )
+end
+
+function Button:enable()
+    self:setEnabled( true )
+end
+
+function Button:disable()
+    self:setEnabled( false )
+end
+
+function Button:isEnabled()
+    return self._enabled
+end
+
+function Button:isDisabled()
+    return not self._enabled
+end
+
+function Button:setEnabledTextColor( color )
+    self:setColor( "TextEnabled", color )
+end
+
+function Button:getEnabledTextColor( fallbackColor, ... )
+    return self:getColor( "TextEnabled", fallbackColor, ... )
+end
+
+function Button:setDisabledTextColor( color )
+    self:setColor( "TextDisabled", color )
+end
+
+function Button:getDisabledTextColor( fallbackColor, ... )
+    return self:getColor( "TextDisabled", fallbackColor, ... )
+end
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function Button:onClicked()
+
+end
+
+function Button:onHeldThink()
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Button:setHoveredBackgroundColor( color )
+    self:setColor( self.class.name .. "BackgroundHovered", color )
+end
+
+function Button:getHoveredBackgroundColor( fallbackColor, ... )
+    return self:getClassColor( "BackgroundHovered", fallbackColor, ... )
+end
+
+function Button:setPressedBackgroundColor( color )
+    self:setColor( self.class.name .. "BackgroundPressed", color )
+end
+
+function Button:getPressedBackgroundColor( fallbackColor, ... )
+    return self:getClassColor( "BackgroundPressed", fallbackColor, ... )
+end
+
+function Button:setDisabledBackgroundColor( color )
+    self:setColor( self.class.name .. "DisabledBackground", color )
+end
+
+function Button:getDisabledBackgroundColor( fallbackColor, ... )
+    return self:getClassColor( "DisabledBackground", fallbackColor, ... )
+end
+
+function Button:getBackgroundColor( fallbackColor, ... )
+    local suffix = "Background"
+
+    if self:isDisabled() then
+        suffix = "DisabledBackground"
+    elseif self:isMouseHeld() then
+        suffix = "BackgroundPressed"
+    elseif self:isHovered() then
+        suffix = "BackgroundHovered"
+    end
+
+    return self:getClassColor( suffix, fallbackColor, ... )
+end
+
+function Button:think()
+    if self:isMouseHeld() then
+        self:onHeldThink()
+    end
+end
+
+function Button:onMousePressed()
+
+end
+
+function Button:onMouseReleased()
+    self:onClicked()
+end
+
+function Button:onMouseLetGo()
+
+end
+
+
+----- PRIVATE FUNCTIONS -----
+

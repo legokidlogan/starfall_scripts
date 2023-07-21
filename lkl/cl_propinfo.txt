@@ -1,0 +1,510 @@
+--@name cl_propinfo
+--@author legokidlogan
+--@client
+
+local fontSize = 20
+local xStart = 0
+local yStart = 0.51
+local dirLength = 10
+local dirEndLength = 3
+local backgroundWidth = fontSize * 25
+local backgroundColor = Color( 100, 100, 100, 50 )
+local typeHighlight = Color( 255, 255, 150 )
+
+local aimEnt = false
+local connected = false
+local aimEntIsPlayer = false
+local showDir = false
+local info = {}
+local extraInfo = {}
+local typeLengths = {}
+--local propInfoFont = render.createFont( "HudSelectionText", fontSize, 400, true, false, false, false, false, false)
+--local propInfoFont = render.createFont( "DejaVu Sans Mono", fontSize, 400, true, false, false, false, false, false)
+local propInfoFont = render.createFont( "Roboto Mono", fontSize, 400, true, false, false, false, false, false)
+local infoCount = false
+local extraInfoOtherStuffCount = 0
+local dataLengths = {
+    Size = {
+        Lengths = { 0,0,0 },
+        Colors = {
+            Color( 255, 150, 150 ),
+            Color( 150, 255, 150 ),
+            Color( 150, 150, 255 ),
+        },
+        Chunks = {},
+    },
+    Position = {
+        Lengths = { 0,0,0 },
+        Colors = {
+            Color( 255, 150, 150 ),
+            Color( 150, 255, 150 ),
+            Color( 150, 150, 255 ),
+        },
+        Chunks = {},
+    },
+    Angles = {
+        Lengths = { 0,0,0 },
+        Colors = {
+            Color( 255, 150, 150 ),
+            Color( 150, 255, 150 ),
+            Color( 150, 150, 255 ),
+        },
+        Chunks = {},
+    },
+}
+
+local permissions = {
+    "print.chat",
+    "print.console",
+    "print.color",
+}
+
+setupPermissionRequest( permissions, "Use Prop Info commands with /pi", true )
+local permissionSatisfied
+
+local function checkPermissions()
+    local isSatisfied = true
+    
+    for i, permission in pairs( permissions ) do
+        if not hasPermission( permission ) then
+            isSatisfied = false
+            
+            break
+        end
+    end
+    
+    permissionSatisfied = isSatisfied
+end
+
+local function roundReturn( v, n )
+    v:round( n )
+    
+    return v
+end
+
+local function formatColor( c )
+    return c[1] .. ", " .. c[2] .. ", " .. c[3] .. ", " .. c[4]
+end
+
+local function HUDChange( state )
+    connected = state
+    
+    if connected then
+        checkPermissions()
+        
+        if not permissionSatisfied then
+            sendPermissionRequest()
+        end
+    end
+    
+    net.start( "LKL_PropInfo_HUDConnectionChange" )
+    net.writeBool( connected and permissionSatisfied )
+    net.send()
+end
+
+if render.isHUDActive() then
+    HUDChange( true )
+end
+
+timer.create( "LKL_PropInfo_EntityCheck", 0.5, 0, function()
+    if not connected or not permissionSatisfied then return end
+    
+    aimEnt = player():getEyeTrace().Entity
+    
+    if isValid( aimEnt ) then
+        aimEntIsPlayer = aimEnt:isPlayer()
+        info = {
+            {
+                Type = "Entity",
+                Data = aimEnt,
+                Color = aimEntIsPlayer and team.getColor( aimEnt:getTeam() ),
+            },
+            {
+                Type = "Owner",
+                Data = aimEnt:getOwner() or false,
+                Color = isValid( aimEnt:getOwner() ) and team.getColor( aimEnt:getOwner():getTeam() ),
+            },
+            {
+                Type = "Type",
+                Data = aimEnt:getClass(),
+            },
+            {
+                Type = "Model",
+                Data = aimEnt:getModel(),
+            },
+            {
+                Type = "Material",
+                Data = ( aimEnt:getMaterial() ~= "" and aimEnt:getMaterial() ) or aimEnt:getMaterials()[1],
+            },
+            {
+                Type = "Size",
+                Data = "???",
+            },
+            {
+                Type = "Position",
+                Data = "???",
+            },
+            {
+                Type = "Angles",
+                Data = "???",
+            },
+            {
+                Type = "Mass",
+                Data = "???",
+            },
+            {
+                Type = "Color",
+                Data = formatColor( aimEnt:getColor() ),
+                Color = aimEnt:getColor():setA( 255 ),
+            },
+            {
+                Type = "Frozen",
+                Data = "???",
+            },
+            {
+                Type = "Collisions",
+                Data = aimEnt:getCollisionGroup() ~= COLLISION_GROUP.WORLD,
+                Color = ( aimEnt:getCollisionGroup() ~= COLLISION_GROUP.WORLD and Color( 0, 255, 0 ) ) or Color( 255, 0, 0 ),
+            },
+        }
+        
+        if aimEntIsPlayer then
+            local aimEntStr = tostring( aimEnt )
+            local aimEntPvpStatus = aimEnt.isInPvp and aimEnt:isInPvp()
+            local aimEntPvpStatusStr = ( aimEntPvpStatus and "PvP" ) or "Build"
+            
+            rawset( dataLengths, "Owner", nil )
+            rawset( dataLengths, "Entity", {
+                Lengths = {
+                    ( string.len( aimEntStr ) - 2.5 ) * fontSize / 2,
+                    0
+                },
+                Colors = {
+                    info[1].Color,
+                    ( aimEntPvpStatus and Color( 255, 80, 80 ) ) or Color( 80, 80, 255 ),
+                },
+                Chunks = {
+                    aimEntStr,
+                    aimEntPvpStatusStr
+                },
+            } )
+        else
+            rawset( dataLengths, "Entity", nil )
+            
+            local aimEntOwner = info[2].Data
+            
+            if not aimEntOwner then
+                rawset( dataLengths, "Owner", nil )
+            else
+                local aimEntStr = tostring( aimEntOwner )
+                local aimEntPvpStatus = aimEntOwner.isInPvp and aimEntOwner:isInPvp()
+                local aimEntPvpStatusStr = ( aimEntPvpStatus and "PvP" ) or "Build"
+                
+                rawset( dataLengths, "Owner", {
+                    Lengths = {
+                        ( string.len( aimEntStr ) - 2.5 ) * fontSize / 2,
+                        0
+                    },
+                    Colors = {
+                        rawget( rawget( info, 2 ), "Color" ) or Color( 255, 255, 0 ),
+                        ( aimEntPvpStatus and Color( 255, 80, 80 ) ) or Color( 80, 80, 255 ),
+                    },
+                    Chunks = {
+                        aimEntStr,
+                        aimEntPvpStatusStr
+                    },
+                } )
+            end
+        end
+        
+        if not infoCount then
+            infoCount = #info
+            
+            for i = 1, infoCount do
+                local type = info[i].Type
+                
+                typeLengths[type] = ( string.len( type ) + 1.5 ) * fontSize / 2
+            end
+        end
+    else
+        aimEnt = false
+    end
+end )
+
+hook.add( "drawhud", "LKL_PropInfo_RenderHUD", function()
+    if not permissionSatisfied then
+        local scrW, scrH = render.getResolution()
+        
+        render.setFont( "DermaLarge" )
+        render.drawSimpleText( scrW/2, scrH/2, "Interact with the starfall to give permissions!", 1, 1 )
+        
+        return
+    end
+    
+    if not isValid( aimEnt ) then return end
+    
+    local scrW, scrH = render.getResolution()
+    
+    render.setFont( propInfoFont )
+    
+    local x = xStart
+    local y = yStart
+    local yChange = fontSize / scrH
+    local backgroundHeight = infoCount + extraInfoOtherStuffCount
+    
+    if aimEntIsPlayer then
+        backgroundHeight = backgroundHeight - 1
+    end
+    
+    backgroundHeight = yChange * backgroundHeight
+    
+    render.setColor( backgroundColor )
+    render.drawRect( x * scrW, y * scrH, backgroundWidth, backgroundHeight * scrH )
+    
+    for i = 1, infoCount do
+        local chunk = info[i]
+        local type = chunk.Type
+        local data = chunk.Data
+        local color = chunk.Color
+        
+        if type == "Owner" and aimEntIsPlayer then continue end
+        
+        local extraChunk = rawget( extraInfo, type ) or {}
+        
+        if data == "???" then
+            data = rawget( extraChunk, "Data" )
+            data = ( data == nil and "???" ) or data
+        end
+        
+        color = rawget( extraChunk, "Color" ) or color
+        
+        if not color then
+            color = Color( 255, 255, 255 ) --Change to utilize prop protection later once possible
+        end
+        
+        --[[
+        render.setColor( color )
+        
+        if type == "Entity" then
+            render.drawSimpleText( x * scrW, y * scrH, tostring( data ), -1, 1 )
+        else
+            render.drawSimpleText( x * scrW, y * scrH, type .. ": " .. tostring( data ), -1, 1 )
+        end
+        --]]
+        
+        if type ~= "Entity" or aimEntIsPlayer then
+            render.setColor( typeHighlight )
+            render.drawSimpleText( x * scrW, y * scrH, type .. ": ", -1, 2 )
+        end
+        
+        local lengthData = rawget( dataLengths, type )
+        
+        if lengthData then
+            local lenLengths = rawget( lengthData, "Lengths" )
+            local lenColors = rawget( lengthData, "Colors" )
+            local lenChunks = rawget( lengthData, "Chunks" )
+            local curLength = typeLengths[type]
+            local numLengths = #lenLengths
+            
+            for i2 = 1, numLengths do
+                render.setColor( lenColors[i2] )
+                render.drawSimpleText( x * scrW + curLength, y * scrH, lenChunks[i2] or "?", -1, 2 )
+                
+                curLength = curLength + ( lenLengths[i2] or 0 )
+                
+                if i2 ~= numLengths then
+                    render.setColor( Color( 255, 255, 255 ) )
+                    render.drawSimpleText( x * scrW + curLength, y * scrH, ",", -1, 2 )
+                    
+                    curLength = curLength + 1.5 * fontSize / 2
+                end
+            end
+        elseif type == "Entity" then
+            render.setColor( color )
+            render.drawSimpleText( x * scrW, y * scrH, tostring( data ), -1, 2 )
+        else
+            render.setColor( color )
+            render.drawSimpleText( x * scrW + typeLengths[type], y * scrH, tostring( data ), -1, 2 )
+        end
+        
+        y = y + yChange
+    end
+    
+    local extraInfoOtherStuff = rawget( extraInfo, "OtherStuff" ) or {}
+    
+    for i = 1, extraInfoOtherStuffCount do
+        local chunk = rawget( extraInfoOtherStuff, i )
+        local type = chunk.Type
+        local data = chunk.Data
+        local color = chunk.Color
+        
+        if not color then
+            color = Color( 255, 255, 255 ) --Change to utilize prop protection later once possible
+        end
+        
+        render.setColor( color )
+        render.drawSimpleText( x * scrW, y * scrH, type .. ": " .. tostring( data ), -1, 2 )
+        
+        y = y + yChange
+    end
+end )
+
+hook.add( "postdrawopaquerenderables", "LKL_PropInfo_DrawDirections", function()
+    if not showDir or not connected or not permissionSatisfied or not isValid( aimEnt ) then return end
+    
+    local pos = ( aimEnt:getPos() + player():getShootPos() ) / 2
+    local forward = aimEnt:getForward()
+    local right = aimEnt:getRight()
+    local up = aimEnt:getUp()
+    local forwardPos = pos + forward * dirLength
+    local rightPos = pos + right * dirLength
+    local upPos = pos + up * dirLength
+    
+    render.setColor( Color( 255, 0, 0 ) )
+    render.draw3DLine( pos, forwardPos )
+    render.draw3DLine( forwardPos, forwardPos + ( right - forward ) * dirEndLength )
+    render.draw3DLine( forwardPos, forwardPos + ( - right - forward ) * dirEndLength )
+    
+    render.setColor( Color( 0, 255, 0 ) )
+    render.draw3DLine( pos, rightPos )
+    render.draw3DLine( rightPos, rightPos + ( forward - right ) * dirEndLength )
+    render.draw3DLine( rightPos, rightPos + ( - forward - right ) * dirEndLength )
+    
+    render.setColor( Color( 0, 0, 255 ) )
+    render.draw3DLine( pos, upPos )
+    render.draw3DLine( upPos, upPos + ( right - up ) * dirEndLength )
+    render.draw3DLine( upPos, upPos + ( - right - up ) * dirEndLength )
+end )
+
+hook.add( "hudconnected", "LKL_PropInfo_HUDConnected", function()
+    HUDChange( true )
+end )
+
+hook.add( "huddisconnected", "LKL_PropInfo_HUDDisconnected", function()
+    HUDChange( false )
+end )
+
+hook.add( "permissionrequest", "LKL_PropInfo_PermissionRequest", function()
+    checkPermissions()
+    
+    net.start( "LKL_PropInfo_HUDConnectionChange" )
+    net.writeBool( connected and permissionSatisfied )
+    net.send()
+end )
+
+net.receive( "LKL_PropInfo_ExtraInfo", function()
+    extraInfo = net.readTable()
+    extraInfoOtherStuff = rawget( extraInfo, "OtherStuff" )
+    extraInfoOtherStuffCount = #extraInfoOtherStuff
+    
+    for detail, chunk in pairs( extraInfo ) do
+        if detail == "OtherStuff" then continue end
+        
+        local data = rawget( chunk, "Data" )
+        local dataType = type( data )
+        
+        if dataType == "Vector" or dataType == "Angle" then
+            rawset( chunk, "Data", string.replace( tostring( roundReturn( data, 3 ) ), " ", ", " ) )
+        elseif dataType == "number" then
+            rawset( chunk, "Data", math.round( data, 3 ) )
+        end
+    end
+    
+    for i = 1, extraInfoOtherStuffCount do
+        local chunk = rawget( extraInfoOtherStuff, i )
+        local data = chunk.Data
+        local dataType = type( data )
+        
+        if dataType == "Vector" or dataType == "Angle" then
+            rawset( chunk, "Data", string.replace( tostring( roundReturn( data, 3 ) ), " ", ", " ) )
+        elseif dataType == "number" then
+            rawset( chunk, "Data", math.round( data, 3 ) )
+        end
+    end
+    
+    local sizeChunks = string.explode( ", ", rawget( rawget( extraInfo, "Size" ), "Data" ) )
+    local positionChunks = string.explode( ", ", rawget( rawget( extraInfo, "Position" ), "Data" ) )
+    local angleChunks = string.explode( ", ", rawget( rawget( extraInfo, "Angles" ), "Data" ) )
+    
+    local sizeLengthTbl = rawget( dataLengths, "Size" )
+    local positionLengthTbl = rawget( dataLengths, "Position" )
+    local angleLengthTbl = rawget( dataLengths, "Angles" )
+    local entityLengthTbl = rawget( dataLengths, "Entity" )
+    
+    if entityLengthTbl and not aimEntIsPlayer then
+        rawset( rawget( entityLengthTbl, "Colors" ), 1, rawget( rawget( extraInfo, "Entity" ), "Color" ) )
+    end
+    
+    rawset( sizeLengthTbl, "Lengths", {
+        ( string.len( rawget( sizeChunks, 1 ) ) - 0.75 ) * fontSize / 2,
+        ( string.len( rawget( sizeChunks, 2 ) ) - 0.75 ) * fontSize / 2,
+        0
+    } )
+    
+    rawset( positionLengthTbl, "Lengths", {
+        ( string.len( rawget( positionChunks, 1 ) ) - 0.75 ) * fontSize / 2,
+        ( string.len( rawget( positionChunks, 2 ) ) - 0.75 ) * fontSize / 2,
+        0
+    } )
+    
+    rawset( angleLengthTbl, "Lengths", {
+        ( string.len( rawget( angleChunks, 1 ) ) - 0.75 ) * fontSize / 2,
+        ( string.len( rawget( angleChunks, 2 ) ) - 0.75 ) * fontSize / 2,
+        0
+    } )
+    
+    rawset( sizeLengthTbl, "Chunks", {
+        rawget( sizeChunks, 1 ),
+        rawget( sizeChunks, 2 ),
+        rawget( sizeChunks, 3 )
+    } )
+    
+    rawset( positionLengthTbl, "Chunks", {
+        rawget( positionChunks, 1 ),
+        rawget( positionChunks, 2 ),
+        rawget( positionChunks, 3 )
+    } )
+    
+    rawset( angleLengthTbl, "Chunks", {
+        rawget( angleChunks, 1 ),
+        rawget( angleChunks, 2 ),
+        rawget( angleChunks, 3 )
+    } )
+end )
+
+net.receive( "LKL_PropInfo_Command", function()
+    local printInfo = net.readTable()
+    local printInfoCount = #printInfo
+    
+    for i = 1, printInfoCount do
+        local printChunk = rawget( printInfo, i )
+        
+        if type( printChunk ) == "table" then
+            rawset( printInfo, i, Color(
+                rawget( printChunk, "r" ),
+                rawget( printChunk, "g" ),
+                rawget( printChunk, "b" ),
+                rawget( printChunk, "a" ) ) )
+        end
+    end
+    
+    if net.readBool() then
+        showDir = not showDir
+        
+        if showDir then
+            printInfo = {
+                Color( 255, 255, 255 ),"[PropInfo] ",Color(255,255,0),"Directional arrows enabled. ",
+                Color(255,0,0),"Red ",Color( 255, 255, 255 ),"is ",Color(255,0,0),"forward",Color( 255, 255, 255 ),", ",
+                Color(0,255,0),"green ",Color( 255, 255, 255 ),"is ",Color(0,255,0),"right",Color( 255, 255, 255 ),", and ",
+                Color(0,0,255),"blue ",Color( 255, 255, 255 ),"is ",Color(0,0,255),"up. "
+            }
+        else
+            printInfo = {
+                Color( 255, 255, 255 ),"[PropInfo] ",
+                Color(255,255,0),"Directional arrows disabled."
+            }
+        end
+    end
+    
+    print( unpack( printInfo ) )
+end )

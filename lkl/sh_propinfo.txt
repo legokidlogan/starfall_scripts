@@ -1,0 +1,11 @@
+--@name Prop Info
+--@author legokidlogan
+--@shared
+--@include lkl/notrack/sv_propinfo.txt
+--@include lkl/notrack/cl_propinfo.txt
+
+if SERVER then
+    require( "lkl/notrack/sv_propinfo.txt" )
+else
+    require( "lkl/notrack/cl_propinfo.txt" )
+end

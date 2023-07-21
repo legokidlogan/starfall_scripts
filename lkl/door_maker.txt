@@ -1,0 +1,1319 @@
+--@name Door Maker
+--@author legokidlogan
+--@shared
+
+--@include lkl/input_generator.txt
+--@include lkl/sv_dosound.txt
+--@include lkl/e2_applytorque.txt
+
+--@include lkl/cl_check_permissions.txt
+--@include lkl/cl_dosound.txt
+
+local mRand = math.rand
+
+if CLIENT then
+    permissions = {
+        "bass.loadFile",
+        "bass.loadURL",
+        "bass.play2D",
+    }
+    permissionSatisfied = false
+    permissionRequestSent = false
+
+    soundTbl = {}
+
+    setupPermissionRequest( permissions, "Hear custom door sounds", true )
+
+    require( "lkl/cl_check_permissions.txt" )
+    require( "lkl/cl_dosound.txt" )
+
+    checkPermissions()
+    timer.simple( 1, checkPermissions )
+
+    return
+end
+
+local doorConfig = {}
+local doorConfigDefault
+local tableInsert = table.insert
+
+-- Config:
+
+-- Each chip will likely have wildly different door configs to handle a specific setup and design.
+-- Example door:
+tableInsert( doorConfig, {
+    IsHinge = false, -- false = sliding door, true = rotating 'hinge' door
+    DontParent = false, -- Use setPos and setAng, but don't parent the door. ONLY WORKS IF THE BASE NEVER MOVES.
+    OpenTime = 0.75, -- Time it takes to open, in seconds.
+    CloseTime = 0.25, -- Time it takes to close, in seconds.
+
+    -- Sound parameters:
+    Category = "MetalDoor", -- Which sound category this door should use.
+    SoundOverride = {}, -- Allows you to override specific parameters of each sound used by the door, such as making a huge door with a lower pitch and longer duration than normal.
+    DirSound = false, -- Should the sounds be directional? Makes whoever pushed the button able to hear the door sound coming from the door's location, even far away. This requires a Button__X or a WhoPressed__X input, where X corresponds to this door's spot in the config/wire list.
+    DirSoundDist = 400, -- If DirSound is enabled, the door sound will be played this many units away from the button if defined, and if whoPressed is not defined.
+    DirSoundDistPly = 200, -- If DirSound is enabled, the door sound will be played this many units away from the player's head if whoPressed is defined.
+    FinishSounds = true, -- Should ____Finished sounds be played on doors/buttons when a door finishes opening/closing?
+    ClearSounds = true, -- Should sounds from a door/button be cleared when it is about to move/change direction?
+
+
+    -- Sliding-only parameters:
+    IsPhysical = false, -- Should the door retain collisions while moving? Makes things less reliable, but can crush/launch/block stuff while moving. Door will not be parented.
+    OpenDir = Vector( 1, 0, 0 ), -- Which direction to move the door to open it, in local coordinates. This will be converted to a unit-vector for convenience.
+    OpenMult = 1, -- How far the door should move, relative to the size of its model in the direction of motion. (e.g. a value of 1 will move by the entire length of the door)
+
+    -- Hinge-only parameters:
+    HingeAxis = Vector( 0, 0, 1 ), -- The axis to rotate around, in local coordinates.
+    HingePos = Vector( 0, 1, 0 ), -- The position of the rotational axis, in local coordinates scaled by half the door's size. (e.g. a value of 1 goes to the edge of the model)
+    Rotate = 90, -- How many degrees to rotate the door by. Negative values will rotate in the opposite direction, similarly to doing -1 * HingeAxis.
+} )
+doorConfigDefault = doorConfig[1] -- Stores the example door to use as a fallback in case you wire in more doors than you have config entries for.
+doorConfig[1] = nil -- This is simply to remove the example door, so we can still have colored formatting for ease of reading. Put your door configs below.
+
+
+tableInsert( doorConfig, {
+    IsHinge = false,
+    OpenTime = 0.75,
+    CloseTime = 0.25,
+
+    -- Sound parameters:
+    Category = "MetalDoor",
+    SoundOverride = {},
+    DirSound = false,
+    DirSoundDist = 400,
+    DirSoundDistPly = 200,
+    FinishSounds = true,
+    ClearSounds = true,
+
+
+    -- Sliding-only parameters:
+    IsPhysical = false,
+    OpenDir = Vector( 1, 0, 0 ),
+    OpenMult = 1,
+
+    -- Hinge-only parameters:
+    HingeAxis = Vector( 0, 0, 1 ),
+    HingePos = Vector( 0, 1, 0 ),
+    Rotate = 90,
+} )
+
+local defaultAlert = false -- Should you be alerted if a new door is added without having its own config entry?
+local doorInterval = 25 -- Update rate for the doors, in milliseconds. A smaller number means smoother doors, but more CPU usage and server lag. Min value is 15, as servers with a tickrate of 66 cannot go faster.
+local psvStrength = 100 -- Strength of the motion used for sliding doors with IsPhysical == true
+torqueStrength = 120 -- Strength of the force which rotates sliding doors with IsPhysical == true to keep them properly aligned
+torqueStabilization = 25 -- Stabilizes the rotation force to prevent feedback loops
+
+--[[
+    - soundTbl lets you define various categories of doors, each with a different collection of sounds.
+    - Each paramter can be a raw value or a function, which will receive the arguments (ent, soundType), except for Duration which receives (ent, soundType, path, pitch). Useful for randomness and dynamic sounds.
+    - MetalDoor is the default sound category. If another category is missing a sound event (such as ButtonOpen), it will pull from MetalDoor.
+--]]
+soundTbl = {
+    -- Categories ideal for sliding doors:
+    MetalDoor = {
+        Open = {
+            Path = "doors/heavy_metal_move1.wav",
+            Duration = 2.328,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil, -- Defaults to 75
+            Delay = nil,
+        },
+        Close = {
+            Path = "doors/garage_stop1.wav",
+            Duration = 1.483,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        ButtonOpen = {
+            Path = "buttons/combine_button5.wav",
+            Duration = 1.047,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        ButtonClose = {
+            Path = "buttons/combine_button7.wav",
+            Duration = 0.227,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+
+        --[[OpenFinished = {
+            Path = "physics/metal/bts5_panels_impact_sm_02.wav",
+            Duration = 0.9,
+            Volume = 0.7,
+            Pitch = 0.95,
+            Level = nil,
+            Delay = nil,
+        },--]]
+        OpenFinished = {
+            Path = "physics/metal/metal_canister_impact_soft2.wav",
+            Duration = 0.918,
+            Volume = 0.4,
+            Pitch = 0.9,
+            Level = nil,
+            Delay = nil,
+        },
+        CloseFinished = {
+            Path = "doors/heavy_metal_stop1.wav",
+            Duration = 2.043,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        ButtonOpenFinished = {
+            Path = "doors/heavy_metal_move1.wav",
+            Duration = 2.328,
+            Volume = 0.2,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        ButtonCloseFinished = {
+            Path = "doors/heavy_metal_stop1.wav",
+            Duration = 2.043,
+            Volume = 0.2,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    MetalGears = {
+        Open = {
+            Path = "doors/garage_move1.wav",
+            Duration = 3,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "doors/garage_move1.wav",
+            Duration = 3,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+
+        OpenFinished = {
+            Path = "physics/metal/metal_canister_impact_soft2.wav",
+            Duration = 0.918,
+            Volume = 0.8,
+            Pitch = 0.9,
+            Level = nil,
+            Delay = nil,
+        },
+        CloseFinished = {
+            Path = "physics/metal/metal_canister_impact_soft2.wav",
+            Duration = 0.918,
+            Volume = 0.8,
+            Pitch = 0.9,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    MetalCorrugated = {
+        Open = {
+            Path = "doors/door_metal_thin_move1.wav",
+            Duration = 1.583,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "doors/door_metal_rusty_move1.wav",
+            Duration = 1.535,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+
+        OpenFinished = {
+            Path = "doors/door_metal_thin_open1.wav",
+            Duration = 0.709,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        CloseFinished = {
+            Path = "doors/door_metal_thin_close2.wav",
+            Duration = 0.625,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    Curtain = {
+        Open = {
+            Path = "physics/plastic/plastic_box_scrape_rough_loop1.wav",
+            Duration = 2,
+            Volume = 0.5,
+            Pitch = 1.1,
+            Level = 60,
+            Delay = nil,
+        },
+        Close = {
+            Path = "physics/plastic/plastic_box_scrape_rough_loop1.wav",
+            Duration = 2,
+            Volume = 0.5,
+            Pitch = 1.1,
+            Level = 60,
+            Delay = nil,
+        },
+
+        OpenFinished = {
+            Path = "physics/metal/chain_impact_soft3.wav",
+            Duration = 0.43,
+            Volume = 0.2,
+            Pitch = 0.9,
+            Level = 60,
+            Delay = nil,
+        },
+        CloseFinished = {
+            Path = "physics/metal/chain_impact_soft3.wav",
+            Duration = 0.43,
+            Volume = 0.2,
+            Pitch = 0.9,
+            Level = 60,
+            Delay = nil,
+        },
+    },
+
+    -- Categories ideal for hinge doors:
+    MetalFence = {
+        Open = {
+            Path = "physics/metal/metal_chainlink_impact_soft3.wav",
+            Duration = 0.932,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "physics/metal/metal_chainlink_impact_hard1.wav",
+            Duration = 0.731,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+
+        OpenFinished = {
+            Path = "physics/metal/chain_impact_soft3.wav",
+            Duration = 0.43,
+            Volume = 0.5,
+            Pitch = 0.95,
+            Level = nil,
+            Delay = nil,
+        },
+        CloseFinished = {
+            Path = "physics/metal/chain_impact_hard1.wav",
+            Duration = 0.282,
+            Volume = 0.7,
+            Pitch = 0.95,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    SciFiCar = {
+        Open = {
+            Path = "doors/doormove2.wav",
+            Duration = 1.384,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "doors/doormove3.wav",
+            Duration = 1.572,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+
+        OpenFinished = {
+            Path = "doors/generic_door_close.wav",
+            Duration = 0.538 / 0.9,
+            Volume = 0.5,
+            Pitch = 0.9,
+            Level = nil,
+            Delay = nil,
+        },
+        CloseFinished = {
+            Path = "doors/generic_door_close.wav",
+            Duration = 0.268 / 0.9,
+            Volume = 0.5,
+            Pitch = 0.9,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    WoodDoorSoft = {
+        Open = {
+            Path = "doors/door1_move.wav",
+            Duration = 0.81,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "",
+        },
+
+        OpenFinished = {
+            Path = "",
+        },
+        CloseFinished = {
+            Path = "doors/door1_stop.wav",
+            Duration = 1.106,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    WoodDoorHarsh = {
+        Open = {
+            Path = "doors/wood_move1.wav",
+            Duration = 1.213,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "",
+        },
+
+        OpenFinished = {
+            Path = "",
+        },
+        CloseFinished = {
+            Path = "doors/wood_stop1.wav",
+            Duration = 0.445,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    Trapdoor = {
+        Open = {
+            Path = "doors/door_latch1.wav",
+            Duration = 0.886,
+            Volume = 0.6,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "doors/default_move.wav",
+            Duration = 0.787,
+            Volume = 0.5,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+
+        OpenFinished = {
+            Path = "doors/door_metal_medium_open1.wav",
+            Duration = function( _, _, _, pitch ) return 0.703 / ( pitch or 1 ) end,
+            Volume = 0.5,
+            Pitch = function() return mRand( 0.95, 1.03 ) end,
+            Level = nil,
+            Delay = nil,
+        },
+        CloseFinished = {
+            Path = "doors/door_metal_medium_open1.wav",
+            Duration = function( _, _, _, pitch ) return 0.703 / ( pitch or 1 ) end,
+            Volume = 0.5,
+            Pitch = function() return mRand( 0.95, 1.03 ) end,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    MinecraftWoodDoor = {
+        Open = {
+            Path = "https://cdn.discordapp.com/attachments/303869552503291904/934285331442843738/mc_door_open.mp3",
+            Duration = 0.358,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "https://cdn.discordapp.com/attachments/303869552503291904/934285331644158042/mc_door_close.mp3",
+            Duration = 0.338,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+
+        OpenFinished = {
+            Path = "",
+        },
+        CloseFinished = {
+            Path = "",
+        },
+        ButtonOpen = {
+            Path = "",
+        },
+        ButtonClose = {
+            Path = "",
+        },
+        ButtonOpenFinished = {
+            Path = "",
+        },
+        ButtonCloseFinished = {
+            Path = "",
+        },
+    },
+
+    -- Categories good for both door types:
+    StoneDoor = {
+        Open = {
+            Path = "physics/concrete/concrete_block_scrape_rough_loop1.wav",
+            Duration = 1.7,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+        Close = {
+            Path = "physics/concrete/boulder_impact_hard3.wav",
+            Duration = 1.08,
+            Volume = 1,
+            Pitch = 1,
+            Level = nil,
+            Delay = nil,
+        },
+
+        OpenFinished = {
+            Path = "physics/concrete/concrete_impact_hard2.wav",
+            Duration = 0.4,
+            Volume = 0.8,
+            Pitch = 0.9,
+            Level = nil,
+            Delay = nil,
+        },
+        CloseFinished = {
+            Path = "physics/concrete/rock_impact_hard2.wav",
+            Duration = 0.237,
+            Volume = 08,
+            Pitch = 0.9,
+            Level = nil,
+            Delay = nil,
+        },
+    },
+    NoSound = {
+        Open = {
+            Path = "",
+        },
+        Close = {
+            Path = "",
+        },
+        ButtonOpen = {
+            Path = "",
+        },
+        ButtonClose = {
+            Path = "",
+        },
+
+        OpenFinished = {
+            Path = "",
+        },
+        CloseFinished = {
+            Path = "",
+        },
+        ButtonOpenFinished = {
+            Path = "",
+        },
+        ButtonCloseFinished = {
+            Path = "",
+        },
+    },
+}
+
+
+-- End Config
+
+projectNameID = "DoorMaker." .. chip():entIndex()
+soundCategoryFallback = "MetalDoor"
+
+require( "lkl/sv_dosound.txt" )
+require( "lkl/e2_applytorque.txt" )
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+inGenRepeatMaxDefault = 20
+inGenRepeatNames = inGenRepeatNames or {}
+inGenRepeatTypes = inGenRepeatTypes or {}
+inGenRepeatGroups = inGenRepeatGroups or {}
+inGenRepeatMaxes = inGenRepeatMaxes or {}
+
+tableInsert( inputNames, "StateAll" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inGenRepeatNames, "State" )
+tableInsert( inGenRepeatTypes, "NUMBER" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Door" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Base" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Button" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "WhoPressed" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+tableInsert( inGenRepeatNames, "Children" )
+tableInsert( inGenRepeatTypes, "ARRAY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
+
+require( "lkl/input_generator.txt" )
+
+wire.adjustInputs( inputNames, inputTypes )
+
+local mMax = math.max
+local mAbs = math.abs
+local mSign = math.sign
+
+doorInterval = mMax( doorInterval, 15 ) / 1000
+
+local initialized = false
+local stateAll = wire.ports.StateAll ~= 0
+local doorCount = 0
+local ang0 = Angle( 0, 0, 0 )
+local vecTiny = Vector( 0.1, 0.1, 0.1 )
+local printName = "[" .. projectNameID .. "]"
+local chipLink = wire.getWirelink( chip() )
+
+local doorStates = {}
+local doorEnts = {}
+local baseEnts = {}
+local buttonEnts = {}
+local whoPressedEnts = {}
+local childrenTbls = {}
+local doorLookup = {}
+local wireEnts = {}
+local wireNames = {}
+
+local doorSounds = table.getKeys( soundTbl.MetalDoor )
+local buttonSounds = {}
+local doorSoundCount = #doorSounds
+local buttonSoundCount = 0
+
+for i = doorSoundCount, 1, -1 do
+    local sound = doorSounds[i]
+
+    if string.find( sound, "Button" ) then
+        table.remove( doorSounds, i )
+
+        doorSoundCount = doorSoundCount - 1
+        buttonSoundCount = buttonSoundCount + 1
+
+        buttonSounds[buttonSoundCount] = sound
+    end
+end
+
+local function unparentChildren( ent )
+    local children = ent.doorChildren
+
+    if not children then return end
+
+    for _, child in ipairs( children ) do
+        if isValid( child ) then
+            child:unparent()
+        end
+    end
+end
+
+local function parentChildren( ent )
+    if not isValid( ent ) then return end
+
+    local children = ent.doorChildren
+
+    if not children then return end
+
+    for _, child in ipairs( children ) do
+        if isValid( child ) then
+            child:unparent()
+            child:setParent( ent )
+        end
+    end
+end
+
+local function createDirHolo( door )
+    if not isValid( door ) then return end
+
+    local holo = door.doorHolo or false
+
+    if isValid( holo ) then return holo end
+    if not holograms.canSpawn() then return false end
+
+    pcall( function()
+        holo = holograms.create( door:getPos(), ang0, "models/holograms/cube.mdl", vecTiny )
+    end )
+
+    door.doorHolo = holo
+    holo.isHolo = true
+
+    return holo
+end
+
+local function removeDirHolo( door )
+    if not isValid( door ) then return end
+
+    local holo = door.doorHolo
+
+    if not isValid( holo ) then return end
+
+    holo:remove()
+end
+
+local function moveDirHolo( door )
+    if not isValid( door ) then return end
+
+    local holo = door.doorHolo
+
+    if not isValid( holo ) then return end
+    if not door.doorDirSound then return end
+
+    local ply = door.doorWhoPressed
+    local origin
+    local dist
+
+    if isValid( ply ) and ply:isPlayer() then
+        origin = ply:getEyePos()
+        dist = door.doorDirSoundDistPly
+    else
+        local button = door.doorButton
+
+        if not isValid( button ) then return end
+
+        origin = button:getPos()
+        dist = door.doorDirSoundDist
+    end
+
+    holo:setPos( origin + ( door:getPos() - origin ):getNormalized() * dist )
+end
+
+local function onLast()
+    for i = 1, doorCount do
+        local ent = doorEnts[i]
+
+        if isValid( ent ) then
+            ent:unparent()
+            unparentChildren( ent )
+        end
+    end
+
+    holograms.removeAll()
+end
+
+local function relativeRotate( ent, worldPos, worldAng, axis, deg, dontMove )
+    local locPos, locAng = worldToLocal( ent:getPos(), ent:getAngles(), worldPos, worldAng )
+    locPos = locPos:rotateAroundAxis( axis, deg )
+    locAng = locAng:rotateAroundAxis( axis, deg )
+
+    local newPos, newAng = localToWorld( locPos, locAng, worldPos, worldAng )
+
+    if not dontMove then
+        local parent = ent:getParent()
+
+        if isValid( parent ) then
+            newPos = parent:worldToLocal( newPos )
+            --newAng = parent:worldToLocalAngles( newAng )
+        end
+
+        ent:setPos( newPos )
+        ent:setAngles( newAng )
+    end
+
+    return newPos, newAng
+end
+
+local function hingeRotate( ent, hingePos, axis, deg, dontMove )
+    local worldPos = ent:localToWorld( hingePos )
+    local worldAng = ent:getAngles()
+
+    return relativeRotate( ent, worldPos, worldAng, axis, deg, dontMove )
+end
+
+local function runSounds( door, ind, affix )
+    affix = affix or ""
+
+    local state = door.doorState
+    local doorSound = ( state and "Open" or "Close" ) .. affix
+    local buttonSound = ( state and "ButtonOpen" or "ButtonClose" ) .. affix
+    local info = doorConfig[ind] or doorConfigDefault
+    local category = info.Category
+    local override = info.SoundOverride or {}
+    local button = buttonEnts[ind]
+    local holo = door.doorHolo
+
+    doSound( door, doorSound, category, override[doorSound] )
+    doSound( button, buttonSound, category, override[buttonSound] )
+
+    if info.DirSound then
+        createDirHolo( door )
+        moveDirHolo( door )
+        doSound( holo, doorSound, category, override[doorSound] )
+    end
+end
+
+local function slideDoor( door, ind )
+    if not isValid( door ) or not door.doorMoving then return end
+
+    local state = door.doorState
+    local base = door.doorBase
+    local step = state and door.doorOpenStep or door.doorCloseStep
+    local targetPos = state and door.doorOpenPos or door.doorClosePos
+    local curPos = door:getPos()
+    local intendedAng = door.doorAng
+    local physical = door.doorPhysical
+    local dontParent = door.dontParent
+
+    if isValid( base ) then
+        if physical then
+            targetPos = base:localToWorld( targetPos )
+        elseif dontParent then
+            targetPos = base:localToWorld( targetPos )
+        else
+            curPos = base:worldToLocal( curPos ) -- In sf, :setPos() on parented props will place them locally to the parent
+        end
+
+        intendedAng = base:localToWorldAngles( intendedAng )
+    end
+
+    local dist = curPos:getDistance( targetPos )
+
+    if dist <= step then
+        local info = doorConfig[ind] or doorConfigDefault
+
+        if physical then
+            door:enableMotion( false )
+        end
+
+        door.doorMoving = false
+        door:setPos( targetPos )
+        door:setAngles( intendedAng )
+
+        if info.FinishSounds then
+            runSounds( door, ind, "Finished" )
+        end
+    else
+        local posChange = ( targetPos - curPos ) * step / dist
+
+        if physical then
+            local physObj = door:getPhysicsObject()
+
+            if not isValid( physObj ) then return end
+
+            physObj:setVelocity( posChange * psvStrength )
+            torqueAlign( door, door.doorAng )
+        else
+            door:setPos( curPos + posChange )
+        end
+    end
+end
+
+local function rotateDoor( door, ind )
+    if not isValid( door ) or not door.doorMoving then return end
+
+    local state = door.doorState
+    local base = door.doorBase
+    local step = state and door.doorOpenStep or door.doorCloseStep
+    local targetAng = state and door.doorOpenAng or door.doorCloseAng
+    local targetPos = state and door.doorOpenPos or door.doorClosePos
+    local curAng = door:getAngles()
+
+    if isValid( base ) then
+        targetAng = base:localToWorldAngles( targetAng )
+        --targetPos = base:localToWorld( targetPos ) -- In sf, :setPos() on parented props will place them locally to the parent, so don't globalize this
+    end
+
+    local rotFull = state and door.doorRotFull or 0
+    local rot = door.doorRot
+
+    local rotDist = rotFull - rot
+
+    if mAbs( rotDist ) >= 360 then
+        local rotChange = mSign( rotDist ) * mAbs( step )
+
+        targetPos, targetAng = hingeRotate( door, door.doorHingePos, door.doorAxis, step, false )
+
+        door.doorRot = rot + rotChange
+    elseif rotDist ~= 0 then
+        door.doorRot = rotFull
+    end
+
+    local CQ = curAng:getQuaternion()
+    local TQ = targetAng:getQuaternion()
+    local Q = TQ / CQ
+    local dist = Q:getRotationAngle()
+
+    if mAbs( dist ) <= mAbs( step ) and mAbs( rotDist ) <= mAbs( step ) then
+        local info = doorConfig[ind] or doorConfigDefault
+
+        door.doorMoving = false
+        door.doorRot = rotFull
+        door:setAngles( targetAng )
+        door:setPos( targetPos )
+
+        if info.FinishSounds then
+            runSounds( door, ind, "Finished" )
+        end
+    else
+        --hingeRotate( door, door.doorHingePos, door.doorAxis, step )
+        --hingeRotate( door, door.doorHingePos, door.doorAxis, mSign( dist ) * mMin( mAbs( step ), mAbs( dist ) ) )
+        --hingeRotate( door, door.doorHingePos, door.doorAxis, step )
+        --hingeRotate( door, door.doorHingePos, Q:getRotationAxis(), step )
+        hingeRotate( door, door.doorHingePos, door:worldToLocal( door:getPos() + Q:getRotationAxis() ), mSign( dist ) * mAbs( step ) )
+    end
+end
+
+local function setState( ind, newState )
+    local door = doorEnts[ind]
+
+    if not isValid( door ) then return end
+    if ( door.doorState or false ) == newState then return end
+
+    local info = doorConfig[ind] or doorConfigDefault
+    local button = buttonEnts[ind]
+    local holo = door.doorHolo
+
+    button = isValid( button ) and button
+    door.doorState = newState
+    door.doorWhoPressed = whoPressedEnts[ind]
+    door.doorMoving = true
+
+    if info.ClearSounds then
+        for i = 1, doorSoundCount do
+            local sound = doorSounds[i]
+
+            stopSound( door, sound )
+            stopSound( holo, sound )
+        end
+
+        if button then
+            for i = 1, buttonSoundCount do
+                stopSound( button, buttonSounds[i] )
+            end
+        end
+    end
+
+    if door.doorPhysical then
+        door:enableMotion( true )
+    end
+
+    runSounds( door, ind )
+end
+
+local function revertInput( name, oldLinkEnt, oldLinkName )
+    local rewired = false
+
+    if isValid( oldLinkEnt ) then
+        rewired = pcall( function()
+            wire.create( chip(), oldLinkEnt, name, oldLinkName )
+        end )
+    end
+
+    if not rewired then
+        wire.delete( chip(), name )
+    end
+end
+
+local function wireInput( name, value )
+    local baseName, id = inGenGetInfo( name )
+    local oldLinkEnt = wireEnts[name]
+    local oldLinkName = wireNames[name]
+
+    wireEnts[name] = chipLink:isWired( name ) and chipLink:getWiredTo( name )
+    wireNames[name] = chipLink:getWiredToName( name )
+
+    if id then
+        if baseName == "State" then
+            local state = value ~= 0
+
+            doorStates[id] = state
+
+            setState( id, state or stateAll )
+        elseif baseName == "Door" then
+            local door = isValid( value ) and value
+            local dupInd = doorLookup[door]
+
+            if door then
+                local base = baseEnts[id]
+
+                if id > doorCount then
+                    doorCount = id
+                end
+
+                if dupInd and dupInd ~= id then
+                    revertInput( name, oldLinkEnt, oldLinkName )
+
+                    print(
+                        c_white, printName .. " ",
+                        c_yellow, tostring( door ),
+                        c_red, " is already a door, and cannot be used twice!\n",
+                        c_white, "If you want to give it multiple states/directions/modes of movement, link up a new door entity and set its base to this one."
+                    )
+
+                    return
+                end
+
+                if door == base then
+                    revertInput( name, oldLinkEnt, oldLinkName )
+
+                    print(
+                        c_white, printName .. " ",
+                        c_yellow, tostring( door ),
+                        c_red, " cannot be its own base!\n"
+                    )
+
+                    return
+                end
+
+                local info = doorConfig[id]
+
+                if not info then
+                    if defaultAlert then
+                        print(
+                            c_white, printName .. " ",
+                            c_yellow, tostring( door ),
+                            c_red, " does not have its own config settings defined!\n",
+                            c_white, "You should edit the Starfall chip to add a new config entry, but for now ",
+                            c_green, "the default will be used."
+                        )
+                    end
+
+                    info = doorConfigDefault
+                end
+
+                local function setupDoor()
+                    base = baseEnts[id]
+
+                    local slider = not info.IsHinge
+                    local dontParent = info.DontParent
+                    local curState = stateAll or doorStates[id]
+                    local children = childrenTbls[id] or {}
+                    door.dontParent = dontParent
+
+                    if slider then
+                        local openDir = info.OpenDir
+                        local openMult = info.OpenMult
+                        local slideLength = ( door:obbSize() * openDir ):getLength() * openMult
+                        local physical = info.IsPhysical
+
+                        local closePos
+                        local openPos
+                        local doorAng = door:getAngles()
+
+                        if curState then
+                            -- Account for if the door is already in an open state so things don't desync if duped
+                            closePos = door:localToWorld( -openDir * slideLength )
+                            openPos = door:getPos()
+                        else
+                            closePos = door:getPos()
+                            openPos = door:localToWorld( openDir * slideLength )
+                        end
+
+                        if isValid( base ) then
+                            closePos = base:worldToLocal( closePos )
+                            openPos = base:worldToLocal( openPos )
+                            doorAng = base:worldToLocalAngles( doorAng )
+
+                            if not physical and not dontParent then
+                                door:unparent()
+                                door:setParent( base )
+                                door:setNocollideAll( false )
+                            end
+                        end
+
+                        door:enableGravity( not physical )
+
+                        door.doorOpenPos = openPos
+                        door.doorClosePos = closePos
+                        --door.doorTargetPos = curState and openPos or closePos
+                        door.doorOpenStep = slideLength / ( info.OpenTime / doorInterval )
+                        door.doorCloseStep = slideLength / ( info.CloseTime / doorInterval )
+                        door.doorAng = doorAng
+                        door.doorPhysical = physical
+                    else
+                        local axis = info.HingeAxis
+                        local rotate = info.Rotate
+                        local hingePos = info.HingePos * door:obbSize() / 2
+
+                        local closeAng
+                        local openAng
+                        local closePos
+                        local openPos
+
+                        if curState then
+                            -- Account for if the door is already in an open state so things don't desync if duped
+                            closePos, closeAng = hingeRotate( door, hingePos, -axis, rotate, true )
+                            openAng = door:getAngles()
+                            openPos = door:getPos()
+                        else
+                            closeAng = door:getAngles()
+                            openPos, openAng = hingeRotate( door, hingePos, axis, rotate, true )
+                            closePos = door:getPos()
+                        end
+
+                        if isValid( base ) then
+                            closeAng = base:worldToLocalAngles( closeAng )
+                            openAng = base:worldToLocalAngles( openAng )
+                            closePos = base:worldToLocal( closePos )
+                            openPos = base:worldToLocal( openPos )
+
+                            if not dontParent then
+                                door:unparent()
+                                door:setParent( base )
+                                door:setNocollideAll( false )
+                            end
+                        end
+
+                        door.doorOpenAng = openAng
+                        door.doorCloseAng = closeAng
+                        --door.doorTargetAng = curState and openAng or closeAng
+                        door.doorOpenStep = rotate / ( info.OpenTime / doorInterval )
+                        door.doorCloseStep = -rotate / ( info.CloseTime / doorInterval )
+                        door.doorOpenPos = openPos
+                        door.doorClosePos = closePos
+                        door.doorHingePos = hingePos
+                        door.doorAxis = axis
+                        door.doorRotFull = rotate
+                        door.doorRot = curState and rotate or 0
+                    end
+
+                    door.doorState = curState
+                    door.doorChildren = children
+                    door.doorBase = base
+                    door.doorSlides = slider
+                    door.doorDirSound = info.DirSound
+                    door.doorDirSoundDist = info.DirSoundDist
+                    door.doorDirSoundDistPly = info.DirSoundDistPly
+                    door.doorButton = buttonEnts[id]
+
+                    door.doorReady = true
+
+                    parentChildren( door )
+                end
+
+                if initialized then
+                    setupDoor()
+                else
+                    timer.simple( 0.5, setupDoor )
+                end
+            else
+                local oldDoor = doorEnts[id]
+
+                if isValid( oldDoor ) then
+                    local base = oldDoor.doorBase
+
+                    oldDoor.doorReady = nil
+                    unparentChildren( oldDoor )
+
+                    if isValid( base ) and oldDoor:getParent() == base then
+                        oldDoor:unparent()
+                    end
+                end
+            end
+
+            doorLookup[doorEnts[id] or false] = nil
+            doorLookup[door] = door and id
+            doorEnts[id] = door
+        elseif baseName == "Base" then
+            local base = isValid( value ) and value
+            local door = doorEnts[id]
+            local oldBase = ( isValid( door ) and door or {} ).doorBase
+
+            if oldBase == base then return end
+
+            if base then
+                if isValid( door ) then
+                    if door == base then
+                        revertInput( name, oldLinkEnt, oldLinkName )
+
+                        print(
+                            c_white, printName .. " ",
+                            c_yellow, tostring( door ),
+                            c_red, " cannot be its own base!\n"
+                        )
+
+                        return
+                    end
+
+                    local function setupBase()
+                        if door.doorSlides then
+                            local closePos = door.doorClosePos
+                            local openPos = door.doorOpenPos
+                            local doorAng = door.doorAng
+
+                            if isValid( oldBase ) then
+                                closePos = oldBase:localToWorld( closePos )
+                                openPos = oldBase:localToWorld( openPos )
+                                doorAng = oldBase:localToWorldAngles( doorAng )
+                            end
+
+                            door.doorClosePos = base:worldToLocal( closePos )
+                            door.doorOpenPos = base:worldToLocal( openPos )
+                            door.doorAng = base:worldToLocalAngles( doorAng )
+
+                            if not door.doorPhysical and not door.dontParent then
+                                door:unparent()
+                                door:setParent( base )
+                                door:setNocollideAll( false )
+                            end
+                        else
+                            local closeAng = door.doorCloseAng
+                            local openAng = door.doorOpenAng
+                            local closePos = door.doorClosePos
+                            local openPos = door.doorOpenPos
+
+                            if isValid( oldBase ) then
+                                closeAng = oldBase:localToWorldAngles( closeAng )
+                                openAng = oldBase:localToWorldAngles( openAng )
+                                closePos = oldBase:localToWorld( closePos )
+                                openPos = oldBase:localToWorld( openPos )
+                            end
+
+                            door.doorCloseAng = base:worldToLocalAngles( closeAng )
+                            door.doorOpenAng = base:worldToLocalAngles( openAng )
+                            door.doorClosePos = base:worldToLocal( closePos )
+                            door.doorOpenPos = base:worldToLocal( openPos )
+
+                            if not dontParent then
+                                door:unparent()
+                                door:setParent( base )
+                                door:setNocollideAll( false )
+                            end
+                        end
+                    end
+
+                    if initialized then
+                        setupBase()
+                    else
+                        --timer.simple( 0.6, setupBase ) -- Don't run, let the delayed form of setupDoor() handle it to prevent improper coord localization
+                    end
+                end
+            else
+                --if isValid( door ) and door:getParent() == oldBase then
+                if isValid( door ) then
+                    door:unparent()
+
+                    if isValid( oldBase ) then
+                        if door.doorSlides then
+                            door.doorClosePos = oldBase:localToWorld( door.doorClosePos )
+                            door.doorOpenPos = oldBase:localToWorld( door.doorOpenPos )
+                            door.doorAng = oldBase:localToWorldAngles( door.doorAng )
+                        else
+                            door.doorCloseAng = oldBase:localToWorldAngles( door.doorCloseAng )
+                            door.doorOpenAng = oldBase:localToWorldAngles( door.doorOpenAng )
+                            door.doorClosePos = oldBase:localToWorld( door.doorClosePos )
+                            door.doorOpenPos = oldBase:localToWorld( door.doorOpenPos )
+                        end
+                    end
+                end
+            end
+
+            baseEnts[id] = base
+
+            if isValid( door ) then
+                door.doorBase = base
+            end
+        elseif baseName == "Button" then
+            value = isValid( value ) and value
+            buttonEnts[id] = value
+
+            local door = doorEnts[id]
+
+            if isValid( door ) then
+                door.doorButton = value
+            end
+        elseif baseName == "WhoPressed" then
+            whoPressedEnts[id] = isValid( value ) and value
+        elseif baseName == "Children" then
+            local door = doorEnts[id]
+
+            if isValid( door ) then
+                unparentChildren( door )
+                childrenTbls[id] = value
+                parentChildren( door )
+            else
+                childrenTbls[id] = value
+            end
+        end
+    else
+        if name == "StateAll" then
+            stateAll = value ~= 0
+
+            for i = 1, doorCount do
+                local state = doorStates[i] or false
+
+                setState( i, stateAll or state )
+            end
+        end
+    end
+end
+
+hook.add( "input", "LKL_" .. projectNameID .. "_WireInput", wireInput )
+
+hook.add( "Removed", "LKL_" .. projectNameID .. "unparentEnts", onLast )
+
+hook.add( "LKL_DoSound_SoundFinished", "LKL_" .. projectNameID .. "_RemoveDirectionalHolo", function( ent, sound )
+    if not isValid( ent ) then return end
+    if not ent.isHolo then return end
+
+    ent:remove()
+end )
+
+timer.create( "LKL_" .. projectNameID .. "MoveDoors", doorInterval, 0, function()
+    for i = 1, doorCount do
+        local door = doorEnts[i]
+
+        if isValid( door ) and door.doorReady then
+            if door.doorSlides then
+                slideDoor( door, i )
+            else
+                rotateDoor( door, i )
+            end
+        end
+    end
+end )
+
+timer.simple( 3, function()
+    initialized = true
+end )

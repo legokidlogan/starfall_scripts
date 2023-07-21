@@ -1,0 +1,90 @@
+--@name cl_dosound tester
+--@author legokidlogan
+--@client
+--@include lkl/cl_dosound.txt
+
+if player() ~= owner() then return end
+
+local soundGroup = 3
+local soundGap = 1
+
+local function randPrefix( options )
+    return options[math.random( 1, #options )]
+end
+
+permissionSatisfied = true
+soundTbl = {
+    One = {
+        Path = function() return "physics/metal_radio/physics_metal_radio_impact_" .. randPrefix( { "sm", "md", "lg" } ) .. "_0" .. math.random( 1, 7 ) .. ".wav" end,
+        Pitch = 1,
+        Volume = 1,
+    },
+    Two = {
+        Path = function() return "physics/metal/metal_solid_impact_" .. randPrefix( { "soft1", "soft2", "soft3", "hard1", "hard4", "hard5" } ) .. ".wav" end,
+        Pitch = 1,
+        Volume = 1,
+    },
+    Three = {
+        Path = "physics/metal/chain_impact_soft2.wav",
+        Pitch = 1,
+        Volume = 1,
+    },
+    Four = {
+        Path = "https://cdn.discordapp.com/attachments/303869552503291904/874114555414974494/LargestBlackHole.mp3",
+        Pitch = 1,
+        Volume = 1,
+    },
+    Template = {
+        Path = "",
+        Pitch = 1,
+        Volume = 1,
+        Duration = nil,
+        Loop = false,
+        FadeMin = 700,
+        FadeMax = 1500,
+        Delay = nil,
+    },
+
+    [1] = {
+        Path = "doors/door_latch1.wav",
+        Duration = 0.886,
+        Volume = 1,
+        Pitch = 1,
+        Level = nil,
+        Delay = nil,
+    },
+    [2] = {
+        Path = "buttons/latchunlocked2.wav",
+        Duration = 0.47,
+        Volume = 1,
+        Pitch = 1,
+        Level = nil,
+        Delay = nil,
+    },
+    [3] = {
+        Path = "doors/door_metal_medium_open1.wav",
+        Duration = 0.703,
+        Volume = 1,
+        Pitch = 1,
+        Level = nil,
+        Delay = nil,
+    },
+}
+
+require( "lkl/cl_dosound.txt" )
+
+local soundSelect = 1
+
+if soundGap then
+    timer.create( "LKL_SoundTester_DoSound", soundGap, 0, function()
+        if type( soundGroup ) == "number" then
+            doSound( soundSelect, chip() )
+
+            soundSelect = ( soundSelect % soundGroup ) + 1
+        else
+            doSound( soundGroup, chip() )
+        end
+    end )
+else
+    doSound( soundGroup, chip() )
+end

@@ -1,0 +1,144 @@
+--@name Seven Segment Display
+--@author legokidlogan
+--@server
+
+local numDigits = 5
+local darkenLeadingZeros = true
+
+local offColor = function( digit, value, fullValue, isLeadingZero )
+    return Color( 100, 0, 0, 255 )
+end
+
+local onColor = function( digit, value, fullValue, isLeadingZero )
+    if isLeadingZero and darkenLeadingZeros then return Color( 150, 0, 0, 255 ) end
+
+    return Color( 255, 0, 0, 255 )
+end
+
+local offMaterial = "models/debug/debugwhite"
+local onMaterial = "lights/white001"
+
+-------------------------------------------------
+
+local digits = {}
+local numReference = {
+    { false, true, true, false, false, false, false }, -- 1
+    { true, true, false, true, true, false, true }, -- 2
+    { true, true, true, true, false, false, true }, -- 3
+    { false, true, true, false, false, true, true }, -- 4
+    { true, false, true, true, false, true, true }, -- 5
+    { true, false, true, true, true, true, true }, -- 6
+    { true, true, true, false, false, false, false }, -- 7
+    { true, true, true, true, true, true, true }, -- 8
+    { true, true, true, false, false, true, true }, -- 9
+    A = { true, true, true, false, true, true, true },
+    B = { false, false, true, true, true, true, true },
+    C = { true, false, false, true, true, true, false },
+    D = { false, true, true, true, true, false, true },
+    E = { true, false, false, true, true, true, true },
+    F = { true, false, false, false, true, true, true },
+    G = { true, true, true, true, false, true, true },
+    H = { false, true, true, false, true, true, true },
+    I = { false, false, false, false, true, true, false },
+    J = { false, true, true, true, true, false, false },
+    K = { false, false, false, false, true, true, true }, -- Really scuffed
+    L = { false, false, false, true, true, true, false },
+    M = { true, false, false, true, false, false, true }, ------------
+    N = { false, false, true, false, true, false, true },
+    O = { false, false, true, true, true, false, true },
+    P = { true, true, false, false, true, true, true },
+    Q = { true, false, false, true, false, false, true }, ------------
+    R = { true, true, false, false, true, true, false },
+    S = { true, false, false, true, false, false, true }, ------------
+    T = { true, false, false, true, false, false, true }, ------------
+    U = { false, true, true, true, true, true, false },
+    V = { false, false, true, true, true, false, false },
+    W = { true, false, false, true, false, false, true }, ------------
+    X = { true, false, false, true, false, false, true }, ------------
+    Y = { true, false, false, true, false, false, true }, ------------
+    Z = { true, false, false, true, false, false, true }, ------------
+    OFF = { false, false, false, false, false, false, false }, ------------
+}
+numReference[0] = { true, true, true, true, true, true, false } -- 0
+
+local inputNames = { "DisplayNumber", "DisplayString" }
+local inputTypes = { "NUMBER", "STRING" }
+
+do
+    local inputOffset = #inputNames
+
+    for i = 1, numDigits do
+        inputNames[i + inputOffset] = "Digit_" .. i
+        inputTypes[i + inputOffset] = "ARRAY"
+    end
+end
+
+wire.adjustInputs( inputNames, inputTypes )
+
+local function wireInput( name, value )
+    if name == "DisplayNumber" then
+        local digitVals = string.explode( "", string.right( string.format( "%0" .. numDigits .. "d", value ), numDigits ) )
+        local zerosAreLeading = true
+
+        for i = 1, numDigits do
+            local digitVal = tonumber( digitVals[i] )
+            local segments = digits[i]
+            local segmentStates = numReference[digitVal]
+
+            if zerosAreLeading and digitVal ~= 0 then
+                zerosAreLeading = false
+            end
+
+            if segments then
+                for i2 = 1, 7 do
+                    local segment = segments[i2]
+                    local segmentState = segmentStates[i2]
+
+                    pcall( function()
+                        segment:setColor( segmentState and onColor( i2, digitVal, value, zerosAreLeading ) or offColor( i2, digitVal, value, zerosAreLeading ) )
+                        segment:setMaterial( segmentState and onMaterial or offMaterial )
+                    end )
+                end
+            end
+        end
+    elseif name == "DisplayString" then
+        local digitVals = string.split( value, "" )
+        local digitValCount = #digitVals
+        local digitInd = digitValCount
+
+        for i = numDigits, 1, -1 do
+            local digitVal = digitVals[digitInd] or "OFF"
+            local segments = digits[i]
+            local segmentStates = numReference[tonumber( digitVal ) or digitVal] or numReference.OFF
+            digitInd = digitInd - 1
+
+            if segments then
+                for i2 = 1, 7 do
+                    local segment = segments[i2]
+                    local segmentState = segmentStates[i2]
+
+                    pcall( function()
+                        segment:setColor( segmentState and onColor( i2, digitVal, value, false ) or offColor( i2, digitVal, value, false ) )
+                        segment:setMaterial( segmentState and onMaterial or offMaterial )
+                    end )
+                end
+            end
+        end
+    else
+        local digitInd = tonumber( string.explode( "_", name )[2] )
+
+        if #value ~= 7 then
+            digits[digitInd] = nil
+
+            return
+        end
+
+        digits[digitInd] = value
+
+        if #digits == numDigits then
+            wireInput( "DisplayNumber", wire.ports.DisplayNumber )
+        end
+    end
+end
+
+hook.add( "input", "LKL_SegDisplay", wireInput )

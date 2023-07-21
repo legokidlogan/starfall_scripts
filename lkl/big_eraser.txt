@@ -1,0 +1,80 @@
+--@name Big Eraser
+--@author legokidlogan
+--@server
+
+
+-- CONFIG
+local eraserSize = 100 -- Cube 'radius' of the eraser
+local eraserColor = Color( 255, 160, 220, 100 )
+local eraserMat = "models/debug/debugwhite"
+local eraserInterval = 0
+local ownerOwnly = true
+
+local classBlacklist = {
+    gmod_wire_hologram = true,
+    starfall_hologram = true,
+}
+
+
+local function eraserFilter( ent, class )
+
+
+    return true
+end
+-- END CONFIG
+
+
+prop.setPropUndo( false )
+
+local ownerCached = owner()
+local chipCached = chip()
+local eraserHullMin = Vector( -eraserSize )
+local eraserHullMax = Vector( eraserSize )
+local eraserEnt
+local eraserHolo
+
+do
+    local pos = chip():localToWorld( Vector( 0, 0, 100 ) )
+    local ang = Angle()
+    local model = "models/hunter/blocks/cube025x025x025.mdl"
+
+    eraserEnt = prop.create( pos, ang, model, true )
+
+    eraserHolo = hologram.create( pos, ang, model )
+    eraserHolo:setSize( eraserHullMax * 2 )
+    eraserHolo:setMaterial( eraserMat )
+    eraserHolo:setColor( eraserColor )
+    eraserHolo:setParent( eraserEnt )
+end
+
+
+local function _eraserFilter( ent )
+    if not isValid( ent ) then return false end
+    if ent == eraserEnt then return false end
+    if ent == chipCached then return false end
+    if ownerOwnly and ent:getOwner() ~= ownerCached then return false end
+    if not hasPermission( "entities.setPos", ent ) then return false end
+
+    local class = ent:getClass()
+    if classBlacklist[class] then return false end
+    if not eraserFilter( ent, class ) then return false end
+
+    return true
+end
+
+local function intervalFunc()
+    local pos = eraserEnt:getPos()
+    local ents = find.inBox( pos + eraserHullMin, pos + eraserHullMax, _eraserFilter )
+    local count = #ents
+
+    for i = 1, count do
+        ents[i]:remove()
+    end
+end
+
+
+if eraserInterval <= 0 then
+    hook.add( "think", "LKL_BigEraser_Erase", intervalFunc )
+else
+    timer.create( "LKL_BigEraser_Erase", eraserInterval, 0, intervalFunc )
+end

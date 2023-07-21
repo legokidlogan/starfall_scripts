@@ -1,0 +1,188 @@
+--@name scroll_bar
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+--@include lkl/sgui/scroll_button.txt
+--@include lkl/sgui/scroll_thumb.txt
+
+--[[
+    - SGUI.ScrollBar
+    - THIS IS AN INTERNAL CLASS, DO NOT USE
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+require( "lkl/sgui/scroll_button.txt" )
+require( "lkl/sgui/scroll_thumb.txt" )
+
+if SGUI.ScrollBar then return end -- Don't run twice
+
+
+SGUI.ScrollBar = class( "ScrollBar", SGUI.Panel )
+
+
+local ScrollBar = SGUI.ScrollBar
+local Panel = SGUI.Panel
+local ScrollThumb = SGUI.ScrollThumb
+local ScrollButton = SGUI.ScrollButton
+
+
+----- STATIC FUNCTIONS -----
+
+function ScrollBar:initialize( parent, scrollable, scrollDirection )
+    ScrollBar.super.initialize( self, parent )
+
+    self._scrollDirection = scrollDirection
+
+
+    local scrollButtonIncrement = ScrollButton( nil, scrollDirection, true )
+    self._scrollButtonIncrement = scrollButtonIncrement
+    scrollButtonIncrement:setParent( self )
+
+    if scrollDirection == SCROLL_VERTICAL then
+        scrollButtonIncrement:setDock( DOCK_BOTTOM )
+    else
+        scrollButtonIncrement:setDock( DOCK_RIGHT )
+    end
+
+
+    local scrollButtonDecrement = ScrollButton( nil, scrollDirection, false )
+    self._scrollButtonDecrement = scrollButtonDecrement
+    scrollButtonDecrement:setParent( self )
+
+    if scrollDirection == SCROLL_VERTICAL then
+        scrollButtonDecrement:setDock( DOCK_TOP )
+    else
+        scrollButtonDecrement:setDock( DOCK_LEFT )
+    end
+
+
+    local scrollThumbRegion = Panel()
+    self._scrollThumbRegion = scrollThumbRegion
+    scrollThumbRegion:setParent( self )
+    scrollThumbRegion:allowDragParenting( false )
+    scrollThumbRegion:setDock( DOCK_FILL )
+    scrollThumbRegion:setBorderSize( 0 )
+    scrollThumbRegion:setMargin( 0 )
+    scrollThumbRegion:setInnerMargin( 0 )
+
+    local scrollThumb = ScrollThumb( scrollThumbRegion, scrollable, scrollDirection )
+    self._scrollThumb = scrollThumb
+
+    function scrollThumbRegion:handleDrawBackground()
+        -- Do nothing.
+    end
+
+    function scrollThumbRegion:rerouteChild( _ )
+        error( "Cannot parent to a ScrollBar's thumb region" )
+    end
+
+
+    self:setBorderSize( 0 )
+    self:setInnerMargin( 1 )
+    self:acceptMouseInputRecursive( true )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ScrollBar:setScrollStep( step )
+    self:getScrollButtonIncrement():setScrollStep( step )
+    self:getScrollButtonDecrement():setScrollStep( step )
+end
+
+function ScrollBar:getScrollDirection()
+    return self._scrollDirection
+end
+
+function ScrollBar:isVertical()
+    return self:getScrollDirection() == SCROLL_VERTICAL
+end
+
+function ScrollBar:isHorizontal()
+    return self:getScrollDirection() == SCROLL_HORIZONTAL
+end
+
+function ScrollBar:setScroll( scroll )
+    local scrollable = self:getParent()
+
+    if self:getScrollDirection() == SCROLL_VERTICAL then
+        scrollable:setScrollY( scroll )
+    else
+        scrollable:setScrollX( scroll )
+    end
+end
+
+function ScrollBar:getScroll()
+    local scrollable = self:getParent()
+
+    if self:getScrollDirection() == SCROLL_VERTICAL then
+        return scrollable:getScrollY()
+    else
+        return scrollable:getScrollX()
+    end
+end
+
+function ScrollBar:updateThumbPos()
+    local scrollThumb = self:getScrollThumb()
+    scrollThumb:setPos( scrollThumb:getPosFromScroll() )
+end
+
+function ScrollBar:updateThumbSize()
+    local scrollable = self:getParent()
+    local scrollThumb = self:getScrollThumb()
+
+    if self:isVertical() then
+        local barSize = self:getScrollThumbRegion():getHeight()
+        local scrollSize = scrollable:getScrollHeight()
+        scrollThumb:setHeight( barSize * barSize / scrollSize )
+    else
+        local barSize = self:getScrollThumbRegion():getWidth()
+        local scrollSize = scrollable:getScrollWidth()
+        scrollThumb:setWidth( barSize * barSize / scrollSize )
+    end
+end
+
+function ScrollBar:getScrollButtonIncrement()
+    return self._scrollButtonIncrement
+end
+
+function ScrollBar:getScrollButtonDecrement()
+    return self._scrollButtonDecrement
+end
+
+function ScrollBar:getScrollThumbRegion()
+    return self._scrollThumbRegion
+end
+
+function ScrollBar:getScrollThumb()
+    return self._scrollThumb
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ScrollBar:rerouteChild( child )
+    if child == self:getScrollButtonIncrement() then return self end
+    if child == self:getScrollButtonDecrement() then return self end
+    if child == self:getScrollThumbRegion() then return self end
+
+    error( "Cannot parent to a ScrollBar" )
+end
+
+function ScrollBar:performLayout()
+    self:updateThumbSize()
+    self:updateThumbPos()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+

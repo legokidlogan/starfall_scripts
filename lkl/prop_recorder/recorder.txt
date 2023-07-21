@@ -1,0 +1,330 @@
+--@name Recorder
+--@author legokidlogan
+--@shared
+--@include lkl/simple_file_handler.txt
+--@include lkl/simple_ratelimit.txt
+--@include lkl/key_globalizer.txt
+
+if CLIENT and player() ~= owner() then return end
+
+require( "lkl/key_globalizer.txt" )
+
+
+-- CONFIG 1 of 2
+local toggleButton = KEY_P
+-- END CONFIG
+
+
+sfhBaseFolder = "lkl/prop_recorder"
+sfhHookBase = "LKL_PropRecorder_FileHandler_"
+local fileHandler = require( "lkl/simple_file_handler.txt" )
+
+
+hook.add( "inputPressed", "LKL_PropRecorder_ToggleRecording", function( key )
+    if key ~= toggleButton then return end
+
+    net.start( "LKL_PropRecorder_ToggleRecording" )
+    net.writeEntity( chip() )
+    net.send()
+end )
+
+
+if CLIENT then return end
+
+
+-- CONFIG 2 of 2
+local numInputArrays = 5
+local recordInterval = 0.05
+local perfLimit = 0.8
+local alphaOverride = false --200
+local commandPrefix = "/rec"
+-- END CONFIG
+
+
+propRecorder = propRecorder or {}
+
+local tableInsert = table.insert
+local tableRemove = table.remove
+
+local recording = false
+local canRecord = true
+local curFileName = ""
+local recordingOriginPos
+local recordingOriginAng
+local recordedData = {}
+local trackedEntLists = {}
+local currentRecordingEnts = {}
+local currentRecordingEntsLookup = {}
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+for i = 1, numInputArrays do
+    tableInsert( inputNames, "EntsToTrack__" .. i )
+    tableInsert( inputTypes, "ARRAY" )
+end
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+
+require( "lkl/simple_ratelimit.txt" )
+
+
+local function perf( frac )
+    return quotaAverage() < quotaMax() * frac
+end
+
+local function getInputID( name )
+    if type( name ) ~= "string" then return end
+
+    local info = string.split( name, "__" )
+    local id = info[2]
+
+    if id then
+        id = tonumber( id )
+
+        if not id or id < 1 then
+            id = false
+        end
+    end
+
+    return info[1], id
+end
+
+local function wireInput( name, value )
+    local baseName, id = getInputID( name )
+
+    if baseName == "EntsToTrack" then
+        value = value or {}
+
+        for i = #value, 1, -1 do
+            local ent = value[i]
+
+            if not isValid( ent ) then
+                tableRemove( value, i )
+            end
+        end
+
+        trackedEntLists[id] = value
+    end
+end
+
+
+function propRecorder.setFileName( fileName )
+    if not fileName then
+        curFileName = ""
+        print( "File name cleared!" )
+
+        return
+    end
+
+    if type( fileName ) ~= "string" then
+        error( "Expected fileName to be a string" )
+    end
+
+    if not string.endsWith( fileName, ".txt" ) then
+        fileName = fileName .. ".txt"
+    end
+
+    curFileName = fileName
+    print( "File name set to " .. fileName )
+end
+
+function propRecorder.startRecording( fileName )
+    if recording then error( "Already recording!" ) end
+    if not canRecord then error( "Please wait a few seconds before recording again!" ) end
+
+    fileName = fileName or curFileName
+
+    if not fileName then error( "Please specify a file name!" ) end
+
+    curFileName = fileName
+    recording = true
+    recordingOriginPos = chip():getPos()
+    recordingOriginAng = chip():getAngles()
+    currentRecordingEnts = {}
+    currentRecordingEntsLookup = {}
+    recordedData = {}
+    local entCount = 0
+
+    for _, entList in pairs( trackedEntLists ) do
+        for _, ent in pairs( entList ) do
+            if not currentRecordingEntsLookup[ent] then
+                entCount = entCount + 1
+                currentRecordingEnts[entCount] = ent
+                currentRecordingEntsLookup[ent] = entCount
+            end
+        end
+    end
+
+    local recordedDataInit = {}
+    recordedData[1] = recordedDataInit
+
+    for i = 1, entCount do
+        local ent = currentRecordingEnts[i]
+        local color = ent:getColor()
+
+        if alphaOverride then
+            color.a = alphaOverride
+        end
+
+        local pos, ang = worldToLocal( ent:getPos(), ent:getAngles(), recordingOriginPos, recordingOriginAng )
+
+        recordedDataInit[i] = {
+            Model = ent:getModel(),
+            Pos = pos,
+            Ang = ang,
+            Material = ent:getMaterial(),
+            Color = color,
+        }
+    end
+
+    print( "Recording started!" )
+end
+
+function propRecorder.stopRecording()
+    if not recording then error( "Not recording!" ) end
+
+    recording = false
+    canRecord = false
+    print( "Recording stopped!" )
+
+    fileHandler.save(
+        curFileName,
+        {
+            Data = recordedData,
+            Interval = recordInterval,
+        },
+        function()
+            canRecord = true
+            recordedData = {}
+            print( "File saved!" )
+        end
+    )
+end
+
+function propRecorder.cancelRecording()
+    if not recording then error( "Not recording!" ) end
+
+    recording = false
+    canRecord = true
+    recordedData = {}
+    print( "Recording canceled!" )
+end
+
+
+hook.add( "input", "LKL_PropRecorder_WireInput", wireInput )
+
+hook.add( "PlayerSay", "LKL_PropRecorder_ChatCommands", function( ply, msg )
+    if ply ~= owner() then return end
+
+    local args = string.split( msg, " " )
+    local prefix = tableRemove( args, 1 )
+    if prefix ~= commandPrefix then return end
+
+    local cmd = tableRemove( args, 1 )
+
+    local _, err = pcall( function()
+        if cmd == "start" then
+            propRecorder.startRecording( args[1] )
+        elseif cmd == "stop" then
+            propRecorder.stopRecording()
+        elseif cmd == "filename" or cmd == "name" then
+            propRecorder.setFileName( args[1] )
+        end
+    end )
+
+    if err then
+        err = type( err ) == "string" and err or err.message or err.msg
+        print( "Error: " .. err )
+    end
+
+    return ""
+end )
+
+
+net.receive( "LKL_PropRecorder_ToggleRecording", function( _, ply )
+    if ply ~= owner() then return end
+    if net.readEntity() ~= chip() then return end
+
+    if recording then
+        propRecorder.stopRecording()
+    else
+        propRecorder.startRecording()
+    end
+end )
+
+
+timer.create( "LKL_PropRecorder_RecordStep", recordInterval, 0, function()
+    if not recording then return end
+
+    local recordedDataStep = {}
+    recordedData[#recordedData + 1] = recordedDataStep
+
+    for i = 1, #currentRecordingEnts do
+        if not perf( perfLimit ) then
+            simpleRatelimit(
+                function()
+                    print( "Perf exceeded during recording! Inaccuracies may occur." )
+                end,
+                0.5,
+                "LKL_PropRecorder_PerfAlert"
+            )
+
+            break
+        end
+
+        local ent = currentRecordingEnts[i]
+        local entry = {}
+
+        if isValid( ent ) then
+            local color = ent:getColor()
+
+            if alphaOverride then
+                color.a = alphaOverride
+            end
+
+            local oldColor = ent.prOldColor
+            if oldColor ~= color then
+                entry.Color = color
+                ent.prOldColor = color
+            end
+
+            local pos = ent:getPos()
+            local oldPos = ent.prOldPos
+            local ang = ent:getAngles()
+            local oldAng = ent.prOldAng
+            if oldPos ~= pos or oldAng ~= ang then
+                local posLocal, angLocal = worldToLocal( ent:getPos(), ent:getAngles(), recordingOriginPos, recordingOriginAng )
+
+                entry.Pos = posLocal
+                ent.prOldPos = pos
+
+                entry.Ang = angLocal
+                ent.prOldAng = ang
+            end
+
+            local mat = ent:getMaterial()
+            local oldMat = ent.prOldMat
+            if oldMat ~= mat then
+                entry.Material = mat
+                ent.prOldMat = mat
+            end
+        elseif not ent.prRemoved then
+            ent.prRemoved = true
+            entry.Color = Color( 0, 0, 0, 0 )
+        end
+
+        recordedDataStep[i] = entry
+    end
+end )
+
+
+timer.simple( 1, function()
+    for i = 1, numInputArrays do
+        wireInput( "EntsToTrack__" .. i, wire.ports["EntsToTrack__" .. i] )
+    end
+end )

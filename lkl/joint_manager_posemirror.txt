@@ -1,0 +1,37 @@
+--@name Joint Manager PoseMirror
+--@author legokidlogan
+--@shared
+
+local tableCopyFromTo = table.copyFromTo
+
+local stringFind = string.find
+local stringReplace = string.replace
+
+function jointPoseMirror( poses, normalName, mirrorName )
+    local posesCopy = {}
+    tableCopyFromTo( poses, posesCopy )
+
+    --for poseName, poseData in pairs( poses ) do
+    for poseName, poseData in pairs( posesCopy ) do
+--print( poseName, stringFind( poseName, normalName ) )
+        if stringFind( poseName, normalName ) then
+            local poseDataMirror = {}
+            local poseNameMirror = stringReplace( poseName, normalName, mirrorName )
+--print(poseName,poseNameMirror)
+            tableCopyFromTo( poseData, poseDataMirror )
+            --poses[poseNameMirror] = poseDataMirror
+            posesCopy[poseNameMirror] = poseDataMirror
+
+            --for jointName, ang in pairs( poseDataMirror ) do
+            for jointName, ang in pairs( poseData ) do
+                local jointNameMirror = stringReplace( jointName, normalName, mirrorName )
+--print(jointName,jointNameMirror)
+                poseDataMirror[jointName] = nil
+                poseDataMirror[jointNameMirror] = ang
+            end
+        end
+    end
+
+    --return poses
+    return posesCopy
+end

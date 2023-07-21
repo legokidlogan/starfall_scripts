@@ -1,0 +1,342 @@
+--@name Joint Manager Tester
+--@author legokidlogan
+--@shared
+--@include lkl/joint_manager.txt
+--@include lkl/vector_tester.txt
+--@include lkl/joint_manager_posemirror.txt
+
+--@include lkl/jm_test_joints.txt
+--@include lkl/jm_test_poses.txt
+--@include lkl/jm_test_anims.txt
+
+
+require( "lkl/joint_manager_posemirror.txt" )
+
+jointConfig = {
+    NumBases = 1,
+    SeparateInputs = true, -- Whether the inputs for joints should be separated or combined into a single array input. For the array, the order matches the order used for the jointConfig.
+    UpdateInterval = 100, -- Update rate for the joints, in milliseconds. A smaller number means smoother joints, but more CPU usage and server lag. Min value is 15, as servers with a tickrate of 66 cannot go faster.
+    UpdateIntervalHoldables = 100, -- UpdateInterval, but for holdables.
+}
+
+jointInfos = require( "lkl/jm_test_joints.txt" )
+jointPoses = jointPoseMirror( require( "lkl/jm_test_poses.txt" ), "Right", "Left" )
+jointAnims = require( "lkl/jm_test_anims.txt" )
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+jointEnts = jointEnts or {}
+jointLookup = jointLookup or {}
+jointNameToID = jointNameToID or {}
+jointBaseEnts = jointBaseEnts or {}
+jointHoldables = jointHoldables or {}
+jointHoldableLookup = jointHoldableLookup or {}
+jointHoldableCount = #jointHoldables
+
+extraTimerPrecision = 2
+
+require( "lkl/vector_tester.txt" )
+require( "lkl/joint_manager.txt" )
+
+if CLIENT then return end
+
+local vec0 = Vector( 0, 0, 0 )
+local ang0 = Angle( 0, 0, 0 )
+local vecHolo = Vector( 1, 1, 1 )
+
+local holo1 = holograms.create( vec0, ang0, "models/hunter/blocks/cube025x025x025.mdl", vecHolo )
+local holo2 = holograms.create( vec0, ang0, "models/hunter/blocks/cube025x025x025.mdl", vecHolo )
+local holo3 = holograms.create( vec0, ang0, "models/hunter/blocks/cube025x025x025.mdl", vecHolo )
+
+local holoB1 = holograms.create( vec0, ang0, "models/hunter/blocks/cube025x025x025.mdl", vecHolo )
+local holoB2 = holograms.create( vec0, ang0, "models/hunter/blocks/cube025x025x025.mdl", vecHolo )
+local holoB3 = holograms.create( vec0, ang0, "models/hunter/blocks/cube025x025x025.mdl", vecHolo )
+local holoB4 = holograms.create( vec0, ang0, "models/hunter/blocks/cube025x025x025.mdl", vecHolo )
+
+holo1:setMaterial( "models/debug/debugwhite" )
+holo2:setMaterial( "models/debug/debugwhite" )
+holo3:setMaterial( "models/debug/debugwhite" )
+
+holoB1:setMaterial( "models/debug/debugwhite" )
+holoB2:setMaterial( "models/debug/debugwhite" )
+holoB3:setMaterial( "models/debug/debugwhite" )
+holoB4:setMaterial( "models/debug/debugwhite" )
+
+
+holo1:setColor( c_white_faded )
+holo2:setColor( c_white_faded )
+holo3:setColor( c_white_faded )
+
+holoB1:setColor( c_yellow_faded )
+holoB2:setColor( c_yellow_faded )
+holoB3:setColor( c_yellow_faded )
+holoB4:setColor( c_yellow_faded )
+
+
+local function setHoloSizeToJoint( holo, joint )
+    local _
+    _, joint = jointIDAndEntFromAny( joint )
+
+    if not isValid( joint ) then return end
+
+    holo:setSize( joint:obbSize() )
+end
+
+
+--manipulateJoint( jointEntOrNameOrInd, ang, smoothTime, duration, isOverride, manipSlot, startAng )
+timer.simple( 4, function()
+    --
+    setHoloSizeToJoint( holoB1, "Right_Leg_Thigh" )
+    setHoloSizeToJoint( holoB2, "Right_Leg_Calf" )
+    setHoloSizeToJoint( holoB3, "Right_Leg_Foot" )
+    --]]
+
+    --[[
+    setHoloSizeToJoint( holoB1, "Right_Leg_Thigh" )
+    setHoloSizeToJoint( holoB2, "Right_Leg_Calf" )
+    setHoloSizeToJoint( holoB3, "Right_Leg_Arch" )
+    setHoloSizeToJoint( holoB4, "Right_Leg_Foot" )
+    --]]
+
+
+    --[[
+    --manipulateJoint( "Right_Finger_Index_1", Angle( 10, 0, 0 ), 1, 5, false, "1", ang0 )
+    manipulateJoint( "Right_Finger_Index_1", Angle( 30, 5, 0 ), 2, 6, false, "1", ang0 )
+    manipulateJoint( "Right_Finger_Index_2", Angle( 40, 0, 0 ), 2, 6, false, "1", ang0 )
+    manipulateJoint( "Right_Finger_Index_3", Angle( 50, 0, 0 ), 2, 6, false, "1", ang0 )
+    --]]
+
+    timer.simple( 1, function()
+        --manipulateJoint( "Right_Finger_Index_1", Angle( -15, 0, 0 ), 1, 5, false, "2", ang0 )
+    end )
+
+
+    local rangeTestJoint1 = "Right_Wrist"
+    --local rangeTestJoint1 = "Right_Leg_Thigh"
+    local rangeTestJoint1 = "NONE"
+
+    local rangeTestAll = false
+
+    local function rangeTest( jointIDs )
+        if type( jointIDs ) ~= "table" then
+            jointIDs = { [1] = jointIDs }
+        end
+
+        manipulateJoints( jointIDs, Angle( 30, 0, 0 ), 1, 3, false, "1", ang0 )
+
+        timer.simple( 1, function()
+            manipulateJoints( jointIDs, Angle( -30, 0, 0 ), 1, 3, false, "1", Angle( 30, 0, 0 ) )
+
+            timer.simple( 1, function()
+                manipulateJoints( jointIDs, Angle( 0, 30, 0 ), 1, 3, false, "1", Angle( -30, 0, 0 ) )
+
+                timer.simple( 1, function()
+                    manipulateJoints( jointIDs, Angle( 0, -30, 0 ), 1, 3, false, "1", Angle( 0, 30, 0 ) )
+
+                    timer.simple( 1, function()
+                        manipulateJoints( jointIDs, Angle( 0, 0, 30 ), 1, 3, false, "1", Angle( 0, -30, 0 ) )
+
+                        timer.simple( 1, function()
+                            manipulateJoints( jointIDs, Angle( 0, 0, -30 ), 1, 3, false, "1", Angle( 0, 0, 30 ) )
+
+                            timer.simple( 1, function()
+                                manipulateJoints( jointIDs, Angle( 30, 30, 0 ), 1, 3, false, "1", Angle( 0, 0, -30 ) )
+
+                                timer.simple( 1, function()
+                                    manipulateJoints( jointIDs, Angle( 30, -30, 0 ), 1, 3, false, "1", Angle( 30, 30, 0 ) )
+                                end )
+                            end )
+                        end )
+                    end )
+                end )
+            end )
+        end )
+    end
+
+
+    if rangeTestAll then
+        rangeTest( table.getKeys( jointNameToID ) )
+    else
+        rangeTest( rangeTestJoint1 )
+    end
+
+    --]]
+
+
+    --jointApplyPose( "Right_FlipTheBird", 2, 0, 1, false )
+
+    --jointApplyAnim( "Test_1", 1, 1, nil, nil )
+
+    local testFoot = false
+
+    --[[
+    timer.create( "TEST_IK2", 0.1, 0, function()
+        local _, jointA = jointIDAndEntFromAny( "Right_Leg_Thigh" )
+        local _, jointB = jointIDAndEntFromAny( "Right_Leg_Calf" )
+        local _, jointC = jointIDAndEntFromAny( "Right_Leg_Foot" )
+
+        local startPos = jointA.jointParent:localToWorld( jointA.jointIKOriginFromParent )
+        local endPos = chip():getPos()
+
+        local angA, angB, bendPos = jointTwoSegIK( jointA, jointB, chip():getPos(), 90 )
+
+        manipulateJoint( jointA, angA, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointB, angB, 0, 0, true, "1", ang0 )
+
+        if testFoot then
+            local footAng = ( endPos - startPos ):setZ( 0 ):getAngle()
+            local angC = intendedWorldAngToJointAng( jointC, footAng )
+
+            manipulateJoint( jointC, angC, 0, 0, true, "1", ang0 )
+        end
+    end )
+    --]]
+
+
+
+    --[[
+    timer.create( "TEST_IK3", 0.1, 0, function()
+        local _, jointA = jointIDAndEntFromAny( "Right_Leg_Thigh" )
+        local _, jointB = jointIDAndEntFromAny( "Right_Leg_Calf" )
+        local _, jointC = jointIDAndEntFromAny( "Right_Leg_Arch" )
+        local _, jointD = jointIDAndEntFromAny( "Right_Leg_Foot" )
+        --local _, jointA = jointIDAndEntFromAny( "Right_Wrist" )
+        --local _, jointB = jointIDAndEntFromAny( "Right_Finger_Index_1" )
+        --local _, jointC = jointIDAndEntFromAny( "Right_Finger_Index_2" )
+        --local _, jointD = jointIDAndEntFromAny( "Right_Finger_Index_3" )
+
+        local LA = jointA.jointIKLength
+        local LB = jointB.jointIKLength
+        local LC = jointC.jointIKLength
+        local LX = ( LB + LC ) * 0.8
+
+        local startPos = jointA.jointParent:localToWorld( jointA.jointIKOriginFromParent )
+        local endPos = chip():getPos()
+        --local angA, angB, angC, bendPos1, bendPos2 = jointThreeSegIK( jointA, jointB, jointC, chip():getPos(), LX, 0, 0 )
+        --local angA, angB, angC, bendPos1, bendPos2 = jointThreeSegIK( jointA, jointB, jointC, chip():getPos(), LX, 90, -90 )
+        local angA, angB, angC, bendPos1, bendPos2, intendedAngWorldA, intendedAngWorldB, intendedAngWorldC =
+            jointThreeSegIK( jointA, jointB, jointC, endPos, LX, 90, -90 )
+
+
+
+        if testFoot then
+            local footAng = ( endPos - startPos ):setZ( 0 ):getAngle()
+            local angD = intendedWorldAngToJointAng( jointD, footAng )
+
+            manipulateJoint( jointD, angD, 0, 0, true, "1", ang0 )
+        end
+
+        --
+        manipulateJoint( jointA, angA, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointB, angB, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointC, angC, 0, 0, true, "1", ang0 )
+        --
+
+        --[[
+        manipulateJoint( jointA, ang0, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointB, ang0, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointC, ang0, 0, 0, true, "1", ang0 )
+        --
+
+        holo1:setPos( bendPos1 )
+        holo2:setPos( bendPos2 )
+
+        if intendedAngWorldA then
+            holoB1:setAngles( intendedAngWorldA )
+            holoB2:setAngles( intendedAngWorldB )
+            holoB3:setAngles( intendedAngWorldC )
+
+            holoB1:setPos( ( startPos + bendPos1 ) / 2 )
+            holoB2:setPos( ( bendPos1 + bendPos2 ) / 2 )
+            holoB3:setPos( ( bendPos2 + endPos ) / 2 )
+        end
+    end )
+    --]]
+
+
+    local tiltDegA = 90
+    local tiltDegB = -90
+    local tiltDegC = 90
+
+    local tiltDegChangeA = 0 * 0.1
+    local tiltDegChangeB = 0 * 0.1
+    local tiltDegChangeC = 0 * 0.1
+    --[[
+    timer.create( "TEST_IK4", 0.1, 0, function()
+        local _, jointA = jointIDAndEntFromAny( "Right_Leg_Thigh" )
+        local _, jointB = jointIDAndEntFromAny( "Right_Leg_Calf" )
+        local _, jointC = jointIDAndEntFromAny( "Right_Leg_Arch" )
+        local _, jointD = jointIDAndEntFromAny( "Right_Leg_Foot" )
+        --local _, jointA = jointIDAndEntFromAny( "Right_Wrist" )
+        --local _, jointB = jointIDAndEntFromAny( "Right_Finger_Index_1" )
+        --local _, jointC = jointIDAndEntFromAny( "Right_Finger_Index_2" )
+        --local _, jointD = jointIDAndEntFromAny( "Right_Finger_Index_3" )
+
+        local LA = jointA.jointIKLength
+        local LB = jointB.jointIKLength
+        local LC = jointC.jointIKLength
+        local LD = jointD.jointIKLength
+        local LX1 = ( LB + LC ) * 0.8
+        local LX2 = ( LC + LD ) * 0.8
+
+        local startPos = jointA.jointParent:localToWorld( jointA.jointIKOriginFromParent )
+        local endPos = chip():getPos()
+        --local angA, angB, angC, bendPos1, bendPos2 = jointThreeSegIK( jointA, jointB, jointC, endPos, LX, 0, 0 )
+        --local angA, angB, angC, angD, bendPos1, bendPos2, bendPos3 = jointFourSegIK( jointA, jointB, jointC, jointD, endPos, LX1, LX2, 90, -90, 90 )
+        local angA, angB, angC, angD, bendPos1, bendPos2, bendPos3, intendedAngWorldA, intendedAngWorldB, intendedAngWorldC, intendedAngWorldD =
+            jointFourSegIK( jointA, jointB, jointC, jointD, endPos, LX1, LX2, tiltDegA, tiltDegB, tiltDegC )
+
+        tiltDegA = tiltDegA + tiltDegChangeA
+        tiltDegB = tiltDegB + tiltDegChangeB
+        tiltDegC = tiltDegC + tiltDegChangeC
+
+        --[[
+        angA = angA:setR( 0 )
+        angB = angB:setR( 0 )
+        angC = angC:setR( 0 )
+        angD = angD:setR( 0 )
+        --
+
+        --[[
+        local angMult = Angle( 1, 1, 0.5 )
+        angA = angA * angMult
+        angB = angB * angMult
+        angC = angC * angMult
+        angD = angD * angMult
+        --
+
+
+        --
+        manipulateJoint( jointA, angA, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointB, angB, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointC, angC, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointD, angD, 0, 0, true, "1", ang0 )
+        --
+
+        --[[
+        manipulateJoint( jointA, ang0, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointB, ang0, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointC, ang0, 0, 0, true, "1", ang0 )
+        manipulateJoint( jointD, ang0, 0, 0, true, "1", ang0 )
+        --
+
+        holo1:setPos( bendPos1 )
+        holo2:setPos( bendPos2 )
+        holo3:setPos( bendPos3 )
+
+        if intendedAngWorldA then
+            holoB1:setAngles( intendedAngWorldA )
+            holoB2:setAngles( intendedAngWorldB )
+            holoB3:setAngles( intendedAngWorldC )
+            holoB4:setAngles( intendedAngWorldD )
+
+            holoB1:setPos( ( startPos + bendPos1 ) / 2 )
+            holoB2:setPos( ( bendPos1 + bendPos2 ) / 2 )
+            holoB3:setPos( ( bendPos2 + bendPos3 ) / 2 )
+            holoB4:setPos( ( bendPos3 + endPos ) / 2 )
+        end
+    end )
+    --]]
+end )
+

@@ -1,0 +1,905 @@
+--@name Targeted Input
+--@author legokidlogan
+--@shared
+--@include lkl/extra_timers.txt
+
+if tiSetTargets then return end
+
+
+--[[ USAGE:
+    - This is a library for easily managing and tracking button presses, and automatically networking them to the server.
+    - Aside from standard state changes, other things are detected as well, such as combo presses, time since last press, double-tapping, etc.
+    - Most getter functions (such as tiGetButtonState( ply, key )) are available on both SERVER and CLIENT
+        - However, the CLIENT versions will only return the button state for that player's own inputs, and lacks the ply argument.
+        - The SERVER portion of this library has the documentation for each function.
+    - You have to specify which players and which keys you want to track via a pair of SERVER-only functions.
+        - This is to reduce net traffic, by only listening for the desired players and keys.
+        - Optionally, you can track everything, and do the player/key filtering in your callbacks.
+        - Further details in the documentation for tiSetTargets() and tiSetTargetButtons().
+        - The CLIENT always tracks all keys for itself, regardless of the target player list.
+            - The main difference is that untargeted players will not network their info to the server.
+            - If SERVER is set to only target specific buttons, the CLIENT will still track buttons, but won't run associated hooks.
+            - By default, no players are targeted, and all buttons are targeted.
+                - As a result, using this library on CLIENT only will allow for tracking of all CLIENT buttons, usage of related hooks and functions, etc.
+    - An optional library that pairs quite well with this is key_globalizer, which converts Starfall's KEY table into individual enum constants.
+        - This allows for you to do KEY_F instead of KEY.F, etc. just like with regular GLua.
+        - Does the same for IN_KEY.JUMP -> IN_JUMP, etc. and MOUSE.MOUSE1 -> MOUSE_1,  MOUSE.MOUSE1 -> MOUSE_LEFT, etc.
+        - Improves efficiency by cutting out on table lookups.
+        - Also adds the global tables numKeyToNum, numToNumKey, and numToPadKey
+            - These translate between the number values of keys and the KEY_ and KEY_PAD_ constants.
+        - This is not required, but it is recommended.
+
+    - Hooks:
+        LKL_TargetedInput_InputClk:
+            - Called when a button is pressed or released.
+            - Called on both SERVER and CLIENT.
+                - CLIENT only receives calls for itself, though the ply arg is still there.
+            - Args: ( ply, key, state )
+                - ply: The player who pressed the button.
+                - key: The button (number) that was pressed.
+                - state: Whether the button was pressed (true) or released (false).
+            - Returns: None
+        LKL_TargetedInput_Tap:
+            - Called when a button is tapped (pressed, then quickly released).
+            - Called on both SERVER and CLIENT.
+                - CLIENT only receives calls for itself, though the ply arg is still there.
+            - Args: ( ply, key, numTaps )
+                - ply: The player who pressed the button.
+                - key: The button (number) that was pressed.
+                - numTaps: The number of times the button was tapped in a row.
+            - Returns: None
+        LKL_TargetedInput_HoldStart:
+            - Called when a button is held down long enough to not be considered a tap.
+            - Called on both SERVER and CLIENT.
+                - CLIENT only receives calls for itself, though the ply arg is still there.
+            - Args: ( ply, key )
+                - ply: The player who pressed the button.
+                - key: The button (number) that was pressed.
+            - Returns: None
+
+    - Example setup:
+        --@shared
+        --@include lkl/targeted_input.txt
+
+        require( "lkl/targeted_input.txt" )
+
+        if SERVER then
+            local buttonFuncs = {
+                [KEY.F] = function( ply, key, state )
+                    local stateStr = state and "pressed" or "released"
+
+                    print( "F was " .. stateStr .. " by " .. ply:getName() )
+                end,
+                [KEY.G] = function( ply, key, state )
+                    local stateStr = state and "pressed" or "released"
+
+                    print( "G was " .. stateStr .. " by " .. ply:getName() )
+                end,
+            }
+
+
+            tiSetTargets( owner() ) -- Target the chip owner
+            tiSetTargetButtons( table.getKeys( buttonFuncs ) ) -- Target only the desired buttons, reducing network traffic
+
+            local function keyClk( ply, key, state )
+                ( buttonFuncs[key] or function() end )( ply, key, state )
+            end
+
+            hook.add( "LKL_TargetedInput_InputClk", "MYPROJECT_KeyClk", keyClk )
+        else
+            -- Client listener
+            hook.add( "LKL_TargetedInput_InputClk", "MYPROJECT_KeyClk", function( _, key, state )
+                local stateStr = state and "pressed" or "released"
+
+                print( "You " .. stateStr .. " button " .. key )
+            end )
+        end
+--]]
+
+
+
+local targets = {}
+local targetButtons = {}
+local buttonStatesPerPly = {}
+local targetAllButtons = false
+local tapGap = 0.25
+
+local mHuge = math.huge
+local mMax = math.max
+local curtime = timer.curtime
+
+
+local function getMoveState( stateForwards, stateLeft, stateBack, stateRight, stateUp, stateDown, rightIsPositive )
+    local horizMult = rightIsPositive and -1 or 1
+
+    return Vector(
+        ( stateForwards and 1 or 0 ) - ( stateBack and 1 or 0 ),
+        ( stateLeft and horizMult or 0 ) - ( stateRight and horizMult or 0 ),
+        ( stateUp and 1 or 0 ) - ( stateDown and 1 or 0 )
+    )
+end
+
+
+--[[
+    - Sets the TI system to track a specific combo of keys
+    - Will automatically adjust the list of target buttons to include the combo keys
+
+    comboName: (string)
+        - The name of the combo, used to have distinct listeners.
+    comboKeys: (table)
+        - A sequential table of keys to track.
+    comboWindow: (number)
+        - The time window in which the combo must be pressed in order to be considered active.
+        - Set to 0 to ignore the window and simply call the listener once all the keys are simultaneously held down.
+    func: (nil or function)
+        - A function( ply, comboName ) to call when the combo gets triggered.
+            - On CLIENT, ply will always be player()
+        - If nil, the listener will be removed.
+--]]
+function tiTrackCombo( comboName, comboKeys, comboWindow, func )
+    if not comboName then return end
+
+    local hookName = "LKL_TargetedInput_InputClk"
+    local hookListenerName = "LKL_TargetedInput_Combo_" .. comboName
+
+    if not func then
+        hook.remove( hookName, hookListenerName )
+
+        return
+    end
+
+    local keyLookup = {}
+    local comboKeyLookup = {}
+
+    for key in pairs( targetButtons ) do
+        keyLookup[key] = true
+    end
+
+    for _, key in ipairs( comboKeys ) do
+        keyLookup[key] = true
+        comboKeyLookup[key] = true
+    end
+
+    if SERVER then
+        tiSetTargetButtons( table.getKeys( keyLookup ) )
+    end
+
+    hook.add( hookName, hookListenerName, function( ply, key, state )
+        if not state then return end
+        if not comboKeyLookup[key] then return end
+
+        if SERVER then
+            if not tiIsComboActive( ply, comboKeys, comboWindow ) then return end
+        else
+            if not tiIsComboActive( comboKeys, comboWindow ) then return end
+        end
+
+        func( ply, comboName )
+    end )
+end
+
+
+if SERVER then
+    local tableIsEmpty = table.isEmpty
+    local tableRemove = table.remove
+    local timeoutDelay = 4 -- How long to wait before considering a message timed out and needs to be re-sent. Typically only happens during chip startup.
+    local incompleteResponses = {}
+
+
+    local function getHumans( plys )
+        plys = plys or find.allPlayers()
+
+        for i, ply in ipairs( plys ) do
+            if not isValid( ply ) or ply:isBot() then
+                tableRemove( plys, i )
+            end
+        end
+
+        return plys
+    end
+
+    local function _awaitResponseRetry( responseType, ply )
+        if not responseType then return end
+        if not isValid( ply ) then return end
+
+        if responseType == "SetTargets" then
+            net.start( "LKL_TargetedInput_SetTargets" )
+            net.writeEntity( chip() )
+            net.writeTable( targets )
+            net.send( ply )
+        elseif responseType == "SetTargetButtons" then
+            net.start( "LKL_TargetedInput_SetTargetButtons" )
+            net.writeEntity( chip() )
+            net.writeBool( targetAllButtons )
+            net.writeTable( targetButtons )
+            net.send( ply )
+        end
+    end
+
+    local function awaitResponse( responseType, waitFor )
+        if not responseType then return end
+
+        waitFor = waitFor or timeoutDelay
+
+        local plys = getHumans()
+        local plyLookup = {}
+
+        for _, ply in ipairs( plys ) do
+            plyLookup[ply] = true
+        end
+
+        incompleteResponses[responseType] = plyLookup
+
+        timer.create( "LKL_TargetedInput_AwaitResponse_" .. responseType, waitFor, 1, function()
+            local nonResponders = incompleteResponses[responseType] or {}
+
+            for ply in pairs( nonResponders ) do
+                _awaitResponseRetry( responseType, ply )
+            end
+
+            incompleteResponses[responseType] = nil
+        end )
+    end
+
+    --[[
+        - Cannot target bots.
+
+        plys:
+            - { plyOne, plyTwo, plyThree, ... } -> Sets these players as the new targets to get button presses from.
+                - Either numerically indexed, or a lookup table (i.e. { [1] = plyOne, [2] = plyTwo, ... }  or  { [plyOne] = tue, [plyTwo] = true, ... })
+            - {} / false -> Do not target any players.
+            - ply -> Target one specific player. Same as { ply }
+            - nil -> Target ALL players.
+    --]]
+    function tiSetTargets( plys )
+        if plys == nil then
+            plys = getHumans()
+        end
+
+        if not plys then
+            plys = {}
+        end
+
+        local plysType = type( plys )
+
+        if plysType == "Player" and isValid( plys ) then
+            plys = {
+                plys,
+            }
+        elseif plysType ~= "table" then
+            return -- Invalid input (was a number, string, invalid ent, etc)
+        end
+
+        local oldTargets = targets
+        targets = {}
+        plys = getHumans( plys )
+
+        if tableIsEmpty( plys ) then
+            buttonStatesPerPly = {}
+
+            awaitResponse( "SetTargets" )
+            net.start( "LKL_TargetedInput_SetTargets" )
+            net.writeEntity( chip() )
+            net.writeTable( targets )
+            net.send()
+
+            return
+        end
+
+        local plyCount = #plys
+
+        if plyCount == 0 then
+            -- This better be a lookup table!
+
+            for ply in pairs( plys ) do -- deep-clone the table to ensure ply validity and unlink memory addresses
+                if isValid( ply ) and ply:isPlayer() then
+                    targets[ply] = true
+                end
+            end
+        else
+            for i = 1, plyCount do
+                local ply = plys[i]
+
+                if isValid( ply ) and ply:isPlayer() then
+                    targets[ply] = true
+                end
+            end
+        end
+
+        -- Discard button states of now-removed player targets
+        for ply in pairs( oldTargets ) do
+            if not targets[ply] then
+                buttonStatesPerPly[ply or false] = nil
+            end
+        end
+
+        awaitResponse( "SetTargets" )
+        net.start( "LKL_TargetedInput_SetTargets" )
+        net.writeEntity( chip() )
+        net.writeTable( targets )
+        net.send()
+    end
+
+    --[[
+        - Cannot target bots.
+        - Adds to the current target players, instead of replacing them.
+        - Useful for a chip with multiple depencies that each use TargetedInput.
+
+        plys:
+            - { plyOne, plyTwo, plyThree, ... } -> Adds these players to the target list.
+                - Either numerically indexed, or a lookup table (i.e. { [1] = plyOne, [2] = plyTwo, ... }  or  { [plyOne] = tue, [plyTwo] = true, ... })
+            - {} / false -> Do not add any players.
+            - ply -> Add one specific player. Same as { ply }
+            - nil -> Add ALL players.
+    --]]
+    function tiAddTargets( plys )
+        if plys == nil then
+            tiSetTargets( nil )
+
+            return
+        end
+
+        if not plys then return end
+
+        if type( plys ) ~= "table" then
+            plys = {
+                plys,
+            }
+        elseif tableIsEmpty( plys ) then return end
+
+        local combinedTargets = {}
+
+        for ply in pairs( targets ) do
+            combinedTargets[ply] = true
+        end
+
+        for _, ply in pairs( plys ) do
+            combinedTargets[ply] = true
+        end
+
+        tiSetTargets( table.getKeys( combinedTargets ) )
+    end
+
+    --[[
+        - Valid button values are from the KEY/MOUSE enums
+
+        buttons:
+            - { btnOne, btnTwo, btnThree, ... } -> Sets these buttons as the new target inputs.
+                - This can only be a numerical table, not a lookup, since buttons are themselves numbers and #tbl will get confused
+            - {} / false -> Do not target any buttons.
+            - btn -> Target one specific button value. Same as { btn }
+            - nil -> Target ALL possible button inputs.
+    --]]
+    function tiSetTargetButtons( buttons )
+        if buttons == nil then
+            targetAllButtons = true
+            targetButtons = {}
+
+            awaitResponse( "SetTargetButtons" )
+            net.start( "LKL_TargetedInput_SetTargetButtons" )
+            net.writeEntity( chip() )
+            net.writeBool( targetAllButtons )
+            net.writeTable( targetButtons )
+            net.send()
+
+            return
+        end
+
+        if not buttons then
+            buttons = {}
+        end
+
+        if type( buttons ) ~= "table" then
+            buttons = {
+                buttons,
+            }
+        elseif tableIsEmpty( buttons ) then
+            targetAllButtons = false
+            targetButtons = {}
+            buttonStatesPerPly = {}
+
+            awaitResponse( "SetTargetButtons" )
+            net.start( "LKL_TargetedInput_SetTargetButtons" )
+            net.writeEntity( chip() )
+            net.writeBool( targetAllButtons )
+            net.writeTable( targetButtons )
+            net.send()
+
+            return
+        end
+
+        for i = #buttons, 1, -1 do
+            local button = buttons[i]
+
+            if type( button ) ~= "number" then
+                tableRemove( buttons, i )
+            end
+        end
+
+        local plys = find.allPlayers()
+        local plyCount = #plys
+
+        -- Remove buttons states for now-removed button targets
+        for button in pairs( targetButtons ) do
+            if not buttons[button] then
+                for i = 1, plyCount do
+                    ( buttonStatesPerPly[plys[i]] or {} )[button] = nil
+                end
+            end
+        end
+
+        targetAllButtons = false
+        targetButtons = {}
+
+        for _, button in pairs( buttons ) do
+            targetButtons[button] = true
+        end
+
+        awaitResponse( "SetTargetButtons" )
+        net.start( "LKL_TargetedInput_SetTargetButtons" )
+        net.writeEntity( chip() )
+        net.writeBool( targetAllButtons )
+        net.writeTable( targetButtons )
+        net.send()
+    end
+
+    --[[
+        - Valid button values are from the KEY/MOUSE enums
+        - Adds to the current target buttons, instead of replacing them.
+        - Useful for a chip with multiple depencies that each use TargetedInput.
+
+        buttons:
+            - { btnOne, btnTwo, btnThree, ... } -> Adds these buttons to the target inputs.
+                - This can only be a numerical table, not a lookup, since buttons are themselves numbers and #tbl will get confused
+            - {} / false -> Do not add any buttons.
+            - btn -> Add one specific button value. Same as { btn }
+            - nil -> Add ALL possible button inputs.
+    --]]
+    function tiAddTargetButtons( buttons )
+        if targetAllButtons then return end
+
+        if buttons == nil then
+            tiSetTargetButtons( nil )
+
+            return
+        end
+
+        if not buttons then return end
+
+        if type( buttons ) ~= "table" then
+            buttons = {
+                buttons,
+            }
+        elseif tableIsEmpty( buttons ) then return end
+
+        local combinedButtons = {}
+
+        for button in pairs( targetButtons ) do
+            combinedButtons[button] = true
+        end
+
+        for _, button in pairs( buttons ) do
+            combinedButtons[button] = true
+        end
+
+        tiSetTargetButtons( table.getKeys( combinedButtons ) )
+    end
+
+    --[[
+        - Gets the current button state of a player.
+        - If that player or key is not currently targeted, it will always yield false.
+        - Also available on the client, without the ply arg.
+            - On client, this function will always give results as if every button was already targeted.
+        - On server, you can also listen to the following hook for when a button state changes:
+            - "LKL_TargetedInput_InputClk"
+            - args: ply, key, state
+        - State values will automatically refresh to account for adding/removing player/button targets.
+            - This refresh will NOT trigger the custom InputClk hook, however.
+    --]]
+    function tiGetButtonState( ply, key )
+        local buttonData = ( buttonStatesPerPly[ply or false] or {} )[key or false] or {}
+        return buttonData.State or false
+    end
+
+    --[[
+        - Similar server-vs-client behavior as tiGetButtonState().
+        - Provides the time between now and when key was last released by ply (state change, not constant release).
+        - If a button release wasn't recorded for that key, the result will default to math.huge
+    --]]
+    function tiGetTimeSinceLastPress( ply, key )
+        local buttonData = ( buttonStatesPerPly[ply or false] or {} )[key or false] or {}
+        local lastPress = buttonData.LastPress
+
+        if not lastPress then return mHuge end
+
+        return curtime() - lastPress
+    end
+
+    --[[
+        - Similar server-vs-client behavior as tiGetButtonState().
+        - Provides the time between now and when key was last pressed by ply (state change, not active holding).
+        - If a button press wasn't recorded for that key, the result will default to math.huge
+    --]]
+    function tiGetTimeSinceLastRelease( ply, key )
+        local buttonData = ( buttonStatesPerPly[ply or false] or {} )[key or false] or {}
+        local lastRelease = buttonData.LastRelease
+
+        if not lastRelease then return mHuge end
+
+        return curtime() - lastRelease
+    end
+
+    --[[
+        - Returns the amount of time that a button has been held for, according to the tap/hold system.
+        - If the button is not currently held, it will return -1.
+        - If the button is held, but has not been held long enough to be considered a hold, it will return 0.
+        - Otherwise, acts the same as tiGetTimeSinceLastPress() - tapGap
+    --]]
+    function tiGetHoldTime( ply, key )
+        local buttonData = ( buttonStatesPerPly[ply or false] or {} )[key or false] or {}
+        if not buttonData.State then return -1 end
+
+        local lastPress = buttonData.LastPress
+        if not lastPress then return -1 end
+
+        return mMax( curtime() - lastPress - tapGap, 0 )
+    end
+
+    --[[
+        - Has a player pressed a combo of keys in a certain time window?
+
+        ply: (Player)
+            - The player to check the combo state of.
+        comboKeys: (table)
+            - A sequential table of keys to check for.
+        comboWindow: (number)
+            - The time window to check within.
+            - If 0, it will not care about time, and only check for if all the keys are currently pressed.
+    --]]
+    function tiIsComboActive( ply, comboKeys, comboWindow )
+        for _, key in ipairs( comboKeys ) do
+            if not tiGetButtonState( ply, key ) then return false end
+            if comboWindow ~= 0 and tiGetTimeSinceLastPress( ply, key ) > comboWindow then return false end
+        end
+
+        return true
+    end
+
+    --[[
+        - Converts the WASD and Space keys into a vector based on their states
+            - Forward/W is 1, Back/S is -1
+            - Right/D is -1, Left/A is 1   (to match the GMod vector system)
+            - Up/Space is 1
+        - Still requires the player and subsequent keys to be tracked with tiSetTargets() and tiSetTargetButtons().
+        - The CLIENT version of this function uses input.isKeyDown(), and thus doesn't require tracking.
+
+        ply: (Player)
+            - The player to get the movement states for
+        rightIsPositive: (optional) (bool)
+            - If true, right is positive, for straightforward usage with ENTITY:getRight(), etc.
+            - Otherwise, right is negative, to match the GMod vector system
+        downKey: (optional) (number)
+            - Uses the given key as the down key
+    --]]
+    function tiGetMoveStatesWASD( ply, rightIsPositive, downKey )
+        local stateForwards = tiGetButtonState( ply, KEY.W )
+        local stateLeft = tiGetButtonState( ply, KEY.A )
+        local stateBack = tiGetButtonState( ply, KEY.S )
+        local stateRight = tiGetButtonState( ply, KEY.D )
+        local stateUp = tiGetButtonState( ply, KEY.SPACE )
+        local stateDown = downKey and tiGetButtonState( ply, downKey ) or false
+
+        return getMoveState( stateForwards, stateLeft, stateBack, stateRight, stateUp, stateDown, rightIsPositive )
+    end
+
+    --[[
+        - Converts the Arrow and Space keys into a vector based on their states
+            - Forward/UpArrow is 1, Back/DownArrow is -1
+            - Right/RightArrow is -1, Left/LeftArrow is 1   (to match the GMod vector system)
+            - Up/Space is 1
+        - On SERVER, requires the player and subsequent keys to be tracked with this library's functions.
+        - On CLIENT, the keys don't need to be tracked, but only the current player's input is returned, so the ply arg is ignored.
+
+        ply: (Player)
+            - The player to get the movement states for
+            - Does nothing on CLIENT
+        rightIsPositive: (optional) (bool)
+            - If true, right is positive, for straightforward usage with ENTITY:getRight(), etc.
+            - Otherwise, right is negative, to match the GMod vector system
+        downKey: (optional) (number)
+            - Uses the given key as the down key
+    --]]
+    function tiGetMoveStatesArrows( ply, rightIsPositive, downKey )
+        local stateForwards = tiGetButtonState( ply, KEY.UP )
+        local stateLeft = tiGetButtonState( ply, KEY.LEFT )
+        local stateBack = tiGetButtonState( ply, KEY.DOWN )
+        local stateRight = tiGetButtonState( ply, KEY.RIGHT )
+        local stateUp = tiGetButtonState( ply, KEY.SPACE )
+        local stateDown = downKey and tiGetButtonState( ply, downKey ) or false
+
+        return getMoveState( stateForwards, stateLeft, stateBack, stateRight, stateUp, stateDown, rightIsPositive )
+    end
+
+
+    net.receive( "LKL_TargetedInput_InputClk", function( _, ply )
+        if net.readEntity() ~= chip() then return end
+        if not targets[ply] then return end
+
+        local key = net.readUInt( 10 )
+        if not targetAllButtons and not targetButtons[key] then return end
+
+        local buttonStates = buttonStatesPerPly[ply]
+        local state = net.readBool()
+        local actionTime = net.readFloat()
+
+        if not buttonStates then
+            buttonStates = {}
+            buttonStatesPerPly[ply] = buttonStates
+        end
+
+        local buttonData = buttonStates[key]
+
+        if not buttonData then
+            buttonData = {}
+            buttonStates[key] = buttonData
+        end
+
+        buttonData.State = state
+        buttonData[state and "LastPress" or "LastRelease"] = actionTime
+
+        hook.run( "LKL_TargetedInput_InputClk", ply, key, state )
+    end )
+
+    net.receive( "LKL_TargetedInput_Tap", function( _, ply )
+        if net.readEntity() ~= chip() then return end
+        if not targets[ply] then return end
+
+        local key = net.readUInt( 10 )
+        if not targetAllButtons and not targetButtons[key] then return end
+
+        hook.run( "LKL_TargetedInput_Tap", ply, key, net.readUInt( 10 ) )
+    end )
+
+    net.receive( "LKL_TargetedInput_HoldStart", function( _, ply )
+        if net.readEntity() ~= chip() then return end
+        if not targets[ply] then return end
+
+        local key = net.readUInt( 10 )
+        if not targetAllButtons and not targetButtons[key] then return end
+
+        hook.run( "LKL_TargetedInput_HoldStart", ply, key )
+    end )
+
+    net.receive( "LKL_TargetedInput_RefreshMyButtonStates", function( _, ply )
+        if net.readEntity() ~= chip() then return end
+
+        buttonStatesPerPly[ply] = net.readTable()
+    end )
+
+    net.receive( "LKL_TargetedInput_Acknowledge", function( _, ply )
+        if net.readEntity() ~= chip() then return end
+
+        local responseType = net.readString()
+        local nonResponders = incompleteResponses[responseType]
+        if not nonResponders then return end
+
+        nonResponders[ply] = nil
+    end )
+
+
+    timer.simple( 0.5, function() -- Net isn't reliable on init, so we'll send a delayed update on startup for just in case
+        net.start( "LKL_TargetedInput_SetTargets" )
+        net.writeEntity( chip() )
+        net.writeTable( targets )
+        net.send()
+
+        net.start( "LKL_TargetedInput_SetTargetButtons" )
+        net.writeEntity( chip() )
+        net.writeBool( targetAllButtons )
+        net.writeTable( targetButtons )
+        net.send()
+    end )
+else
+    require( "lkl/extra_timers.txt" )
+
+    local iAmATarget = false
+    local myButtonStates = {}
+    local tapStreaks = {}
+
+    function tiGetButtonState( key )
+        return ( myButtonStates[key or false] or {} ).State or false
+    end
+
+    function tiGetTimeSinceLastPress( key )
+        local buttonData = myButtonStates[key or false] or {}
+        local lastPress = buttonData.LastPress
+
+        if not lastPress then return mHuge end
+
+        return curtime() - lastPress
+    end
+
+    function tiGetTimeSinceLastRelease( key )
+        local buttonData = myButtonStates[key or false] or {}
+        local lastRelease = buttonData.LastRelease
+
+        if not lastRelease then return mHuge end
+
+        return curtime() - lastRelease
+    end
+
+    function tiGetHoldTime( key )
+        local buttonData = myButtonStates[key or false] or {}
+        if not buttonData.State then return -1 end
+
+        local lastPress = buttonData.LastPress
+        if not lastPress then return -1 end
+
+        return mMax( curtime() - lastPress - tapGap, 0 )
+    end
+
+    function tiIsComboActive( comboKeys, comboWindow )
+        for _, key in ipairs( comboKeys ) do
+            if not tiGetButtonState( key ) then return false end
+            if comboWindow ~= 0 and tiGetTimeSinceLastPress( key ) > comboWindow then return false end
+        end
+
+        return true
+    end
+
+    function tiGetMoveStatesWASD( rightIsPositive, downKey )
+        local stateForwards = input.isKeyDown( KEY.W )
+        local stateLeft = input.isKeyDown( KEY.A )
+        local stateBack = input.isKeyDown( KEY.S )
+        local stateRight = input.isKeyDown( KEY.D )
+        local stateUp = input.isKeyDown( KEY.SPACE )
+        local stateDown = downKey and input.isKeyDown( downKey ) or false
+
+        return getMoveState( stateForwards, stateLeft, stateBack, stateRight, stateUp, stateDown, rightIsPositive )
+    end
+
+    function tiGetMoveStatesArrows( rightIsPositive, downKey )
+        local stateForwards = input.isKeyDown( KEY.UP )
+        local stateLeft = input.isKeyDown( KEY.LEFT )
+        local stateBack = input.isKeyDown( KEY.DOWN )
+        local stateRight = input.isKeyDown( KEY.RIGHT )
+        local stateUp = input.isKeyDown( KEY.SPACE )
+        local stateDown = downKey and input.isKeyDown( downKey ) or false
+
+        return getMoveState( stateForwards, stateLeft, stateBack, stateRight, stateUp, stateDown, rightIsPositive )
+    end
+
+    -- Only use this if you know what you're doing, and if you're working with a client-only chip.
+    -- targets should be a lookup table.
+    function tiSetTargets( newTargets )
+        targets = newTargets
+        iAmATarget = targets[player()]
+
+        net.start( "LKL_TargetedInput_Acknowledge" )
+        net.writeEntity( chip() )
+        net.writeString( "SetTargets" )
+        net.send()
+
+        if not iAmATarget then return end
+
+        net.start( "LKL_TargetedInput_RefreshMyButtonStates" )
+        net.writeEntity( chip() )
+        net.writeTable( myButtonStates )
+        net.send()
+    end
+
+    function tiSetTargetButtons( newTargetButtons, targetAll )
+        targetAllButtons = targetAll
+        targetButtons = newTargetButtons
+
+        net.start( "LKL_TargetedInput_Acknowledge" )
+        net.writeEntity( chip() )
+        net.writeString( "SetTargetButtons" )
+        net.send()
+
+        if not iAmATarget then return end
+
+        net.start( "LKL_TargetedInput_RefreshMyButtonStates" )
+        net.writeEntity( chip() )
+        net.writeTable( myButtonStates )
+        net.send()
+    end
+
+
+    local function tapCheck( key, state )
+        local streak = tapStreaks[key]
+        if not streak then
+            streak = 0
+            tapStreaks[key] = streak
+        end
+
+        if state then
+            streak = streak + 1
+            tapStreaks[key] = streak
+
+            --timer.create( "LKL_TargetedInput_TapCheck_" .. key, tapGap, 1, function()
+            timer.createExtra( "LKL_TargetedInput_TapCheck_" .. key, tapGap, 1, function()
+                tapStreaks[key] = 0
+
+                -- If the button is still down, it's a hold
+                hook.run( "LKL_TargetedInput_HoldStart", player(), key )
+
+                net.start( "LKL_TargetedInput_HoldStart" )
+                net.writeEntity( chip() )
+                net.writeUInt( key, 10 )
+                net.send()
+            end )
+
+            return
+        end
+
+        if streak == 0 then return end
+
+        --timer.create( "LKL_TargetedInput_TapCheck_" .. key, tapGap, 1, function()
+        timer.createExtra( "LKL_TargetedInput_TapCheck_" .. key, tapGap, 1, function()
+            local streakResult = tapStreaks[key]
+            tapStreaks[key] = 0
+
+            -- If the button is still up, finish the tap streak
+            hook.run( "LKL_TargetedInput_Tap", player(), key, streakResult )
+
+            net.start( "LKL_TargetedInput_Tap" )
+            net.writeEntity( chip() )
+            net.writeUInt( key, 10 )
+            net.writeUInt( streakResult, 10 )
+            net.send()
+        end )
+    end
+
+    local function keyClk( key, state )
+        local now = curtime()
+        local buttonData = myButtonStates[key]
+
+        if not buttonData then
+            buttonData = {}
+            myButtonStates[key] = buttonData
+        end
+
+        buttonData.State = state
+        buttonData[state and "LastPress" or "LastRelease"] = now
+
+        if not targetAllButtons and not targetButtons[key] then return end
+
+        tapCheck( key, state )
+        hook.run( "LKL_TargetedInput_InputClk", player(), key, state )
+
+        if not iAmATarget then return end
+
+        net.start( "LKL_TargetedInput_InputClk" )
+        net.writeEntity( chip() )
+        net.writeUInt( key, 10 )
+        net.writeBool( state )
+        net.writeFloat( now )
+        net.send()
+    end
+
+
+    hook.add( "inputPressed", "LKL_TargetedInput_InputPressed", function( key )
+        keyClk( key, true )
+    end )
+
+    hook.add( "inputReleased", "LKL_TargetedInput_InputReleased", function( key )
+        keyClk( key, false )
+    end )
+
+
+    net.receive( "LKL_TargetedInput_SetTargets", function()
+        if net.readEntity() ~= chip() then return end
+
+        tiSetTargets( net.readTable() )
+    end )
+
+    net.receive( "LKL_TargetedInput_SetTargetButtons", function()
+        if net.readEntity() ~= chip() then return end
+
+        local targetAll = net.readBool()
+        local newTargetButtons = net.readTable()
+
+        tiSetTargetButtons( newTargetButtons, targetAll )
+    end )
+end

@@ -1,0 +1,204 @@
+--@name Manual Seat Damage
+--@author legokidlogan
+--@shared
+
+msdHealthMax = msdMaxHealthMax or 100
+msdDamageMult = msdDamageMult or 1
+msdExplosionMult = msdExplosionMult or 1
+msdRegenInside = msdRegenInside or 3
+msdRegenOutside = msdRegenOutside or 2
+msdUpdateRate = msdUpdateRate or 0.1
+msdOnlyTakeDamageInside = msdOnlyTakeDamageInside == nil and true or msdOnlyTakeDamageInside
+
+local scrW = 1
+local scrH = 1
+
+if CLIENT then
+    scrW, scrH = render.getResolution()
+end
+
+msdPosOffsetX = msdPosOffsetX or 0
+msdPosOffsetY = msdPosOffsetY or 0
+msdGapX = msdGapX or 0.5
+msdGapY = msdGapY or 0.2
+
+msdFontSize = 20
+msdScaleW = msdScaleW or 0.05
+msdScaleH = msdScaleH or 0.3
+msdBorderScale = msdBorderScale or 0.01
+msdPosX = msdPosX or scrW - scrW * msdScaleW * ( -msdPosOffsetX * ( 1 + msdGapX ) + 5/2 )
+msdPosY = msdPosY or scrH - msdScaleH * scrH * ( -msdPosOffsetY * ( 1 + msdGapY ) + 1/2 )
+msdLowColor = msdLowColor or Color( 255, 0, 0 ):rgbToHSV()
+msdHighColor = msdHighColor or Color( 0, 255, 0 ):rgbToHSV()
+msdBorderColor = msdBorderColor or Color( 255, 255, 255 )
+msdTextColor = msdTextColor or Color( 255, 255, 255 )
+
+
+msdHealth = msdHealth or msdHealthMax
+msdBorderPosX = msdPosX - scrW * msdBorderScale / 2
+msdBorderPosY = msdPosY - scrW * msdBorderScale / 2 - msdScaleH * scrH
+msdBorderW = ( msdScaleW + msdBorderScale ) * scrW
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+if SERVER then
+    local chair
+    local driver
+    local inputCount = #inputNames
+    local isStandalone = inputCount == 0
+
+    local DMG_BLAST = 8
+
+    if not table.keyFromValue( inputNames, "Chair" ) then
+        inputCount = inputCount + 1
+        inputNames[inputCount] = "Chair"
+        inputTypes[inputCount] = "ENTITY"
+    end
+
+    if isStandalone then
+        wire.adjustInputs( inputNames, inputTypes )
+    end
+
+    local function driverUpdate( ply, ent, entered )
+        if ent ~= chair then return end
+
+        driver = entered and ply
+
+        net.start( "LKL_MSD_DriverUpdate" )
+        net.writeBool( entered )
+        net.writeFloat( msdHealth )
+        net.send( ply )
+    end
+
+    local function wireInput( name, value )
+        if name == "Chair" then
+            if isValid( chair ) and isValid( driver ) then
+                driverUpdate( driver, chair, false )
+            end
+
+            chair = isValid( value ) and value
+
+            if isValid( chair ) then
+                driver = chair:getDriver()
+                driver = isValid( driver ) and driver
+
+                if driver then
+                    driverUpdate( driver, chair, true )
+                end
+            end
+        end
+    end
+
+    hook.add( "input", "LKL_MSD_WireInput", wireInput )
+
+    hook.add( "PlayerEnteredVehicle", "LKL_MSD_EnterVehicle", function( ply, ent )
+        driverUpdate( ply, ent, true )
+    end )
+
+    hook.add( "PlayerLeaveVehicle", "LKL_MSD_LeaveVehicle", function( ply, ent )
+        driverUpdate( ply, ent, false )
+    end )
+
+    hook.add( "EntityTakeDamage", "LKL_MSD_TrackSeatDamage", function( ent, attacker, inflictor, dmg, type )
+        if attacker ~= owner() then return end
+
+        --print( ent, attacker, inflictor, dmg, type )
+
+        if ent ~= chair then return end
+        --print("a")
+        if msdOnlyTakeDamageInside and not isValid( driver ) then return end
+
+        local dmgMult = bit.band( type, DMG_BLAST ) == 0 and msdDamageMult or msdExplosionMult
+        --print(dmg,dmgMult)
+        dmg = dmg * dmgMult
+
+        if dmg == 0 then return end
+
+        local oldHealth = msdHealth
+
+        msdHealth = math.clamp( oldHealth - dmg, 0, msdHealthMax )
+
+        if msdHealth == oldHealth then return end
+
+        if not isValid( driver ) then return end
+
+        net.start( "LKL_MSD_HealthUpdate" )
+        net.writeFloat( msdHealth )
+        net.send( driver )
+
+        if msdHealth == 0 and isValid( chair ) then
+            driverUpdate( driver, chair, false )
+            chair:killDriver()
+        end
+    end )
+
+    timer.create( "LKL_MSD_HealthRegen", msdUpdateRate, 0, function()
+        local regen = isValid( driver ) and msdRegenInside or msdRegenOutside
+
+        if regen == 0 then return end
+
+        local oldHealth = msdHealth
+
+        msdHealth = math.clamp( oldHealth + regen * msdUpdateRate, 0, msdHealthMax )
+
+        if msdHealth == oldHealth then return end
+
+        if not isValid( driver ) then return end
+
+        net.start( "LKL_MSD_HealthUpdate" )
+        net.writeFloat( msdHealth )
+        net.send( driver )
+
+        if msdHealth == 0 and isValid( chair ) then
+            driverUpdate( driver, chair, false )
+            chair:killDriver()
+        end
+    end )
+
+    timer.simple( 1, function()
+        wireInput( "Chair", wire.ports.Chair )
+    end )
+else
+    local driving = false
+    local msdhealthColor = false
+    local msdHealthString = false
+    local msdHealthFrac = msdHealth / msdHealthMax
+
+    local font = render.createFont( "Roboto Mono", msdFontSize, 500, true, false, false, true, false, false )
+
+    local function updateHealth()
+        msdHealthFrac = msdHealth / msdHealthMax
+        msdHealthString = "Health: " .. tostring( math.floor( msdHealth ) )
+        msdhealthColor = ( ( msdHighColor - msdLowColor ) * msdHealthFrac + msdLowColor ):hsvToRGB()
+    end
+
+    hook.add ( "drawhud", "LKL_MSD_DrawHUD", function()
+        if not driving then return end
+
+        render.setColor( msdBorderColor )
+        --render.drawRectOutline( msdBorderPosX, msdBorderPosY, msdBorderW, msdScaleH * scrH + msdeBorderScale * scrW, msdBorderScale * scrW * 1.05 / 2 )
+        render.drawRectOutline( msdBorderPosX, msdBorderPosY, msdBorderW, msdScaleH * scrH + msdBorderScale * scrW, msdBorderScale * scrW * ( 1 + msdScaleW ) / 2 )
+        render.setColor( msdhealthColor )
+        render.drawRect( msdPosX, msdPosY - msdScaleH * scrH * msdHealthFrac, msdScaleW * scrW, msdHealthFrac * msdScaleH * scrH )
+
+        render.setColor( msdTextColor )
+        render.setFont( font )
+        render.drawSimpleText( msdPosX + msdScaleW * scrW / 2, msdPosY - msdScaleH * scrH - msdFontSize, msdHealthString, 1, 1 )
+    end )
+
+    net.receive( "LKL_MSD_DriverUpdate", function()
+        driving = net.readBool()
+        msdHealth = net.readFloat()
+
+        updateHealth()
+    end )
+
+    net.receive( "LKL_MSD_HealthUpdate", function()
+        msdHealth = net.readFloat()
+
+        updateHealth()
+    end )
+end

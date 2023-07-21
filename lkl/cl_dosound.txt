@@ -1,0 +1,324 @@
+--@name cl_dosound
+--@author legokidlogan
+--@client
+
+----- THIS WILL BE REFACTORED SOON -----
+
+
+
+soundTbl = soundTbl or {
+    Template = {
+        Path = "",
+        Pitch = 1,
+        Volume = 1,
+        Duration = nil,
+        Loop = false,
+        FadeMin = 700,
+        FadeMax = 1500,
+        Delay = nil,
+    },
+}
+permissionSatisfied = permissionSatisfied or false
+
+local soundKeys = table.getKeys( soundTbl )
+local soundTypeCount = #soundKeys
+
+function soundIsUrl( path )
+    return string.sub( path, 1, 4 ) == "http"
+end
+
+function doSound( soundType, entityOrPos, override, ... )
+    if not permissionSatisfied then return end
+
+    local snd = soundTbl[soundType]
+
+    if not snd then return end
+    if bass.soundsLeft() == 0 then return end
+
+    override = override or {}
+
+    local path = override.Path or snd.Path
+    local bassList = snd._bassList
+    local entList = snd._entList
+    local posList = snd._posList
+    local extraArgs = { ... }
+
+    if not bassList then
+        bassList = {}
+        snd._bassList = bassList
+    end
+
+    if not entList then
+        entList = {}
+        snd._entList = entList
+    end
+
+    if not posList then
+        posList = {}
+        snd._posList = posList
+    end
+
+    if type( path ) == "function" then
+        path = path( ... )
+    end
+
+    if not path or path == "" then return end
+
+    local entity = type( entityOrPos ) ~= "Vector" and isValid( entityOrPos ) and entityOrPos
+    local pos = type( entityOrPos ) == "Vector" and entityOrPos
+    local flags = "noplay"
+
+    if entity or pos then
+        flags = flags .. " 3d"
+    end
+
+    local loop = snd.Loop
+
+    if type( loop ) == "function" then
+        loop = loop( ... )
+    end
+
+    if loop then
+        flags = flags .. " noblock"
+    end
+
+    if soundIsUrl( path ) then
+        bass.loadURL( path, flags, function( s )
+            local bassObj = s
+            local count = ( snd._bassCount or 0 ) + 1
+
+            snd._bassCount = count
+            bassList[count] = bassObj
+            entList[count] = entity
+            posList[count] = pos
+
+            hook.run( "LKL_DoSound_SoundLoaded", soundType, override, path, count, unpack( extraArgs ) )
+        end )
+    else
+        path = "sound/" .. path
+
+        bass.loadFile( path, flags, function( s )
+            local bassObj = s
+            local count = ( snd._bassCount or 0 ) + 1
+
+            snd._bassCount = count
+            bassList[count] = bassObj
+            entList[count] = entity
+            posList[count] = pos
+
+            hook.run( "LKL_DoSound_SoundLoaded", soundType, override, path, count, unpack( extraArgs ) )
+        end )
+    end
+end
+
+-- Removes all sounds of a given type if ind is not given
+function stopSound( sound, ind )
+    local timerName = "LKL_DoSound_PlayDelayedSound_" .. sound
+    local snd = soundTbl[sound]
+
+    if not snd then return end -- Not a registered sound
+
+    timer.remove( timerName )
+
+    local bassList = snd._bassList
+    local count = snd._bassCount
+
+    if not bassList or count < 1 then return end -- Sound has never been played or currently has no active sounds
+
+    local entList = snd._entList
+    local posList = snd._posList
+
+    if ind then
+        if ind < 1 or ind > count then return end -- Out of bounds
+
+        local bassObj = bassList[ind]
+
+        if isValid( bassObj ) then
+            bassObj:stop()
+        end
+
+        table.remove( bassList, ind )
+        table.remove( entList, ind )
+        table.remove( posList, ind )
+
+        snd._bassCount = count - 1
+    else
+        for i = count, 1, -1 do
+            local bassObj = bassList[count]
+
+            if isValid( bassObj ) then
+                bassObj:stop()
+            end
+
+            bassList[i] = nil
+            entList[i] = nil
+            posList[i] = nil
+        end
+
+        snd._bassCount = 0
+    end
+end
+
+function stopAllSounds()
+    for snd in pairs( soundTbl ) do
+        stopSound( snd )
+    end
+end
+
+
+hook.add( "LKL_DoSound_SoundLoaded", "LKL_DoSound_PlaySound", function( soundType, override, path, ind, ... )
+    local snd = soundTbl[soundType]
+    local bassList = snd._bassList
+    local bassObj = bassList[ind]
+
+    if not bassObj or not bassObj:isValid() then
+        stopSound( soundType, ind )
+
+        return
+    end
+
+    local entList = snd._entList
+    local posList = snd._posList
+
+    local entity = entList[ind]
+    local pos = posList[ind]
+
+    local pitch = override.Pitch or snd.Pitch or 1
+    local volume = override.Volume or snd.Volume or 1
+    local fadeMin = override.FadeMin or snd.FadeMin or 700
+    local fadeMax = override.FadeMax or snd.FadeMax or 1500
+    local delay = override.Delay or snd.Delay
+    local duration
+    local loop
+
+    if override.Duration ~= nil then
+        duration = override.Duration
+    else
+        duration = snd.Duration or false
+    end
+
+    if override.Loop ~= nil then
+        loop = override.Loop
+    else
+        loop = snd.Loop or false
+    end
+
+    if type( pitch ) == "function" then
+        pitch = pitch( entityOrPos, soundType, path, ... )
+    end
+
+    if type( volume ) == "function" then
+        volume = volume( entityOrPos, soundType, path, pitch, ... )
+    end
+
+    if type( duration ) == "function" then
+        duration = duration( entityOrPos, soundType, path, pitch, ... )
+    end
+
+    if type( loop ) == "function" then
+        loop = loop( entityOrPos, soundType, path, pitch, ... )
+    end
+
+    if type( fadeMin ) == "function" then
+        fadeMin = fadeMin( entityOrPos, soundType, path, pitch, ... )
+    end
+
+    if type( fadeMax ) == "function" then
+        fadeMax = fadeMax( entityOrPos, soundType, path, pitch, ... )
+    end
+
+    if type( delay ) == "function" then
+        delay = delay( entityOrPos, soundType, path, pitch, ... )
+    end
+
+    bassObj:setPitch( pitch )
+    bassObj:setVolume( volume )
+    bassObj:setFade( fadeMin, fadeMax )
+    bassObj:setLooping( loop )
+
+    --bassObj:play()
+
+    if entity then
+        bassObj:setPos( entity:getPos() )
+    elseif pos then
+        bassObj:setPos( pos )
+    end
+
+    local timerName = "LKL_DoSound_PlayDelayedSound_" .. soundType
+
+    timer.create( timerName, delay and delay > 0 or 0, 1, function()
+        bassObj:play()
+
+        if not duration or duration <= 0 then return end
+
+        timer.simple( duration, function()
+            if bassObj and bassObj:isValid() then
+                ind = table.keyFromValue( bassList, bassObj ) -- In case the index changed from a lower-ind sound stopping
+
+                table.remove( bassList, ind )
+                table.remove( entList, ind )
+                table.remove( posList, ind )
+
+                snd._bassCount = math.max( snd._bassCount - 1, 0 )
+
+                bassObj:stop()
+            end
+
+            hook.run( "LKL_DoSound_SoundFinished", entity or pos, soundType )
+        end )
+    end )
+end )
+
+hook.add( "think", "LKL_DoSound_MoveSounds", function()
+    for i = 1, soundTypeCount do
+        local snd = soundTbl[soundKeys[i]]
+        local count = snd._bassCount
+
+        if count and count > 0 then
+            local bassList = snd._bassList
+            local entList = snd._entList
+
+            for i2 = 1, count do
+                local ent = entList[i2]
+
+                if isValid( ent ) then
+                    local bassObj = bassList[i2]
+
+                    if bassObj and bassObj:isValid() then
+                        bassObj:setPos( ent:getPos() )
+                    end
+                end
+            end
+        end
+    end
+end )
+
+net.receive( "LKL_DoSound_ExtendSoundTbl", function()
+    local svTbl = net.readTable()
+
+    for catName, cat in pairs( svTbl ) do
+        if cat.Path then
+            soundTbl["sv_" .. catName] = cat -- Individual sound entry
+        else
+            for sound, snd in pairs( cat ) do -- Sound category
+                soundTbl["sv_" .. catName .. "_" .. sound] = snd
+            end
+        end
+    end
+
+    local soundKeys = table.getKeys( soundTbl )
+    local soundTypeCount = #soundKeys
+end )
+
+net.receive( "LKL_DoSound_PlayServerSound", function()
+    local soundType = net.readString()
+    local ent = net.readEntity()
+    local override = net.readTable()
+
+    doSound( "sv_" .. soundType, ent, override )
+end )
+
+timer.simple( 0.1, function()
+    net.start( "LKL_DoSound_ClientExists" )
+    net.send()
+end )

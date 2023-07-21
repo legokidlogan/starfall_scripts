@@ -1,0 +1,127 @@
+--@name cl_check_permissions
+--@author legokidlogan
+--@client
+
+if checkPermissions then return end -- Don't run twice
+
+
+permissions = permissions or {}
+permissionSatisfied = permissionSatisfied or false
+permissionRequestSent = false
+
+local urlTest = "https://cdn.discordapp.com/attachments/269175189382758400/421572398689550338/unknown.png"
+local permArgs = {
+    ["bass.loadURL"] = urlTest,
+    ["http.get"] = urlTest,
+    ["http.post"] = urlTest,
+    ["material.urlcreate"] = urlTest,
+}
+
+function checkPermissions( default )
+    local isSatisfied = true
+    default = default == nil or default
+
+    for _, permission in pairs( permissions ) do
+        local doBreak
+
+        local succeeded = pcall( function()
+            if not hasPermission( permission, permArgs[permission] ) then
+                isSatisfied = false
+                doBreak = true
+            end
+        end )
+
+        if not succeeded then
+            isSatisfied = default
+            doBreak = not default
+        end
+
+        if doBreak then break end
+    end
+
+    permissionSatisfied = isSatisfied
+
+    return permissionSatisfied
+end
+
+function addPermission( permission )
+    if not permission then return end
+
+    if not table.hasValue( permissions, permission ) then
+        table.insert( permissions, permission )
+    end
+end
+
+function addPermissions( perms )
+    if not perms then return end
+
+    for _, perm in ipairs( perms ) do
+        addPermission( perm )
+    end
+end
+
+-- Automatically handles permission requests that might not exist depending on which server you're playing on
+function setupPermissionRequestSafe( perms, str, popup )
+    local success, err = pcall( setupPermissionRequest, perms, str, popup )
+
+    if success then return end
+
+    if type( err ) == "table" then
+        err = err.message
+    end
+
+    local perm = string.explode( "Invalid permission name: ", err )[2]
+
+    local newPerms = {}
+    local newCount = 0
+
+    for _, oldPerm in ipairs( perms ) do
+        if oldPerm ~= perm then
+            newCount = newCount + 1
+            newPerms[newCount] = oldPerm
+        end
+    end
+
+    return setupPermissionRequestSafe( newPerms, str, popup )
+end
+
+_sendPermissionRequest = _sendPermissionRequest or sendPermissionRequest
+
+function sendPermissionRequest()
+    if not render.isHUDActive() then return end
+    if permissionRequestSent then return end
+
+    _sendPermissionRequest()
+
+    permissionRequestSent = true
+end
+
+hook.add( "permissionrequest", "LKL_CheckPerms_PermissionRequest", function()
+    --permissionRequestSent = true
+
+    checkPermissions()
+
+    --hook.remove( "permissionrequest", "LKL_CheckPerms_PermissionRequest" )
+end )
+
+
+local function HUDConnected() -- Auto-check and auto-request perms when someone connects to a HUD
+    checkPermissions()
+
+    if not permissionSatisfied then
+        if permissionRequestSent then
+            enableHud( player(), false )
+        else
+            sendPermissionRequest()
+        end
+    end
+end
+
+hook.add( "hudconnected", "LKL_CheckPerms_HUDConnected", HUDConnected )
+
+
+checkPermissions()
+
+if render.isHUDActive() then
+    HUDConnected()
+end

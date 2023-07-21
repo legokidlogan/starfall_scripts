@@ -1,0 +1,186 @@
+--@name AdvMat Scrubber
+--@author legokidlogan
+--@server
+--@include lkl/gcolors.txt
+
+--[[
+    Deletes and respawns props in an area which have Advanced Material textures, to fully scrub them clean.
+    Keep in mind that this will remove the constraints of any props which get scrubbed.
+    With matReplace, you can specify new materials to replace for each AdvMat texture, and AdvMat textrures which you don't want to scrub.
+
+    On startup, two cubes will be created. Move these to mark the corners of the box containing everything you want to scrub.
+    Then, press your reload key with the remote controller SWEP to initiate scrubbing.
+--]]
+
+
+local defaultReplacement = ""
+local matReplace = {
+    ["!concrete/concretewall036a+2+2+1+1"] = "models/props_lab/door_klab01",
+    ["!concrete/concretewall036a+2+2+1+1detail/noise_detail_01+1+1+0+0"] = "models/props_lab/door_klab01",
+    ["!concrete/concretefloor031a+2+2+1+1"] = "models/pi_window/plaster",
+    ["!concrete/prodflra+2+2+1+1"] = "models/props_debris/building_template010a",
+    --["!models/props_pipes/guttermetal01a+2+2+1+0"] = "models/props_pipes/guttermetal01a",
+    ["!models/props_pipes/guttermetal01a+2+2+1+0"] = false,
+    ["!models/props_pipes/pipemetal001a+2+2+1+1"] = false,
+}
+
+
+local mark1
+local mark2
+local propCount
+local trigger = IN_KEY.RELOAD
+local busy = false
+local scrubRate = 0.25
+local controlWep = "remotecontroller"
+local props = {}
+local propData = {}
+
+inputNames = { "Corner1", "Corner2" }
+inputTypes = { "ENTITY", "ENTITY" }
+
+wire.adjustInputs( inputNames, inputTypes )
+
+require( "lkl/gcolors.txt" )
+
+local function safeSpawn( pos, ang, model, frozen )
+    if not prop.canSpawn() then return end
+
+    local ent
+
+    pcall( function()
+        ent = prop.create( pos, ang, model, frozen )
+    end )
+
+    return ent
+end
+
+local function scrubFilter( ent )
+    if not isValid( ent ) or ent:getOwner() ~= owner() then return false end
+    if ent:getClass() ~= "prop_physics" then return false end
+    if ent == mark1 or ent == mark2 then return false end
+
+    return true
+end
+
+local function wireInput( name, value )
+    if name == "Corner1" then
+        mark1 = isValid( value ) and value
+    elseif name == "Corner2" then
+        mark2 = isValid( value ) and value
+    end
+end
+
+hook.add( "input", "LKL_AMS_WireInput", wireInput )
+
+hook.add( "KeyPress", "LKL_AMS_StartScrub", function( ply, key )
+    if ply ~= owner() then return end
+    if key ~= trigger then return end
+    if not isValid( ply:getActiveWeapon() ) or ply:getActiveWeapon():getClass() ~= controlWep then return end
+
+    if busy then
+        print(
+            c_white, "[AMS] ",
+            c_red, "Cannot scrub, already busy!"
+        )
+
+        return
+    end
+
+    if not isValid( mark1 ) or not isValid( mark2 ) then
+        print(
+            c_white, "[AMS] ",
+            c_red, "Corner markers have not been wired up!"
+        )
+
+        return
+    end
+
+    props = find.inBox( mark1:getPos(), mark2:getPos(), scrubFilter )
+    propCount = #props
+    propData = false
+    busy = true
+end )
+
+hook.add( "Removed", "LKL_AMS_RemoveMarkers", function()
+    if isValid( mark1 ) then
+        mark1:remove()
+    end
+
+    if isValid( mark2 ) then
+        mark2:remove()
+    end
+end )
+
+timer.create( "LKL_AMS_ScrubAdvMat", scrubRate, 0, function()
+    if not busy then return end
+
+    if propCount < 1 and not propData then
+        busy = false
+        props = {}
+
+        print(
+            c_white, "[AMS] ",
+            c_green, "Scrub complete!"
+        )
+
+        return
+    end
+
+    if not propData then
+        local old
+
+        for i = propCount, 1, -1 do
+            old = props[propCount]
+            props[propCount] = nil
+            propCount = propCount - 1
+            --print( "loop", propCount, old, old:getMaterial() )
+            if isValid( old ) and ( old:getMaterial() or " " ):sub( 1, 1 ) == "!" then break end
+        end
+
+        if not isValid( old ) then return end
+        --print(propCount,old,old:getMaterial())
+        local mat = old:getMaterial() or ""
+        local newMat = matReplace[mat]
+
+        if newMat == false then return end
+
+        propData = {
+            Pos = old:getPos(),
+            Ang = old:getAngles(),
+            Model = old:getModel(),
+            Material = newMat or defaultReplacement,
+            Color = old:getColor(),
+            Collisions = old:getCollisionGroup(),
+        }
+
+        old:remove()
+    end
+
+    local ent = safeSpawn( propData.Pos, propData.Ang, propData.Model, true )
+
+    timer.simple( scrubRate / 2, function()
+        if not isValid( ent ) then return end
+
+        ent:setMaterial( propData.Material )
+        ent:setColor( propData.Color )
+        ent:setCollisionGroup( propData.Collisions )
+
+        propData = false
+    end )
+end )
+
+timer.simple( 0.5, function()
+    local ent1 = safeSpawn( chip():localToWorld( Vector( 50, 0, 50 ) ), Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", true )
+    local ent2 = safeSpawn( chip():localToWorld( Vector( -50, 0, 50 ) ), Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", true )
+
+    if isValid( ent1 ) then
+        wire.create( chip(), ent1, "Corner1", "entity" )
+    end
+
+    if isValid( ent2 ) then
+        wire.create( chip(), ent2, "Corner2", "entity" )
+    end
+
+    --prop.setPropUndo( true )
+    prop.setPropClean( false )
+end )

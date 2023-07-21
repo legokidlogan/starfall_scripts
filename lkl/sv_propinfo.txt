@@ -1,0 +1,205 @@
+--@name sv_propinfo
+--@author legokidlogan
+--@server
+
+--[[
+Stuff not visible on client:
+ - :isFrozen()
+ - :getDriver()
+--]]
+
+local connectedPlayers = {}
+local players = find.allPlayers()
+local playerCount = #players
+
+local function playerUpdate()
+    players = find.allPlayers()
+    playerCount = #players
+end
+
+local function safeGetMass( ent )
+    local physObj = aimEnt:getPhysicsObject()
+    
+    if isValid( physObj ) then
+        return physObj:getMass()
+    end
+    
+    return "NAN"
+end
+
+local function safeIsFrozen( ent )
+    local physObj = ent:getPhysicsObject()
+    
+    if isValid( physObj ) then
+        return ent:isFrozen()
+    end
+    
+    return "No physics object"
+end
+
+local function roundReturn( v, n )
+    v:round( n )
+    
+    return v
+end
+
+timer.create( "LKL_PropInfo_EntityCheck", 0.5, 0, function()
+    for i = 1, playerCount do
+        local ply = players[i]
+        
+        if not isValid( ply ) or not rawget( connectedPlayers, ply ) then continue end
+        
+        aimEnt = ply:getEyeTrace().Entity
+        local info = {}
+        
+        if isValid( aimEnt ) then
+            info = {
+                Entity = {
+                    Color = not aimEnt:isPlayer() and ply == owner() and ( ( hasPermission( "entities.setPos", aimEnt ) and Color( 0, 255, 0 ) ) or Color( 255, 0, 0 ) )
+                },
+                Size = {
+                    Data = string.replace( tostring( roundReturn( aimEnt:obbSize(), 3 ) ), " ", ", " ),
+                },
+                Position = {
+                    Data = string.replace( tostring( roundReturn( aimEnt:getPos(), 3 ) ), " ", ", " ),
+                },
+                Angles = {
+                    Data = string.replace( tostring( roundReturn( aimEnt:getAngles(), 3 ) ), " ", ", " ),
+                },
+                Mass = {
+                    Data = safeGetMass( aimEnt ),
+                },
+                Frozen = {
+                    Data = safeIsFrozen( aimEnt ),
+                    Color = ( safeIsFrozen( aimEnt ) and Color( 0, 255, 0 ) ) or Color( 255, 0, 0 ),
+                },
+                OtherStuff = {},
+            }
+            
+            if aimEnt:isVehicle() then
+                rawset( info, "OtherStuff", {
+                    {
+                        Type = "Driver",
+                        Data = ( aimEnt.getDriver and isValid( aimEnt:getDriver() ) and aimEnt:getDriver() ) or "No driver",
+                        Color = aimEnt.getDriver and isValid( aimEnt:getDriver() ) and aimEnt:getDriver():isPlayer() and team.getColor( aimEnt:getDriver():getTeam() ):setA( 255 ),
+                    },
+                } )
+            end
+            
+            net.start( "LKL_PropInfo_ExtraInfo" )
+            net.writeTable( info )
+            net.send( ply )
+        end
+    end
+end )
+
+hook.add( "PlayerSay", "LKL_PropInfo_PlayerSay", function( ply, msg )
+    if not connectedPlayers[ply] then return end
+    
+    LS = string.explode( " ", msg )
+    
+    if LS[1] ~= "/pi" then return end
+
+    local command = LS[2]
+    local printInfo = {}
+    local toggleDir = false
+    
+    if command == "model" or command == "mod" then
+        printInfo = {
+            Color( 255, 255, 255 ),"[PropInfo] ",
+            Color( 255, 255, 255 ),"That entity's model is ",
+            Color(255,255,0),ply:getEyeTrace().Entity:getModel()
+        }
+    elseif command == "material" or command == "mat" then
+        printInfo = {
+            Color( 255, 255, 255 ),"[PropInfo] ",
+            Color( 255, 255, 255 ),"That entity's material is ",
+            Color(255,255,0),ply:getEyeTrace().Entity:getMaterial()
+        }
+    elseif command == "type" or command == "class" then
+        printInfo = {
+            Color( 255, 255, 255 ),"[PropInfo] ",
+            Color( 255, 255, 255 ),"That entity's type is ",
+            Color(255,255,0),ply:getEyeTrace().Entity:getClass()
+        }
+    elseif command == "position" or command == "pos" or command == "p" then
+        printInfo = {
+            Color( 255, 255, 255 ),"[PropInfo] ",
+            Color( 255, 255, 255 ),"That entity's position is ",
+            Color(255,255,0),"" .. tostring( roundReturn( ply:getEyeTrace().Entity:getPos() ) )
+        }
+    elseif ( command == "users" or command == "u" ) and ply == owner() then
+        if table.count( connectedPlayers ) == 0 then
+            printInfo = {
+                Color( 255, 255, 255 ),"[PropInfo] ",
+                Color( 255, 150, 150 ),"There currently are no connected players.",
+            }
+        else
+            printInfo = {
+                Color( 255, 255, 255 ),"[PropInfo] ",
+                Color( 255, 255, 255 ),"The currently connected players are ",
+            }
+            
+            for person, _ in pairs( connectedPlayers ) do
+                table.insert( printInfo, team.getColor( person:getTeam() ) )
+                table.insert( printInfo, person:getName() )
+                table.insert( printInfo, Color( 255, 255, 255 ) )
+                table.insert( printInfo, ", " )
+            end
+            
+            table.remove( printInfo, #printInfo )
+        end
+    elseif command == "direction" or command == "dir" or command == "d" then
+        toggleDir = true
+    else
+        printInfo = {
+            Color( 255, 255, 255 ),"[PropInfo] ",
+            Color( 255, 255, 255 ),"The available commands are ",
+            Color(255,255,0),"help",
+            Color( 255, 255, 255 ),", ",
+            Color(255,255,0),"model",
+            Color( 255, 255, 255 ),", ",
+            Color(255,255,0),"material",
+            Color( 255, 255, 255 ),", ",
+            Color(255,255,0),"position",
+            Color( 255, 255, 255 ),", ",
+            Color(255,255,0),"direction",
+            Color( 255, 255, 255 ),", and ",
+            Color(255,255,0),"type",
+            Color( 255, 255, 255 ),"."
+        }
+    end
+    
+    net.start( "LKL_PropInfo_Command" )
+    net.writeTable( printInfo )
+    net.writeBool( toggleDir )
+    net.send( ply )
+    
+    return ""
+end )
+
+hook.add( "PlayerInitialSpawn", "LKL_PropInfo_PlayerSpawned", playerUpdate )
+hook.add( "PlayerDisconnected", "LKL_PropInfo_PlayerLeft", function( ply )
+    playerUpdate( ply )
+    connectedPlayers[ply] = nil
+end )
+
+net.receive( "LKL_PropInfo_HUDConnectionChange", function( _, ply )
+    if net.readBool() then
+        connectedPlayers[ply] = true
+        
+        print(
+            Color( 255, 255, 255 ), "[PropInfo] ",
+            team.getColor( ply:getTeam() ), ply:getName(),
+            Color( 150, 255, 150 ), " has connected!"
+        )
+    else
+        connectedPlayers[ply] = nil
+        
+        print(
+            Color( 255, 255, 255 ), "[PropInfo] ",
+            team.getColor( ply:getTeam() ), ply:getName(),
+            Color( 255, 150, 150 ), " has disconnected!"
+        )
+    end
+end )

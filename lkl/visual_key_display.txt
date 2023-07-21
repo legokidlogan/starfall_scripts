@@ -1,0 +1,662 @@
+--@name Visual Key Display
+--@author legokidlogan
+--@shared
+--@include lkl/targeted_input.txt
+--@include lkl/key_globalizer.txt
+
+projectNameID = "VKD"
+printName = "[" .. projectNameID .. "]"
+
+require( "lkl/targeted_input.txt" )
+require( "lkl/key_globalizer.txt" )
+
+if CLIENT then return end
+
+
+-- CONFIG:
+local targetPly = owner()
+local targetOffsetPos = Vector( 0, 0, 80 )
+local targetOffsetAng = Angle( 0, 0, 0 )
+local moveInterval = 0.05
+local velAccount = 0 * 1 / 5
+local useTargetPitch = false
+local useProps = true
+local onColor = Color( 0, 127, 255, 255 )
+local offColor = Color( 0, 65, 120, 100 )
+local keySize = 12.5
+local keySlotSize = 16
+--local keyMat = "models/debug/debugwhite"
+local keyMat = "model_color"
+local keysToSpawnOnInit = {
+    KEY_W,
+    KEY_A,
+    KEY_S,
+    KEY_D,
+    KEY_SPACE,
+    KEY_LSHIFT,
+    KEY_LCONTROL,
+    MOUSE_LEFT,
+    MOUSE_RIGHT,
+    MOUSE_MIDDLE,
+}
+-- END CONFIG
+
+local tableInsert = table.insert
+
+--local vec0 = Vector( 0, 0, 0 )
+local ang0 = Angle( 0, 0, 0 )
+local mdlCube = "models/hunter/blocks/cube025x025x025.mdl"
+local originHolo = hologram.create( chip():getPos(), ang0, mdlCube )
+    originHolo:setColor( Color( 255, 255, 255, 0 ) )
+local normalKeyModel = "models/sprops/misc/alphanum/alphanum_"
+local normalKeyPos = Vector( 0, 0, 0 )
+local normalKeyAng = Angle( 0, 90, 0 )
+local unusualKeyModels = {
+    FALLBACK = "models/sprops/misc/alphanum/alphanum_star_3.mdl",
+    [KEY_PERIOD] = "models/sprops/misc/alphanum/alphanum_prd.mdl",
+    [KEY_COMMA] = "models/sprops/misc/alphanum/alphanum_com.mdl",
+    [KEY_SEMICOLON] = "models/sprops/misc/alphanum/alphanum_scolon.mdl",
+    [KEY_SLASH] = "models/sprops/misc/alphanum/alphanum_div.mdl",
+    [KEY_APOSTROPHE] = "models/sprops/misc/alphanum/alphanum_apost.mdl",
+    [KEY_BACKSLASH] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_div.mdl",
+            Ang = Angle( 0, -90, 0 ),
+        },
+    },
+    [KEY_LBRACKET] = "models/sprops/misc/alphanum/alphanum_lbracket.mdl",
+    [KEY_RBRACKET] = "models/sprops/misc/alphanum/alphanum_rbracket.mdl",
+    [KEY_MINUS] = "models/sprops/misc/alphanum/alphanum_min.mdl",
+    [KEY_EQUAL] = "models/sprops/misc/alphanum/alphanum_equal.mdl",
+    [KEY_BACKSPACE] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_lessthan.mdl",
+            Pos = Vector( 0, -0.5, 0 ),
+        },
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_underscore.mdl",
+            Pos = Vector( 0, -0.5 + 0.6, 0.5 ),
+        },
+    },
+    [KEY_ENTER] = "models/sprops/misc/alphanum/alphanum_trade.mdl",
+    [KEY_UP] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_arrow_b.mdl",
+            Ang = Angle( 0, 90, 0 ),
+        },
+    },
+    [KEY_RIGHT] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_arrow_b.mdl",
+            Ang = Angle( -90, -90, 180 ),
+        },
+    },
+    [KEY_DOWN] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_arrow_b.mdl",
+            Ang = Angle( 0, -90, 180 ),
+        },
+    },
+    [KEY_LEFT] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_arrow_b.mdl",
+            Ang = Angle( 90, -90, 180 ),
+        },
+    },
+    [KEY_RSHIFT] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_s.mdl",
+        },
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_l_h.mdl",
+        },
+    },
+    [KEY_LSHIFT] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_s.mdl",
+        },
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_l_h.mdl",
+        },
+    },
+    [KEY_RCONTROL] = "models/sprops/misc/alphanum/alphanum_copy.mdl",
+    [KEY_LCONTROL] = "models/sprops/misc/alphanum/alphanum_copy.mdl",
+    [KEY_RALT] = "models/sprops/misc/alphanum/alphanum_atsign.mdl",
+    [KEY_LALT] = "models/sprops/misc/alphanum/alphanum_atsign.mdl",
+    [KEY_TAB] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_rbracket.mdl",
+            Ang = Angle( -90, -90, 180 ),
+        },
+    },
+    [KEY_CAPSLOCK] = "models/sprops/misc/alphanum/alphanum_arrow_a.mdl",
+    [KEY_BACKQUOTE] = "models/sprops/misc/alphanum/alphanum_tilde.mdl",
+    [KEY_ESCAPE] = "models/sprops/misc/alphanum/alphanum_star_1.mdl",
+    [KEY_SPACE] = {
+        {
+            --Model = "models/sprops/misc/alphanum/alphanum_rbracket.mdl",
+            --Ang = Angle( -90, -90, 180 ),
+            Model = "models/sprops/rectangles/size_1_5/rect_6x42x3.mdl",
+            Ang = Angle( 0, -90, -90 ),
+        },
+    },
+    [MOUSE_LEFT] = {
+        {
+            Model = "models/sprops/geometry/qhex_24.mdl",
+            Ang = Angle( 0, 90, 0 ),
+        },
+    },
+    [MOUSE_RIGHT] = {
+        {
+            Model = "models/sprops/geometry/qhex_24.mdl",
+            Ang = Angle( 0, -90, 0 ),
+        },
+    },
+    [MOUSE_MIDDLE] = {
+        {
+            Model = "models/sprops/rectangles/size_1/rect_3x12x3.mdl",
+            Ang = Angle( -90, 0, 180 ),
+        },
+    },
+    [KEY_PAD_0] = "models/sprops/misc/alphanum/alphanum_0.mdl",
+    [KEY_PAD_1] = "models/sprops/misc/alphanum/alphanum_1.mdl",
+    [KEY_PAD_2] = "models/sprops/misc/alphanum/alphanum_2.mdl",
+    [KEY_PAD_3] = "models/sprops/misc/alphanum/alphanum_3.mdl",
+    [KEY_PAD_4] = "models/sprops/misc/alphanum/alphanum_4.mdl",
+    [KEY_PAD_5] = "models/sprops/misc/alphanum/alphanum_5.mdl",
+    [KEY_PAD_6] = "models/sprops/misc/alphanum/alphanum_6.mdl",
+    [KEY_PAD_7] = "models/sprops/misc/alphanum/alphanum_7.mdl",
+    [KEY_PAD_8] = "models/sprops/misc/alphanum/alphanum_8.mdl",
+    [KEY_PAD_9] = "models/sprops/misc/alphanum/alphanum_9.mdl",
+    [KEY_PAD_DIVIDE] = "models/sprops/misc/alphanum/alphanum_div.mdl",
+    [KEY_PAD_MULTIPLY] = "models/sprops/misc/alphanum/alphanum_ast.mdl",
+    [KEY_PAD_MINUS] = "models/sprops/misc/alphanum/alphanum_min.mdl",
+    [KEY_PAD_PLUS] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_plu.mdl",
+            Pos = Vector( 0, 0, -0.5 * keySlotSize / keySize ),
+        },
+    },
+    [KEY_PAD_ENTER] = {
+        {
+            Model = "models/sprops/misc/alphanum/alphanum_trade.mdl",
+            Pos = Vector( 0, 0, -0.5 * keySlotSize / keySize ),
+        },
+    },
+    [KEY_PAD_DECIMAL] = "models/sprops/misc/alphanum/alphanum_prd.mdl",
+}
+local keyLayouts = {
+    {
+        KEY_ESCAPE,
+        {
+            Key = "SPACER",
+            Size = 1,
+        },
+        KEY_F1,
+        KEY_F2,
+        KEY_F3,
+        KEY_F4,
+        {
+            Key = "SPACER",
+            Size = 0.5,
+        },
+        KEY_F5,
+        KEY_F6,
+        KEY_F7,
+        KEY_F8,
+        {
+            Key = "SPACER",
+            Size = 0.5,
+        },
+        KEY_F9,
+        KEY_F10,
+        KEY_F11,
+        KEY_F12,
+        {
+            Key = "SPACER",
+            Size = 0.25,
+        },
+        KEY_NONE, --KEY_PRINTSCREEN,
+        KEY_SCROLLLOCK,
+        KEY_NONE, --KEY_PAUSE,
+    },
+    {
+        KEY_BACKQUOTE,
+        KEY_1,
+        KEY_2,
+        KEY_3,
+        KEY_4,
+        KEY_5,
+        KEY_6,
+        KEY_7,
+        KEY_8,
+        KEY_9,
+        KEY_0,
+        KEY_MINUS,
+        KEY_EQUAL,
+        {
+            Key = KEY_BACKSPACE,
+            Size = 2,
+        },
+        {
+            Key = "SPACER",
+            Size = 0.25,
+        },
+        KEY_INSERT,
+        KEY_HOME,
+        KEY_PAGEUP,
+        {
+            Key = "SPACER",
+            Size = 0.25,
+        },
+        KEY_NUMLOCK,
+        KEY_PAD_DIVIDE,
+        KEY_PAD_MULTIPLY,
+        KEY_PAD_MINUS,
+    },
+    {
+        {
+            Key = KEY_TAB,
+            Size = 1.5,
+        },
+        KEY_Q,
+        KEY_W,
+        KEY_E,
+        KEY_R,
+        KEY_T,
+        KEY_Y,
+        KEY_U,
+        KEY_I,
+        KEY_O,
+        KEY_P,
+        KEY_LBRACKET,
+        KEY_RBRACKET,
+        {
+            Key = KEY_BACKSLASH,
+            Size = 1.5,
+        },
+        {
+            Key = "SPACER",
+            Size = 0.25,
+        },
+        KEY_DELETE,
+        KEY_END,
+        KEY_PAGEDOWN,
+        {
+            Key = "SPACER",
+            Size = 0.25,
+        },
+        KEY_PAD_7,
+        KEY_PAD_8,
+        KEY_PAD_9,
+        KEY_PAD_PLUS,
+    },
+    {
+        {
+            Key = KEY_CAPSLOCK,
+            Size = 1.75,
+        },
+        KEY_A,
+        KEY_S,
+        KEY_D,
+        KEY_F,
+        KEY_G,
+        KEY_H,
+        KEY_J,
+        KEY_K,
+        KEY_L,
+        KEY_SEMICOLON,
+        KEY_APOSTROPHE,
+        {
+            Key = KEY_ENTER,
+            Size = 2.25,
+        },
+        {
+            Key = "SPACER",
+            Size = 3.5,
+        },
+        KEY_PAD_4,
+        KEY_PAD_5,
+        KEY_PAD_6,
+    },
+    {
+        {
+            Key = KEY_LSHIFT,
+            Size = 2.25,
+        },
+        KEY_Z,
+        KEY_X,
+        KEY_C,
+        KEY_V,
+        KEY_B,
+        KEY_N,
+        KEY_M,
+        KEY_COMMA,
+        KEY_PERIOD,
+        KEY_SLASH,
+        {
+            Key = KEY_RSHIFT,
+            Size = 2.75,
+        },
+        {
+            Key = "SPACER",
+            Size = 1.25,
+        },
+        KEY_UP,
+        {
+            Key = "SPACER",
+            Size = 1.25,
+        },
+        KEY_PAD_1,
+        KEY_PAD_2,
+        KEY_PAD_3,
+        KEY_PAD_ENTER,
+    },
+    {
+        {
+            Key = KEY_LCONTROL,
+            Size = 1.25,
+        },
+        {
+            Key = KEY_LWIN,
+            Size = 1.25,
+        },
+        {
+            Key = KEY_LALT,
+            Size = 1.25,
+        },
+        {
+            Key = KEY_SPACE,
+            Size = 6.25,
+        },
+        {
+            Key = KEY_RALT,
+            Size = 1.25,
+        },
+        {
+            Key = "DEFINEME_FN", -- KEY_RWIN maybe?
+            Size = 1.25,
+        },
+        {
+            Key = KEY_APP,
+            Size = 1.25,
+        },
+        {
+            Key = KEY_RCONTROL,
+            Size = 1.25,
+        },
+        {
+            Key = "SPACER",
+            Size = 0.25,
+        },
+        KEY_LEFT,
+        KEY_DOWN,
+        KEY_RIGHT,
+        {
+            Key = "SPACER",
+            Size = 0.25,
+        },
+        {
+            Key = KEY_PAD_0,
+            Size = 2,
+        },
+        KEY_PAD_DECIMAL,
+    },
+    {
+        -- Empty row to make a gap for mosue buttons
+    },
+    {
+        {
+            Key = "SPACER",
+            Size = 2,
+        },
+        {
+            Key = MOUSE_LEFT,
+            Size = 0.5,
+        },
+        {
+            Key = MOUSE_MIDDLE,
+            Size = 0.5,
+        },
+        {
+            Key = MOUSE_RIGHT,
+            Size = 0.5,
+        },
+    },
+}
+local compiledKeyLayouts = {}
+local keyEnts = {}
+local holos = {}
+local keyEntsFlat = {}
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+
+tableInsert( outputNames, "KeyEntsFlat" )
+tableInsert( outputTypes, "ARRAY" )
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+
+
+local function compileKeyLayout( keyData, ySlot, zSlot )
+    local key = keyData.Key
+    local size = keyData.Size or 1
+    local alphanum = keyToAlphaNum[key]
+    local modelData
+    local compiledData = {}
+
+    if alphanum then
+        modelData = {
+            {
+                Model = normalKeyModel .. alphanum .. ".mdl",
+                Pos = normalKeyPos,
+                Ang = normalKeyAng,
+            },
+        }
+    else
+        modelData = unusualKeyModels[key] or unusualKeyModels.FALLBACK
+
+        if type( modelData ) == "string" then
+            modelData = {
+                {
+                    Model = modelData,
+                    Pos = normalKeyPos,
+                    Ang = normalKeyAng,
+                },
+            }
+        end
+
+        for _, data in ipairs( modelData ) do
+            data.Pos = data.Pos or normalKeyPos
+            data.Ang = data.Ang or normalKeyAng
+        end
+    end
+
+    --local basePos = Vector( 0, -( ySlot + size / 2 ), zSlot ) * keySlotSize
+    local basePos = Vector( 0, -ySlot, zSlot ) * keySlotSize
+    local modelCount = #modelData
+    local modelPosStep = keySlotSize * size / ( modelCount + 1 )
+
+    for i, data in ipairs( modelData ) do
+        local pos = basePos + data.Pos * keySize + Vector( 0, -modelPosStep * i, 0 )
+        local ang = data.Ang
+
+        compiledData[i] = {
+            Model = data.Model,
+            Pos = pos,
+            Ang = ang,
+        }
+    end
+
+    ySlot = ySlot + size
+
+    return ySlot, compiledData
+end
+
+local function safeSpawn( pos, ang, model, frozen )
+    if not prop.canSpawn() then return false end
+
+    local ent
+
+    local success = pcall( function()
+        ent = prop.create( pos, ang, model, frozen )
+    end )
+
+    if not success then return false end
+
+    return ent
+end
+
+local function makeHolo( parent, pos, ang, _, mdl, mat, color )
+    if not hologram.canSpawn() then return false end
+
+    local holo = hologram.create( parent:localToWorld( pos ), parent:localToWorldAngles( ang ), mdl or "models/hunter/blocks/cube025x025x025.mdl" )
+    holo:setColor( color or Color( 255, 255, 255, 255 ) )
+    --holo:setSize( size )
+    holo:setMaterial( mat or keyMat )
+    holo:setParent( parent )
+
+    tableInsert( holos, holo )
+
+    return holo
+end
+
+local function makeKey( key )
+    if keyEnts[key] then return end
+
+    local btnState = tiGetButtonState( targetPly, key )
+    local keyData = compiledKeyLayouts[key]
+    local keyParts = {}
+    local failureOccured = false
+
+    if not keyData then return end
+
+    for _, data in ipairs( keyData ) do
+        local ent
+
+        if useProps then
+            ent = safeSpawn( originHolo:localToWorld( data.Pos ), originHolo:localToWorldAngles( data.Ang ), data.Model, true )
+        else
+            ent = makeHolo( originHolo, data.Pos, data.Ang, nil, data.Model )
+        end
+
+        if not ent then
+            failureOccured = true
+            break
+        end
+
+        ent:setColor( btnState and onColor or offColor )
+        tableInsert( keyParts, ent )
+
+        if useProps then
+            ent:setMaterial( keyMat )
+            ent:setNocollideAll( true )
+            ent:setMass( 50000 )
+            ent:setParent( originHolo )
+        end
+    end
+
+    if failureOccured then
+        for _, ent in ipairs( keyParts ) do
+            ent:remove()
+        end
+
+        return
+    end
+
+    for _, ent in ipairs( keyParts ) do
+        tableInsert( keyEntsFlat, ent )
+    end
+
+    keyEnts[key] = keyParts
+    wire.ports.KeyEntsFlat = keyEntsFlat
+end
+
+
+hook.add( "LKL_TargetedInput_InputClk", "LKL_VKD_KeyClk", function( ply, key, state )
+    if ply ~= targetPly then return end
+
+    makeKey( key )
+    local keyParts = keyEnts[key]
+    if not keyParts then return end
+
+    for _, ent in ipairs( keyParts ) do
+        if not isValid( ent ) then
+            for _, ent2 in ipairs( keyParts ) do
+                if isValid( ent2 ) then
+                    ent2:remove()
+                end
+            end
+
+            keyEnts[key] = nil
+
+            return
+        end
+
+        ent:setColor( state and onColor or offColor )
+    end
+end )
+
+
+timer.create( "LKL_VKD_MoveOriginHolo", moveInterval, 0, function()
+    if not isValid( targetPly ) then return end
+
+    local pos = targetPly:localToWorld( targetOffsetPos )
+    local ang = targetPly.getEyeAngles and targetPly:getEyeAngles() or targetPly:getAngles()
+
+    if velAccount ~= 0 then
+        pos = pos + targetPly:getVelocity() * velAccount
+    end
+
+    if not useTargetPitch then
+        ang[1] = 0
+    end
+
+    ang = ang + targetOffsetAng
+    originHolo:setPos( pos )
+    originHolo:setAngles( ang )
+end )
+
+
+do
+    local rowCount = #keyLayouts
+    local zSlot = rowCount - 0.5
+    local totalSlotWidth = 22.5
+    local ySlotStart = -totalSlotWidth / 2
+
+    prop.setPropUndo( false )
+
+    for _, row in ipairs( keyLayouts ) do
+        local ySlot = ySlotStart
+
+        for _, keyData in ipairs( row ) do
+            if type( keyData ) == "number" then
+                keyData = {
+                    Key = keyData,
+                    Size = 1,
+                }
+            end
+
+            ySlot, compiledData = compileKeyLayout( keyData, ySlot, zSlot )
+            compiledKeyLayouts[keyData.Key] = compiledData
+        end
+
+        zSlot = zSlot - 1
+    end
+
+    for i, key in ipairs( keysToSpawnOnInit ) do
+        timer.simple( i * 0.5, function()
+            makeKey( key )
+        end )
+    end
+
+    timer.simple( 1, function()
+        tiSetTargetButtons( nil )
+        tiSetTargets( targetPly )
+    end )
+end

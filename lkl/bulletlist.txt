@@ -1,0 +1,728 @@
+--@name BulletList
+--@author legokidlogan
+--@shared
+--@include lkl/middleclass_extras.txt
+
+
+if BulletList then return end -- Don't run twice
+
+require( "lkl/middleclass_extras.txt" )
+
+BulletList = class( "BulletList" )
+
+
+local mFloor = math.floor
+local tableInsert = table.insert
+local tableRemove = table.remove
+
+
+local function validateNewPointIndex( blist, index )
+    if type( index ) ~= "number" then
+        error( "index must be a number" )
+    end
+
+    if mFloor( index ) ~= index then
+        error( "index must be an integer" )
+    end
+
+    if index < 1 then
+        error( "index must be greater than 0" )
+    end
+
+    local pointCount = #blist._points
+
+    if index > pointCount + 1 then
+        error( "index must fit 'index <= pointCount + 1'  (gaps are not permitted in indices)" )
+    end
+
+    return pointCount
+end
+
+local function validatePointRemovalIndex( blist, index )
+    if type( index ) ~= "number" then
+        error( "index must be a number" )
+    end
+
+    if mFloor( index ) ~= index then
+        error( "index must be an integer" )
+    end
+
+    if index < 1 then
+        error( "index must be greater than 0" )
+    end
+
+    local pointCount = #blist._points
+
+    if pointCount == 0 then -- Redundant, but provides a more useful error message.
+        error( "This BulletList is empty" )
+    end
+
+    if index > pointCount then
+        error( "index must not exceed pointCount" )
+    end
+
+    return pointCount
+end
+
+local function isCRC( blist, blistCompare )
+    if blist == blistCompare then return true end
+
+    local comparePoints = blistCompare._points
+
+    for _, comparePoint in ipairs( comparePoints ) do
+        local subList = comparePoint._subList
+
+        if isValid( subList ) then
+            local result = isCRC( blist, subList )
+
+            if result then return true end
+        end
+    end
+
+    return false
+end
+
+local function _createBulletListFromTable( points, prevLists )
+    if prevLists[points] then
+        error( "points must not contain itself." )
+    end
+
+    prevLists[points] = true
+    local blist = BulletList:new()
+
+    for _, point in ipairs( points ) do
+        local contents = point.Contents
+        local subList = point.SubList
+
+        if subList == true then
+            subList = BulletList:new()
+        elseif subList then
+            subList = _createBulletListFromTable( subList, {} )
+        end
+
+        blist:addPoint( contents, subList )
+    end
+
+    prevLists[points] = nil -- Allow duplicate points that are on the same level, but not circular references.
+
+    return blist
+end
+
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    - Creates a BulletList.
+    - Nesting BulletList:new() calls inside one another can allow for creating a full-depth BulletList, though it can be tedious.
+        - Instead, it's recommended to use BulletList:createFromTable() for cleaner syntax or as a one-liner with the data prepared elsewhere.
+        - BulletList:new() is best for creating a small, simple BulletList from scratch.
+
+    points: (optional, table)
+        - A sequential table of points to add to the BulletList.
+        - Each point is a table with the following structure:
+            {
+                Contents = (any, not BulletList),
+                SubList = (BulletList),
+            }
+        - If a point is missing the Contents or SubList key, the corresponding value will be set to nil.
+
+
+    - ex:
+        --[-[
+            - Point 1
+            - Point 2
+                - Point 2.1
+                    - Point 2.1.1
+                - Point 2.2
+                    - Point 2.2.1
+                    - Point 2.2.2
+                - Point 2.3
+            - Point 3
+        --]-]
+        local blist = BulletList:new()
+        blist:addPoint( "Point 1" )
+        blist:addPoint( "Point 2", true )
+            blist:getPointSubList( 2 ):addPoint( "Point 2.1", true )
+                blist:getPointSubList( 2 ):getPointSubList( 1 ):addPoint( "Point 2.1.1" )
+            blist:getPointSubList( 2 ):addPoint( "Point 2.2", true )
+                blist:getPointSubList( 2 ):getPointSubList( 2 ):addPoint( "Point 2.2.1" )
+                blist:getPointSubList( 2 ):getPointSubList( 2 ):addPoint( "Point 2.2.2" )
+            blist:getPointSubList( 2 ):addPoint( "Point 2.3" )
+        blist:addPoint( "Point 3" )
+
+
+    - ex:
+        local blist = BulletList:new( {
+            {
+                Contents = "Point 1",
+            },
+            {
+                Contents = "Point 2",
+                SubList = BulletList:new( {
+                    {
+                        Contents = "Point 2.1",
+                        SubList = BulletList:new( {
+                            {
+                                Contents = "Point 2.1.1",
+                            },
+                        } ),
+                    },
+                    {
+                        Contents = "Point 2.2",
+                        SubList = BulletList:new( {
+                            {
+                                Contents = "Point 2.2.1",
+                            },
+                            {
+                                Contents = "Point 2.2.2",
+                            },
+                        } ),
+                    },
+                    {
+                        Contents = "Point 2.3",
+                    },
+                } ),
+            },
+            {
+                Contents = "Point 3",
+            },
+        } )
+--]]
+function BulletList:initialize( points )
+    self._points = {}
+
+    for i, data in ipairs( points or {} ) do
+        self:setPoint( i, data.Contents, data.SubList )
+    end
+end
+
+--[[
+    - Creates a BulletList from a nested table.
+    - Allows for the creation of an in-depth BulletList without needing to create each sub-BulletList individually.
+
+    nestedPoints: (table)
+        - A sequential table of nestedPoints to add to the BulletList.
+        - Each point is a table with the following structure:
+            {
+                Contents = (any, not BulletList),
+                SubList = (table) (same structure as nestedPoints),
+            }
+        - If a point is missing the Contents or SubList key, the corresponding value will be set to nil.
+
+
+    - ex:
+        --[-[
+            - Point 1
+            - Point 2
+                - Point 2.1
+                    - Point 2.1.1
+                - Point 2.2
+                    - Point 2.2.1
+                    - Point 2.2.2
+                - Point 2.3
+            - Point 3
+        --]-]
+        local blist = BulletList:createFromTable( {
+            {
+                Contents = "Point 1",
+            },
+            {
+                Contents = "Point 2",
+                SubList = {
+                    {
+                        Contents = "Point 2.1",
+                        SubList = {
+                            {
+                                Contents = "Point 2.1.1",
+                            },
+                        },
+                    },
+                    {
+                        Contents = "Point 2.2",
+                        SubList = {
+                            {
+                                Contents = "Point 2.2.1",
+                            },
+                            {
+                                Contents = "Point 2.2.2",
+                            },
+                        },
+                    },
+                    {
+                        Contents = "Point 2.3",
+                    },
+                },
+            },
+            {
+                Contents = "Point 3",
+            }
+        } )
+--]]
+function BulletList.static:createFromTable( nestedPoints )
+    return _createBulletListFromTable( nestedPoints, {} )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Sets the contents of a point in the BulletList.
+
+    index: (number)
+        - An integer from 1 to pountCount + 1.
+        - If index is equal to pointCount + 1, a new point will be added to the end of the BulletList.
+    contents: (any, not BulletList)
+        - The new contents for the point.
+--]]
+function BulletList:setPointContents( index, contents )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    validateNewPointIndex( self, index )
+
+    if isInstanceOf( contents, BulletList ) then
+        error( "contents cannot be a BulletList" )
+    end
+
+    local point = self._points[index]
+
+    if not point then
+        point = {
+            _contents = contents,
+            _subList = nil,
+        }
+        self._points[index] = point
+
+        return
+    end
+
+    point._contents = contents
+end
+
+--[[
+    - Sets the subList of a point in the BulletList.
+
+    index: (number)
+        - An integer from 1 to pountCount + 1.
+        - If index is equal to pointCount + 1, a new point will be added to the end of the BulletList.
+    subList: (nil or true or BulletList)
+        - The new subList for the point.
+        - If given as true, an empty BulletList will be created and set as the subList.
+        - If given as nil, the subList will be removed.
+--]]
+function BulletList:setPointSubList( index, subList )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    validateNewPointIndex( self, index )
+
+    if subList == true then
+        subList = BulletList:new()
+    end
+
+    if subList ~= nil then
+        if not isInstanceOf( subList, BulletList ) then
+            error( "subList must be a BulletList" )
+        end
+
+        if isCRC( self, subList ) then
+            error( "subList cannot be a child of this BulletList" )
+        end
+    end
+
+    local point = self._points[index]
+
+    if not point then
+        point = {
+            _contents = nil,
+            _subList = subList,
+        }
+        self._points[index] = point
+
+        return
+    end
+
+    point._subList = subList
+end
+
+--[[
+    - Sets the contents and subList of a point in the BulletList.
+    - Same as calling :setPointContents() and :setPointSubList() together.
+--]]
+function BulletList:setPoint( index, contents, subList )
+    self:setPointContents( index, contents )
+    self:setPointSubList( index, subList )
+end
+
+--[[
+    - Inserts a point into the BulletList at a specific index, pushing up other points in the process.
+
+    index: (number)
+        - An integer from 1 to pointCount + 1.
+    contents: (any, not BulletList)
+        - The contents for the new point.
+    subList: (nil or true or BulletList)
+        - The subList for the new point.
+        - If given as true, an empty BulletList will be created and set as the subList.
+        - If given as nil, the subList will be removed.
+
+    - RETURNS: newSubList
+        newSubList: (nil or BulletList)
+            - The subList of the newly added point.
+            - Will be nil if subList wasn't provided.
+--]]
+function BulletList:insertPoint( index, contents, subList )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    local pointCount = validateNewPointIndex( self, index )
+
+    if index == pointCount + 1 then
+        return self:addPoint( contents, subList )
+    end
+
+    local points = self._points
+    self:addPoint()
+
+    for i = pointCount, index, -1 do
+        points[i + 1] = points[i]
+    end
+
+    self:setPoint( index, contents, subList )
+
+    return points[index]._subList
+end
+
+--[[
+    - Adds a point to the end of the BulletList.
+
+    contents: (any, not BulletList)
+        - The contents for the new point.
+    subList: (nil or true or BulletList)
+        - The subList for the new point.
+        - If given as true, an empty BulletList will be created and set as the subList.
+        - If given as nil, the subList will be removed.
+
+    - RETURNS: newSubList
+        newSubList: (nil or BulletList)
+            - The subList of the newly added point.
+            - Will be nil if subList wasn't provided.
+--]]
+function BulletList:addPoint( contents, subList )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    local pointCount = #self._points
+    local newInd = pointCount + 1
+
+    self:setPoint( newInd, contents, subList )
+
+    return self._points[newInd]._subList
+end
+
+--[[
+    - Gets the contents and subList of a point in the BulletList.
+
+    index: (number)
+        - An integer from 1 to pountCount.
+
+    RETURNS: contents, subList
+        contents: (any, not BulletList)
+            - The contents of the point.
+        subList: (BulletList)
+            - The subList of the point.
+--]]
+function BulletList:getPoint( index )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    validatePointRemovalIndex( self, index )
+
+    local point = self._points[index]
+
+    return point._contents, point._subList
+end
+
+--[[
+    - Gets the contents of a point in the BulletList.
+--]]
+function BulletList:getPointContents( index )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    validatePointRemovalIndex( self, index )
+
+    local point = self._points[index]
+
+    return point.Content
+end
+
+--[[
+    - Gets the pointList of a point in the BulletList.
+--]]
+function BulletList:getPointSubList( index )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    validatePointRemovalIndex( self, index )
+
+    local point = self._points[index]
+
+    return point._subList
+end
+
+--[[
+    - Removes a point from the BulletList.
+
+    index: (number)
+        - An integer from 1 to pointCount.
+
+    RETURNS: contents, subList
+        contents: (any, not BulletList)
+            - The contents of the removed point.
+        subList: (BulletList)
+            - The subList of the removed point.
+--]]
+function BulletList:removePoint( index )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    local pointCount = validatePointRemovalIndex( self, index )
+    local points = self._points
+
+    if index == pointCount then
+        local point = points[index]
+        points[index] = nil
+
+        return point._contents, point._subList
+    end
+
+    for i = index, pointCount - 1 do
+        points[i] = points[i + 1]
+    end
+
+    local point = points[pointCount]
+    points[pointCount] = nil
+
+    return point._contents, point._subList
+end
+
+--[[
+    - Inserts all of the points in blist to the pointList of self, placing the start at index.
+
+    blist: (BulletList)
+        - The BulletList to merge the points from.
+    index: (optional) (number)
+        - The destination index to start inserting at.
+        - Defaults to self.pointCount + 1.
+--]]
+function BulletList:mergeIn( blist, index )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    if isCRC( self, blist ) then
+        error( "Cannot merge a BulletList into itself" )
+    end
+
+    if not isInstanceOf( blist, BulletList ) then
+        error( "blist must be a BulletList" )
+    end
+
+    if not isValid( blist ) then
+        error( "blist is invalid" )
+    end
+
+    local points = self._points
+    local pointCount = #points
+    local blistPoints = blist._points
+    local blistPointCount = #blistPoints
+    index = index or pointCount + 1
+
+    validateNewPointIndex( self, index )
+
+    if index <= pointCount then
+        for i = pointCount, index, -1 do
+            points[i + blistPointCount] = points[i]
+        end
+    end
+
+    for i = 1, blistPointCount do
+        local point = blistPoints[i]
+        points[i + index - 1] = point
+    end
+end
+
+--[[
+    - Recursively traverses through a BulletList and its sublists, calling a function on each point.
+
+    func: (function)
+        - A function of the form  function( contents, indentLevel, pointIndex, pointIndexPath )  end
+            contents: (any, not BulletList)
+                - The contents of the current point.
+            indentLevel: (number)
+                - The number of sublists the point is nested in, starting at 0.
+            pointIndex: (number)
+                - The index of the point in the current BulletList.
+            pointIndexPath: (table or nil)
+                - A sequential table that tracks the path of point indices from the root BulletList to the current BulletList.
+                - Does not include the index of the current point.
+                - Only exists if you provide a value for prevPointIndices in the original :traverse() call.
+    indentLevel: (optional) (number)
+        - The number of sublists the BulletList is nested in, starting at 0.
+        - This is used internally to keep track of the indentLevel, though can be given manually for an offset.
+    prevPointIndices: (optional) (table)
+        - A sequential table that tracks the path of point indices from the root BulletList to the current BulletList.
+        - Unlike indentLevel, if this is not provided, it will NOT created automatically, to avoid unnecesarry memory usage.
+        - If you want to use this, provide {} as the value.
+
+    - ex:
+        Let blist be a BulletList with the following structure:
+            - Point 1
+            - Point 2
+                - Point 2.1
+                    - Point 2.1.1
+                - Point 2.2
+                    - Point 2.2.1
+                    - Point 2.2.2
+            - Point 3
+
+        blist:traverse( func, 0, {} ):
+            func( "Point 1", 0, 1, {} )
+            func( "Point 2", 0, 2, {} )
+            func( "Point 2.1", 1, 1, { 2 } )
+            func( "Point 2.1.1", 2, 1, { 2, 1 } )
+            func( "Point 2.2", 1, 2, { 2 } )
+            func( "Point 2.2.1", 2, 1, { 2, 2 } )
+            func( "Point 2.2.2", 2, 2, { 2, 2 } )
+            func( "Point 3", 0, 3, {} )
+--]]
+function BulletList:traverse( func, indentLevel, prevPointIndices )
+    if not isValid( self ) then
+        error( "Invalid BulletList" )
+    end
+
+    if type( func ) ~= "function" then
+        error( "func must be a function" )
+    end
+
+    indentLevel = indentLevel or 0
+    local points = self._points
+
+    for i, point in ipairs( points ) do
+        local contents = point._contents
+        local subList = point._subList
+
+        if contents then
+            func( contents, indentLevel, i, prevPointIndices )
+        end
+
+        if isValid( subList ) then
+            if prevPointIndices then
+                tableInsert( prevPointIndices, i )
+            end
+
+            subList:traverse( func, indentLevel + 1, prevPointIndices )
+
+            if prevPointIndices then
+                tableRemove( prevPointIndices )
+            end
+        end
+    end
+end
+
+--[[
+    - Destroyes a BulletList.
+--]]
+function BulletList:destroy()
+    if not isValid( self ) then
+        error( "This BulletList has already been destroyed" )
+    end
+
+    self._points = nil
+
+    function self:isValid()
+        return false
+    end
+end
+
+function BulletList:isValid()
+    return true
+end
+
+function BulletList:__add( other ) -- Adds item b to the end of the list a.
+    if not isValid( self ) then
+        error( "Cannot add to an invalid BulletList" )
+    end
+
+    if isInstanceOf( other, BulletList ) then
+        if not isValid( other ) then
+            error( "Cannot add an invalid BulletList" )
+        end
+
+        if isCRC( self, other ) then
+            error( "Cannot add a BulletList to itself" )
+        end
+
+        local blistOut = BulletList:new( self._points )
+
+        blistOut:addPoint( nil, other )
+
+        return blistOut
+    end
+
+    local blistOut = BulletList:new( self._points )
+
+    blistOut:addPoint( other, true )
+
+    return blistOut
+end
+
+function BulletList:__mul( other ) -- Equivalent to self:mergeIn( other ), but returns a new BulletList instead of self-modifying
+    if not isValid( self ) then
+        error( "Cannot multiply (merge) to an invalid BulletList" )
+    end
+
+    if not isInstanceOf( other, BulletList ) then
+        error( "Cannot multiply (merge) a non-BulletList to a BulletList." )
+    end
+
+    if not isValid( other ) then
+        error( "Cannot multiply (merge) in an invalid BulletList" )
+    end
+
+    local blistOut = BulletList:new( self._points )
+
+    blistOut:mergeIn( b )
+
+    return blistOut
+end
+
+function BulletList:__len()
+    return #self._points
+end
+
+function BulletList:__tostring()
+    local address = table.address( self )
+    local name = ( self.getName and self:getName() ) or self.name or self.Name
+    local customType = self.class.name or self.__type
+
+    if not isValid( self ) then
+        customType = customType .. " (INVALID)"
+    end
+
+    if type( name ) == "string" then
+        return customType .. " [" .. name .. "][" .. address .. "]"
+    end
+
+    return customType .. " [" .. address .. "]"
+end

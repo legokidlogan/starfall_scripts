@@ -1,0 +1,51 @@
+--@name Global Whitelist Tester
+--@author legokidlogan
+--@shared
+--@include lkl/global_whitelist.txt
+
+projectNameID = "GListTester"
+
+glist = glist or {}
+glist.groupName = "test"
+glist.startupSyncDelay = 2
+
+require( "lkl/global_whitelist.txt" )
+
+
+if CLIENT and player() ~= owner() then return end
+
+
+hook.add( "LKL_GList_StartupSync_Complete", "TEST", function()
+    local realm = SERVER and "SERVER" or "CLIENT"
+    local whitelist = glist.getWhitelist()
+    local blacklist = glist.getBlacklist()
+    local whitelistStr = table.concat( whitelist, ", " )
+    local blacklistStr = table.concat( blacklist, ", " )
+
+    print(
+        c_white, printName .. " ", c_yellow, tostring( chip() ) .. " ", c_pale_yellow, realm .. ":",
+        c_white, "\nCurrent whitelist:",
+            c_yellow, "\n  " .. whitelistStr,
+        c_white, "\nCurrent blacklist:",
+            c_yellow, "\n  " .. blacklistStr
+    )
+end )
+
+hook.add( "KeyPress", "TEST", function( ply, key )
+    if ply ~= owner() then return end
+    if key ~= IN_KEY.USE then return end
+
+    local realm = SERVER and "SERVER" or "CLIENT"
+    local target = ply:getEyeTrace().Entity
+    target = isValid( target ) and target:isPlayer() and target or ply
+
+    local isAllowed = glist.filterPlayer( target )
+
+    print(
+        c_white, printName .. " ", c_yellow, tostring( chip() ) .. " ", c_pale_yellow, realm .. ":",
+        team.getColor( target:getTeam() ), target:getName() .. " ",
+        c_white, "is ",
+        isAllowed and c_green or c_red, isAllowed and "allowed" or "not allowed",
+        c_white, "."
+    )
+end )

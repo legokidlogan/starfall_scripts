@@ -1,0 +1,54 @@
+--@name Hook Remote Tester
+--@author legokidlogan
+--@server
+--@include lkl/hook_remote_fix.txt
+
+
+require( "lkl/hook_remote_fix.txt" )
+
+
+local targetChips = find.byClass( "starfall_processor", function( ent )
+    if ent:getOwner() ~= owner() then return false end
+    if ent:getChipName() ~= "Hook Remote Tester" then return false end
+
+    return true
+end )
+
+
+hook.add( "Remote_Test_1", "test", function( callingChip, callingPly, arg1 )
+    print( tostring( chip() ), "Receiving " .. "Test_1" .. " from " .. tostring( callingChip ) .. " with arg1 = " .. arg1 )
+
+    if callingChip == chip() then return end
+
+    return "a", "b"
+end )
+
+hook.add( "Remote_Test_2", "test", function( callingChip, callingPly, arg1 )
+    print( tostring( chip() ), "Receiving " .. "Test_2" .. " from " .. tostring( callingChip ) .. " with arg1 = " .. arg1 )
+
+    if callingChip == chip() then return end
+
+    return "a", "b"
+end )
+
+
+
+
+setRemoteGroupName( "TestGroup" )
+
+print( tostring( chip() ), "Sending Test_1" )
+local results1 = hookRunRemoteFixed( targetChips, "Test_1", "ABC" )
+
+for i, result in pairs( results1 ) do
+    print( tostring( chip() ) .. "     ", tostring( i ), unpack( result ) )
+end
+
+
+print( tostring( chip() ), "Sending Test_2" )
+local results2 = hookRunRemoteMyOwnersGroup( "Test_2", "ABC" )
+
+for i, result in pairs( results2 ) do
+    print( tostring( chip() ) .. "     ", tostring( i ), unpack( result ) )
+end
+
+

@@ -1,0 +1,32 @@
+--@name One Time Rainbow Color
+--@author legokidlogan
+--@server
+
+local rangeLimit = 0
+
+
+wire.adjustInputs( { "Ents" }, { "ARRAY" } )
+
+
+local function wireInput( name, value )
+    if name == "Ents" then
+        value = value or {}
+
+        local count = #value
+
+        for i, ent in ipairs( value ) do
+            local hue = 360 * ( i - 1 ) / ( count * ( 1 + rangeLimit ) )
+            local color = Color( hue, 1, 1, 255 ):hsvToRGB()
+
+            ent:setColor( color )
+        end
+    end
+end
+
+
+hook.add( "input", "OTRC_WireInput", wireInput )
+
+
+timer.simple( 1, function()
+    wireInput( "Ents", wire.ports.Ents )
+end )

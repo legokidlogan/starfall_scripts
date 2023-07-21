@@ -1,0 +1,215 @@
+--@name Single Prop Health
+--@author legokidlogan
+--@server
+
+----- VERY OLD -----
+
+local maxHealth = 100
+local maxDPS = 100
+local maxDamage = 100
+local maxDamageExplosive = 100
+local numPhases = 1
+local preventDeletion = false
+local doHolos = true
+local holoSize = Vector( 100, 5, 5 ):getNormalized() --Take off :getNormalized() or multiply the resulting vector to turn off automatic holo scaling
+local holoPos = Vector( 0, 0, 1 ) --Positions the holos with Ent:toWorld(), where the scale is proportional to the entity's box size
+local holoAng = Angle( 0, -90, 0 ) --Angles the holos with Ent:toWorld()
+local healthColor = Color( 0, 255, 0, 255 )
+local depletedColor = Color( 255, 0, 0, 255 )
+
+local inEnt
+local stopDamage
+local holoGreen
+local holoRed
+local entData = {}
+local health = maxHealth
+local dps = 0
+local alive = true
+local phase = 1
+--local Ent = entity():isWeldedTo()
+local ent = inEnt
+
+wire.adjustInputs(
+    { "InEnt", "StopDamage", "Reset" },
+    { "ENTITY", "NUMBER", "NUMBER" }
+)
+wire.adjustOutputs(
+    { "Ent", "Health", "MaxHealth", "Alive", "Phase", "DPS" },
+    { "ENTITY", "NUMBER", "NUMBER", "NUMBER", "NUMBER", "NUMBER" }
+)
+
+wire.ports.MaxHealth = maxHealth
+
+local function safeIsFrozen( e )
+    local physObj = e:getPhysicsObject()
+
+    if isValid( physObj ) then
+        return e:isFrozen()
+    end
+
+    return true
+end
+
+local function safeSetVelocity( e, v )
+    local physObj = e:getPhysicsObject()
+
+    if isValid( physObj ) then
+        physObj:setVelocity( v )
+    end
+end
+
+local function safeSpawn( pos, ang, model, frozen )
+    if not prop.canSpawn() then return end
+
+    local e
+
+    pcall( function()
+        e = prop.create( pos, ang, model, frozen )
+    end )
+
+    return e
+end
+
+local function wireInput( name, value )
+    if name == "InEnt" then
+        ent = isValid( value ) and value
+
+        if ent then
+            if doHolos then
+                local boxSize = -2 * ent:getModelBounds()
+
+                if holoSize:getLengthSqr() == 1 then
+                    holoSize = holoSize * math.max( math.max( boxSize.x, boxSize.y ), boxSize.z )
+                end
+
+                if isValid( holoRed ) then
+                    holoRed:remove()
+                end
+
+                if isValid( holoGreen ) then
+                    holoGreen:remove()
+                end
+
+                local holoNewPos = ent:localToWorld( holoPos * boxSize )
+                local holoNewAng = ent:localToWorldAngles( holoAng )
+
+                holoRed = holograms.create( holoNewPos, holoNewAng, "models/holograms/cube.mdl", holoSize )
+                holoRed:setSize( holoSize )
+                holoRed:setColor( depletedColor )
+                holoRed:suppressEngineLighting( true )
+                holoRed:setParent( ent )
+
+                holoGreen = holograms.create( holoNewPos, holoNewAng, "models/holograms/cube.mdl", holoSize + Vector( 1, 1, 1 ) )
+                holoGreen:setSize( holoSize )
+                holoGreen:setColor( healthColor )
+                holoGreen:suppressEngineLighting( true )
+                holoGreen:setParent( ent )
+            end
+
+            if preventDeletion then
+                entData = {
+                    model = ent:getModel(),
+                    pos = ent:getPos(),
+                    ang = ent:getAngles(),
+                    mat = ent:getMaterial(),
+                    color = ent:getColor(),
+                    mass = ent:getMass(),
+                    frozen = safeIsFrozen( ent ),
+                    vel = ent:getVelocity(),
+                }
+            end
+        end
+    elseif name == "StopDamage" then
+        stopDamage = value ~= 0
+    elseif name == "Reset" then
+        if reset == 0 then return end
+
+        alive = true
+        health = maxHealth
+        wire.ports.Health = health
+        wire.ports.Alive = 1
+
+        if not doHolos or not isValid( holoGreen ) then return end
+
+        local healthFraction = health / maxHealth
+
+        holoGreen:setSize( holoSize * Vector( healthFraction, 1, 1 ) + Vector( 1, 1, 1 ) )
+        holoGreen:setPos( holoRed:localToWorld( Vector( holoSize.x * ( 1 - healthFraction ) / 2, 0, 0 ) ) )
+    end
+end
+
+hook.add( "input", "LKL_SPH_WireInput", wireInput )
+
+hook.add( "EntityTakeDamage", "LKL_SPH_TrackDamage", function( victim, attacker, inflictor, dmg, type )
+    if not ent or victim ~= ent or stopDamage or not alive then return end
+
+    if dps < maxDPS then
+        dmg = math.min( dmg, maxDPS - dps )
+
+        if bit.band( type, 64 ) then
+            dmg = math.min( dmg, maxDamageExplosive )
+        else
+            dmg = math.min( dmg, maxDamage )
+        end
+        --print(dmgDamage() + " " + dmg + " " + dps)
+        health = math.max( health - dmg, 0 )
+        dps = dps + dmg
+        healthFraction = health / maxHealth
+
+        if doHolos then
+            holoGreen:setSize( holoSize * Vector( healthFraction, 1, 1 ) + Vector( 1, 1, 1 ) )
+            holoGreen:setPos( holoRed:localToWorld( Vector( holoSize.x * ( 1 - healthFraction ) / 2, 0, 0 ) ) )
+        end
+
+        wire.ports.Health = health
+        wire.ports.DPS = dps
+
+        if health == 0 then
+            alive = false
+            wire.ports.Alive = 0
+        elseif healthFraction < 1 - phase / numPhases then
+            phase = phase + 1
+            wire.ports.Phase = phase
+        end
+    end
+end )
+
+timer.create( "LKL_SPH_ResetDPS", 1, 0, function()
+    if preventDeletion then
+        if ent then
+            if not ent:isPlayerHolding() and ent:getMass() ~= 0 then
+                entData = {
+                    model = ent:getModel(),
+                    pos = ent:getPos(),
+                    ang = ent:getAngles(),
+                    mat = ent:getMaterial(),
+                    color = ent:getColor(),
+                    mass = ent:getMass(),
+                    frozen = ent:isFrozen(),
+                    vel = ent:getVelocity(),
+                }
+            end
+        else
+            ent = safeSpawn( entModel.pos, entModel.ang, entModel.model, entModel.frozen )
+
+            if isValid( ent ) then
+                ent:setMaterial( entModel.mat )
+                ent:setColor( entModel.color )
+                ent:setAlpha( entModel.alpha )
+                ent:setMass( entModel.mass )
+                safeSetVelocity( ent, entModel.vel )
+            end
+
+            wireInput( "EntIn", ent )
+        end
+    end
+
+    dps = 0
+    wire.ports.DPS = 0
+end )
+
+timer.simple( 1, function()
+    wireInput( "EntIn", wire.ports.EntIn )
+    wireInput( "StopDamage", wire.ports.StopDamage )
+    wireInput( "Reset", wire.ports.Reset )
+end )

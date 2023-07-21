@@ -1,0 +1,43 @@
+--@name Table Clone Deep
+--@author legokidlogan
+--@shared
+
+if table.cloneDeep then return end
+
+
+local layerLimit = 8
+
+
+local function _tableCloneDeep( source, target, layer )
+    if layer > layerLimit then return target end
+
+    local sourceType = type( source )
+
+    if sourceType == "Vector" then
+        return Vector( source.x, source.y, source.z )
+    elseif sourceType == "Angle" then
+        return Angle( source.p, source.y, source.r )
+    elseif sourceType == "Color" then
+        return Color( source.r, source.g, source.b, source.a )
+    elseif sourceType ~= "table" then
+        return source
+    end
+
+    for key, val in pairs( source ) do
+        if type( val ) == "table" then
+            local targetVal = {}
+
+            target[key] = targetVal
+            _tableCloneDeep( val, targetVal, layer + 1 )
+        else
+            target[key] = _tableCloneDeep( val, target, layer + 1 )
+        end
+    end
+
+    return target
+end
+
+
+function table.cloneDeep( source )
+    return _tableCloneDeep( source, {}, 1 )
+end

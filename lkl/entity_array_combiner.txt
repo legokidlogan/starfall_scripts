@@ -1,0 +1,128 @@
+--@name Entity Array Combiner
+--@author legokidlogan
+--@server
+--@include lkl/input_generator.txt
+
+
+
+local tableInsert = table.insert
+local tableRemoveByValue = table.removeByValue
+local mMax = math.max
+
+local combinedEnts = {}
+local combinedAppearances = {}
+local combinedCount = 0
+
+
+projectNameID = "EntArrayCombiner." .. chip():entIndex()
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+inGenRepeatMaxDefault = 20
+inGenRepeatNames = inGenRepeatNames or {}
+inGenRepeatTypes = inGenRepeatTypes or {}
+inGenRepeatGroups = inGenRepeatGroups or {}
+inGenRepeatMaxes = inGenRepeatMaxes or {}
+
+tableInsert( inGenRepeatNames, "ArrayIn" )
+tableInsert( inGenRepeatTypes, "ARRAY" )
+tableInsert( inGenRepeatGroups, 1 )
+tableInsert( inGenRepeatMaxes, 10 )
+
+tableInsert( inGenRepeatNames, "TableIn" )
+tableInsert( inGenRepeatTypes, "TABLE" )
+tableInsert( inGenRepeatGroups, 2 )
+tableInsert( inGenRepeatMaxes, 10 )
+
+tableInsert( inGenRepeatNames, "EntIn" )
+tableInsert( inGenRepeatTypes, "ENTITY" )
+tableInsert( inGenRepeatGroups, 3 )
+tableInsert( inGenRepeatMaxes, 40 )
+
+tableInsert( outputNames, "ArrayOut" )
+tableInsert( outputTypes, "ARRAY" )
+
+tableInsert( outputNames, "TableOut" )
+tableInsert( outputTypes, "TABLE" )
+
+tableInsert( outputNames, "Count" )
+tableInsert( outputTypes, "NUMBER" )
+
+require( "lkl/input_generator.txt" )
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+
+
+local function addEnt( ent )
+    if not isValid( ent ) then return end
+
+    local appearanceCount = combinedAppearances[ent]
+
+    if appearanceCount then
+        combinedAppearances[ent] = appearanceCount + 1
+
+        return
+    end
+
+    combinedCount = combinedCount + 1
+    combinedEnts[combinedCount] = ent
+    combinedAppearances[ent] = 1
+    --wire.ports.Count = combinedCount
+end
+
+local function removeEnt( ent )
+    local appearanceCount = combinedAppearances[ent]
+
+    if not appearanceCount then return end
+
+    if appearanceCount ~= 1 then
+        combinedAppearances[ent] = appearanceCount - 1
+
+        return
+    end
+
+    combinedCount = mMax( combinedCount - 1, 0 )
+    tableRemoveByValue( combinedEnts, ent )
+    combinedAppearances[ent] = nil
+    --wire.ports.Count = combinedCount
+end
+
+
+local function wireInput( name, value, oldValue, wasUnlinked )
+    local valType = type( value )
+
+    local oldCount = combinedCount
+    --print("e",valType,tostring(oldValue),tostring(value))
+    if valType == "table" then
+        for _, ent in pairs( oldValue or {} ) do
+            removeEnt( ent )
+        end
+
+        for _, ent in pairs( value or {} ) do
+            addEnt( ent )
+        end
+    elseif valType == "Entity" then
+        removeEnt( oldValue )
+        addEnt( value )
+    end
+
+    wire.ports.ArrayOut = combinedEnts
+    wire.ports.TableOut = combinedEnts
+
+    if combinedCount ~= oldCount then
+        wire.ports.Count = combinedCount
+    end
+end
+
+
+hook.add( "inGenInput", "LKL_EAC_WireInput", wireInput )
+
+
+timer.simple( 3, function()
+    wire.ports.ArrayOut = combinedEnts
+    wire.ports.TableOut = combinedEnts
+end )

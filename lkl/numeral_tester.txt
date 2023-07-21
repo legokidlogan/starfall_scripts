@@ -1,0 +1,149 @@
+--@name Numeral Tester
+--@author
+--@shared
+--@include lkl/math/numeral.txt
+--@include lkl/chat_cmds.txt
+
+
+ccmdPrefix = "/bc"
+ccmdPrintCommands = true
+ccmdUsePCall = true
+
+projectNameID = "BaseConvTest"
+printName = "[" .. projectNameID .. "]"
+
+require( "lkl/math/numeral.txt" )
+require( "lkl/chat_cmds.txt" )
+
+
+if CLIENT then return end
+
+
+local MAX_BASE = Numeral:getMaxBase()
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+table.insert( outputNames, "LastNum" )
+table.insert( outputTypes, "STRING" )
+
+wire.adjustOutputs( outputNames, outputTypes )
+
+
+-- Convert:
+local function commandConvert( _, ply, _, num, fromBase, toBase )
+    fromBase = tonumber( fromBase )
+    toBase = tonumber( toBase )
+
+    local startNumeral = Numeral:new( num, fromBase )
+    local endNumeral = startNumeral:toBase( toBase )
+
+    wire.ports.LastNum = endNumeral:getValue()
+
+    return {
+        "::c_yellow", startNumeral .. " ",
+        "::c_white", "-->",
+        "::c_yellow", " " .. endNumeral,
+    }
+end
+
+local function commandConvert_FailCases( _, ply, _, num, fromBase, toBase )
+    fromBase = tonumber( fromBase )
+    toBase = tonumber( toBase )
+
+    if not fromBase then return "Expected fromBase to be a number" end
+    if not toBase then return "Expected toBase to be a number" end
+    if math.floor( fromBase ) ~= fromBase or fromBase < 2 or fromBase > MAX_BASE then return "Expected fromBase to be an integer between 2 and " .. MAX_BASE end
+    if math.floor( toBase ) ~= toBase or toBase < 2 or toBase > MAX_BASE then return "Expected toBase to be an integer between 2 and " .. MAX_BASE end
+    --if string.find( num, ".", nil, true ) then return "Expected num to be an integer" end
+end
+
+ccmdCreateCommand(
+    {
+        "convert",
+    },
+    commandConvert,
+    commandConvert_FailCases,
+    {
+        ReqCount = 3,
+        OptCount = 0,
+        "num",
+        "fromBase",
+        "toBase",
+    },
+    "Converts numbers from one base to another",
+    find.allPlayers(),
+    true
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--[[
+local function testBaseConv( numStr, fromBase, toBase )
+    local startNumeral = Numeral:new( numStr, fromBase )
+    local endNumeral = startNumeral:toBase( toBase )
+
+    print( startNumeral .. " = " .. endNumeral )
+end
+
+testBaseConv( "123", 10, 16 )
+testBaseConv( "7B", 16, 10 )
+print( "" )
+
+
+local numeralA = Numeral:new( "0101", 2 )
+local numeralB = Numeral:new( "1011", 2 )
+local numeralC = Numeral:new( "20", 8 )
+local numeralD = Numeral:new( "0101", 2 )
+local numeralE = Numeral:new( "11", 4 )
+
+print( "numeralA: " .. numeralA, ":toNumber() " .. numeralA:toNumber(), ":getBase() " .. numeralA:getBase(), ":getValue() " .. numeralA:getValue() )
+print( "numeralB: " .. numeralB, ":toNumber() " .. numeralB:toNumber(), ":getBase() " .. numeralB:getBase(), ":getValue() " .. numeralB:getValue() )
+print( "numeralC: " .. numeralC, ":toNumber() " .. numeralC:toNumber(), ":getBase() " .. numeralC:getBase(), ":getValue() " .. numeralC:getValue() )
+print( "numeralD: " .. numeralD, ":toNumber() " .. numeralD:toNumber(), ":getBase() " .. numeralD:getBase(), ":getValue() " .. numeralD:getValue() )
+print( "numeralE: " .. numeralE, ":toNumber() " .. numeralE:toNumber(), ":getBase() " .. numeralE:getBase(), ":getValue() " .. numeralE:getValue() )
+print( "" )
+
+
+local numA = 3
+local expr1 = numA + numeralA
+local expr2 = numeralA + numA
+local expr3 = numeralA + numeralB
+local expr4 = numeralA + numeralC
+local expr5 = numeralC + numeralA
+
+print( numA .. " + " .. numeralA .. " = ", expr1, " = " .. tonumber( expr1 ) )
+print( numeralA .. " + " .. numA .. " = ", expr2, " = " .. expr2:toNumber() )
+print( numeralA .. " + " .. numeralB .. " = ", expr3, " = " .. expr3:toNumber() )
+print( numeralA .. " + " .. numeralC .. " = ", expr4, " = " .. expr4:toNumber() )
+print( numeralC .. " + " .. numeralA .. " = ", expr5, " = " .. expr5:toNumber() )
+print( "" )
+
+
+print( 5 .. " == " .. numeralA, 5 == numeralA )
+print( numeralA .. " == " .. numeralA, numeralA == numeralA )
+print( numeralA .. " == " .. numeralD, numeralA == numeralD )
+print( numeralA .. " == " .. numeralB, numeralA == numeralB )
+print( numeralA .. " == " .. numeralE, numeralA == numeralE )
+print( numeralA .. ":exactlyEquals( " .. numeralA .. " )", numeralA:exactlyEquals( numeralA ) )
+print( numeralA .. ":exactlyEquals( " .. numeralB .. " )", numeralA:exactlyEquals( numeralB ) )
+print( numeralA .. ":exactlyEquals( " .. numeralE .. " )", numeralA:exactlyEquals( numeralE ) )
+--]]
+

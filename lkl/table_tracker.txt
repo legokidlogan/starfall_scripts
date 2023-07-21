@@ -1,0 +1,484 @@
+--@name Table Tracker
+--@author legokidlogan
+--@shared
+--@include lkl/gcolors.txt
+--@include lkl/table_clone_deep.txt
+
+-- Global functions and their documentations are towards the bottom of this script.
+
+
+if tableTracker then return end -- Don't run this script twice
+
+require( "lkl/gcolors.txt" )
+require( "lkl/table_clone_deep.txt" )
+
+tableTracker = {}
+
+local TblTr_MTFuncs = TblTr_MTFuncs or {}
+local TblTr_Nicknames = TblTr_Nicknames or {}
+local TblTr_NickPrints = TblTr_NickPrints or {}
+local TblTr_LogFlags = TblTr_LogFlags or {}
+local layerLimit = 8
+
+local tableAdd = table.add
+
+
+-- Metatable to keep track of read and write accesses to a table
+local TblTr_MT = {
+    __index = function( tbl, key )
+        --print( "*access to element " .. tostring( key ) )
+
+        local readFunc = ( TblTr_MTFuncs[tbl] or {} ).read
+        local realTbl = tbl[TblTr_MTFuncs]
+        local doOverride = false
+        local overrideVal = false
+
+        if key == TblTr_MTFuncs then return realTbl end
+
+        if type( readFunc ) == "function" then
+            doOverride, overrideVal = readFunc( tbl, realTbl, key )
+        end
+
+        if doOverride then
+            return overrideVal
+        end
+
+        return realTbl[key] -- access the original table
+    end,
+
+    __newindex = function( tbl, key, val )
+        --print( "*update of element " .. tostring( key ) .. " to " .. tostring( val ) )
+
+        local writeFunc = ( TblTr_MTFuncs[tbl] or {} ).write
+        local realTbl = tbl[TblTr_MTFuncs]
+        local doOverride = false
+        local overrideVal = false
+
+        if key == TblTr_MTFuncs then
+            realTbl[key] = val
+
+            return
+        end
+
+        if type( writeFunc ) == "function" then
+            doOverride, overrideKey, overrideVal = writeFunc( tbl, realTbl, key, val )
+        end
+
+        if doOverride then
+            if overrideKey == nil then
+                overrideKey = key
+            end
+
+            realTbl[overrideKey] = overrideVal
+
+            return
+        end
+
+        realTbl[key] = val -- update original table
+    end,
+
+    __len = function( tbl )
+        local realTbl = tbl[TblTr_MTFuncs]
+
+        return #realTbl
+    end,
+}
+
+
+local function assignNickname( parent, tbl, nickname )
+    if not tbl then return end
+
+    local realTbl = tbl[TblTr_MTFuncs] or tbl
+    parent = parent and parent[TblTr_MTFuncs] or parent
+
+    if nickname == nil then
+        nickname = "?"
+    end
+
+    nickname = tostring( nickname )
+    TblTr_Nicknames[realTbl] = nickname
+
+    local parentNickList = parent and TblTr_NickPrints[parent] or {
+        c_pale_yellow, "UNKNOWN",
+    }
+    local thisNickList = table.cloneDeep( parentNickList )
+
+    tableAdd( thisNickList, {
+        c_white, "[",
+        c_orange, nickname,
+        c_white, "]",
+    } )
+    TblTr_NickPrints[realTbl] = thisNickList
+end
+
+local function getNickname( tbl )
+    local realTbl = tbl[TblTr_MTFuncs] or tbl
+
+    return TblTr_Nicknames[realTbl] or "?"
+end
+
+local function getNickPrint( tbl )
+    local realTbl = tbl[TblTr_MTFuncs] or tbl
+
+    return TblTr_NickPrints[realTbl] or {
+        c_pale_yellow, "UNKNOWN",
+        c_white, "[",
+        c_orange, "?",
+        c_white, "]",
+    }
+end
+
+local function logRead( proxyTbl, realTbl, key, bonusStackCount ) -- read -- return doOverride, overrideVal
+    local stackInfo = debug.getinfo( 4 + ( bonusStackCount or 0 ), nil )
+
+    local printData = {
+        c_white, "[TblTr] ",
+        c_brown, "READ ",
+        c_white, "of ",
+    }
+
+    tableAdd( printData, getNickPrint( proxyTbl ) )
+    tableAdd( printData, {
+        c_white, "[",
+        c_light_brown, tostring( key ),
+        c_white, "]",
+        c_white, "\n  = ",
+        c_yellow, tostring( realTbl[key] ),
+        c_white, "\n  by ",
+        c_code_function, tostring( stackInfo.name ),
+        c_white, " on line ",
+        c_yellow, tostring( stackInfo.currentline ),
+        c_white, " of ",
+        c_cyan, tostring( stackInfo.source ) .. "\n",
+    } )
+
+    pcall( function()
+        print( unpack( printData ) )
+    end )
+
+    return false
+end
+
+local function logWrite( proxyTbl, realTbl, key, val, bonusStackCount ) -- write -- return doOverride, overrideKey, overrideVal
+    local stackInfo = debug.getinfo( 4 + ( bonusStackCount or 0 ), nil )
+
+    local printData = {
+        c_white, "[TblTr] ",
+        c_medium_blue, "WRITE ",
+        c_white, "to ",
+    }
+
+    tableAdd( printData, getNickPrint( proxyTbl ) )
+    tableAdd( printData, {
+        c_white, "[",
+        c_light_brown, tostring( key ),
+        c_white, "]",
+        c_white, "\n  from ",
+        c_yellow, tostring( realTbl[key] ),
+        c_white, " to ",
+        c_yellow, tostring( val ),
+        c_white, "\n  by ",
+        c_code_function, tostring( stackInfo.name ),
+        c_white, " on line ",
+        c_yellow, tostring( stackInfo.currentline ),
+        c_white, " of ",
+        c_cyan, tostring( stackInfo.source ) .. "\n",
+    } )
+
+    pcall( function()
+        print( unpack( printData ) )
+    end )
+
+    return false
+end
+
+local function logTrackNewChild( proxyTbl, realTbl, key, val )
+    if type( val ) ~= "table" or tableTracker.isTableTracked( val ) then return true, key, val end
+
+    local mtFuncs = TblTr_MTFuncs[proxyTbl] or {}
+    local trackedVal, didTrack = tableTracker.trackTblAndChildren( val, mtFuncs.ogRead, mtFuncs.ogWrite, realTbl, key, true, false, TblTr_LogFlags[realTbl] )
+
+    if didTrack then
+        local printData = {
+            c_white, "[TblTr] ",
+            c_magenta, "TRACKING ",
+        }
+
+        tableAdd( printData, getNickPrint( proxyTbl ) )
+        tableAdd( printData, {
+            c_white, "[",
+            c_light_brown, getNickname( trackedVal ),
+            c_white, "] = ",
+            c_yellow, tostring( trackedVal ) .. "\n",
+        } )
+
+        pcall( function()
+            print( unpack( printData ) )
+        end )
+    end
+
+    return true, key, trackedVal
+end
+
+local function _trackTblAndChildren( tbl, readFunc, writeFunc, parent, tblKeyInParent, avoidRetracking, logFlags, layer )
+    if layer > layerLimit then
+        print( c_alert_red, "TableTracker tried to track a table and its children down too many levels!" )
+
+        if parent and tblKeyInParent ~= nil then
+            parent[tblKeyInParent] = tbl
+        end
+
+        return tbl
+    end
+
+    local realTbl = tbl[TblTr_MTFuncs] or tbl -- Avoid complications from triggering the user's track funcs
+
+    assignNickname( parent, tbl, tblKeyInParent )
+
+    for key, val in pairs( realTbl ) do
+        if type( val ) == "table" then
+            if avoidRetracking and tableTracker.isTableTracked( val ) then continue end
+
+            if layer == -1 then -- No recursion, just first-level children
+                val = tableTracker.trackTbl( val, readFunc, writeFunc, parent, tblKeyInParent, false, logFlags )
+                realTbl[key] = val
+
+                continue
+            end
+
+            _trackTblAndChildren( val, readFunc, writeFunc, realTbl, key, avoidRetracking, logFlags, layer + 1 )
+            --realTbl[key] = val -- Already handled by recursive call
+        end
+    end
+
+    tbl = tableTracker.trackTbl( tbl, readFunc, writeFunc, parent, tblKeyInParent, avoidRetracking, logFlags )
+
+    if parent and tblKeyInParent ~= nil then
+        parent[tblKeyInParent] = tbl
+    end
+
+    return tbl
+end
+
+
+
+-- GLOBAL FUNCTIONS:
+
+
+--[[
+    - readFunc( proxyTbl, realTbl, key ) return doOverride, overrideVal
+    - writeFunc( proxyTbl, realTbl, key, val ) return doOverride, overrideKey, overrideVal
+    - logFlags = {
+        LogRead = BOOLEAN,
+        LogWrite = BOOLEAN,
+        AutoTrackNewChildren = BOOLEAN,
+    }
+
+    - parentTbl and tblKeyInParent are optional for this func, but highly recommended.
+        - If tbl is in a parentTbl, tblKeyInParent should be the key where parentTbl[tblKeyInParent] == tbl
+        - If there is no parentTbl (i.e. tbl is a standalone var), provide parentTbl as nil, and tblKeyInParent as the var name of tbl
+
+    - Usage:
+        - If tbl is a standalone var:
+            myTable = initialValuesWhatever
+            -- (...)
+            myTable = tableTracker.trackTbl( myTable, myReadFunc, myWriteFunc, nil, "myTable", false, myLogFlags )
+        - If tbl is inside another table:
+            someTable = {
+                Blah = Whatever,
+                MyKey = {
+                    SomeStuff = InTheTableIWantToTrack,
+                    Lorem = Ipsum,
+                },
+                Foo = Bar,
+            }
+            -- (...)
+            tableTracker.trackTbl( someTable.MyKey, myReadFunc, myWriteFunc, someTable, "MyKey", false, myLogFlags )
+        - If tbl is a var AND is inside another table (with the same reference value):
+            myTable = initialValuesWhatever
+            someTable = {
+                Blah = Whatever,
+                MyKey = myTable,
+                Foo = Bar,
+            }
+            -- (...)
+            myTable = tableTracker.trackTbl( myTable, myReadFunc, myWriteFunc, someTable, "MyKey", false, myLogFlags )
+--]]
+function tableTracker.trackTbl( tbl, readFunc, writeFunc, parentTbl, tblKeyInParent, avoidRetracking, logFlags )
+    local proxy = {}
+
+    if tableTracker.isTableTracked( tbl ) then
+        if avoidRetracking then return tbl end
+
+        proxy = tbl
+        tbl = proxy[TblTr_MTFuncs]
+    end
+
+    local parentIsTable = type( parentTbl ) == "table"
+    local ogReadFunc = readFunc
+    local ogWriteFunc = writeFunc
+
+    parentTbl = parentIsTable and parentTbl[TblTr_MTFuncs] or parentTbl
+    logFlags = logFlags or {}
+
+    if logFlags.LogRead then
+        if type( readFunc ) == "function" then
+            local _readFunc = readFunc
+            readFunc = function( _proxyTbl, _realTbl, _key )
+                logRead( _proxyTbl, _realTbl, _key, 1 )
+
+                return _readFunc( _proxyTbl, _realTbl, _key )
+            end
+        else
+            readFunc = logRead
+        end
+    end
+
+    if logFlags.AutoTrackNewChildren then
+        if type( writeFunc ) == "function" then
+            local _writeFunc = writeFunc
+            writeFunc = function( _proxyTbl, _realTbl, _key, _val )
+                doOverride, overrideKey, overrideVal = _writeFunc( _proxyTbl, _realTbl, _key, _val )
+
+                if not doOverride or ( doOverride and type( overrideVal ) == "table" ) then
+                    if overrideKey == nil then
+                        overrideKey = _key
+                    end
+
+                    if not doOverride then
+                        overrideVal = _val
+                    end
+
+                    return logTrackNewChild( _proxyTbl, _realTbl, overrideKey, overrideVal )
+                end
+
+                return doOverride, overrideKey, overrideVal
+            end
+        else
+            writeFunc = logTrackNewChild
+        end
+    end
+
+    if logFlags.LogWrite then
+        if type( writeFunc ) == "function" then
+            local _writeFunc = writeFunc
+            writeFunc = function( _proxyTbl, _realTbl, _key, _val )
+                logWrite( _proxyTbl, _realTbl, _key, _val, 1 )
+
+                return _writeFunc( _proxyTbl, _realTbl, _key, _val )
+            end
+        else
+            writeFunc = logWrite
+        end
+    end
+
+    TblTr_LogFlags[tbl] = logFlags
+    TblTr_MTFuncs[tbl] = {
+        read = readFunc,
+        write = writeFunc,
+        ogRead = ogReadFunc,
+        ogWrite = ogWriteFunc,
+    }
+
+    proxy[TblTr_MTFuncs] = tbl
+    proxy.TblTr_Original = tbl
+
+    TblTr_MTFuncs[proxy] = TblTr_MTFuncs[tbl]
+    TblTr_MTFuncs[tbl] = nil
+
+    setmetatable( proxy, TblTr_MT )
+    assignNickname( parentTbl, proxy, tblKeyInParent )
+
+    if parentIsTable and tblKeyInParent ~= nil then
+        parentTbl[tblKeyInParent] = proxy
+    end
+
+    return proxy
+end
+
+function tableTracker.isTableTracked( tbl )
+    if TblTr_MTFuncs[tbl] then return true end
+    return false
+end
+
+-- parent and tblKeyInParent are required args this time, if applicable
+function tableTracker.trackTblAndChildren( tbl, readFunc, writeFunc, parent, tblKeyInParent, avoidRetracking, noRecursion, logFlags )
+    if type( tbl ) ~= "table" then return tbl, false end
+    if avoidRetracking and tableTracker.isTableTracked( tbl ) then return tbl, false end
+
+    local parentIsTable = type( parent ) == "table"
+
+    if parentIsTable then
+        parent = parent[TblTr_MTFuncs] or parent
+    end
+
+    tbl = _trackTblAndChildren(
+        tbl, readFunc, writeFunc, parentIsTable and parent, tblKeyInParent, avoidRetracking, logFlags, noRecursion and -1 or 1
+    )
+
+    if parentIsTable and tblKeyInParent ~= nil and tblKeyInParent ~= TblTr_MTFuncs then
+        parent[tblKeyInParent] = tbl
+    end
+
+    return tbl, true
+end
+
+tableTracker.exposedFuncs = tableTracker.exposedFuncs or {}
+
+--[[
+    - This exposes a function, making its table arguments automatically be converted to the real, underlying tables instead of their tracker proxies.
+    - This is important for functions like pairs( tbl ) and ipairs( tbl ), which acquire tbl's keys in a way incompatible with TableTracker.
+        - For example, pairs( tbl ) will look directly at the keys of tbl, bypassing starfall metatables.
+        - Since the proxy for tbl is essentially empty, it will come back with nothing. Hence why it must be exposed.
+
+    - exposeFunc currently only works on functions where all the table arguments are in a single consecutive group.
+        - e.g. func( num, tbl, tbl, tbl, string ) works, while func( num, tbl, tbl, ent, tbl, string ) will not.
+
+    - func:
+        - The function to expose. Cannot expose the same function twice.
+    - numTblArgs:
+        - The number of table arguments you want to expose.
+    - firstTblArgInd:
+        - The argument index of the first table arg you want to be exposed.
+--]]
+function tableTracker.exposeFunc( func, numTblArgs, firstTblArgInd )
+    if tableTracker.exposedFuncs[func] then print( "alreadyExposed" ) return func end
+
+    local oldFunc = func
+    numTblArgs = ( type( numTblArgs ) == "number" and numTblArgs >= 1 and math.floor( numTblArgs ) ) or 1
+    firstTblArgInd = ( type( firstTblArgInd ) == "number" and firstTblArgInd >= 1 and math.floor( firstTblArgInd ) ) or 1
+
+    func = function( ... )
+        local args = {}
+
+        for i = 1, select( "#", ... ) do
+            args[i] = select( i, ... )
+        end
+
+        for i = firstTblArgInd, firstTblArgInd + numTblArgs do
+            local tbl = args[i]
+
+            if type( tbl ) ~= "table" then continue end
+
+            local realTbl = tbl[TblTr_MTFuncs]
+
+            if realTbl then
+                args[i] = realTbl
+            end
+        end
+
+        return oldFunc( unpack( args ) )
+    end
+
+    tableTracker.exposedFuncs[func] = oldFunc
+
+    return func
+end
+
+pairs = tableTracker.exposeFunc( pairs )
+ipairs = tableTracker.exposeFunc( ipairs )
+
+if SERVER then
+    wire.adjustInputs = tableTracker.exposeFunc( wire.adjustInputs, 2 )
+    wire.adjustOutputs = tableTracker.exposeFunc( wire.adjustOutputs, 2 )
+end

@@ -1,0 +1,118 @@
+--@name Toggle Button
+--@author legokidlogan
+--@client
+--@include lkl/sgui/button.txt
+
+--[[
+    - SGUI.ToggleButton
+    - Blah
+--]]
+
+
+require( "lkl/sgui/button.txt" )
+
+if SGUI.ToggleButton then return end -- Don't run twice
+
+
+SGUI.ToggleButton = class( "ToggleButton", SGUI.Button )
+
+
+local ToggleButton = SGUI.ToggleButton
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    initialState: (nil or boolean)
+        - BOOLEAN: Sets the button's state and triggers the appropriate callback.
+        - NIL: Sets the button's state to false without triggering any callbacks.
+--]]
+function ToggleButton:initialize( parent, initialState )
+    ToggleButton.super.initialize( self, parent )
+
+    if initialState == nil then
+        self:setStateSilent( false )
+    else
+        timer.simple( 0, function()
+            self._state = nil
+            self:setState( initialState )
+        end )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ToggleButton:setState( state )
+    if self._state == state then return end
+
+    self:setStateSilent( state )
+
+    if state then
+        self:onToggledOn()
+    else
+        self:onToggledOff()
+    end
+
+    self:onToggleChanged( state )
+end
+
+-- Sets the state without triggering any callbacks.
+function ToggleButton:setStateSilent( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._state = state
+end
+
+function ToggleButton:getState()
+    return self._state
+end
+
+function ToggleButton:toggleState()
+    self:setState( not self:getState() )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function ToggleButton:onToggledOn()
+
+end
+
+function ToggleButton:onToggledOff()
+
+end
+
+-- A combination of onToggledOn() and onToggledOff()
+function ToggleButton:onToggleChanged( state )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ToggleButton:onClicked()
+    self:toggleState()
+end
+
+function ToggleButton:onHeldThink()
+    -- Do nothing.
+end
+
+function ToggleButton:getBackgroundColor( fallbackColor, ... )
+    local suffix = "Background"
+
+    if self:isDisabled() then
+        suffix = "DisabledBackground"
+    elseif self:isMouseHeld() ~= self:getState() then
+        suffix = "BackgroundPressed"
+    elseif self:isHovered() then
+        suffix = "BackgroundHovered"
+    end
+
+    return self:getClassColor( suffix, fallbackColor, ... )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+

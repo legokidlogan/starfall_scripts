@@ -1,0 +1,336 @@
+--@name sv_dosound
+--@author legokidlogan
+--@server
+--@include lkl/gcolors.txt
+
+require( "lkl/gcolors.txt" )
+
+local printName = "sv_dosound"
+local clientExtended = false
+
+if projectNameID then
+    printName = projectNameID .. " -> " .. printName
+end
+
+printName = "[" .. printName .. "]"
+
+
+-- This library makes it easy to configure and play multiple different (and dynamic) sound presets.
+-- cl_dosound is a clientside version with slightly different parameters, and can be included to allow url sounds.
+
+-- Config globals:
+soundNotifyFailedNetworks = true -- Should you be notified if a sound fails to be sent to cl_dosound?
+soundCategoryFallback = soundCategoryFallback or false -- The fallback category to use in case a sound type couldn't be found in some other category.
+soundTbl = soundTbl or { -- Define this table in the parent chip, don't edit this base file.
+    TemplateSound = {
+        Path = "",
+        Duration = nil,
+        Volume = 1,
+        Pitch = 1,
+        Level = 75,
+        Delay = nil,
+    },
+    TemplateCategory = {
+        TemplateSound1 = {
+            Path = "",
+            Duration = nil,
+            Volume = 1,
+            Pitch = 1,
+            Level = 75,
+            Delay = nil,
+        },
+        TemplateSound2 = {
+            Path = "",
+            Duration = nil,
+            Volume = 1,
+            Pitch = 1,
+            Level = 75,
+            Delay = nil,
+        },
+    }
+}
+-- End config globals
+
+
+-- Used internally
+local function getSoundParams( ent, sound, snd, override, doDefaults )
+    override = override or {}
+
+    local path = override.Path or snd.Path
+    local pitch = override.Pitch or snd.Pitch
+    local level = override.Level or snd.Level
+    local volume = override.Volume or snd.Volume
+    local duration = override.Duration or snd.Duration
+    local delay = override.Delay or snd.Delay
+
+    if type( path ) == "function" then
+        path = path( ent, sound )
+    end
+
+    path = path or ""
+
+    if type( pitch ) == "function" then
+        pitch = pitch( ent, sound, path )
+    end
+
+    pitch = pitch or 1
+
+    if type( level ) == "function" then
+        level = level( ent, sound, path, pitch )
+    end
+
+    if type( volume ) == "function" then
+        volume = volume( ent, sound, path, pitch )
+    end
+
+    if type( delay ) == "function" then
+        delay = delay( ent, sound, path, pitch )
+    end
+
+    if type( duration ) == "function" then
+        duration = duration( ent, sound, path, pitch )
+    end
+
+    if doDefaults then
+        path = path
+        pitch = pitch
+        level = level or 75
+        volume = volume or 1
+    end
+
+    return path, level, pitch, volume, duration, delay
+end
+
+
+-- Global funcs:
+
+function soundIsUrl( path )
+    return string.sub( path, 1, 4 ) == "http"
+end
+
+--[[
+    ent, sound, override:
+        Same as in doSound() below.
+    snd (table):
+        The sound entry data from soundTbl you wish to use. Acquired via soundTbl[sound] or soundTbl[category][sound] depending on the situation.
+    plys (Entity or table, optional):
+        The player(s) who should hear hear the sound. Defaults to sending to everyone.
+
+    Only usable if cl_dosound is included in the parent chip.
+    Grabs data from soundTbl and override to tell cl_dosound to do a clientside sound instead of running via server.
+        Useful for doing sv_dosound sounds that can be heard only by specific players, and handling custom url sounds.
+    Will use data from cl_dosounds as the base, overrides with sv_dosound data, and overrides further with the override arg.
+        This means the sound name must match with the entries in cl_dosound.
+        i.e. whatever the client already has, plus server sound names which get reformatted in extendClientSounds(), described at the bottom of this file.
+--]]
+function doSoundOnClient( ent, sound, override, snd, plys )
+    if not clientExtended then return end
+
+    local success = pcall( function()
+        local path, level, pitch, volume, duration, delay = getSoundParams( ent, sound, snd, override, false )
+        local tbl = {
+            Path = path,
+            Duration = duration,
+            Volume = volume,
+            Pitch = pitch,
+            Level = level,
+            Delay = delay,
+        }
+
+        plys = plys or find.allPlayers()
+
+        net.start( "LKL_DoSound_PlayServerSound" )
+        net.writeString( sound )
+        net.writeEntity( ent )
+        net.writeTable( tbl )
+        net.send( plys )
+    end )
+
+    if not success then
+        print(
+            c_white, printName,
+            c_alert_red, " Failed to network a sound to ",
+            c_yellow, "cl_dosound",
+            c_alert_red, "!"
+        )
+    end
+end
+
+--[[
+    ent (Entity):
+        The entity to play the sound on.
+    sound (string):
+        The sound name to acquire data from.
+    category (string, optional):
+        The sound category to find the sound in.
+    override (table, optional):
+        Formatted the same way as a regular soundTbl sound, for overriding values.
+
+    When the sound has finished playing, the hook LKL_DoSound_SoundFinished will run with args ( ent, sound ).
+        This requires a non-nil duration to be supplied when starting the sound.
+    If the parent chip is shared and includes cl_dosound, sounds with a url as their path will automatically be sent over to the client to play.
+        Since functions can't be networked, all function entries in soundTbl will be evaluated serverside.
+--]]
+function doSound( ent, sound, category, override )
+    if not isValid( ent ) then return end
+
+    local snd
+    local effectiveCategory = category
+    sound = sound or ""
+
+    if category then
+        snd = ( soundTbl[category] or {} )[sound]
+    else
+        snd = soundTbl[sound]
+    end
+
+    if not snd then
+        snd = ( soundTbl[soundCategoryFallback] or {} )[sound]
+        effectiveCategory = soundCategoryFallback
+    end
+
+    if not snd then
+        if category then
+            print(
+                c_white, printName,
+                c_red, " Could not find a sound named ",
+                c_yellow, sound,
+                c_red, " in category ",
+                c_yellow, tostring( category ),
+                c_red, "!"
+            )
+        else
+            print(
+                c_white, printName,
+                c_red, " Could not find a sound named ",
+                c_yellow, tostring( sound ),
+                c_red, "!"
+            )
+        end
+
+        return false
+    end
+
+    local path, level, pitch, volume, duration, delay = getSoundParams( ent, sound, snd, override, true )
+
+    if not path or path == "" then return end
+
+    if soundIsUrl( path ) then
+        if not clientExtended then
+            print(
+                c_white, printName,
+                c_alert_red, " Cannot play url sounds without ",
+                c_yellow, "cl_dosound.txt ",
+                c_red, "being included & required() on a shared-realm chip!"
+            )
+
+            return
+        end
+
+        --sound = "sv_" .. ( effectiveCategory and ( effectiveCategory .. "_" ) or "" ) .. sound
+        sound = ( effectiveCategory and ( effectiveCategory .. "_" ) or "" ) .. sound
+
+        doSoundOnClient( ent, sound, override, snd, nil )
+
+        return
+    end
+
+    local timerName = "LKL_DoSound_PlayDelayedSound_" .. ent:entIndex() .. "_" .. sound
+
+    timer.create( timerName, delay and delay > 0 and delay or 0, 1, function()
+        if not isValid( ent ) then return end
+
+        local soundList = ent.doSoundList or {}
+        local activeSounds = soundList[sound] or {}
+        local activeCount = ( activeSounds.count or 0 ) + 1
+
+        ent.doSoundList = soundList
+        soundList[sound] = activeSounds
+        activeSounds.count = activeCount
+        activeSounds[activeCount] = path
+
+        ent:emitSound( path, level, pitch * 100, volume )
+
+        if not duration or duration <= 0 then return end
+
+        timer.simple( duration, function()
+            if isValid( ent ) then
+                ent:stopSound( path )
+            end
+
+            if activeSounds.count == activeCount then
+                activeSounds.count = activeCount - 1
+                activeSounds[activeCount] = nil
+            end
+
+            hook.run( "LKL_DoSound_SoundFinished", ent, sound )
+        end )
+    end )
+end
+
+function stopSound( ent, sound )
+    if not isValid( ent ) then return end
+
+    local timerName = "LKL_DoSound_PlayDelayedSound_" .. ent:entIndex() .. "_" .. sound
+
+    local soundList = ent.doSoundList or {}
+    local activeSounds = soundList[sound] or {}
+    local activeCount = activeSounds.count or 0
+
+    ent.doSoundList = soundList
+
+    timer.remove( timerName )
+
+    for i = 1, activeCount do
+        ent:stopSound( activeSounds[i] )
+    end
+
+    soundList[sound] = {}
+end
+
+function stopAllSounds( ent )
+    for snd in pairs( soundTbl ) do
+        stopSound( ent, snd )
+    end
+end
+
+--[[
+    If the parent chip also includes cl_dosound on client, this will add all of the serverside sound entries into the client soundTbl.
+    Keep in mind that the client version doesn't use categories, and the sound names will be converted to sv_SOUND and sv_CATEGORY_SOUND
+    This will auto-run if cl_dosound is included, and can be called manually in case your script modifies soundTbl after startup.
+--]]
+function extendClientSounds()
+    local tbl = table.copy( soundTbl )
+
+    -- Convert functions to their results since funcs can't be networked
+    for catName, cat in pairs( tbl ) do
+        if cat.Path then -- Individual sound entry
+            for key, val in pairs( cat ) do
+                if type( val ) == "function" then
+                    cat[key] = val()
+                end
+            end
+        else -- Sound category
+            for sound, snd in pairs( cat ) do
+                for key, val in pairs( snd ) do
+                    if type( val ) == "function" then
+                        snd[key] = val()
+                    end
+                end
+            end
+        end
+    end
+
+    net.start( "LKL_DoSound_ExtendSoundTbl" )
+    net.writeTable( tbl )
+    net.send( find.allPlayers() )
+end
+
+-- End global funcs
+
+net.receive( "LKL_DoSound_ClientExists", function()
+    if clientExtended then return end -- Client has already been extended
+
+    clientExtended = true
+    extendClientSounds()
+end )

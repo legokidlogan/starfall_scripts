@@ -1,0 +1,93 @@
+--@name Axis Spinner
+--@author legokidlogan
+--@server
+--@include lkl/e2_applytorque.txt
+
+
+local rotAxis = Vector( 0, 0, -1 )
+local updateRate = 0.05
+local rotMult = 360
+local useSetAng = true
+local setAngLerp = 0.4 -- Ranges from 0 to 1. Set to 1 to disable.
+torqueStrength = 300
+torqueStabilization = 100
+
+
+local rotAmount = 0
+local angInit = Angle( 0, 0, 0 )
+local baseEnt
+local rotEnt
+
+local tableInsert = table.insert
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+tableInsert( inputNames, "Base" )
+tableInsert( inputTypes, "ENTITY" )
+
+tableInsert( inputNames, "RotEnt" )
+tableInsert( inputTypes, "ENTITY" )
+
+tableInsert( inputNames, "RotAmount" )
+tableInsert( inputTypes, "NUMBER" )
+
+
+wire.adjustInputs( inputNames, inputTypes )
+
+require( "lkl/e2_applytorque.txt" )
+
+
+local function setRotEnt( ent )
+    if not isValid( ent ) then return end
+
+    rotEnt = ent
+
+    if not isValid( baseEnt ) then return end
+
+    angInit = rotEnt:getAngles():rotateAroundAxis( baseEnt:localToWorldVector( rotAxis ), -rotAmount )
+    angInit = baseEnt:worldToLocalAngles( angInit )
+end
+
+local function setBaseEnt( ent )
+    if not isValid( ent ) then return end
+
+    baseEnt = ent
+    setRotEnt( rotEnt )
+end
+
+local function wireInput( name, value )
+    if name == "Base" then
+        setBaseEnt( value )
+    elseif name == "RotEnt" then
+        setRotEnt( value )
+    elseif name == "RotAmount" then
+        rotAmount = value * rotMult
+
+        if useSetAng and setAngLerp == 1 and isValid( rotEnt ) and isValid( baseEnt ) then
+            local targAng = baseEnt:localToWorldAngles( angInit )
+            targAng = targAng:rotateAroundAxis( baseEnt:localToWorldVector( rotAxis ), rotAmount )
+
+            rotEnt:setAngles( targAng )
+        end
+    end
+end
+
+
+hook.add( "input", "LKL_AxisSpinner_WireInput", wireInput )
+
+
+if not useSetAng or setAngLerp ~= 1 then
+    timer.create( "LKL_AxisSpinner_ApplyTorque", updateRate, 0, function()
+        if not isValid( baseEnt ) or not isValid( rotEnt ) then return end
+
+        local targAng = baseEnt:localToWorldAngles( angInit )
+        targAng = targAng:rotateAroundAxis( baseEnt:localToWorldVector( rotAxis ), rotAmount )
+
+        if useSetAng then
+            rotEnt:setAngles( math.lerpAngle( setAngLerp * updateRate, rotEnt:getAngles(), targAng ) )
+        else
+            torqueAlign( rotEnt, targAng )
+        end
+    end )
+end

@@ -1,0 +1,1707 @@
+--@name Easy Print
+--@author legokidlogan
+--@shared
+--@include lkl/color_scheme.txt
+
+--[[
+    - A library for standardizing and simplifying colored prints.
+    - Makes heavy use of my global colors library (gColors), though custom colors can be used as well.
+    - Each function returns a sequential table 'printTbl' filled with alternating color and string values, for use with print( unpack( printTbl ) )
+        - Ex:
+            local items = { entOne, entTwo, "hello" }
+            local printTbl = easyPrint.chipNamePrefix()
+            table.Add( printTbl, easyPrint.simpleList( nil, items ) )
+
+            print( unpack( printTbl ) )
+
+            ==>
+
+            printTbl = {
+                c_white, "[MyChipName] ",
+                c_yellow, tostring( entOne ),
+                c_white, ", ",
+                c_yellow, tostring( entTwo ),
+                c_white, ", ",
+                c_yellow, "hello"
+            }
+
+    - To modify the colors used, either pass a custom ColorScheme into the functions, or modify the base "EasyPrint" color scheme.
+        - The EasyPrint scheme can be gotten from either:
+            A.
+                require( "lkl/easy_print.txt" )
+                local epScheme = ColorScheme.getColorScheme( "EasyPrint" )
+            B.
+                local epScheme = require( "lkl/easy_print.txt" )
+            C.
+                require( "lkl/easy_print.txt" )
+                local epScheme = easyPrint.getColorScheme()
+        - To modify color schemes, see the 'color_scheme.txt' library documentation.
+        - If you use a custom color scheme, it's recommended to have its base set to the EasyPrint scheme, since there are extra color types it adds.
+        - These are the special color types (and their default values) that get added by the EasyPrint color scheme:
+            - "ChipNamePrefix": c_white -- Color used for the chip name prefix, e.g. "[ChipName]" in "[ChipName] Hello World!"
+
+    - The standard format of most easyPrint functions are as follows:
+        easyPrint.functionName( colorScheme, ..., postWhitespace )  return printTbl  end
+            colorScheme: (ColorScheme or nil)
+                - The color scheme to use for the print. Defaults to the EasyPrint color scheme.
+            ...: (any)
+                - Arguments specific to the function.
+            postWhitespace: (optional) (string)
+                - A whitespace string to append to the end of the print. (e.g. " " for a space, "\n" for a newline)
+
+            RETURNS: printTbl
+                printTbl: (table)
+                    - A sequential table filled with alternating color and string values, for use with print( unpack( printTbl ) )
+                    - Can easily be added onto previous printTbls with table.Add( printTbl, easyPrint.functionName( ... ) )
+    - If an easyPrint function needs varargs, then the arguments will typically follow this order instead:
+        easyPrint.functionName( colorScheme, postWhitespace, ... )  return printTbl  end
+    - For shorter code snippets, it's reccommended to do  local ep = easyPrint  after your require() statement.
+--]]
+
+if easyPrint then return end -- Don't run twice
+
+require( "lkl/color_scheme.txt" )
+
+
+projectNameID = projectNameID or ( "EasyPrint|" .. chip():getChipName() )
+printName = printName or ( "[" .. projectNameID .. "]" )
+
+easyPrint = easyPrint or {}
+
+
+local ep = easyPrint
+local epScheme = ColorScheme.createIfNew( "EasyPrint", nil, c_white, {
+    ["ChipNamePrefix"] = c_white,
+} )
+
+local mMax = math.max
+local mCeil = math.ceil
+local mRound = math.round
+local stringRep = string.rep
+local stringSub = string.sub
+local stringSplit = string.split
+local stringChar = string.char
+local stringMatch = string.match
+local stringUpper = string.upper
+local tableInsert = table.insert
+local tableRemove = table.remove
+local tableAdd = table.add
+local tableIsEmpty = table.isEmpty
+local tableGetKeys = table.getKeys
+
+
+local function preparePointStyle( pointStyle )
+    local pointStyleData = {}
+
+    if stringSub( pointStyle, 1, 3 ) == "1.1" then
+        pointStyleData.Type = "1.1"
+        pointStyleData.Append = stringSub( pointStyle, 4 )
+
+        return pointStyleData
+    end
+
+    local cycleStr = stringMatch( pointStyle, "^[AaIi1]+" ) or ""
+
+    if cycleStr ~= "" then
+        pointStyleData.Type = "Cycle"
+        pointStyleData.Append = stringSub( pointStyle, #cycleStr + 1 )
+        pointStyleData.Styles = stringSplit( cycleStr, "" )
+
+        return pointStyleData
+    end
+
+    pointStyleData.Type = "Simple"
+    pointStyleData.Append = pointStyle
+
+    return pointStyleData
+end
+
+local function getPointStr( pointStyleData, indentLevel, pointIndex, prevPointIndices )
+    local styleType = pointStyleData.Type
+    local pointStr = ""
+
+    if styleType == "1.1" then
+        pointStr = tostring( pointIndex )
+
+        if prevPointIndices and indentLevel ~= 0 then
+            for i = indentLevel, 1, -1 do
+                pointStr = prevPointIndices[i] .. "." .. pointStr
+            end
+        end
+    elseif styleType == "Cycle" then
+        local styles = pointStyleData.Styles
+        local styleIndex = ( indentLevel % #styles ) + 1
+        local style = styles[styleIndex]
+
+        if style == "A" then
+            local letterIndex = ( ( pointIndex - 1 ) % 26 ) + 1
+            local letter = stringChar( letterIndex + 64 )
+            local letterCount = mCeil( pointIndex / 26 )
+
+            pointStr = stringRep( letter, letterCount )
+        elseif style == "a" then
+            local letterIndex = ( ( pointIndex - 1 ) % 26 ) + 1
+            local letter = stringChar( letterIndex + 96 )
+            local letterCount = mCeil( pointIndex / 26 )
+
+            pointStr = stringRep( letter, letterCount )
+        elseif style == "I" then
+            pointStr = RomanNumeral:numberToRoman( pointIndex, true )
+        elseif style == "i" then
+            pointStr = RomanNumeral:numberToRoman( pointIndex, false )
+        elseif style == "1" then
+            pointStr = tostring( pointIndex )
+        end
+    end
+
+    pointStr = pointStr .. pointStyleData.Append
+
+    return pointStr
+end
+
+local function addDescription( blist, description, cText )
+    if type( description ) == "table" then
+        if isInstanceOf( description, BulletList ) then
+            blist:mergeIn( description )
+
+            return
+        end
+
+        for _, desc in ipairs( description ) do
+            if type( desc ) == "table" then
+                blist:addPoint( desc, nil )
+            else
+                blist:addPoint( {
+                    cText, desc,
+                }, nil )
+            end
+        end
+    elseif description then
+        blist:addPoint( {
+            cText, description,
+        }, nil )
+    end
+end
+
+local function makePlayerLookup( tbl )
+    local lookup = {}
+
+    for key, val in pairs( tbl ) do
+        local ply = type( key ) == "Player" and key or ( type( val ) == "Player" and val ) or nil
+
+        if isValid( ply ) then
+            lookup[ply] = true
+        end
+    end
+
+    return lookup
+end
+
+local function stringIsUpper( str )
+    return str == stringUpper( str )
+end
+
+local function formatString( fStr, marker, func )
+    --[[
+    local splits = {}
+    local remainingStrs = { fStr }
+    local builtStr = ""
+
+    for _, marker in ipairs( markers ) do
+        local toSplits = remainingStrs
+        remainingStrs = {}
+
+        for _, toSplit in ipairs( toSplits ) do
+            local split = stringSplit( toSplit, marker )
+
+            for i, str in ipairs( split ) do
+                local data = {
+                    String = str,
+                    Specifier = i % 2 == 0 and specifier or "",
+                }
+
+                tableInsert( splits, data )
+                tableInsert( remainingStrs, str )
+            end
+        end
+    end
+
+    for _, split in ipairs( splits ) do
+        builtStr = builtStr .. func( split.String, split.Specifier )
+    end
+
+    return builtStr
+    --]]
+
+    local i = 1
+    local strLength = #fStr
+    local prefix = ""
+
+    while i <= strLength do
+        local char = stringSub( fStr, i, i ) or ""
+
+        if char == marker then
+            i = i + 1
+            local specifier = stringSub( fStr, i, i ) or ""
+
+            func( prefix, specifier )
+            prefix = ""
+        else
+            prefix = prefix .. char
+        end
+
+        i = i + 1
+    end
+
+    func( prefix, "POST" )
+end
+
+
+
+----- GLOBAL FUNCTIONS -----
+
+
+--[[
+    - Similar to print(), but allows for automatic color scheme usage and gColor conversion.
+    - Only supports the multicolor format of print(), not the single-color, multi-string format.
+        - i.e. use this for print( c_red, "Hello", c_green, "World" ) instead of print( "Hello", "World" )
+    - If you're converting a project to use color schemes, then you can use this function to swap out the old print() statements.
+        - ex:
+            print(
+                c_white, "[SomeChipName] ",
+                c_alert_red, "Hey! ",
+                c_white, "You broke ",
+                c_yellow, "this thing",
+                c_white, "! You should do ",
+                c_yellow, "this ",
+                c_white, "instead."
+            )
+
+            Replaced with:
+
+            easyPrint.printInScheme( myColorScheme,
+                "ChipNamePrefix", "[SomeChipName] ",
+                "Alert", "Hey! ",
+                "Text", "You broke ",
+                "Highlight", "this thing",
+                "Text", "! You should do ",
+                "Highlight", "this ",
+                "Text", "instead."
+            )
+
+    colorScheme: (ColorScheme or nil)
+        - The color scheme to use for fallbacks, if an invalid color object is found.
+        - Defaults to the EasyPrint color scheme.
+    ...: (pairs of (color or string), string)
+        - A list of alternating color and string values, similar to print().
+        - For each 'color' it can be one of these, evaluated in this order:
+            - Color: A raw color object.
+            - string: A color name from the color scheme. (e.g. "Highlight")
+            - string: The name of a gColor from gcolors.txt (e.g. "c_red" or "::c_red" or "red" or "::c(255,0,0,255)")
+
+    - ex:
+        easyPrint.printInScheme( myColorScheme,
+            "c_white", "[Test] ",
+            c_pale_blue, "Hello! ",
+            "c_yellow", "This ",
+            "::c_red", "is ",
+            "green", "a ",
+            "::c(0,0,255,255)", "test ",
+            "Pending", "print!"
+        )
+--]]
+function ep.printInScheme( colorScheme, ... )
+    colorScheme = colorScheme or epScheme
+
+    local stringyTbl = { ... }
+    local printTbl = ep.colorizePrintTable( colorScheme, stringyTbl )
+
+    print( unpack( printTbl ) )
+end
+
+--[[
+    - For a standard print table (which has alternating Color and string values), converts the Colors into string forms.
+    - Returns the converted table, does not self-modify.
+    - Primarily used for optimizing net messages.
+    - ex:
+        local printTbl = {
+            c_yellow, "hello",
+            c_white, "world",
+        }
+        local printTblStr = easyPrint.stringifyPrintTable( printTbl )
+
+        ==>
+
+        printTblStr = {
+            "::c_yellow", "hello",
+            "::c_white", "world",
+        }
+
+    colorScheme: (ColorScheme or nil)
+        - The color scheme to use for fallbacks, if an invalid Color object is found.
+        - Defaults to the EasyPrint color scheme.
+    printTbl: (table)
+        - The print table to convert.
+--]]
+function ep.stringifyPrintTable( colorScheme, printTbl )
+    colorScheme = colorScheme or epScheme
+    local colorToString = gColors.colorToString
+    local fallbackColorStr = colorToString( colorScheme:getFallbackColor() ) or "::c_white"
+    local stringyTbl = {}
+
+    for i = 1, #printTbl, 2 do
+        local iPlusOne = i + 1
+        local color = printTbl[i]
+        local str = printTbl[iPlusOne]
+
+        stringyTbl[i] = colorToString( color ) or fallbackColorStr
+        stringyTbl[iPlusOne] = str
+    end
+
+    return stringyTbl
+end
+
+
+--[[
+    - Turns a 'color string' into a Color object, according to the colorScheme and gColors.
+    - If the color string is invalid, then it will return the fallback color from the color scheme.
+    - Processes color strings in this order:
+        - Color: A raw color object.
+        - string: A color name from the color scheme. (e.g. "Highlight")
+        - string: The name of a gColor from gcolors.txt (e.g. "c_red" or "::c_red" or "red" or "::c(255,0,0,255)")
+
+    colorScheme: (ColorScheme or nil)
+        - The color scheme to use for fallbacks and interpreting scheme color types (e.g. "Highlight")
+        - Defaults to the EasyPrint color scheme.
+    colorStr: (string)
+        - The string to convert to a color.
+    ignoreSchemeColors: (bool or nil)
+        - If true, then the color string will never be interepreted as a color scheme type, saving performance when iterated across a table.
+        - This is for if you are cetain that you only have a raw Color or a gColor string.
+        - Defaults to false.
+--]]
+function ep.colorizeString( colorScheme, colorStr, ignoreSchemeColors )
+    colorScheme = colorScheme or epScheme
+    local fallbackColor = colorScheme:getFallbackColor() or c_white
+
+    if not ignoreSchemeColors and type( colorStr ) == "string" then
+        local retVals = { colorScheme:hasColor( colorStr ) }
+        local hasColor = tableRemove( retVals, 1 )
+        local colors = retVals
+
+        if hasColor then
+            if type( colors[1] ) == "Color" then
+                return unpack( colors )
+            end
+
+            return fallbackColor
+        end
+    end
+
+    return gColors.stringToColor( colorStr ) or fallbackColor
+end
+
+--[[
+    - The reverse of easyPrint.stringifyPrintTable()
+    - Iterates easyPrint.colorizeString() over the color strings in stringyTbl.
+    - Returns a new table, does not self-modify stringyTbl.
+--]]
+function ep.colorizePrintTable( colorScheme, stringyTbl, ignoreSchemeColors )
+    colorScheme = colorScheme or epScheme
+    local printTbl = {}
+    local colorizeString = ep.colorizeString
+
+    for i = 1, #stringyTbl, 2 do
+        local iPlusOne = i + 1
+        local colorStr = stringyTbl[i]
+        local str = stringyTbl[iPlusOne]
+        local color = colorizeString( colorScheme, colorStr, ignoreSchemeColors )
+
+        --printTbl[i] = stringToColor( colorStr ) or fallbackColor
+        printTbl[i] = color
+        printTbl[iPlusOne] = str
+    end
+
+    return printTbl
+end
+
+function ep.getColorScheme()
+    return ColorScheme.getColorScheme( "EasyPrint" )
+end
+
+--[[
+    - The prefix for all prints, e.g. "[MyChipName] "
+    - You should ALWAYS start off your print tables with this, as it helps with identifying the source of various prints from all sorts of chips.
+
+    colorScheme: (ColorScheme or nil)
+        - The color scheme to use.
+        - Defaults to the EasyPrint color scheme.
+        - For all future functions that use colorScheme as an arg, assume they share this behavior.
+    printNameOverride: (optional) (string)
+        - The full string used for the print prefix. Recommended to not have spaces.
+        - Defaults to the global var 'printName' which gets defined as "[" .. projectNameID .. "]"
+        - projectNameID is another global variable, one that's best to define before require()'ing this file, or any other of my libraries.
+            - As the name implies, it's the title of the project, e.g. "Anti-AFK" or "Teleporter" or whatever.
+            - Some of my libraries, such as this one, will automatically default this value if unpecified, based on chip():getChipName()
+    postWhitespace: (optional) (string)
+        - A whitespace string to append to the end of the print. (e.g. " " for a space, "\n" for a newline)
+        - Unlike ALL OTHER easyPrint functions, this defaults to " " instead of ""
+--]]
+function ep.chipNamePrefix( colorScheme, printNameOverride, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    printNameOverride = printNameOverride or printName
+    postWhitespace = postWhitespace or " "
+
+    return {
+        colorScheme:getColor( "ChipNamePrefix" ), printNameOverride .. postWhitespace,
+    }
+end
+
+--[[
+    - Colorizes a vector, with each axis being a different color.
+
+    vec: (Vector)
+        - The vector to colorize.
+    decimals: (optional) (number)
+        - The number of decimals to round the vector to.
+        - Defaults to 2.
+--]]
+function ep.vector( colorScheme, vec, decimals, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+    decimals = decimals or 2
+
+    local cText = colorScheme:getColor( "Text", nil, vec )
+    local cHighlightWeak = colorScheme:getColor( "HighlightWeak", nil, vec )
+    local _, c1, c2, c3 = colorScheme:getColor( "Vector", nil, vec )
+
+    return {
+        cHighlightWeak, "Vector",
+        cText, "( ",
+        c1, tostring( mRound( vec[1], decimals ) ),
+        cText, ", ",
+        c2, tostring( mRound( vec[2], decimals ) ),
+        cText, ", ",
+        c3, tostring( mRound( vec[3], decimals ) ),
+        cText, " )" .. postWhitespace,
+    }
+end
+
+--[[
+    - Colorizes an angle, with each axis being a different color.
+
+    ang: (Angle)
+        - The angle to colorize.
+    decimals: (optional) (number)
+        - The number of decimal to round the vector to.
+        - Defaults to 2.
+--]]
+function ep.angle( colorScheme, ang, decimals, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+    decimals = decimals or 2
+
+    local cText = colorScheme:getColor( "Text", nil, ang )
+    local cHighlightWeak = colorScheme:getColor( "HighlightWeak", nil, ang )
+    local _, c1, c2, c3 = colorScheme:getColor( "Angle", nil, ang )
+
+    return {
+        cHighlightWeak, "Angle",
+        cText, "( ",
+        c1, tostring( mRound( ang[1], decimals ) ),
+        cText, ", ",
+        c2, tostring( mRound( ang[2], decimals ) ),
+        cText, ", ",
+        c3, tostring( mRound( ang[3], decimals ) ),
+        cText, " )" .. postWhitespace,
+    }
+end
+
+--[[
+    - Colorizes a color.
+
+    color: (Color)
+        - The angle to colorize.
+    decimals: (optional) (number)
+        - The number of decimal to round the color to.
+        - Defaults to 2.
+    alphaOverride: (optional) (number)
+        - If specified, overrides the alpha used for the coloration of the printTbl.
+--]]
+function ep.color( colorScheme, color, decimals, alphaOverride, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+    decimals = decimals or 2
+
+    local cText = colorScheme:getColor( "Text", nil, color )
+    local cHighlightWeak = colorScheme:getColor( "HighlightWeak", nil, color )
+    local c = colorScheme:getColor( "Color", nil, color )
+
+    if alphaOverride then
+        c.a = alphaOverride
+    end
+
+    return {
+        cHighlightWeak, "Color",
+        cText, "( ",
+        c, tostring( mRound( color.r, decimals ) ),
+        cText, ", ",
+        c, tostring( mRound( color.g, decimals ) ),
+        cText, ", ",
+        c, tostring( mRound( color.b, decimals ) ),
+        cText, ", ",
+        c, tostring( mRound( color.a, decimals ) ),
+        cText, " )" .. postWhitespace,
+    }
+end
+
+--[[
+    - Colorizes an arbitrary value, based on its type.
+
+    obj: (any)
+        - The value to colorize.
+        - If it's a color, alphaOverride will be 255.
+--]]
+function ep.anyType( colorScheme, obj, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+
+    local objType = type( obj )
+
+    if objType == "Vector" then
+        return ep.vector( colorScheme, obj, nil, postWhitespace )
+    elseif objType == "Angle" then
+        return ep.angle( colorScheme, obj, nil, postWhitespace )
+    elseif objType == "Color" then
+        return ep.color( colorScheme, obj, nil, 255, postWhitespace )
+    end
+
+    local fallbackColor = colorScheme:getColor( "Highlight", nil, obj ) or c_yellow
+    local color
+
+    if objType == "table" then
+        color = colorScheme:getColorAuto( obj, fallbackColor )
+    else
+        color = colorScheme:getColor( objType, fallbackColor, obj )
+    end
+
+    return {
+        color, tostring( obj ) .. postWhitespace,
+    }
+end
+
+--[[
+    - Colorizes a player, yielding their name instead of tostring( ply ).
+    - Color is based on the player's team.
+
+    ply: (Player)
+        - The player to colorize the name of.
+--]]
+function ep.playerName( colorScheme, ply, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+
+    local color = colorScheme:getColor( "Player", nil, ply )
+
+    if not isValid( ply ) or not ply:isPlayer() then
+        return {
+            color, "[INVALID_PLAYER_NAME]" .. postWhitespace,
+        }
+    end
+
+    return {
+        color, ply:getName() .. postWhitespace,
+    }
+end
+
+--[[
+    - For a command called by caller onto target, observed by observer, colorizes the caller.
+    - If the caller is the observer, it will use "You" instead of their name.
+    - Note that, unlike easyPrint.commandPlayerAsTarget(), the target arg goes unused here.
+
+    caller: (Player or Entity or nil or false)
+        - The player who called the command.
+        - If an Entity, it will be colorized as an entity. Useful for fancy prints for automated, entity-driven commands.
+        - If nil or false, it will be colorized as "[CONSOLE]".
+    _: (unused)
+        - Placeholder slot to line up with the target argument in easyPrint.commandPlayerAsTarget()
+    observer: (Player)
+        - The player who observed the command.
+    dontCapitalize: (optional) (boolean)
+        - If true, "You" will not be capitalized, in the event that caller == observer.
+
+
+    - ex:
+        'Bob called a command on Alice, observed by Charlie.'
+        ==>
+        {
+            teamColorOfBob, "Bob",
+        }
+    - ex:
+        'Bob called a command on Charlie, observed by Charlie.'
+        ==>
+        {
+            teamColorOfBob, "Bob",
+        }
+    - ex:
+        'Charlie called a command on Bob, observed by Charlie.'
+        ==>
+        {
+            colorSelf, "You",
+        }
+--]]
+function ep.commandPlayerAsCaller( colorScheme, caller, _, observer, dontCapitalize, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+
+    local callerType = type( caller )
+
+    if caller == observer then
+        local text = dontCapitalize and "you" or "You"
+
+        return {
+            colorScheme:getColor( "PlayerSelf" ), text .. postWhitespace,
+        }
+    end
+
+    if callerType == "Player" then
+        return ep.playerName( colorScheme, caller, postWhitespace )
+    end
+
+    if callerType == "Entity" then
+        return {
+            colorScheme:getColor( "Entity", nil, caller ), tostring( caller ) .. postWhitespace,
+        }
+    end
+
+    return {
+        colorScheme:getColor( "Console" ), "[CONSOLE]" .. postWhitespace,
+    }
+end
+
+--[[
+    - For a command called by caller onto target, observed by observer, colorizes the target.
+    - If the target is the observer, it will use "Yourself" or "You" depending on the caller.
+    - If the target is the caller (but not the observer), then it will use "Themself"
+    - If the target is a list of targets, two tables will be returned:
+        - The first table will be a list of colorized print tables, in the same order as the list of targets.
+        - The second table will be a lookup table, from target to colorized print table.
+
+    caller: (Player or Entity or nil or false)
+        - The player who called the command.
+        - If an Entity, it will be colorized as an entity. Useful for fancy prints for automated, entity-driven commands.
+        - If nil or false, it will be colorized as "[CONSOLE]".
+    target: (Player)
+        - The player who was targeted by the command.
+    observer: (Player)
+        - The player who observed the command.
+    dontCapitalize: (optional) (boolean)
+        - If true, "You", etc will not be capitalized.
+
+    - ex:
+        'Bob called a command on Alice, observed by Charlie.'
+        ==>
+        {
+            teamColorOfAlice, "Alice",
+        }
+    - ex:
+        'Bob called a command on Bob, observed by Charlie.'
+        ==>
+        {
+            teamColorOfBob, "Themself",
+        }
+    - ex:
+        'Bob called a command on Charlie, observed by Charlie.'
+        ==>
+        {
+            colorSelf, "You",
+        }
+    - ex:
+        'Charlie called a command on Bob, observed by Charlie.'
+        ==>
+        {
+            teamColorOfBob, "Bob",
+        }
+    - ex:
+        'Charlie called a command on Charlie, observed by Charlie.'
+        ==>
+        {
+            colorSelf, "Yourself",
+        }
+    - ex:
+        'Bob called a command on Alice and Dennis, observed by Charlie.'
+        ==>
+        {
+            [1] = { teamColorOfAlice, "Alice" },
+            [2] = { teamColorOfDennis, "Dennis" },
+        },
+        {
+            [Alice] = { teamColorOfAlice, "Alice" },
+            [Dennis] = { teamColorOfDennis, "Dennis" },
+        }
+--]]
+function ep.commandPlayerAsTarget( colorScheme, caller, target, observer, dontCapitalize, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+
+    local targetType = type( target )
+
+    if targetType == "table" then
+        local printTblList = {}
+        local printTblLookup = {}
+
+        for i, ply in ipairs( target ) do
+            if type( ply ) == "table" then
+                error( "Cannot have sub-tables in target list" )
+            end
+
+            local printTbl = ep.commandPlayerAsTarget( colorScheme, caller, ply, observer, dontCapitalize, postWhitespace )
+
+            printTblList[i] = printTbl
+            printTblLookup[ply] = printTbl
+        end
+
+        return printTblList, printTblLookup
+    end
+
+    if target == observer then
+        if caller == observer then
+            local text = dontCapitalize and "yourself" or "Yourself"
+
+            return {
+                colorScheme:getColor( "PlayerSelf" ), text .. postWhitespace,
+            }
+        end
+
+        local text = dontCapitalize and "you" or "You"
+
+        return {
+            colorScheme:getColor( "PlayerSelf" ), text .. postWhitespace,
+        }
+    end
+
+    if target == caller then
+        local text = dontCapitalize and "themself" or "Themself"
+
+        return { -- Still uses the caller's color, to mimic how ULX only uses the self-target color for when it represents the observer.
+            colorScheme:getColor( "Player", nil, target ), text .. postWhitespace,
+        }
+    end
+
+    if targetType == "Player" then
+        return ep.playerName( colorScheme, target, postWhitespace )
+    end
+
+    if targetType == "Entity" then
+        return {
+            colorScheme:getColor( "Entity", nil, target ), tostring( target ) .. postWhitespace,
+        }
+    end
+
+    return { -- Realistically, the console can't ever be the 'target' of a command, but for consistency's sake
+        colorScheme:getColor( "Console" ), "[CONSOLE]" .. postWhitespace,
+    }
+end
+
+--[[
+    - Formats a command print table, similarly to ULX.
+
+    formatStr: (string)
+        - The format string to use.
+        - These are the specifiers:
+            - #A: The caller's name. (uses an 'A' to mimic ULX, standing for 'admin')
+                - #a vs #A will determine dontCapitalize when passed to easyPrint.commandPlayerAsCaller
+            - #T: The target(s)'s name(s).
+                - #t vs #T will determine dontCapitalize when passed to easyPrint.commandPlayerAsTarget
+            - #s: Additional strings.
+    caller: (Player)
+        - The player who called the command.
+    targets: (Player or table)
+        - The player(s) who were targeted by the command.
+    observer: (Player)
+        - The player who observed the command.
+    postWhitespace: (optional) (string)
+        - The string to append to the end of the print. Defaults to "", like usual.
+    ...: (optional) (string)
+        - Additional strings to use in the format string, to replace the instances of #s.
+--]]
+function ep.command( colorScheme, formatStr, caller, targets, observer, postWhitespace, ... )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+
+    if type( formatStr ) ~= "string" then
+        error( "Expected formatStr to be a string" )
+    end
+
+    if type( targets ) ~= "table" then
+        targets = { targets }
+    end
+
+    local callerTbl = ep.commandPlayerAsCaller( colorScheme, caller, targets, observer, true, "" )
+    local callerTblCap = ep.commandPlayerAsCaller( colorScheme, caller, targets, observer, false, "" )
+    local targetsTbl = ep.commandPlayerAsTarget( colorScheme, caller, targets, observer, true, "" )
+    local targetsTblCap = ep.commandPlayerAsTarget( colorScheme, caller, targets, observer, false, "" )
+    local targetsPrintTbl
+    local targetsPrintTblCap
+    local printTbl = {}
+    local cText = colorScheme:getColor( "Text" )
+    local stringArgs = { ... }
+
+    local function buildTargetsPrintTbl( _, val, _ )
+        return val -- val is a printTbl from ep.commandPlayerAsTarget, use it as that element's print table
+    end
+
+    local function getTargetsPrintTbl( cap )
+        if cap then
+            if targetsPrintTblCap then return targetsPrintTblCap end
+
+            targetsPrintTblCap = ep.simpleList( colorScheme, targetsTblCap, buildTargetsPrintTbl, true, true, "" )
+
+            return targetsPrintTblCap
+        else
+            if targetsPrintTbl then return targetsPrintTbl end
+
+            targetsPrintTbl = ep.simpleList( colorScheme, targetsTbl, buildTargetsPrintTbl, true, true, "" )
+
+            return targetsPrintTbl
+        end
+    end
+
+    --string.gsub( formatStr, "([^#]*)#([%.%d]*[%a])([^#]*)", function( prefix, tag, postfix )
+    formatString( formatStr, "#", function( prefix, specifier ) -- Starfall has a harsh limit on the length for gsub
+        if prefix and prefix ~= "" then
+            tableAdd( printTbl, { cText, prefix } )
+        end
+
+        --local specifier = string.sub( tag, -1, -1 )
+        local cap = stringIsUpper( specifier )
+        specifier = stringUpper( specifier )
+
+        if specifier == "A" then
+            tableAdd( printTbl, cap and callerTblCap or callerTbl )
+        elseif specifier == "T" then
+            tableAdd( printTbl, getTargetsPrintTbl( cap ) )
+        elseif specifier == "S" then
+            local arg = tableRemove( stringArgs, 1 )
+
+            if arg then
+                tableAdd( printTbl, { cText, tostring( arg ) } )
+            end
+        end
+
+        if postfix and postfix ~= "" then
+            tableAdd( printTbl, { cText, postfix } )
+        end
+    end )
+
+    printTbl[#printTbl] = printTbl[#printTbl] .. postWhitespace
+
+    return printTbl
+end
+
+--[[
+    - Formats a command print, and sends it to all players, automatically adjusting the observer accordingly.
+    - Uses the same format as easyPrint.command()
+    - If run on the server, the command will be sent to each player not on the hideFrom list.
+    - If run on the client, will only proccess the print for the local player.
+    - Note that this command automatically runs print(), and does not return a print table.
+
+    hideFrom: (optional) (Player or table)
+        - The player(s) to hide the command from.
+        - Only used on serverside.
+--]]
+function ep.commandLog( colorScheme, formatStr, caller, targets, hideFrom, ... )
+    colorScheme = colorScheme or epScheme
+
+    if type( formatStr ) ~= "string" then
+        error( "Expected formatStr to be a string" )
+    end
+
+    if CLIENT then
+        local printTbl = ep.chipNamePrefix( colorScheme )
+
+        tableAdd( printTbl, ep.command( colorScheme, formatStr, caller, targets, player(), "", ... ) )
+        print( unpack( printTbl ) )
+
+        return
+    end
+
+    if type( hideFrom ) == "Player" then
+        hideFrom = { hideFrom }
+    end
+
+    hideFrom = makePlayerLookup( hideFrom or {} )
+
+    for _, ply in ipairs( find.allPlayers() ) do
+        if not hideFrom[ply] then
+            local printTbl = ep.chipNamePrefix( colorScheme )
+            tableAdd( printTbl, ep.command( colorScheme, formatStr, caller, targets, ply, "", ... ) )
+
+            ep.printToClient( ply, printTbl )
+        end
+    end
+end
+
+--[[
+    - Makes a list of colorized values, separated by commas.
+    - Does not traverse into sub-tables.
+
+    list: (table)
+        - The list of values to colorize.
+        - Must be a sequential table.
+    func: (optional) (function or Color)
+        - A function of the form  function( colorScheme, val, index )  return printTbl  end
+            printTbl: (table)
+                - The printTbl to use for the given value in the list.
+            val: (any)
+                - The value to colorize, taken from the list.
+            index: (number)
+                - The index of the given value in the list.
+        - Specifies how to colorize (create a printTbl for) each value individually. Does not handle the commas, etc.
+        - Defaults to easyPrint.anyType(). (approximately, modifies it to discard extra whitespace)
+        - If provided as a Color, will simply use that color for all values, and tostring() for the text.
+    sayAnd: (optional) (boolean)
+        - Whether to say "and" before the last value.
+        - Defaults to false.
+    noOxfordComma: (optional) (boolean)
+        - Whether to ommit the oxford comma. (i.e. "a, b, and c" vs "a, b and c")
+        - Only applies if sayAnd is true.
+        - Defaults to false.
+--]]
+function ep.simpleList( colorScheme, list, func, sayAnd, noOxfordComma, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+    func = func or function( a, b )  return ep.anyType( a, b, "" )  end -- Don't pass index as postWhitespace to ep.anyType()
+
+    if type( func ) == "Color" then
+        local color = func
+        func = function( _, val )  return { color, tostring( val ) }  end
+    end
+
+    local printTbl = {}
+    local listCount = #list
+
+    if listCount == 0 then
+        return printTbl
+    end
+
+    local listCountMinusOne = listCount - 1
+    local cText = colorScheme:getColor( "Text", nil, list )
+
+    for i = 1, listCount do
+        local val = list[i]
+        local valPrintTbl = func( colorScheme, val, i )
+
+        for _, v in ipairs( valPrintTbl ) do
+            tableInsert( printTbl, v )
+        end
+
+        if i < listCount then
+            if sayAnd and i == listCountMinusOne then
+                if noOxfordComma then
+                    tableInsert( printTbl, cText )
+                    tableInsert( printTbl, " and " )
+                else
+                    tableInsert( printTbl, cText )
+                    tableInsert( printTbl, ", and " )
+                end
+            else
+                tableInsert( printTbl, cText )
+                tableInsert( printTbl, ", " )
+            end
+        end
+    end
+
+    local printTblCount = #printTbl
+    printTbl[printTblCount] = printTbl[printTblCount] .. postWhitespace
+
+    return printTbl
+end
+
+--[[
+    - Makes a list of colorized values, separated by commas.
+    - Does not traverse into sub-tables.
+    - Unlike easyPrint.simpleList(), this function will include the keys of the provided table.
+    - Keys will be colored with 'HighlightWeak'.
+
+    tbl: (table)
+        - The table of values to colorize. Keys will be included in the output.
+    keyOrder: (optional (table)
+        - A sequential table of keys to use for the order of the output.
+        - Can also be used to only include certain keys, by omitting unwanted ones.
+        - Defaults to table.getKeys( tbl ).
+    func: (optional) (function)
+        - Behaves the same as in easyPrint.simpleList().
+        - Only modifies the appearance of the value, not the key.
+    doVertical: (optional) (boolean)
+        - Whether to print the list vertically.
+        - Defaults to false.
+    doBraces: (optional) (boolean or number)
+        - Whether to print the list in braces.
+        - Defaults to false.
+        - If doVertical is true, each entry will be indented by a number of spaces.
+            - If doBraces is a number, it will be used as the number of spaces.
+            - If doBraces is true, it will be 2 spaces.
+
+
+    - ex:
+        easyPrint.keyValueList( nil, { a = 1, b = 2, c = 3 } )
+
+        ==>
+
+        a = 1, b = 2, c = 3
+    - ex:
+        easyPrint.keyValueList( nil, { a = 1, b = 2, c = 3 }, nil, nil, true, false )
+
+        ==>
+
+        a = 1,
+        b = 2,
+        c = 3
+    - ex:
+        easyPrint.keyValueList( nil, { a = 1, b = 2, c = 3 }, nil, nil, false, true )
+
+        ==>
+
+        { a = 1, b = 2, c = 3 }
+    - ex: For quick colored debug prints of local variables:
+        easyPrint.keyValueList( nil, { a = a, b = b, c = c } )
+
+        ==>
+
+        a = 1, b = 2, c = 3
+    - ex: For a fancy debug print of the arguments passed to a known function:
+        local function someFunc( arg1, arg2, arg3 )
+            -- ...
+        end
+
+        local function test_someFunc( arg1, arg2, arg3 )
+            local printTbl = easyPrint.chipNamePrefix()
+            tableAdd( printTbl, {
+                c_white, "Testing someFunc( "
+            } )
+            tableAdd( printTbl, easyPrint.keyValueList( nil,
+                { arg1 = arg1, arg2 = arg2, arg3 = arg3 },
+                { "arg1", "arg2", "arg3" }
+            ) )
+            tableAdd( printTbl, {
+                c_white, " ):\n",
+            } )
+
+            print( unpack( printTbl ) )
+
+            someFunc( arg1, arg2, arg3 )
+        end
+
+
+        test_someFunc( 1, nil, 3 )
+
+        ==>
+
+        [ChipName] Testing someFunc( arg1 = 1, arg2 = nil, arg3 = 3 ):
+        ...
+--]]
+function ep.keyValueList( colorScheme, tbl, keyOrder, func, doVertical, doBraces, postWhitespace )
+    colorScheme = colorScheme or epScheme
+    postWhitespace = postWhitespace or ""
+    keyOrder = keyOrder or tableGetKeys( tbl )
+    func = func or function( a, b )  return ep.anyType( a, b, "" )  end -- Don't pass index as postWhitespace to ep.anyType()
+
+    local printTbl = {}
+    local cText = colorScheme:getColor( "Text", nil, tbl )
+
+    if tableIsEmpty( keyOrder ) then
+        tableInsert( printTbl, cText )
+        tableInsert( printTbl, ( doBraces and "{}" or "" ) .. postWhitespace )
+
+        return printTbl
+    end
+
+    local cHighlightWeak = colorScheme:getColor( "HighlightWeak", nil, tbl )
+    local commaStr = doVertical and ",\n" or ", "
+    local indentSize = isnumber( doBraces ) and doBraces or 2
+    local indentStr = string.rep( " ", indentSize )
+    indentStr = doVertical and doBraces and indentStr or ""
+
+    if doBraces then
+        if doVertical then
+            tableInsert( printTbl, cText )
+            tableInsert( printTbl, "{\n" )
+        else
+            tableInsert( printTbl, cText )
+            tableInsert( printTbl, "{ " )
+        end
+    end
+
+    for _, key in ipairs( keyOrder ) do
+        local val = tbl[key]
+        local valPrintTbl = func( colorScheme, val, key )
+
+        tableInsert( printTbl, cHighlightWeak )
+        tableInsert( printTbl, indentStr .. tostring( key ) )
+
+        tableInsert( printTbl, cText )
+        tableInsert( printTbl, " = " )
+
+        for _, v in ipairs( valPrintTbl ) do
+            tableInsert( printTbl, v )
+        end
+
+        tableInsert( printTbl, cText )
+        tableInsert( printTbl, commaStr )
+    end
+
+    -- Remove last comma since the loop doesn't know when it's on the last iteration
+    tableRemove( printTbl )
+    tableRemove( printTbl )
+
+    if doBraces then
+        if doVertical then
+            tableInsert( printTbl, cText )
+            tableInsert( printTbl, "\n}" )
+        else
+            tableInsert( printTbl, cText )
+            tableInsert( printTbl, " }" )
+        end
+    end
+
+    local printTblCount = #printTbl
+    printTbl[printTblCount] = printTbl[printTblCount] .. postWhitespace
+
+    return printTbl
+end
+
+--[[
+    - Turns a BulletList into a printTbl, complete with indentation.
+    - Requires the bulletlist.txt library.
+
+    bulletList: (BulletList)
+        - The BulletList to colorize.
+        - If func is not provided, the contents of each point is assumed to be either a printTbl or a 'non-table' value (e.g. string, Entity, Player, number, ColorScheme, etc).
+            - i.e. If func is not defined and the contents of a point is a table, it will be treated as a printTbl, so be careful with your blist data.
+        - See the bulletlist.txt library for more info.
+    pointStyle: (optional) (string)
+        - The style of the bullet points.
+        - Defaults to "-"
+        - Styles:
+            - Each of the following groups are mutually exlusive. (i.e. you can have "1.1" or "A", but not both)
+            - "1.1":
+                - Per each indent level, the first point is "1", the second is "1.1", the third is "1.1.1", etc.
+                - Per each point index, the first point is "1", the second is "2", the third is "3", etc.
+                - Any characters after "1.1" are appended to the end of the point. (e.g. "1.1." creates "1.", "1.2.", "1.3.", "1.1.4.", etc)
+            - "A", "a", "I", "i", "1":
+                - "A" goes through the alphabet in uppercase, and starts doing "AA", "BB", "CC", etc at the end of the alphabet.
+                - "a" goes through the alphabet in lowercase, and starts doing "aa", "bb", "cc", etc at the end of the alphabet.
+                - "I" goes through the roman numerals in uppercase. This will require that you include the math/roman_numeral.txt library.
+                - "i" goes through the roman numerals in lowercase.
+                - "1" goes through the numbers in English numerals.
+                - Combining multiple of these will cause the style to cycle per indent level, similar to Google Docs.
+                - Any characters after this group are appended to the end of the point. (e.g. "1ai." creates "1.", "b.", "c.", "iv.", etc)
+            - (any other string):
+                - Simply uses the string as the bullet, regardless of indent level or point index.
+    func: (optional) (function)
+        - A function of the form  function( colorScheme, contents, indentLevel, pointIndex, prevPointIndices )  return printTbl  end
+            printTbl: (table)
+                - The printTbl to use for the contents of the given point.
+            contents: (any, not BulletList)
+                - The value to colorize, taken from the point.
+            indentLevel: (number)
+                - How many indents deep the point is, starting at 0.
+            pointIndex: (number)
+                - The index of the current point, in the BulletList that contains it.
+            prevPointIndices: (table)
+                - A path of the indices of the points that lead to the current point.
+                    - ex: Point 2.1.3.4 will have:
+                        indentLevel = 3
+                        pointIndex = 4
+                        prevPointIndices = { 2, 1, 3 }
+        - Specifies how to colorize (create a printTbl for) each value individually.
+        - If func isn't provided, the default functionality will assume that, for each point contents, if it is a table then it is a printTbl, otherwise it will pass the contents to easyPrint.anyType().
+    indentSize: (optional) (number)
+        - The number of spaces to indent each line.
+        - Defaults to 2.
+    pointGapSize: (optional) (number)
+        - The number of spaces between the bullet point and the text.
+        - Defaults to 1.
+    indentLevelInit: (optional) (number)
+        - The initial indent level. Adds extra whitespace padding to the left side.
+        - Note, this will impact the indentLevel passed along to func.
+        - Defaults to 0.
+
+
+    - ex:
+        --[-[
+            - Point 1
+            - Point 2
+                - Point 2.1
+                    - Point 2.1.1
+                - Point 2.2
+                    - Point 2.2.1
+                    - Point 2.2.2
+            - Point 3
+        --]-]
+        local blistA = BulletList:new()
+        blistA:addPoint( "Point 1" )
+        blistA:addPoint( "Point 2", true )
+            blistA:getPointSubList( 2 ):addPoint( "Point 2.1", true )
+                blistA:getPointSubList( 2 ):getPointSubList( 1 ):addPoint( "Point 2.1.1", true )
+            blistA:getPointSubList( 2 ):addPoint( "Point 2.2", true )
+                blistA:getPointSubList( 2 ):getPointSubList( 2 ):addPoint( "Point 2.2.1", true )
+                blistA:getPointSubList( 2 ):getPointSubList( 2 ):addPoint( "Point 2.2.2", true )
+        blistA:addPoint( "Point 3", true )
+
+
+        local printTbl = easyPrint.bulletList( nil, blistA, "1ai" )
+        print( unpack( printTbl ) )
+
+        ==>
+
+        1. Point 1
+        2. Point 2
+            a. Point 2.1
+                i. Point 2.1.1
+            b. Point 2.2
+                i. Point 2.2.1
+                ii. Point 2.2.2
+
+
+    - ex:
+        -- Alternative setup for previous example:
+
+        local blistA = BulletList:new()
+
+        local blistA_1 = blistA:addPoint( "Point 1", true )
+        local blistA_2 = blistA:addPoint( "Point 2", true )
+            local blistA_2_1 = blistA_2:addPoint( "Point 2.1", true )
+                local blistA_2_1_1 = blistA_2_1:addPoint( "Point 2.1.1", true )
+            local blistA_2_2 = blistA_2:addPoint( "Point 2.2", true )
+                local blistA_2_2_1 = blistA_2_2:addPoint( "Point 2.2.1", true )
+                local blistA_2_2_2 = blistA_2_2:addPoint( "Point 2.2.2", true )
+        local blistA_3 = blistA:addPoint( "Point 3", true )
+--]]
+function ep.bulletList( colorScheme, blist, pointStyle, func, indentSize, pointGapSize, indentLevelInit )
+    if not BulletList then error( "You haven't included the BulletList class" ) end
+    if not isInstanceOf( blist, BulletList ) or not isValid( blist ) then
+        error( "blist must be a valid BulletList" )
+    end
+
+    colorScheme = colorScheme or epScheme
+    pointStyle = pointStyle or "-"
+    indentSize = indentSize or 2
+    pointGapSize = pointGapSize or 1
+    indentLevelInit = mMax( indentLevelInit or 0, 0 )
+
+    local printTbl = {}
+    local pointGap = stringRep( " ", pointGapSize )
+    local pointStyleData = preparePointStyle( pointStyle )
+    local pointPath = pointStyleData.Type == "1.1" and {} or nil
+
+    local cPoint = colorScheme:getColor( "BulletPoint", nil, blist )
+
+    func = func or function( _, contents )
+        if type( contents ) == "table" and not isInstanceObject( contents ) then
+            return contents
+        end
+
+        return ep.anyType( colorScheme, contents, "" )
+    end
+
+    local function addPoint( contents, indentLevel, pointIndex, prevPointIndices )
+        local indentStr = stringRep( " ", indentLevel * indentSize )
+        local pointStr = getPointStr( pointStyleData, indentLevel, pointIndex, prevPointIndices )
+
+        tableInsert( printTbl, cPoint )
+        tableInsert( printTbl, indentStr .. pointStr .. pointGap )
+
+        tableAdd( printTbl, func( colorScheme, contents, indentLevel, pointIndex, prevPointIndices ) )
+
+        local printTblCount = #printTbl
+        printTbl[printTblCount] = printTbl[printTblCount] .. "\n"
+    end
+
+    blist:traverse( addPoint, indentLevelInit, pointPath )
+
+    -- Remove last newline character
+    local printTblCount = #printTbl
+    printTbl[printTblCount] = stringSub( printTbl[printTblCount], 1, -2 )
+
+    return printTbl
+end
+
+--[[
+    - Creates formatted text to describe/document a function.
+    - Primarily designed for documenting functions, but providing 'retInfo = false' allows this to document things like chat commands as well.
+    - Requires the bulletlist.txt library.
+
+    funcName: (string)
+        - The name of the function.
+    argInfo: (nil or table)
+        - A table of info about the function's arguments.
+        {
+            [1] = {
+                Name = (string)
+                    - The name of the argument.
+                Type = (string or table or false)
+                    - The allowed type(s) of the argument. Defaults to "any"
+                    - If a table, then it is a list of allowed types. It's recommended to use the same format (capitalization, etc) as the return value of type().
+                    - If false, then no type info is provided. Useful for chat commands.
+                IsOptional = (boolean)
+                    - Indicates if the argument is optional.
+                Default = (any)
+                    - The default value of the argument.
+                Description = (string or table or BulletList)
+                    - A description of the argument.
+                    - If a string, then it will be a single line.
+                    - If a table, then it is a list of printTbls and/or strings.
+                        - ex:
+                            {
+                                [1] = {
+                                    c_white, "Here is line ",
+                                    c_yellow, "one",
+                                    c_white, ".",
+                                },
+                                [2] = "I am a plain line.",
+                                [3] = {
+                                    c_white, "Here is line ",
+                                    c_yellow, "three",
+                                    c_white, ".",
+                                },
+                            }
+                    - If a BulletList, then it will directly add that bullet list. Useful for having indented sub-points.
+            },
+            ...
+        }
+    retInfo: (nil or false or table)
+        - A table of info about the function's return values.
+        {
+            [1] = {
+                Name = (string)
+                    - The name of the return value.
+                Type = (string or table)
+                    - The type(s) of the return value. Defaults to "any"
+                    - If a table, then it is a list of allowed types. It's recommended to use the same format (capitalization, etc) as the return value of type().
+                    - If false, then no type info is provided.
+                Description = (string or table or BulletList)
+                    - Behaves the same as argInfo.Description
+            },
+            ...
+        }
+        - If explicitly provided as false, then not only is there no return info, but the "return end" text will not be included in the final output.
+    descInfo: (nil or string or table or BulletList)
+        - A description of the function.
+        - Behaves the same as argInfo.Description
+    indentSize: (optional) (number)
+        - The number of spaces to use for each indent level.
+        - Defaults to 2.
+    pointGapSize: (optional) (number)
+        - The number of spaces to use between the "-" point marker and its contents.
+        - Defaults to 1.
+    indentLevelInit: (optional) (number)
+        - The initial indent level.
+        - Defaults to 0.
+
+
+    - ex:
+        local printTbl = easyPrint.functionDetails(
+            nil, -- colorScheme
+            "testFunc", -- funcName
+            { -- argInfo
+                {
+                    Name = "foo",
+                    Type = { "number", "string", "boolean" },
+                    Desc = "This is one string line.",
+                    IsOptional = false,
+                    Default = nil,
+                },
+                {
+                    Name = "bar",
+                    Type = "string",
+                    Desc = {
+                        "This is a plain line." ,
+                        "This is another plain line.",
+                    },
+                    IsOptional = true,
+                    Default = "Hello",
+                },
+                {
+                    Name = "baz",
+                    Type = "table",
+                    Desc = {
+                        {
+                            c_white, "This line is ",
+                            c_red, "colored",
+                            c_white, ".",
+                        },
+                        "This line is plain.",
+                        {
+                            c_white, "This line is ",
+                            c_green, "colored",
+                            c_white, ".",
+                        },
+                    },
+                    IsOptional = true,
+                    Default = { "a", "bb", 3, Vector( 1, 2, 3 ) },
+                },
+            },
+            { -- retInfo
+                {
+                    Name = "foo",
+                    Type = "Player",
+                    Desc = "This is one string line.",
+                },
+                {
+                    Name = "bar",
+                    Type = { "nil", "number" },
+                    Desc = {
+                        {
+                            c_white, "This line is ",
+                            c_red, "colored",
+                            c_white, ".",
+                        },
+                        "This line is plain.",
+                        {
+                            c_white, "This line is ",
+                            c_green, "colored",
+                            c_white, ".",
+                        },
+                    },
+                },
+            },
+            { -- descInfo
+                {
+                    c_white, "This is the description.",
+                },
+                {
+                    c_white, "This line is ",
+                    c_red, "colored",
+                    c_white, ".",
+                },
+                "This line is plain.",
+                {
+                    c_white, "This line is ",
+                    c_green, "colored",
+                    c_white, ".",
+                },
+            },
+            2, -- indentSize
+            1, -- pointGapSize
+            0 -- indentLevelInit
+        )
+--]]
+function ep.functionDetails( colorScheme, funcName, argInfo, retInfo, descInfo, indentSize, pointGapSize, indentLevelInit )
+    colorScheme = colorScheme or epScheme
+    funcName = funcName or "function"
+    indentSize = indentSize or 2
+    pointGapSize = pointGapSize or 1
+    indentLevelInit = mMax( indentLevelInit or 0, 0 )
+
+    local blistOut = BulletList:new()
+    local cText = colorScheme:getColor( "Text", nil )
+    local cHighlightWeak = colorScheme:getColor( "HighlightWeak", nil )
+    local cArgReq = colorScheme:getColor( "ArgRequired", nil )
+    local cArgOpt = colorScheme:getColor( "ArgOptional", nil )
+    local cArgRet = colorScheme:getColor( "ArgReturn", nil )
+    local cFunction = colorScheme:getColor( "function", nil )
+    local printTbl = {
+        cFunction, funcName,
+        cText, ( argInfo and argInfo[1] ) and "( " or "()",
+    }
+
+    if argInfo and argInfo[1] then
+        local argCount = #argInfo
+        local blistArgs = blistOut:addPoint( {
+            cHighlightWeak, "Args:",
+        }, true )
+
+        for i, info in ipairs( argInfo ) do
+            local argName = info.Name or ( "arg" .. i )
+            local argTypes = info.Type
+            local isOptional = info.IsOptional
+            local argDefault = info.Default
+            local argDescs = info.Description or info.Descr or info.Desc
+            argTypes = argTypes == nil and "any" or argTypes
+
+            local cArg = isOptional and cArgOpt or cArgReq
+            local contents = {
+                cArg, argName,
+                cText, ": " .. ( isOptional and "(" or "" ),
+                cArgOpt, isOptional and "optional" or "",
+                cText, ( isOptional and ")" or "" ) .. ( argTypes and " (" or "" ),
+            }
+
+            tableInsert( printTbl, cArg )
+            tableInsert( printTbl, argName )
+
+            if i < argCount then
+                tableInsert( printTbl, cText )
+                tableInsert( printTbl, ", " )
+            end
+
+            if type( argTypes ) == "table" then
+                local argTypeCount = #argTypes
+
+                for i2, argType in ipairs( argTypes ) do
+                    local cType = colorScheme:getColor( argType, nil )
+
+                    tableInsert( contents, cType )
+                    tableInsert( contents, argType )
+
+                    if i2 < argTypeCount then
+                        tableInsert( contents, cText )
+                        tableInsert( contents, " or " )
+                    end
+                end
+            elseif argTypes then
+                local cType = colorScheme:getColor( argTypes, nil )
+
+                tableInsert( contents, cType )
+                tableInsert( contents, argTypes )
+            end
+
+            if argTypes then
+                tableInsert( contents, cText )
+                tableInsert( contents, ")" )
+            end
+
+            local blistArg = blistArgs:addPoint( contents, true )
+
+            if argDefault ~= nil then
+                local contentsDefault = {
+                    cText, "Default: ",
+                }
+
+                if type( argDefault ) == "table" then
+                    tableAdd( contentsDefault, ep.keyValueList( colorScheme, argDefault, nil, nil, false, true, "" ) )
+                else
+                    tableAdd( contentsDefault, ep.anyType( colorScheme, argDefault, "" ) )
+                end
+
+                blistArg:addPoint( contentsDefault, nil )
+            end
+
+            addDescription( blistArg, argDescs, cText )
+        end
+
+        tableInsert( printTbl, cText )
+        tableInsert( printTbl, " )" )
+    end
+
+    if retInfo and retInfo[1] then
+        local retCount = #retInfo
+        local blistRets = blistOut:addPoint( {
+            cHighlightWeak, "Returns:",
+        }, true )
+
+        tableInsert( printTbl, cText )
+        tableInsert( printTbl, " return  " )
+
+        for i, info in ipairs( retInfo ) do
+            local retName = info.Name or ( "ret" .. i )
+            local retTypes = info.Type
+            local retDescs = info.Description or info.Descr or info.Desc
+            retTypes = retTypes == nil and "any" or retTypes
+
+            local contents = {
+                cArgRet, retName,
+                cText, retTypes and ": (" or ": ",
+            }
+
+            tableInsert( printTbl, cArgRet )
+            tableInsert( printTbl, retName )
+
+            if i < retCount then
+                tableInsert( printTbl, cText )
+                tableInsert( printTbl, ", " )
+            end
+
+            if type( retTypes ) == "table" then
+                local retTypeCount = #retTypes
+
+                for i2, retType in ipairs( retTypes ) do
+                    local cType = colorScheme:getColor( retType, nil )
+
+                    tableInsert( contents, cType )
+                    tableInsert( contents, retType )
+
+                    if i2 < retTypeCount then
+                        tableInsert( contents, cText )
+                        tableInsert( contents, " or " )
+                    end
+                end
+            elseif retTypes then
+                local cType = colorScheme:getColor( retTypes, nil )
+
+                tableInsert( contents, cType )
+                tableInsert( contents, retTypes )
+            end
+
+            if retTypes then
+                tableInsert( contents, cText )
+                tableInsert( contents, ")" )
+            end
+
+            local blistRet = blistRets:addPoint( contents, true )
+
+            addDescription( blistRet, retDescs, cText )
+        end
+
+        tableInsert( printTbl, cText )
+        tableInsert( printTbl, "  end" )
+    elseif retInfo ~= false then
+        tableInsert( printTbl, cText )
+        tableInsert( printTbl, " return end" )
+    end
+
+    if descInfo then
+        local blistDescription = blistOut:addPoint( {
+            cHighlightWeak, "Info:",
+        }, true )
+
+        addDescription( blistDescription, descInfo, cText )
+    end
+
+    printTbl[#printTbl] = printTbl[#printTbl] .. "\n"
+    tableAdd( printTbl, ep.bulletList( colorScheme, blistOut, "-", nil, indentSize, pointGapSize, indentLevelInit ) )
+
+    return printTbl
+end
+
+--[[
+
+--]]
+function ep.templateFunc( colorScheme, list, postWhitespace )
+    -- DEFINEME
+end
+
+
+if SERVER then
+    --[[
+        - Sends a print table over to a player to have them print it clientside.
+
+        - plys: (player or table)
+            - A player or table of players to send the print table to.
+        - printTbl: (table)
+            - The print table to send.
+    --]]
+    function ep.printToClient( plys, printTbl )
+        local stringyTbl = ep.stringifyPrintTable( epScheme, printTbl )
+
+        net.start( "LKL_EasyPrint_PrintFromServer" )
+        net.writeEntity( chip() )
+        net.writeString( json.encode( stringyTbl ) )
+        net.send( plys )
+    end
+else
+    net.receive( "LKL_EasyPrint_PrintFromServer", function()
+        if net.readEntity() ~= chip() then return end
+        if permissionSatisfied ~= nil and not permissionSatisfied then return end -- Soft-integrate into cl_permissions if parent script uses it
+
+        local printTbl = ep.colorizePrintTable( epScheme, json.decode( net.readString() ) )
+
+        pcall( function() -- Some servers add extra permissions for printing on client
+            print( unpack( printTbl ) )
+        end )
+    end )
+end
+
+return epScheme

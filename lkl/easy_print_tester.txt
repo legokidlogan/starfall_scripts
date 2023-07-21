@@ -1,0 +1,342 @@
+--@name Easy Print tester
+--@author legokidlogan
+--@shared
+--@include lkl/easy_print.txt
+--@include lkl/math/numeral.txt
+--@include lkl/math/roman_numeral.txt
+--@include lkl/bulletlist.txt
+--@include lkl/queue.txt
+
+
+
+projectNameID = "EasyPrintTester"
+printName = "[" .. projectNameID .. "]"
+
+local epScheme = require( "lkl/easy_print.txt" )
+require( "lkl/math/numeral.txt" )
+require( "lkl/math/roman_numeral.txt" )
+require( "lkl/bulletlist.txt" )
+require( "lkl/queue.txt" )
+
+local ep = easyPrint
+local tableAdd = table.add
+
+local plysNotOwner = find.allPlayers( function( ent )
+    if ent == owner() then return false end
+
+    return true
+end )
+local me = owner()
+local plyA = plysNotOwner[1]
+local plyB = plysNotOwner[2]
+
+
+local function testList( list )
+    local printTbl = ep.chipNamePrefix()
+    tableAdd( printTbl, {
+        c_white, "Testing ep.simpleList():\n",
+    } )
+
+    tableAdd( printTbl, ep.simpleList( nil, list ) )
+    printTbl[#printTbl] = printTbl[#printTbl] .. "\n"
+
+    print( unpack( printTbl ) )
+end
+
+local function testBulletList( blist, pointStyle, func, indentSize, pointGapSize, indentLevelInit )
+    pointStyle = pointStyle or "-"
+    indentSize = indentSize or 2
+    pointGapSize = pointGapSize or 1
+    indentLevelInit = indentLevelInit or 0
+
+    local printTbl = ep.chipNamePrefix()
+    tableAdd( printTbl, {
+        c_white, "Testing ep.bulletList( nil, ",
+    } )
+    tableAdd( printTbl, ep.keyValueList( nil,
+        { blist = blist, pointStyle = pointStyle, func = func, indentSize = indentSize, pointGapSize = pointGapSize, indentLevelInit = indentLevelInit },
+        { "blist", "pointStyle", "func", "indentSize", "pointGapSize", "indentLevelInit" }
+    ) )
+    tableAdd( printTbl, {
+        c_white, " ):\n",
+    } )
+
+    tableAdd( printTbl, ep.bulletList( nil, blist, pointStyle, func, indentSize, pointGapSize, indentLevelInit ) )
+    printTbl[#printTbl] = printTbl[#printTbl] .. "\n"
+
+    print( unpack( printTbl ) )
+end
+
+local function testFunctionDetails( funcName, argInfo, retInfo, descInfo, indentSize, pointGapSize, indentLevelInit )
+    pointStyle = pointStyle or "-"
+    indentSize = indentSize or 2
+    pointGapSize = pointGapSize or 1
+    indentLevelInit = indentLevelInit or 0
+
+    local printTbl = ep.chipNamePrefix()
+    tableAdd( printTbl, {
+        c_white, "Testing ep.testFunctionDetails( nil, ",
+    } )
+    tableAdd( printTbl, ep.keyValueList( nil,
+        { funcName = funcName, argInfo = argInfo, retInfo = retInfo, descInfo = descInfo, indentSize = indentSize, pointGapSize = pointGapSize, indentLevelInit = indentLevelInit },
+        { "funcName", "argInfo", "retInfo", "descInfo", "indentSize", "pointGapSize", "indentLevelInit" }
+    ) )
+    tableAdd( printTbl, {
+        c_white, " ):\n",
+    } )
+
+    tableAdd( printTbl, ep.functionDetails( nil, funcName, argInfo, retInfo, descInfo, indentSize, pointGapSize, indentLevelInit ) )
+    printTbl[#printTbl] = printTbl[#printTbl] .. "\n"
+
+    print( unpack( printTbl ) )
+end
+
+local function testCommandLog( formatStr, caller, targets, hideFrom, ... )
+    hideFrom = hideFrom or {}
+
+    local printTbl = ep.chipNamePrefix()
+    tableAdd( printTbl, {
+        c_white, "Testing ep.commandLog( nil, ",
+    } )
+    tableAdd( printTbl, ep.keyValueList( nil,
+        { formatStr = formatStr, caller = caller, targets = targets, hideFrom = table.toString( hideFrom ), varargs = table.toString( { ... } ) },
+        { "formatStr", "caller", "targets", "hideFrom", "varargs" }
+    ) )
+    tableAdd( printTbl, {
+        c_white, " ):",
+    } )
+    --print( unpack( printTbl ) )
+
+    ep.commandLog( nil, formatStr, caller, targets, hideFrom, ... )
+end
+
+
+local numeralA = Numeral:new( "100101101", 2 )
+local romanNumA = RomanNumeral:new( 4, true )
+local queueA = Queue:new(
+    function( queue, entry )
+
+    end,
+    function( queue )
+
+    end,
+    {
+
+    },
+    0.1, 1, 0.8, "TestQueueA"
+)
+local listA = {
+    1,
+    2,
+    3,
+    -4,
+    "A",
+    "B",
+    "C",
+    "DD",
+    true,
+    false,
+    testList,
+    { -1, -2, -3 },
+    epScheme,
+    numeralA,
+    romanNumA,
+    Color( 255, 0, 0, 200 ),
+    Vector( 1.1, 2.22, 3.333 ),
+    Angle( 1.1, 2.22, 3.333 ),
+    find.allPlayers()[1],
+    chip(),
+    game.getWorld(),
+    queueA,
+}
+
+
+
+if CLIENT then
+    --if player() ~= owner() then return end
+
+
+    --testCommandLog( "Wow! #A punched #T right in the #s face!", plyA, plyB, {}, "damn" )
+    --testCommandLog( "#A got bored of #T", player(), me, {} )
+
+
+    return
+end
+
+
+--testCommandLog( "#A did a test on #T", me, plyB, {} )
+
+
+
+
+testList( listA )
+--print( unpack( ep.anyType( nil, queueA ) ) )
+
+
+
+--[[
+    - Point 1
+    - Point 2
+        - Point 2.1
+            - Point 2.1.1
+        - Point 2.2
+            - Point 2.2.1
+            - Point 2.2.2
+    - Point 3
+--]]
+local blistA = BulletList:new()
+blistA:addPoint( "Point 1" )
+blistA:addPoint( "Point 2", true )
+    blistA:getPointSubList( 2 ):addPoint( "Point 2.1", true )
+        blistA:getPointSubList( 2 ):getPointSubList( 1 ):addPoint( "Point 2.1.1", true )
+    blistA:getPointSubList( 2 ):addPoint( "Point 2.2", true )
+        blistA:getPointSubList( 2 ):getPointSubList( 2 ):addPoint( "Point 2.2.1", true )
+        blistA:getPointSubList( 2 ):getPointSubList( 2 ):addPoint( "Point 2.2.2", true )
+blistA:addPoint( "Point 3", true )
+
+
+--timer.simple( 1, function()
+    --testBulletList( blistA, "-", nil, 2, 1 )
+    --testBulletList( blistA, "1ai.", nil, 2, 1 )
+    --testBulletList( blistA, "1.1.", nil, 2, 1 )
+--end )
+
+
+
+local blistB = BulletList:new()
+local sentenceA = "Hello everybody, my name is Markiplier and welcome to Five Nights at Freddy's; an indie horror game that you guys suggested en masse and I saw that Yamimash played it and he said it was really really good."
+local sentenceWordsA = string.split( sentenceA, " " )
+
+for _, word in ipairs( sentenceWordsA ) do
+    blistB:addPoint( word, true )
+end
+
+local bListSubB = blistB:getPointSubList( 1 )
+for i, word in ipairs( sentenceWordsA ) do
+    if i == 1 then continue end
+
+    bListSubB:addPoint( word, true )
+    bListSubB = bListSubB:getPointSubList( 1 )
+end
+
+--timer.simple( 2, function()
+    --testBulletList( blistB, "I", nil, 2, 1 )
+--end )
+
+
+
+
+--[[
+testFunctionDetails(
+    "testFunc", -- funcName
+    { -- argInfo
+        {
+            Name = "foo",
+            Type = { "number", "string", "boolean" },
+            Desc = "This is one string line.",
+            IsOptional = false,
+            Default = nil,
+        },
+        {
+            Name = "bar",
+            Type = "string",
+            Desc = {
+                "This is a plain line." ,
+                "This is another plain line.",
+            },
+            IsOptional = true,
+            Default = "Hello",
+        },
+        {
+            Name = "baz",
+            Type = "table",
+            Desc = {
+                {
+                    c_white, "This line is ",
+                    c_red, "colored",
+                    c_white, ".",
+                },
+                "This line is plain.",
+                {
+                    c_white, "This line is ",
+                    c_green, "colored",
+                    c_white, ".",
+                },
+            },
+            IsOptional = true,
+            Default = { "a", "bb", 3, Vector( 1, 2, 3 ) },
+        },
+    },
+    { -- retInfo
+        {
+            Name = "foo",
+            Type = "Player",
+            Desc = "This is one string line.",
+        },
+        {
+            Name = "bar",
+            Type = { "nil", "number" },
+            Desc = {
+                {
+                    c_white, "This line is ",
+                    c_red, "colored",
+                    c_white, ".",
+                },
+                "This line is plain.",
+                {
+                    c_white, "This line is ",
+                    c_green, "colored",
+                    c_white, ".",
+                },
+            },
+        },
+    },
+    { -- descInfo
+        {
+            c_white, "This is the description.",
+        },
+        {
+            c_white, "This line is ",
+            c_red, "colored",
+            c_white, ".",
+        },
+        "This line is plain.",
+        {
+            c_white, "This line is ",
+            c_green, "colored",
+            c_white, ".",
+        },
+    },
+    2,
+    1,
+    0
+)
+--]]
+
+
+--[[
+testFunctionDetails(
+    "testFunc2", -- funcName
+    { -- argInfo
+
+    },
+    { -- retInfo
+        {
+            Name = "foo",
+            Type = "Player",
+            Desc = "This is one string line.",
+        },
+    },
+    { -- descInfo
+        {
+            c_white, "This is the description.",
+        },
+    },
+    2,
+    1,
+    0
+)
+--]]
+
+
+

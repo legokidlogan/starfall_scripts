@@ -1,0 +1,152 @@
+--@name The Floor is Lava
+--@author legokidlogan
+--@shared
+
+-- CONFIG
+local graceDuration = 5 -- How long you are floor-immune after spawning. 0 for forever (only if graceRange ~= 0), -1 to never have grace.
+local graceRange = 150 -- Max distance from initial spawn where floor immunity will be canceled early. 0 to never cancel early.
+-- END CONFIG
+
+
+if CLIENT then
+    if player() ~= owner() then return end
+
+    net.receive( "LKL_THiL_Die", function()
+        concmd( "kill" )
+    end )
+
+    return
+end
+
+
+local graceRangeSqr = graceRange ^ 2
+local lastSpawnPos = Vector()
+local world = game.getWorld()
+local isUnderGrace = false
+local isDying = false
+local extraLava = {}
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+table.insert( inputNames, "ExtraLava" )
+table.insert( inputTypes, "ARRAY" )
+
+
+local function disableGracePeriod()
+    if not isUnderGrace then return end
+
+    isUnderGrace = false
+
+    timer.remove( "LKL_THiL_EndGracePeriod" )
+    print( "You are no longer under grace from the lava." )
+end
+
+local function enableGracePeriod()
+    if isUnderGrace then return end
+
+    isUnderGrace = true
+
+    print( "You are now under grace from the lava." )
+
+    if isUnderGrace and graceDuration ~= 0 then
+        timer.create( "LKL_THiL_EndGracePeriod", graceDuration, 1, disableGracePeriod )
+    end
+end
+
+local function tryStartGracePeriod()
+    timer.remove( "LKL_THiL_EndGracePeriod" )
+
+    if graceDuration < 0 then return end
+    if graceDuration == 0 and graceRange <= 0 then return end
+
+    enableGracePeriod()
+end
+
+local function checkGraceDistance()
+    if graceRange > 0 then
+        local pos = owner():getPos()
+        local distSqr = pos:getDistanceSqr( lastSpawnPos )
+
+        if distSqr > graceRangeSqr then
+            disableGracePeriod()
+
+            timer.remove( "LKL_THiL_EndGracePeriod" )
+        end
+    end
+end
+
+local function checkForLava()
+    if not owner():isOnGround() then return end
+
+    local groundEnt = owner():getGroundEntity() or world
+    if isValid( groundEnt ) and not extraLava[groundEnt] then return end
+
+    isDying = true
+
+    net.start( "LKL_THiL_Die" )
+    net.send( owner() )
+
+    timer.create( "LKL_THiL_RetryDeath", 0.1, 1, function()
+        isDying = false
+    end )
+end
+
+local function wireInput( name, value )
+    if name == "ExtraLava" then
+        value = value or {}
+
+        table.empty( extraLava )
+
+        for _, ent in pairs( value ) do
+            if not isValid( ent ) or type( ent ) ~= "Entity" then continue end
+
+            extraLava[ent] = true
+        end
+    end
+end
+
+
+hook.add( "PlayerSpawn", "LKL_THiL_ApplyLava", function( ply )
+    if ply ~= owner() then return end
+
+    isDying = false
+    lastSpawnPos = ply:getPos()
+
+    tryStartGracePeriod()
+end )
+
+hook.add( "PlayerDeath", "LKL_THiL_Death", function( ply, inflictor, attacker )
+    if ply ~= owner() then return end
+
+    isDying = false
+
+    timer.remove( "LKL_THiL_EndGracePeriod" )
+    timer.remove( "LKL_THiL_RetryDeath" )
+
+    if inflictor ~= ply or attacker ~= ply then return end
+
+    print( "You touched the lava!" )
+end )
+
+hook.add( "think", "LKL_THiL_OwItBurns", function()
+    if isDying then return end
+    if not owner():isAlive() then return end
+
+    if isUnderGrace then
+        checkGraceDistance()
+
+        if isUnderGrace then return end
+    end
+
+    checkForLava()
+end )
+
+hook.add( "input", "LKL_THiL_WireInput", wireInput )
+
+
+timer.simple( 1, function()
+    for _, inputName in ipairs( inputNames ) do
+        wireInput( inputName, wire.ports[inputName] )
+    end
+end )

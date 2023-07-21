@@ -1,0 +1,826 @@
+--@name StarImage
+--@author legokidlogan
+--@shared
+--@include lkl/gcolors.txt
+--@include lkl/cl_check_permissions.txt
+
+----- VERY OLD -----
+
+-- Config:
+
+local zFightOffset = 0.5
+local fallbackURL = "https://cdn.discordapp.com/attachments/303869552503291904/941947928631717909/missing.png"
+
+-- MatName determines the name of the material that will show up in its corresponding wire input, for an array of entities to attach to
+-- Default applies the url to all faces with undefined values (false/nil)
+-- Setting a face url to "" will leave it blank and render nothing over that face
+-- Materials and sprites CANNOT include '__' in their name
+local matUrls = {
+    MinecraftWoodDoor = {
+        Default = "",
+        Top = "https://cdn.discordapp.com/attachments/303869552503291904/941954797421088838/mc_oak_1.png",
+        Bottom = "https://cdn.discordapp.com/attachments/303869552503291904/941954802068377650/mc_oak_2.png",
+        Front = "https://cdn.discordapp.com/attachments/303869552503291904/941954809441964052/mc_oak_3.png",
+        Back = "https://cdn.discordapp.com/attachments/303869552503291904/941954815657934858/mc_oak_4.png",
+        Right = "https://cdn.discordapp.com/attachments/303869552503291904/941955340541526046/mc_oak_5.png",
+        Left = "https://cdn.discordapp.com/attachments/303869552503291904/941955345088122920/mc_oak_6.png",
+    },
+
+    UnoBox = {
+        Default = "",
+        Top = "https://cdn.discordapp.com/attachments/303869552503291904/941954797421088838/mc_oak_1.png",
+        Bottom = "https://cdn.discordapp.com/attachments/303869552503291904/941954802068377650/mc_oak_2.png",
+        Front = "https://cdn.discordapp.com/attachments/303869552503291904/941954809441964052/mc_oak_3.png",
+        Back = "https://cdn.discordapp.com/attachments/303869552503291904/941954815657934858/mc_oak_4.png",
+        Right = "https://cdn.discordapp.com/attachments/303869552503291904/941955340541526046/mc_oak_5.png",
+        Left = "https://cdn.discordapp.com/attachments/303869552503291904/941955345088122920/mc_oak_6.png",
+    },
+
+    --[[ Example material:
+    MatName = {
+        Default = "",
+        Front = "",
+        Back = "",
+        Right = "",
+        Left = "",
+        Top = "",
+        Bottom = "",
+    },
+    --]]
+}
+
+-- Creates a sprite that always follows the local player
+-- If DoPitch == false, will only follow the player horizontally, and will use base entity's pitch
+-- If SpinFollow == true, will stay flat to the entity's top surface and spin around its yaw to aim towards the player. This overrides DoPitch on/off.
+-- DoubleFace is only for when DoPitch == false or SpinFollow == true, and will cause the sprite to be visible from both sides of the entity (still only renders once)
+-- PosLocal is a local offset from the base entity, PosGlobal adds an offset in global coordinates
+local spriteUrls = {
+
+    Test = {
+        URL = "https://cdn.discordapp.com/attachments/303869552503291904/909657013968068648/bernie.png",
+        Width = 100,
+        HeightMult = 1,
+        DoPitch = true,
+        SpinFollow = false,
+        DoubleFace = false,
+        PosLocal = Vector( 0, 0, 0 ),
+        PosGlobal = Vector( 0, 0, 0 ),
+        AngOff = Angle( 0, 0, 0 ),
+    },
+
+    Test2 = {
+        URL = "https://cdn.discordapp.com/attachments/303869552503291904/941962521592594462/fireguy.png",
+        Width = 100,
+        HeightMult = 1,
+        DoPitch = false,
+        SpinFollow = false,
+        DoubleFace = true,
+        PosLocal = Vector( 0, 0, 0 ),
+        PosGlobal = Vector( 0, 0, 0 ),
+        AngOff = Angle( 0, 0, 0 ),
+    },
+
+    Test3 = {
+        URL = "https://cdn.discordapp.com/attachments/303869552503291904/942239283593510912/eye_cthulu.png",
+        Width = 100,
+        HeightMult = 1,
+        DoPitch = true,
+        SpinFollow = true,
+        DoubleFace = true,
+        PosLocal = Vector( 0, 0, 0 ),
+        PosGlobal = Vector( 0, 0, 0 ),
+        AngOff = Angle( 0, 90, 0 ),
+    },
+
+    --[[ Example sprite:
+    SpriteName = {
+        URL = "",
+        Width = 100,
+        HeightMult = 100,
+        DoPitch = true,
+        SpinFollow = true,
+        DoubleFace = true,
+        PosLocal = Vector( 0, 0, 0 ),
+        PosGlobal = Vector( 0, 0, 0 ),
+        AngOff = Angle( 0, 0, 0 ),
+    }
+    --]]
+}
+
+-- End Config
+
+
+
+inputNames = {}
+inputTypes = {}
+
+permissions = { "material.create", "material.urlcreate" }
+permissionSatisfied = false
+permissionRequestSent = false
+
+local matNames = table.getKeys( matUrls )
+local spriteNames = table.getKeys( spriteUrls )
+local matLookup = {}
+local spriteLookup = {}
+local matCount = #matNames
+local spriteCount = #spriteNames
+
+zFightOffset = Vector( zFightOffset, zFightOffset, zFightOffset )
+
+for i, name in ipairs( matNames ) do
+    table.insert( inputNames, "Mat__" .. name )
+    table.insert( inputTypes, "ARRAY" )
+
+    matLookup[name] = i
+end
+
+for i, name in ipairs( spriteNames ) do
+    table.insert( inputNames, "Sprite__" .. name )
+    table.insert( inputTypes, "ARRAY" )
+
+    spriteLookup[name] = i
+end
+
+if SERVER then
+    wire.adjustInputs( inputNames, inputTypes )
+
+    local function getInputInfo( name )
+        if type( name ) ~= "string" then return end
+
+        local info = string.explode( "__", name )
+
+        return info[1], info[2]
+    end
+
+    local function wireInput( name, value )
+        local id, baseName = getInputInfo( name )
+
+        if id == "Mat" then
+            local ind = matLookup[baseName]
+
+            if not ind then return end
+
+            net.start( "LKL_StarImage_SetMatEnts" )
+            net.writeInt( ind, 10 )
+            net.writeTable( value or {} )
+            net.send( find.allPlayers() )
+        elseif id == "Sprite" then
+            local ind = spriteLookup[baseName]
+
+            if not ind then return end
+
+            net.start( "LKL_StarImage_SetSpriteEnts" )
+            net.writeInt( ind, 10 )
+            net.writeTable( value or {} )
+            net.send( find.allPlayers() )
+        end
+    end
+
+    hook.add( "input", "LKL_StarImage_WireInput", wireInput )
+
+    timer.simple( 1, function()
+        for i, name in ipairs( matNames ) do
+            name = "Mat__" .. name
+            wireInput( name, wire.ports[name] )
+        end
+
+        for i, name in ipairs( spriteNames ) do
+            name = "Sprite__" .. name
+            wireInput( name, wire.ports[name] )
+        end
+    end )
+else
+    local matEnts = {}
+    local spriteEnts = {}
+    local matEntCounts = {}
+    local spriteEntCounts = {}
+    local matDatas = {}
+    local spriteDatas = {}
+    local urlQueue = {}
+
+    local matBaseUs = {}
+    local matBaseVs = {}
+    local matDirFuncs = {
+        false,
+        function( ent )
+            return ent:getForward()
+        end,
+        function( ent )
+            return -ent:getForward()
+        end,
+        function( ent )
+            return ent:getRight()
+        end,
+        function( ent )
+            return -ent:getRight()
+        end,
+        function( ent )
+            return ent:getUp()
+        end,
+        function( ent )
+            return -ent:getUp()
+        end,
+    }
+    local matSizeFuncs = {
+        false,
+        function( boxSize )
+            return boxSize[2], boxSize[3]
+        end,
+        function( boxSize )
+            return boxSize[2], boxSize[3]
+        end,
+        function( boxSize )
+            return boxSize[1], boxSize[3]
+        end,
+        function( boxSize )
+            return boxSize[1], boxSize[3]
+        end,
+        function( boxSize )
+            return boxSize[2], boxSize[1]
+        end,
+        function( boxSize )
+            return boxSize[2], boxSize[1]
+        end,
+    }
+    local matOffsetFuncs = {
+        false,
+        function( boxSize )
+            return boxSize[1]
+        end,
+        function( boxSize )
+            return boxSize[1]
+        end,
+        function( boxSize )
+            return boxSize[2]
+        end,
+        function( boxSize )
+            return boxSize[2]
+        end,
+        function( boxSize )
+            return boxSize[3]
+        end,
+        function( boxSize )
+            return boxSize[3]
+        end,
+    }
+    local matRots = {
+        false,
+        Angle( 180, -90, 90 ),
+        Angle( 180, 90, 90 ),
+        Angle( 180, 180, 90 ),
+        Angle( 180, 0, 90 ),
+        Angle( 180, -90, 0 ),
+        Angle( 0, -90, 0 ),
+    }
+    local matDirNames = {
+        "Default",
+        "Front",
+        "Back",
+        "Right",
+        "Left",
+        "Top",
+        "Bottom",
+    }
+
+    local texWidth = 1024
+    local texHeight = 1024
+    local uvGap = 1
+    local shaderType = "UnlitGeneric"
+
+    local matChunkWidth = math.floor( ( texWidth - uvGap * 2 ) / 3 )
+    local matChunkHeight = math.floor( ( texHeight - uvGap * 2 ) / 3 )
+    local matMax
+    local matCreateCount = 0
+    local rtMax
+    local rtCreateCount = 0
+    local renderReady = nil
+    local placeMat
+    local fallbackMat
+    local vec0 = Vector( 0, 0, 0 )
+    local ang0 = Angle( 0, 0, 0 )
+
+    setupPermissionRequest( permissions, "See custom url images as textures", true )
+
+    require( "lkl/gcolors.txt" )
+    require( "lkl/cl_check_permissions.txt" )
+
+    local function getMatMax()
+        local success = pcall( function()
+            matMax = math.max( convar.getInt( "sf_render_maxusermaterials" ), 0 )
+        end )
+
+        if not success then
+            matMax = 40
+        end
+    end
+
+    local function getRTMax()
+        local success = pcall( function()
+            rtMax = math.max( convar.getInt( "sf_render_maxrendertargets" ), 0 )
+        end )
+
+        if not success then
+            rtMax = 20
+        end
+    end
+
+    getMatMax()
+    getRTMax()
+
+    local function createMaterialSafe( shader )
+        if matCreateCount >= matMax then
+            getMatMax() -- In case the player changes their max material count
+
+            if matCreateCount >= matMax then
+                print(
+                    c_white, "[StarImage] ",
+                    c_alert_red, "The max material count has been exceeded! ",
+                    c_red, "Some mats/sprites will not be created. ",
+                    c_white, "You can increase your material limit with ",
+                    c_yellow, "sf_render_maxusermaterials"
+                )
+
+                return false
+            end
+        end
+
+        matCreateCount = matCreateCount + 1
+
+        return material.create( shader )
+    end
+
+    local function destroyMaterial( mat )
+        if type( mat ) ~= "Material" then return end
+
+        matCreateCount = math.max( matCreateCount - 1, 0 )
+        mat:destroy()
+        mat = false
+    end
+
+    local function createRenderTargetSafe( rtName )
+        if render.renderTargetExists( rtName ) then return "exists" end
+
+        if rtCreateCount >= rtMax then
+            getRTMax() -- In case the player changes their max material count
+
+            if rtCreateCount >= rtMax then
+                print(
+                    c_white, "[StarImage] ",
+                    c_alert_red, "The max render target count has been exceeded! ",
+                    c_red, "Some mats/sprites will not be created. ",
+                    c_white, "You can increase your render target limit with ",
+                    c_yellow, "sf_render_maxrendertargets"
+                )
+
+                return false
+            end
+        end
+
+        rtCreateCount = rtCreateCount + 1
+        render.createRenderTarget( rtName )
+
+        return true
+    end
+
+    local function destroyRT( rtName )
+        if type( rtName ) ~= "string" then return end
+        if not render.renderTargetExists( rtName ) then return end
+
+        rtCreateCount = math.max( rtCreateCount - 1, 0 )
+        render.destroyRenderTarget( rtName )
+    end
+
+    local function nextURL()
+        local info = urlQueue[1]
+
+        if not info then
+
+            fallbackMat:setTextureRenderTarget( "$basetexture", "StarImage_Copy|fallback|1" )
+
+            for i = 1, matCount do
+                local rtName = "StarImage_Copy|mat|" .. i
+
+                matDatas[i].MatObj:setTextureRenderTarget( "$basetexture", rtName )
+            end
+
+            for i = 1, spriteCount do
+                local rtName = "StarImage_Copy|sprite|" .. i
+
+                spriteDatas[i].MatObj:setTextureRenderTarget( "$basetexture", rtName )
+            end
+
+            renderReady = true
+
+            return
+        end
+
+        local isMat = info.Type == "mat"
+        local isFallback = info.Type == "fallback"
+        local ind = info.Ind
+        local subInd = info.SubInd
+        local data = isMat and matDatas[ind] or spriteDatas[ind]
+        local matObj = isFallback and fallbackMat or data.MatObj
+
+        local imgU
+        local imgV
+        local imgW
+        local imgH
+
+        placeMat:setTextureURL( "$basetexture", info.URL, function( _, _, w, h, layout )
+            local wMax = isMat and matChunkWidth or texWidth
+            local hMax = isMat and matChunkHeight or texHeight
+
+            if w > wMax or h > hMax then
+            --if w > wMax or h > hMax or ( not isMat and w < wMax and h < hMax ) then
+                local widthBigger = w >= h
+                local mult = widthBigger and ( wMax / w ) or ( hMax / h )
+
+                w = math.floor( w * mult )
+                h = math.floor( h * mult )
+            end
+
+            imgU = w / texWidth
+            imgV = h / texHeight
+            imgW = w
+            imgH = h
+
+            if isMat then
+                data[subInd].U = matBaseUs[subInd] + ( w - 1 ) / texWidth
+                data[subInd].V = matBaseVs[subInd] + ( h - 1 ) / texHeight
+            elseif not isFallback then
+                data.U = w / wMax
+                data.V = h / hMax
+                data.Height = ( h / w ) * data.Width * data.HeightMult
+            end
+
+            layout( 0, 0, w, h )
+        end, function()
+            hook.add( "drawhud", "LKL_StarImage_CopyImage", function()
+                local rtName = "StarImage_Copy|" .. info.Type .. "|" .. ind
+                --local firstPass = not subInd or subInd == 1
+                local firstPass = not subInd or data.FirstPass
+
+                if not createRenderTargetSafe( rtName ) then
+                    hook.remove( "drawhud", "LKL_StarImage_CopyImage" )
+
+                    destroyMaterial( matObj )
+
+                    if isMat then
+                        matDatas[ind] = fallbackMat
+                    else
+                        spriteDatas[ind] = fallbackMat
+                    end
+
+                    return
+                end
+
+                render.selectRenderTarget( rtName )
+                    if firstPass then
+                        data.FirstPass = false
+
+                        render.clear( c_empty )
+                    end
+
+                    render.setColor( c_white )
+                    render.setMaterial( placeMat )
+
+                    if isMat then
+                        render.drawTexturedRectUV( matBaseUs[subInd] * texWidth, matBaseVs[subInd] * texHeight, imgW, imgH, 0, 0, imgU, imgV )
+                    else
+                        --render.drawTexturedRectUV( ( texWidth - imgW ) / 2, ( texHeight - imgH ) / 2, imgW, imgH, 0, 0, imgU, imgV )
+                        render.drawTexturedRectUV( 0, 0, imgW, imgH, 0, 0, imgU, imgV )
+                    end
+                render.selectRenderTarget()
+
+                hook.remove( "drawhud", "LKL_StarImage_CopyImage" )
+
+                table.remove( urlQueue, 1 )
+                nextURL()
+            end )
+        end )
+    end
+
+    local function prepareURL( url, typ, ind, subInd )
+        if not url or url == "" then return end
+
+        table.insert( urlQueue, {
+            URL = url,
+            Type = typ,
+            Ind = ind or 1,
+            SubInd = subInd,
+        } )
+    end
+
+    local function setupMaterials()
+        if renderReady ~= nil then return end
+
+        renderReady = false
+
+        local uMult = ( matChunkWidth + uvGap ) / texWidth
+        local vMult = ( matChunkHeight + uvGap ) / texHeight
+        local ind = 1
+        local materialsFailed = false
+
+        for i = 0, 2 do
+            for i2 = 0, 2 do
+                if ind > 7 then break end
+
+                matBaseUs[ind] = i * uMult
+                matBaseVs[ind] = i2 * vMult
+                ind = ind + 1
+            end
+        end
+
+        placeMat = createMaterialSafe( shaderType )
+        fallbackMat = createMaterialSafe( shaderType )
+
+        prepareURL( fallbackURL, "fallback", 1 )
+
+        for i = 1, matCount do
+            local name = matNames[i]
+            local info = matUrls[name]
+            local data = {}
+
+            matDatas[i] = data
+
+            local matObj = createMaterialSafe( shaderType )
+
+            if not matObj then
+                print(
+                    c_white, "[StarImage] ",
+                    c_alert_red, "Failed to create materials for the matUrl list!"
+                )
+
+                materialsFailed = true
+
+                break
+            end
+
+            data.MatObj = matObj
+            data.FirstPass = true
+
+            for i2 = 1, 7 do
+                local url = info[matDirNames[i2]] or info[matDirNames[1]]
+
+                if url != "" then
+                    data[i2] = {}
+
+                    prepareURL( url, "mat", i, i2 )
+                end
+            end
+        end
+
+        for i = 1, spriteCount do
+            local name = spriteNames[i]
+            local info = spriteUrls[name]
+            local data = {}
+
+            spriteDatas[i] = data
+
+            local matObj = createMaterialSafe( shaderType )
+
+            if not matObj then
+                print(
+                    c_white, "[StarImage] ",
+                    c_alert_red, "Failed to create materials for the spriteUrl list!"
+                )
+
+                materialsFailed = true
+
+                break
+            end
+
+            data.MatObj = matObj
+            data.Width = info.Width or 100
+            --data.Height = info.Height
+            data.HeightMult = info.HeightMult or 1
+            data.DoPitch = info.DoPitch
+            data.SpinFollow = info.SpinFollow
+            data.DoubleFace = info.DoubleFace
+            data.PosLocal = info.PosLocal or vec0
+            data.PosGlobal = info.PosGlobal or vec0
+            data.AngOff = info.AngOff or ang0
+
+            prepareURL( info.URL, "sprite", i )
+        end
+
+        nextURL()
+    end
+
+    if permissionSatisfied then
+        setupMaterials()
+    else
+        hook.add( "permissionrequest", "LKL_StarImage_SetupMaterials", function()
+            timer.simple( 0, function()
+                if not permissionSatisfied then return end
+
+                setupMaterials()
+            end )
+        end )
+    end
+
+    local function HUDChange( state )
+        if state and not permissionSatisfied then
+            sendPermissionRequest()
+        end
+    end
+
+    timer.simple( 0.5, function()
+        if render.isHUDActive() then
+            HUDChange( true )
+        end
+    end )
+
+    hook.add( "hudconnected", "LKL_StarImage_HUDConnect", function()
+        HUDChange( true )
+    end )
+
+    hook.add( "huddisconnected", "LKL_StarImage_HUDConnect", function()
+        HUDChange( false )
+    end )
+
+    hook.add( "postdrawtranslucentrenderables", "LKL_StarImage_DrawSpritesAndMats", function( _, skybox )
+        if skybox or not renderReady then return end
+
+        render.enableDepth( true )
+        render.setColor( c_white )
+
+        for i = 1, matCount do
+            local data = matDatas[i]
+
+            if not data then continue end
+
+            local ents = matEnts[i] or {}
+            local entCount = matEntCounts[i] or 0
+
+            render.setMaterial( data.MatObj or fallbackMat )
+
+            for i2 = 2, 7 do
+                local uv2 = data[i2]
+
+                if not uv2 then continue end
+
+                local u1 = matBaseUs[i2]
+                local v1 = matBaseVs[i2]
+                local u2 = uv2.U
+                local v2 = uv2.V
+                local dirFunc = matDirFuncs[i2]
+                local sizeFunc = matSizeFuncs[i2]
+                local offsetFunc = matOffsetFuncs[i2]
+                local matRot = matRots[i2]
+
+                for i3 = 1, entCount do
+                    local ent = ents[i3]
+
+                    if isValid( ent ) then
+                        local boxSize = ent:obbSize() + zFightOffset
+                        local matMatrix = Matrix()
+                        local posOff = dirFunc( ent ) * offsetFunc( boxSize ) / 2
+                        local w, h = sizeFunc( boxSize )
+
+                        matMatrix:translate( ent:getPos() + posOff )
+                        matMatrix:setAngles( ent:getAngles() )
+                        matMatrix:rotate( matRot )
+
+                        render.pushMatrix( matMatrix )
+                        render.drawTexturedRectUV( -w / 2, -h / 2, w, h, u1, v1, u2, v2 )
+                        render.popMatrix()
+                    end
+                end
+            end
+        end
+
+        -- Sprites
+        for i = 1, spriteCount do
+            local data = spriteDatas[i]
+
+            if not data then continue end
+
+            local ents = spriteEnts[i] or {}
+            local entCount = spriteEntCounts[i] or 0
+            local doFlat = not data.DoPitch
+            local spinFollow = data.SpinFollow
+            local doubleFace = data.DoubleFace
+            local posLocal = data.PosLocal
+            local posGlobal = data.PosGlobal
+            local angOff = data.AngOff
+
+            local w = data.Width
+            local h = data.Height
+            local x = -w / 2
+            local y = -h / 2
+            local u = data.U or 1
+            local v = data.V or 1
+
+            render.setMaterial( data.MatObj or fallbackMat )
+
+            for i2 = 1, entCount do
+                local ent = ents[i2]
+
+                if isValid( ent ) then
+                    local spriteMatrix = Matrix()
+                    local newPos = ent:localToWorld( posLocal or vec0 ) + ( posGlobal or vec0 )
+                    local flipHoriz = false
+                    --local flipVert = false
+                    local eyePos = player():getEyePos()
+
+                    spriteMatrix:translate( newPos )
+
+                    if spinFollow then
+                        local entAng = ent:getAngles()
+                        local locDiff = worldToLocal( eyePos, ang0, newPos, entAng )
+                        local angleTowardsPlayer = locDiff:getAngle()
+
+                        spriteMatrix:setAngles( entAng )
+                        spriteMatrix:rotate( Angle( 0, 90, 180 ) )
+                        spriteMatrix:rotate( Angle( 0, -angleTowardsPlayer[2], 0 ) )
+                    else
+                        local angleTowardsPlayer = ( eyePos - newPos ):getAngle()
+
+                        if doFlat then
+                            angleTowardsPlayer[1] = ent:getUp():getAngle()[1]
+                        end
+
+                        spriteMatrix:setAngles( angleTowardsPlayer )
+                        spriteMatrix:rotate( Angle( 0, 90, 270 ) )
+                    end
+
+                    if doubleFace and spriteMatrix:getUp():dot( eyePos - newPos ) > 0 then
+                        --spriteMatrix:rotate( Angle( 0, 180, 180 ) )
+
+                        flipHoriz = true
+
+                        if spinFollow then
+                            --flipVert = true
+                            spriteMatrix:rotate( Angle( 0, 0, 180 ) )
+                        else
+                            spriteMatrix:rotate( Angle( 0, 180, 180 ) )
+                        end
+                    end
+
+                    spriteMatrix:rotate( angOff )
+
+                    render.pushMatrix( spriteMatrix )
+
+                    --[[
+                    if flipHoriz and flipVert then
+                        render.drawTexturedRectUV( x, y, w, h, u, v, 0, 0 )
+                    elseif flipHoriz then
+                        render.drawTexturedRectUV( x, y, w, h, u, 0, 0, v )
+                    elseif flipVert then
+                        render.drawTexturedRectUV( x, y, w, h, 0, v, u, 0 )
+                    else
+                        render.drawTexturedRectUV( x, y, w, h, 0, 0, u, v )
+                    end
+                    --]]
+
+                    if flipHoriz then
+                        render.drawTexturedRectUV( x, y, w, h, u, 0, 0, v )
+                    else
+                        render.drawTexturedRectUV( x, y, w, h, 0, 0, u, v )
+                    end
+
+                    render.popMatrix()
+                end
+            end
+        end
+
+        render.overrideBlend( false )
+    end )
+
+    net.receive( "LKL_StarImage_SetMatEnts", function()
+        local ind = net.readInt( 10 )
+        local tbl = net.readTable()
+
+        local newTbl = {}
+        local count = 0
+
+        for _, val in pairs( tbl ) do
+            if type( val ) == "Entity" and isValid( val ) then
+                count = count + 1
+                newTbl[count] = val
+            end
+        end
+
+        matEnts[ind] = newTbl
+        matEntCounts[ind] = count
+    end )
+
+    net.receive( "LKL_StarImage_SetSpriteEnts", function()
+        local ind = net.readInt( 10 )
+        local tbl = net.readTable()
+
+        local newTbl = {}
+        local count = 0
+
+        for _, val in pairs( tbl ) do
+            if type( val ) == "Entity" and isValid( val ) then
+                count = count + 1
+                newTbl[count] = val
+            end
+        end
+
+        spriteEnts[ind] = newTbl
+        spriteEntCounts[ind] = count
+    end )
+end

@@ -1,0 +1,129 @@
+--@name HText Tester
+--@author legokidlogan
+--@client
+--@include lkl/htext.txt
+--@include lkl/rhtext.txt
+--@include lkl/gcolors.txt
+--@include lkl/cl_check_permissions.txt
+
+permissions = {
+    "bass.loadFile",
+    "bass.loadURL",
+}
+
+require( "lkl/htext.txt" )
+require( "lkl/rhtext.txt" )
+require( "lkl/gcolors.txt" )
+require( "lkl/cl_check_permissions.txt" )
+
+setupPermissionRequestSafe( permissions, "See text box examples", true )
+checkPermissions()
+
+
+local htextOne = HText:new( 300, 250, 1000, 100 )
+--local htextTwo = HText:new( 300, 200, 1400, 100 )
+local htextTwo = RHText:new( 300, 200, 1400, 100 )
+local htextThree = HText:new( 1, 1, 0, 0 )
+
+--htextOne:setTextAlignment( TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP )
+--htextOne:setTextAlignment( TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER )
+--htextOne:setTextAlignment( TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM )
+--htextOne:setTextAlignment( TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP )
+htextOne:setTextAlignment( TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+--htextOne:setTextAlignment( TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM )
+--htextOne:setTextAlignment( TEXT_ALIGN_RIGHT, TEXT_ALIGN_TOP )
+--htextOne:setTextAlignment( TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER )
+--htextOne:setTextAlignment( TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM )
+
+--[[
+htextOne:setFont( {
+    font = "Roboto Mono",
+    size = 16,
+    weight = 400,
+    antialias = true,
+    additive = false,
+    shadow = false,
+    outline = false,
+    blursize = 0,
+    extended = false,
+    scanlines = 0,
+} )
+--]]
+
+--
+htextOne:setText(
+    "blah ",
+
+    "blah ",
+
+    c_red,
+    "red ",
+
+    "white ",
+
+    { font = "Roboto Mono", size = 30, },
+    "big",
+
+    { font = "Roboto Mono", size = 8, },
+    " small ",
+
+    c_pale_yellow,
+    "hi this is one long sentence woooo ",
+
+    "blah blah blah blah blah ",
+
+    c_pale_red,
+    "blahhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh ",
+
+    c_pale_green,
+    "blaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa hi ",
+
+    c_pale_blue,
+    "goodbye blargggggggggggggggggggggggggggggggggggggggggggggggh what ",
+
+    "this is short\n",
+
+    HText.makeRainbowColorFunc( 30, 0, 1, 1, 255 ),
+    "foo_bar\n"
+)
+
+htextOne:addText( HText.makeStaticRainbow( "foo_bar", nil, 0, 360, 1, 1, 255 ) )
+htextOne:addText( "\n" )
+
+htextOne:addText( HText.makeShiftingRainbow( 10, "foo_bar", nil, 30, 0, 1, 1, 255 ) )
+htextOne:addText( "\n" )
+--]]
+
+
+timer.simple( 5, function()
+    --htextOne:setSize( 500, 300 )
+end )
+
+
+htextTwo:setFont( {
+    font = "Roboto Mono",
+    size = 24,
+} )
+htextTwo:setRevealText( "Lorem Ipsum foo bar baz blah blah blee bloo blah" )
+htextTwo:setInterval( 0.125 )
+htextTwo:setRevealSound( {
+    Path = "buttons/blip1.wav",
+    IsURL = false,
+    Volume = 1,
+    Pitch = function() return math.rand( 0.9, 1.1 ) end,
+} )
+htextTwo:setAutoHeight( true )
+htextTwo:start()
+
+
+-- Drawing to a starfall screen
+htextThree:setAutoDraw( false )
+htextThree:setSizeFractional( 0.5, 0.5, 512, 512 )
+htextThree:setPosFractional( 0.25, 0.25, 512, 512 )
+htextThree:setText( "Hi hello" )
+
+hook.add( "render", "HTextTester_DrawTextThree", function()
+    htextThree:draw()
+end )
+
+

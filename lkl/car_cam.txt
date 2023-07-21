@@ -1,0 +1,476 @@
+--@name Car Cam
+--@author legokidlogan
+--@shared
+--@include lkl/cl_check_permissions.txt
+--@include lkl/targeted_input.txt
+--@include lkl/key_globalizer.txt
+
+----- VERY OLD -----
+
+
+require( "lkl/targeted_input.txt" )
+require( "lkl/key_globalizer.txt" )
+
+local function tableInsertUnique( tbl, val )
+    if table.hasValue( tbl, val ) then return end
+    table.insert( tbl, val )
+
+    return true
+end
+
+local function tableInsertConditionally( tbl, val, doInsert )
+    if not doInsert then return end
+    table.insert( tbl, val )
+end
+
+
+if SERVER then
+    local traceRate = 0.05
+
+    local driver
+    local base
+    local camForceEnt
+    local chair
+    local doTrace
+    local traceWhileOutOfCam
+    local usingCam
+    local camInd = 0
+    local camCount = 0
+    local localPoss = {}
+    local camDists = {}
+    local contraption = {}
+    local vec0 = Vector( 0, 0, 0 )
+    local chipLink = wire.getWirelink( chip() )
+    local world = game.getWorld()
+
+
+    inputNames = inputNames or {}
+    inputTypes = inputTypes or {}
+
+    outputNames = outputNames or {}
+    outputTypes = outputTypes or {}
+
+    buttonFuncs = buttonFuncs or {}
+
+
+    tableInsertConditionally( inputTypes, "ARRAY", tableInsertUnique( inputNames, "LocalPoss" ) )
+    tableInsertConditionally( inputTypes, "ARRAY", tableInsertUnique( inputNames, "CamDists" ) )
+    tableInsertConditionally( inputTypes, "ENTITY", tableInsertUnique( inputNames, "Base" ) )
+    tableInsertConditionally( inputTypes, "ENTITY", tableInsertUnique( inputNames, "Chair" ) )
+    tableInsertConditionally( inputTypes, "ENTITY", tableInsertUnique( inputNames, "Driver" ) )
+    tableInsertConditionally( inputTypes, "ENTITY", tableInsertUnique( inputNames, "CamForceEnt" ) )
+    tableInsertConditionally( inputTypes, "NUMBER", tableInsertUnique( inputNames, "CamIndOverride" ) )
+    tableInsertConditionally( inputTypes, "NUMBER", tableInsertUnique( inputNames, "DoTrace" ) )
+    tableInsertConditionally( inputTypes, "NUMBER", tableInsertUnique( inputNames, "TraceWhileOutOfCam" ) )
+
+    tableInsertConditionally( outputTypes, "ENTITY", tableInsertUnique( outputNames, "AimEnt" ) )
+    tableInsertConditionally( outputTypes, "VECTOR", tableInsertUnique( outputNames, "AimPos" ) )
+    tableInsertConditionally( outputTypes, "NUMBER", tableInsertUnique( outputNames, "One" ) )
+
+    wire.adjustInputs( inputNames, inputTypes )
+    wire.adjustOutputs( outputNames, outputTypes )
+
+
+    local function updateCam( newCam )
+        if camInd == 0 and isValid( driver ) then
+            pcall( function()
+                driver:setViewEntity()
+            end )
+
+            return
+        elseif newCam == camForceEnt then
+            if isValid( driver ) and driver:getViewEntity() ~= camForceEnt then
+                pcall( function()
+                    driver:setViewEntity( isValid( camForceEnt ) and camForceEnt or nil )
+                end )
+            end
+
+            return
+        end
+
+        camForceEnt = newCam
+
+        if isValid( camForceEnt ) then
+            if isValid( driver ) then
+                pcall( function()
+                    driver:setViewEntity( camForceEnt )
+                end )
+            end
+        else
+            if isValid( driver ) then
+                pcall( function()
+                    driver:setViewEntity( isValid( base ) and base or nil )
+                end )
+            end
+
+            camForceEnt = world
+        end
+
+        net.start( "LKL_CarCam_DefineCamForceEnt" )
+        net.writeEntity( chip() )
+        net.writeEntity( camForceEnt )
+        net.send( find.allPlayers() )
+    end
+
+    local function setCamInd( newInd, force, offIfRepeat )
+        if chipLink:isWired( "CamIndOverride" ) and not force then return end
+
+        newInd = math.clamp( math.floor( newInd ), 0, camCount )
+
+        if newInd == camInd then
+            if offIfRepeat then
+                newInd = 0
+            else
+                return
+            end
+        end
+
+        camInd = newInd
+
+        net.start( "LKL_CarCam_DefineCamInd" )
+        net.writeEntity( chip() )
+        net.writeInt( camInd, 10 )
+        net.send( find.allPlayers() )
+
+        updateCam( camForceEnt )
+    end
+
+    local function driverUpdate( ply, ent, entered )
+        if ent ~= chair then return end
+
+        if isValid( driver ) and not entered then
+            pcall( function()
+                driver:setViewEntity()
+            end )
+        end
+
+        driver = entered and ply
+        tiSetTargets( isValid( driver ) and driver )
+
+        if not entered and not traceWhileOutOfCam then
+            wire.ports.AimPos = vec0
+            wire.ports.AimEnt = game.getWorld()
+        end
+
+        if isValid( ply ) and ply:isPlayer() then
+            net.start( "LKL_CarCam_DriverUpdate" )
+            net.writeEntity( chip() )
+            net.writeBool( entered )
+            net.send( ply )
+        end
+
+        timer.simple( 0.3, function()
+            updateCam( isValid( camForceEnt ) and camForceEnt or nil )
+        end )
+    end
+
+    local function wireInput( name, value )
+        if name == "LocalPoss" then
+            localPoss = value or {}
+
+            camCount = math.max( #localPoss, #camDists )
+            setCamInd( camInd, true, false )
+
+            net.start( "LKL_CarCam_DefineLocalPoss" )
+            net.writeEntity( chip() )
+            net.writeTable( localPoss )
+            net.send( find.allPlayers() )
+        elseif name == "CamDists" then
+            camDists = value or {}
+
+            camCount = math.max( #localPoss, #camDists )
+            setCamInd( camInd, true, false )
+
+            net.start( "LKL_CarCam_DefineCamDists" )
+            net.writeEntity( chip() )
+            net.writeTable( camDists )
+            net.send( find.allPlayers() )
+        elseif name == "Base" then
+            base = isValid( value ) and value
+
+            net.start( "LKL_CarCam_DefineBase" )
+            net.writeEntity( chip() )
+            net.writeEntity( base or world )
+            net.send( find.allPlayers() )
+
+            if not base then return end
+
+            contraption = base:getAllConstrained()
+        elseif name == "CamForceEnt" then
+            updateCam( value )
+        elseif name == "Chair" then
+            chair = value
+
+            if isValid( chair ) then
+                net.start( "LKL_CarCam_DefineChair" )
+                net.writeEntity( chip() )
+                net.writeEntity( chair )
+                net.send( find.allPlayers() )
+            end
+        elseif name == "Driver" then
+            local newDriver = isValid( value ) and value
+
+            driverUpdate( newDriver, chair, isValid( newDriver ) )
+        elseif name == "CamIndOverride" then
+            if not chipLink:isWired( "CamIndOverride" ) then return end
+
+            setCamInd( value, true, false )
+        elseif name == "DoTrace" then
+            doTrace = value ~= 0
+        elseif name == "TraceWhileOutOfCam" then
+            traceWhileOutOfCam = value ~= 0
+        end
+    end
+
+    hook.add( "input", "LKL_CarCam_WireInput", wireInput )
+
+    hook.add( "PlayerInitialSpawn", "LKL_CarCam_PlayerJoined", function( _ )
+        updateCam( camForceEnt )
+    end )
+
+    --[[
+    hook.add( "PlayerEnteredVehicle", "LKL_CarCam_EnterVehicle", function( ply, ent )
+        driverUpdate( ply, ent, true )
+    end )
+
+    hook.add( "PlayerLeaveVehicle", "LKL_CarCam_LeaveVehicle", function( ply, ent )
+        driverUpdate( ply, ent, false )
+    end )
+    --]]
+
+
+    local function buttonFunc_NumKeys( ply, key, state )
+        if ply ~= driver or not state then return end
+        if chipLink:isWired( "CamIndOverride" ) then return end
+
+        local ind = numKeyToNum[key]
+
+        if ind == 0 then
+            ind = 10
+        end
+
+        if ind > camCount then return end
+
+        setCamInd( ind, false, true )
+    end
+
+    local myButtonFuncs = {
+        [KEY_0] = buttonFunc_NumKeys,
+        [KEY_1] = buttonFunc_NumKeys,
+        [KEY_2] = buttonFunc_NumKeys,
+        [KEY_3] = buttonFunc_NumKeys,
+        [KEY_4] = buttonFunc_NumKeys,
+        [KEY_5] = buttonFunc_NumKeys,
+        [KEY_6] = buttonFunc_NumKeys,
+        [KEY_7] = buttonFunc_NumKeys,
+        [KEY_8] = buttonFunc_NumKeys,
+        [KEY_9] = buttonFunc_NumKeys,
+    }
+
+    local function keyClk( ply, key, state )
+        ( myButtonFuncs[key] or function() end )( ply, key, state )
+    end
+
+    hook.add( "LKL_TargetedInput_InputClk", "LKL_CarCam_KeyClk", keyClk )
+
+    for key in pairs( myButtonFuncs ) do
+        if not buttonFuncs[key] then
+            buttonFuncs[key] = function() end
+        end
+    end
+
+    tiSetTargets( isValid( driver ) and driver )
+    tiSetTargetButtons( table.getKeys( buttonFuncs ) )
+
+
+    net.receive( "LKL_CarCam_UseCam", function()
+        if net.readEntity() ~= chip() then return end
+
+        usingCam = net.readBool()
+
+        if not usingCam and not traceWhileOutOfCam then
+            wire.ports.AimPos = vec0
+            wire.ports.AimEnt = game.getWorld()
+        end
+
+        --[[
+        if usingCam and isValid( camForceEnt ) and camForceEnt ~= chip() then
+            net.readEntity():setViewEntity( camForceEnt )
+        else
+            pcall( function()
+                net.readEntity():setViewEntity()
+            end )
+        end
+        --]]
+    end )
+
+
+    timer.create( "LKL_CarCam_Trace", traceRate, 0, function()
+        if not doTrace or ( ( not usingCam or camInd < 1 ) and not traceWhileOutOfCam ) or not driver or not isValid( driver ) or not isValid( chair ) then return end
+
+        local startPos = isValid( camForceEnt ) and camForceEnt:getPos() or
+            ( traceWhileOutOfCam and ( not usingCam or camInd < 1 ) and driver:getEyePos() ) or
+            ( isValid( base ) and base ~= chip() and base:localToWorld( localPoss[camInd] or vec0 ) ) or false
+
+        if not startPos then return end
+
+        --local startAng = driver:getEyeAngles() + chair:getAngles()
+        local startAng = driver:getEyeAngles()
+        local tr = trace.trace( startPos, startPos + startAng:getForward() * 10000, contraption )
+        local aimEnt = tr.Entity
+
+        wire.ports.AimPos = tr.HitPos
+        wire.ports.AimEnt = isValid( aimEnt ) and aimEnt or game.getWorld()
+    end )
+
+    timer.simple( 2.3, function() updateCam( wire.ports.CamForceEnt ) end )
+
+    timer.simple( 2, function()
+        chair = wire.ports.Chair
+        wire.ports.One = 1
+
+        if isValid( chair ) then
+            net.start( "LKL_CarCam_DefineChair" )
+            net.writeEntity( chip() )
+            net.writeEntity( chair )
+            net.send( find.allPlayers() )
+        end
+
+        wireInput( "LocalPoss", wire.ports.LocalPoss )
+        wireInput( "CamDists", wire.ports.CamDists )
+        wireInput( "Base", wire.ports.Base )
+        wireInput( "Driver", wire.ports.Driver )
+        wireInput( "CamForceEnt", wire.ports.CamForceEnt )
+        wireInput( "CamIndOverride", wire.ports.CamIndOverride )
+        wireInput( "DoTrace", wire.ports.DoTrace )
+        wireInput( "TraceWhileOutOfCam", wire.ports.TraceWhileOutOfCam )
+    end )
+else
+    local localPoss = {}
+    local camDists = {}
+    local base = false
+    local camForceEnt = false
+    local usingCam = false
+    local chair = false
+    local driving = false
+    local camInd = 0
+    local vec0 = Vector( 0, 0, 0 )
+
+
+    permissions = permissions or {}
+    permissionSatisfied = false
+    permissionRequestSent = false
+
+    tableInsertUnique( permissions, "render.calcview" )
+
+    if not setupPermissionRequestSafe then
+        require( "lkl/cl_check_permissions.txt" )
+
+        setupPermissionRequestSafe( permissions, "Use a vehicle-mounted camera", true )
+    end
+
+    timer.simple( 1, function()
+        checkPermissions()
+    end )
+
+
+
+    hook.add( "calcview", "LKL_CarCam_CalcView", function()
+        if not permissionSatisfied or not usingCam then return end
+        if camInd == 0 then return end
+
+        if isValid( camForceEnt ) then
+            return {
+                origin = camForceEnt:getPos(),
+                --angles = chair and chair:localToWorldAngles( eyeAngles() ) or eyeAngles(),
+                angles = camForceEnt:getAngles(),
+                drawviewer = true,
+            }
+        elseif base and base:isValid() then
+            local localPos = localPoss[camInd] or vec0
+            local camDist = camDists[camInd] or 0
+
+            local newAng = chair and chair:localToWorldAngles( eyeAngles() ) or eyeAngles()
+            local newPos = base:localToWorld( localPos )
+
+            if camDist ~= 0 then
+                newPos = newPos - newAng:getForward() * camDist
+            end
+
+            return {
+                origin = newPos,
+                angles = newAng,
+                drawviewer = true,
+            }
+        end
+    end )
+
+    hook.add( "hudconnected", "LKL_CarCam_BlockNonDriver", function()
+        timer.simple( 0.1, function()
+            if not driving or player():getVehicle() ~= chair or not chair then
+                enableHud( player(), false )
+            end
+        end )
+    end )
+
+
+    net.receive( "LKL_CarCam_DefineCamForceEnt", function()
+        if net.readEntity() ~= chip() then return end
+
+        camForceEnt = net.readEntity()
+    end )
+
+    net.receive( "LKL_CarCam_DefineChair", function()
+        if net.readEntity() ~= chip() then return end
+
+        chair = net.readEntity()
+        chair = isValid( chair ) and chair or false
+        usingCam = player():getVehicle() == chair
+    end )
+
+    net.receive( "LKL_CarCam_DefineBase", function()
+        if net.readEntity() ~= chip() then return end
+
+        base = net.readEntity()
+        base = isValid( base ) and base
+
+        if base then
+            base:setNoDraw( false )
+        end
+    end )
+
+    net.receive( "LKL_CarCam_DefineLocalPoss", function()
+        if net.readEntity() ~= chip() then return end
+
+        localPoss = net.readTable() or {}
+    end )
+
+    net.receive( "LKL_CarCam_DefineCamDists", function()
+        if net.readEntity() ~= chip() then return end
+
+        camDists = net.readTable() or {}
+    end )
+
+    net.receive( "LKL_CarCam_DefineCamInd", function()
+        if net.readEntity() ~= chip() then return end
+
+        camInd = net.readInt( 10 ) or 0
+
+        local oldUsingCam = usingCam
+        usingCam = driving and ( isValid( camForceEnt ) or isValid( base ) ) and camInd > 0
+
+        if usingCam ~= oldUsingCam and driving then
+            net.start( "LKL_CarCam_UseCam" )
+            net.writeEntity( chip() )
+            net.writeBool( usingCam and permissionSatisfied )
+            net.writeEntity( player() )
+            net.send()
+        end
+    end )
+
+    net.receive( "LKL_CarCam_DriverUpdate", function()
+        if net.readEntity() ~= chip() then return end
+
+        driving = net.readBool()
+    end )
+end

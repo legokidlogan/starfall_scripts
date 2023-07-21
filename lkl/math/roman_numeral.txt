@@ -1,0 +1,471 @@
+--@name Roman Numeral
+--@author legokidlogan
+--@shared
+--@include lkl/middleclass_extras.txt
+
+-- Note: This currently does not support fractional numbers, only integers.
+
+
+local VAL_TO_ROMAN_UPPER = {
+    [0] = "NULLA",
+    [1] = "I",
+    [5] = "V",
+    [10] = "X",
+    [50] = "L",
+    [100] = "C",
+    [500] = "D",
+    [1000] = "M",
+
+    [4] = "IV",
+    [9] = "IX",
+    [40] = "XL",
+    [90] = "XC",
+    [400] = "CD",
+    [900] = "CM",
+}
+
+local VAL_TO_ROMAN_LOWER = {}
+local ROMAN_TO_VAL = {}
+local ROMAN_VALS_DESCENDING = {}
+local ROMAN_CHARS_STR = ""
+
+local mAbs = math.abs
+local mFloor = math.floor
+local mCeil = math.ceil
+local stringSub = string.sub
+local stringMatch = string.match
+local stringSplit = string.split
+local stringFind = string.find
+local stringUpper = string.upper
+local stringLower = string.lower
+local tabeInsert = table.insert
+
+
+RomanNumeral = class( "RomanNumeral" )
+
+require( "lkl/middleclass_extras.txt" )
+
+
+do
+    local valuesAscending = table.getKeys( VAL_TO_ROMAN_UPPER )
+    table.sort( valuesAscending )
+
+    for _, val in ipairs( valuesAscending ) do
+        local roman = VAL_TO_ROMAN_UPPER[val]
+
+        ROMAN_TO_VAL[roman] = val
+        tabeInsert( ROMAN_VALS_DESCENDING, 1, val )
+
+        local romanLower = stringLower( roman )
+        VAL_TO_ROMAN_LOWER[val] = romanLower
+        ROMAN_TO_VAL[romanLower] = val
+
+        if #roman == 1 then
+            ROMAN_CHARS_STR = ROMAN_CHARS_STR .. roman
+            ROMAN_CHARS_STR = ROMAN_CHARS_STR .. romanLower
+        end
+    end
+end
+
+local function extractNegative( numStr )
+    if isnumber( numStr ) then
+        local isNegative = numStr < 0
+
+        return mAbs( numStr ), isNegative and -1 or 1, isNegative
+    end
+
+    numStr = tostring( numStr )
+
+    if stringSub( numStr, 1, 1 ) == "-" then
+        return stringSub( numStr, 2 ), -1, true
+    end
+
+    return numStr, 1, false
+end
+
+local function floorToZero( num )
+    if num < 0 then
+        return mCeil( num )
+    end
+
+    return mFloor( num )
+end
+
+local function getDigits( numStr )
+    local num = tonumber( numStr )
+
+    if not num then
+        return string.split( numStr, "" )
+    end
+
+    if num == 0 then return { "0" } end
+
+    numStr = tostring( numStr )
+
+    if not stringFind( numStr, ".", nil, true ) then -- Quick split if the number is small enough to not get truncated by scientific notation
+        return stringSplit( numStr, "" )
+    end
+
+    local digits = {}
+    num = mAbs( num )
+
+    while num > 0 do -- Extract digits from right to left
+        local digit = num % 10
+
+        tabeInsert( digits, 1, tostring( digit ) )
+        num = mFloor( num / 10 )
+    end
+
+    return digits
+end
+
+local function sanitizeInputRoman( numStr, isUpper )
+    if isUpper == true then
+        local numStrUpper = stringUpper( numStr )
+
+        if numStrUpper ~= numStr then
+            error( "\"" .. numStr .. "\" is not completely uppercase as expected." )
+        end
+    elseif isUpper == false then
+        local numStrLower = stringLower( numStr )
+
+        if numStrLower ~= numStr then
+            error( "\"" .. numStr .. "\" is not completely lowercase as expected." )
+        end
+    else
+        local numStrUpper = stringUpper( numStr )
+        local numStrLower = stringLower( numStr )
+
+        if numStrUpper ~= numStr and numStrLower ~= numStr then
+            error( "\"" .. numStr .. "\" has inconsistent casing." )
+        end
+    end
+
+    local sign, isNegative
+    numStr, sign, isNegative = extractNegative( numStr )
+
+    local digits = getDigits( numStr )
+
+    for i = 1, #digits do
+        local digit = digits[i]
+        local digitVal = ROMAN_TO_VAL[digit]
+
+        if not digitVal then
+            error( "Invalid digit '" .. digit .. "' in roman numeral '" .. numStr .. "'" )
+        end
+    end
+
+    return numStr, sign, isNegative
+end
+
+local function sanitizeInputNumber( numStr )
+    local sign, isNegative
+    numStr, sign, isNegative = extractNegative( numStr )
+
+    local digits = getDigits( numStr )
+
+    for i = 1, #digits do
+        local digit = digits[i]
+
+        if not tonumber( digit ) then
+            error( "Invalid digit '" .. digit .. "' in number '" .. numStr .. "'" )
+        end
+    end
+
+    return numStr, sign, isNegative
+end
+
+local function trimLeadingZeros( numStr )
+    if type( numStr ) == "number" then return numStr end
+
+    return stringMatch( numStr, "^0*(.+)" )
+end
+
+local function readRomanOrNumber( numStr, isUpper )
+    local str = tostring( numStr )
+
+    if str == "0" or VAL_TO_ROMAN_UPPER[stringUpper( str )] then -- 0 Is a special case, since it only sort-of exists and isn't one single character
+        local romanValue = isUpper and VAL_TO_ROMAN_UPPER[0] or VAL_TO_ROMAN_LOWER[0]
+
+        return romanValue, 0
+    end
+
+    local romanOnly = stringMatch( str, "^[" .. ROMAN_CHARS_STR .. "]+" )
+    local romanValue
+    local numberValue
+
+    if romanOnly == numStr then
+        sanitizeInputRoman( numStr, isUpper )
+        romanValue = numStr
+        numberValue = RomanNumeral:romanToNumber( numStr, isUpper )
+    else
+        numStr = trimLeadingZeros( numStr )
+        sanitizeInputNumber( numStr )
+        romanValue = RomanNumeral:numberToRoman( numStr, isUpper )
+        numberValue = tonumber( numStr )
+    end
+
+    return romanValue, numberValue
+end
+
+
+function RomanNumeral.static:romanToNumber( numStr, isUpper )
+    local sign
+    numStr, sign = sanitizeInputRoman( numStr, isUpper )
+
+    local digits = getDigits( numStr )
+    local out = 0
+    local ignoreDigit = false
+
+    for i = 1, #digits do
+        if ignoreDigit then
+            ignoreDigit = false
+
+            continue
+        end
+
+        local digit = digits[i]
+        local digitAndNext = digit .. ( digits[i + 1] or "" )
+
+        local wideDigitVal = ROMAN_TO_VAL[digitAndNext]
+        local digitVal = wideDigitVal or ROMAN_TO_VAL[digit]
+
+        out = out + digitVal
+
+        if wideDigitVal then
+            ignoreDigit = true
+        end
+    end
+
+    --return tostring( out * sign )
+    return out * sign
+end
+
+function RomanNumeral.static:numberToRoman( numStr, isUpper )
+    isUpper = isUpper == nil and true or isUpper
+
+    local isNegative
+    numStr, _, isNegative = sanitizeInputNumber( numStr )
+    local valueToRoman = isUpper and VAL_TO_ROMAN_UPPER or VAL_TO_ROMAN_LOWER
+    local num = tonumber( numStr )
+
+    if num == 0 then return valueToRoman[num] end
+
+    local out = ""
+
+    for _, value in pairs( ROMAN_VALS_DESCENDING ) do
+        if value ~= 0 then
+            local roman = valueToRoman[value]
+
+            while num >= value do
+                num = num - value
+                out = out .. roman
+            end
+        end
+    end
+
+    if isNegative then
+        out = "-" .. out
+    end
+
+    return out
+end
+
+function RomanNumeral.static:safeGetValue( x )
+    if type( x ) == "number" then
+        return x, nil, true
+    end
+
+    if type( x ) ~= "table" then
+        return x, nil, false
+    end
+
+    if isInstanceOf( x, RomanNumeral ) then
+        return x:toNumber(), x.IsUpper, true
+    end
+
+    if isClassByName( x, "Numeral" ) then
+        return x:toNumber(), nil, false
+    end
+
+    return x, nil, false
+end
+
+
+function RomanNumeral:initialize( numStr, isUpper )
+    local romanValue, numberValue = readRomanOrNumber( numStr, isUpper )
+
+    self.IsUpper = isUpper
+    self.Value = romanValue
+    self.NumberValue = numberValue
+end
+
+function RomanNumeral:__tostring()
+    return self.Value
+end
+
+-- If self and other are different casings or different types, priority goes to self.
+function RomanNumeral:__add( other )
+    local valNumberA, isUpperA, isNumA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+    local result = floorToZero( valNumberA + valNumberB )
+
+    if isNumA then
+        return result
+    end
+
+    result = numberToRoman( result, isUpperA )
+
+    return RomanNumeral:new( result, isUpperA )
+end
+
+-- If self and other are different casings or different types, priority goes to self.
+function RomanNumeral:__sub( other )
+    local valNumberA, isUpperA, isNumA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+    local result = floorToZero( valNumberA - valNumberB )
+
+    if isNumA then
+        return result
+    end
+
+    result = numberToRoman( result, isUpperA )
+
+    return RomanNumeral:new( result, isUpperA )
+end
+
+-- If self and other are different casings or different types, priority goes to self.
+function RomanNumeral:__mul( other )
+    local valNumberA, isUpperA, isNumA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+    local result = floorToZero( valNumberA * valNumberB )
+
+    if isNumA then
+        return result
+    end
+
+    result = numberToRoman( result, isUpperA )
+
+    return RomanNumeral:new( result, isUpperA )
+end
+
+-- If self and other are different casings or different types, priority goes to self.
+function RomanNumeral:__div( other )
+    local valNumberA, isUpperA, isNumA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+    local result = floorToZero( valNumberA / valNumberB )
+
+    if isNumA then
+        return result
+    end
+
+    result = numberToRoman( result, isUpperA )
+
+    return RomanNumeral:new( result, isUpperA )
+end
+
+-- If self and other are different casings or different types, priority goes to self.
+function RomanNumeral:__mod( other )
+    local valNumberA, isUpperA, isNumA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+    local result = floorToZero( valNumberA % valNumberB )
+
+    if isNumA then
+        return result
+    end
+
+    result = numberToRoman( result, isUpperA )
+
+    return RomanNumeral:new( result, isUpperA )
+end
+
+-- If self and other are different casings or different types, priority goes to self.
+function RomanNumeral:__pow( other )
+    local valNumberA, isUpperA, isNumA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+    local result = floorToZero( valNumberA ^ valNumberB )
+
+    if isNumA then
+        return result
+    end
+
+    result = numberToRoman( result, isUpperA )
+
+    return RomanNumeral:new( result, isUpperA )
+end
+
+function RomanNumeral:__unm()
+    local valDecimal, isUpperA, isNum = RomanNumeral:safeGetValue( self )
+    local result = floorToZero( -valDecimal )
+
+    if isNum then
+        return result
+    end
+
+    return RomanNumeral:new( result, isUpperA )
+end
+
+function RomanNumeral:__concat( other )
+    return tostring( self ) .. tostring( other )
+end
+
+-- Get the number of digits.
+function RomanNumeral:__len()
+    local numAbsStr = extractNegative( self.Value )
+
+    return #numAbsStr
+end
+
+-- Compares the decimal values of the numerals. To check if both the casings and the values are the same, use :exactlyEquals()
+-- Unfortunately, we can't override tonumber(), so == will fail if a non-numeral is on the left side.
+function RomanNumeral:__eq( other )
+    local valNumberA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+
+    return valNumberA == valNumberB
+end
+
+function RomanNumeral:__lt( other )
+    local valNumberA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+
+    return valNumberA < valNumberB
+end
+
+function RomanNumeral:__le( other )
+    local valNumberA = RomanNumeral:safeGetValue( self )
+    local valNumberB = RomanNumeral:safeGetValue( other )
+
+    return valNumberA <= valNumberB
+end
+
+function RomanNumeral:exactlyEquals( other )
+    if type( other ) == "number" then
+        return self.NumberValue == other
+    end
+
+    if not isInstanceOf( other, RomanNumeral ) then return false end
+
+    return self.Value == other.Value
+end
+
+function RomanNumeral:setValue( numStr )
+    local romanValue, numberValue = readRomanOrNumber( numStr, self.IsUpper )
+
+    self.Value = romanValue
+    self.NumberValue = numberValue
+end
+
+function RomanNumeral:toNumber()
+    return self.NumberValue
+end
+
+function RomanNumeral:getValue()
+    return self.Value
+end
+
+function RomanNumeral:abs()
+    local numAbsStr = extractNegative( self.Value )
+
+    return RomanNumeral:new( numAbsStr, self.IsUpper )
+end

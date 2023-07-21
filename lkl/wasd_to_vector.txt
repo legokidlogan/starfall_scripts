@@ -1,0 +1,126 @@
+--@name WASD to Vector
+--@author legokidlogan
+--@server
+
+-- CONFIG:
+local normalizeMode = 1 -- 0 = none, 1 = normalize horizontal only, 2 = normalize all
+local sideSpeed = 1
+local forwardSpeed = 1
+local backSpeed = 1
+local upSpeed = 1
+local downSpeed = 1
+local shiftMultHorizontal = 1.5
+local shiftMultVertical = 1.5
+-- END CONFIG
+
+
+local btnStateW = false
+local btnStateA = false
+local btnStateS = false
+local btnStateD = false
+local btnStateShift = false
+local btnStateUp = false
+local btnStateDown = false
+
+local tableInsert = table.insert
+
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+tableInsert( inputNames, "W" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "A" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "S" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "D" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "Up" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "Down" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "Shift" )
+tableInsert( inputTypes, "NUMBER" )
+
+
+tableInsert( outputNames, "MoveVector" )
+tableInsert( outputTypes, "VECTOR" )
+
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+wire.ports.MoveVector = Vector( 0, 0, 0 )
+
+
+local function safeNormalize( vec )
+    local length = vec:getLength()
+    if length == 0 then return vec end
+
+    return vec / length
+end
+
+local function updateDriveDirections()
+    local moveVec = Vector(
+        ( btnStateW and forwardSpeed or 0 ) - ( btnStateS and backSpeed or 0 ),
+        ( btnStateA and sideSpeed or 0 ) - ( btnStateD and sideSpeed or 0 ),
+        0
+    )
+
+    if normalizeMode == 1 then
+        moveVec = safeNormalize( moveVec )
+    end
+
+    moveVec = moveVec:setZ( ( btnStateUp and upSpeed or 0 ) - ( btnStateDown and downSpeed or 0 ) )
+
+    if normalizeMode == 2 then
+        moveVec = safeNormalize( moveVec )
+    end
+
+    if btnStateShift then
+        moveVec = Vector(
+            moveVec[1] * shiftMultHorizontal,
+            moveVec[2] * shiftMultHorizontal,
+            moveVec[3] * shiftMultVertical
+        )
+    end
+
+    wire.ports.MoveVector = moveVec
+end
+
+local function wireInput( name, value )
+    if name == "W" then
+        btnStateW = value ~= 0
+        updateDriveDirections()
+    elseif name == "A" then
+        btnStateA = value ~= 0
+        updateDriveDirections()
+    elseif name == "S" then
+        btnStateS = value ~= 0
+        updateDriveDirections()
+    elseif name == "D" then
+        btnStateD = value ~= 0
+        updateDriveDirections()
+    elseif name == "Up" then
+        btnStateUp = value ~= 0
+        updateDriveDirections()
+    elseif name == "Down" then
+        btnStateDown = value ~= 0
+        updateDriveDirections()
+    elseif name == "Shift" then
+        btnStateShift = value ~= 0
+        updateDriveDirections()
+    end
+end
+
+hook.add( "input", "LKL_WASDtoVector_WireInput", wireInput )
+

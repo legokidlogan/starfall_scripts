@@ -1,0 +1,104 @@
+--@name Bezier Curve Test
+--@author legokidlogan
+--@client
+--@include lkl/render/curves.txt
+
+require( "lkl/render/curves.txt" )
+
+
+
+local curveColor = Color( 255, 255, 255, 255 )
+local curveColor2 = Color( 0, 255, 0, 255 )
+local numSamples = 50
+local lineWidth = 10
+local pointCount = 10
+local pointSize = 6
+
+local point3DRange = 50
+local lineWidth3D = 10
+local pointSize3D = 5
+
+
+local scrW = 512
+local scrH = 512
+local pointSizeHalf = pointSize / 2
+local point3DRangeHalf = point3DRange / 2
+local maxs = Vector( pointSize3D / 2 )
+local mins = -maxs
+local controlPoints = {}
+local controlPoints3D = {}
+local pointColors = {}
+
+for i = 1, pointCount do
+    local controlPoint = Vector( math.random( 0, scrW ), math.random( 0, scrH ), 0 )
+    --local controlPoint3D = Vector( math.random( -1, 1 ), math.random( -1, 1 ), math.random( 0, 2 ) ) * point3DRangeHalf
+    local controlPoint3D = chip():localToWorld( Vector( math.random( -1, 1 ), math.random( -1, 1 ), math.random( 0, 2 ) ) * point3DRangeHalf )
+
+    controlPoints[i] = controlPoint
+    --controlPoint = scrW * ( Vector( 0.5 ) + ( controlPoint3D - chip():getPos() ) * Vector( -1, 1, -1 ) / point3DRange )
+    --controlPoints[i] = Vector( controlPoint[1], controlPoint[3] + scrH / 2, 0 )
+
+    controlPoints3D[i] = controlPoint3D
+
+    pointColors[i] = Color( ( i - 1 ) * 360 / pointCount, 1, 1 ):hsvToRGB()
+end
+
+local curvePoints = math.bezierCurve( numSamples, controlPoints )
+local curvePoints3D = math.bezierCurve( numSamples, controlPoints3D )
+
+
+hook.add( "render", "TEST_Bezier", function()
+    render.setColor( curveColor )
+    --render.drawBezierCurve( numSamples, lineWidth, controlPoints )
+    render.drawCurve( lineWidth, curvePoints )
+
+    for i = 1, pointCount do
+        local point = controlPoints[i]
+        local pointX = point[1]
+        local pointY = point[2]
+
+        render.setColor( pointColors[i] )
+        render.drawRect( pointX - pointSizeHalf, pointY - pointSizeHalf, pointSize, pointSize )
+    end
+
+    render.setColor( curveColor2 )
+    --render.drawBezierCurve( numSamples, 0, controlPoints )
+    render.drawCurve( 0, curvePoints )
+end )
+
+--hook.add( "predrawtranslucentrenderables", "TEST_Bezier3D", function( depth, skybox )
+hook.add( "postdrawopaquerenderables", "TEST_Bezier3D", function( skybox )
+    do return end
+
+    if depth or skybox then return end
+
+    local chipAng = chip():getAngles()
+
+    render.setColor( curveColor )
+    --render.draw3DCurveBeam( lineWidth3D, 0, 1, curvePoints3D )
+    render.draw3DCurveBox( lineWidth3D, curvePoints3D )
+
+    for i = 1, pointCount do
+        local point = controlPoints3D[i]
+
+        render.setColor( pointColors[i] )
+        render.draw3DBox( point, chipAng, mins, maxs )
+    end
+
+    render.setColor( curveColor2 )
+    render.draw3DCurveBeam( 0, 0, 1, curvePoints3D )
+end )
+
+
+
+
+
+
+
+
+
+
+
+
+
+

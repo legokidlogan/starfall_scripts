@@ -1,0 +1,404 @@
+--@name SGUI Tester
+--@author legokidlogan
+--@client
+--@includedir lkl/sgui
+
+requiredir( "lkl/sgui" )
+local Panel = SGUI.Panel
+local Label = SGUI.Label
+local Button = SGUI.Button
+local ToggleButton = SGUI.ToggleButton
+local CollapseButton = SGUI.CollapseButton
+local Collapsible = SGUI.Collapsible
+local Draggable = SGUI.Draggable
+local Window = SGUI.Window
+local CloseButton = SGUI.CloseButton
+local Resizable = SGUI.Resizable
+local CheckBox = SGUI.CheckBox
+local Scrollable = SGUI.Scrollable
+local Slider = SGUI.Slider
+local LabeledSlider = SGUI.LabeledSlider
+local List = SGUI.List
+local ScrollableList = SGUI.ScrollableList
+local ComboBox = SGUI.ComboBox
+
+
+addPermissions( {
+    --"print.chat",
+    --"print.color",
+    --"print.console",
+    --"input.chat",
+} )
+setupPermissionRequestSafe( permissions, "Test SGUI", true )
+checkPermissions()
+
+local function concatVarArgs( ... )
+    return table.concat( { ... }, " " )
+end
+
+
+--[[
+function Panel:onMouseEntered()
+    print( self .. " onMouseEntered()" )
+end
+
+function Panel:onMouseExited()
+    print( self .. " onMouseExited()" )
+end
+
+function Panel:onMousePressed()
+    print( self .. " onMousePressed()" )
+end
+
+function Panel:onMouseReleased()
+    print( self .. " onMouseReleased()" )
+end
+
+function Panel:onMouseSlideOff()
+    print( self .. " onMouseSlideOff()" )
+end
+
+function Panel:onMouseLetGo()
+    print( self .. " onMouseLetGo()" )
+end
+--]]
+
+
+
+local panelOne = Window:new()
+--panelOne:setSize( 200, 100 )
+panelOne:setUncollapsedSize( 300, 300 )
+panelOne:setMinSize( panelOne:getUncollapsedSize() )
+panelOne:setPosFractional( 0.6, 0.2 )
+--panelOne:acceptMouseInput( true )
+
+function panelOne:tostringInner()
+    return "One"
+end
+
+
+--[[
+local panelTwo = Panel:new( panelOne )
+panelTwo:setSize( 100, 50 )
+panelTwo:setDock( DOCK_LEFT )
+panelTwo:setBackgroundColor( c_pale_blue )
+panelTwo:acceptMouseInput( true )
+
+function panelTwo:tostringInner()
+    return "Two"
+end
+--]]
+
+
+--[[ -- Screen test
+hook.add( "render", "AssignToScreen", function()
+    local screen = render.getScreenEntity()
+    if not isValid( screen ) then return end
+
+    local x, y = panelOne:getPosFractional()
+    local width, height = panelOne:getSizeFractional()
+
+    local x2, y2 = panelTwo:getPosFractional()
+    local width2, height2 = panelTwo:getSizeFractional()
+
+    panelOne:associateWithScreen( screen )
+    panelOne:setPosFractional( x, y )
+    panelOne:setSizeFractional( width, height )
+
+    panelTwo:setPosFractional( x2, y2 )
+    panelTwo:setSizeFractional( width2, height2 )
+
+
+    hook.remove( "render", "AssignToScreen" )
+end )
+--]]
+
+
+
+
+--[[ -- Dock test
+local panelThree = Panel:new( panelOne )
+panelThree:setSize( 100, 50 )
+panelThree:setPos( 10, 10 )
+panelThree:setBorderSize( 4 )
+panelThree:setBackgroundColor( c_pale_green )
+panelThree:acceptMouseInput( false )
+
+function panelThree:tostringInner()
+    return "Three"
+end
+
+
+panelOne:setInnerMargin( panelOne:getBorderSize() )
+panelTwo:setMargin( panelTwo:getBorderSize() )
+panelThree:setMargin( panelTwo:getBorderSize() )
+
+panelTwo:setDock( DOCK_TOP )
+panelOne:setSize( 300, 150 )
+panelThree:setDock( DOCK_RIGHT )
+
+--[[
+timer.simple( 1, function()
+    panelThree:setDock( DOCK_LEFT )
+
+    timer.simple( 1, function()
+        panelThree:setWidth( 20 )
+
+        timer.simple( 1, function()
+            panelThree:setHeight( 20 )
+        end )
+    end )
+end )
+--]]
+
+--[[
+timer.simple( 1, function()
+    panelTwo:setVisible( false )
+
+    timer.simple( 1, function()
+        panelTwo:setVisible( true )
+
+        timer.simple( 1, function()
+            local x, y = panelTwo:getPosEffective()
+
+            panelTwo:setParent()
+            panelTwo:setPos( x, y + 150 )
+
+            timer.simple( 1, function()
+                panelTwo:setParent( panelOne )
+                panelTwo:setPos( x, y )
+                panelTwo:setDock( DOCK_BOTTOM )
+
+                timer.simple( 1, function()
+                    panelTwo:destroy()
+                end )
+            end )
+        end )
+    end )
+end )
+--]]
+
+--[[
+timer.simple( 1, function()
+    panelThree:setExpand( EXPAND_HEIGHT )
+    panelThree:setAnchor( ANCHOR_CENTER )
+
+    timer.simple( 1, function()
+        panelTwo:destroy()
+
+        panelThree:setExpand( EXPAND_NONE )
+        panelThree:setAnchor( ANCHOR_BOTTOM_RIGHT )
+    end )
+end )
+--]]
+
+
+--[[ -- Button test
+panelOne:setSize( 300, 150 )
+
+local buttonOne = Button:new( panelOne )
+buttonOne:setAnchor( ANCHOR_CENTER )
+buttonOne:setText( "Push me" )
+
+function buttonOne:onClicked()
+    print( "Push!" )
+end
+
+timer.simple( 1, function()
+    buttonOne:disable()
+
+    timer.simple( 5, function()
+        buttonOne:enable()
+    end )
+end )
+--]]
+
+
+--[[ -- Collapsible test
+panelOne:setUncollapsedSize( 400, 400 )
+panelOne:setMinSize( panelOne:getUncollapsedSize() )
+
+local collapOne = Collapsible:new( panelOne )
+collapOne:setUncollapsedSize( 300, 200 )
+--collapOne:setPosFractional( 0.6, 0.2 )
+collapOne:setExpand( EXPAND_WIDTH )
+collapOne:setYPos( 100 )
+
+panelTwo:setParent( collapOne )
+panelTwo:setAnchor( ANCHOR_TOP_LEFT )
+
+
+local panelThree = Panel:new( panelOne )
+panelThree:setSize( 75, 50 )
+panelThree:setAnchor( ANCHOR_TOP_LEFT )
+
+function panelThree:tostringInner()
+    return "Three"
+end
+
+
+--panelOne:setBorderSize( 10 )
+
+--]]
+
+
+--[[ Resizable test
+local resizOne = Resizable:new()
+resizOne:setPos( 500, 500 )
+resizOne:setMaxSize( 500, 500 )
+--]]
+
+
+--[[ CheckBox test
+local cbOne = CheckBox:new( panelOne )
+cbOne:setAnchor( ANCHOR_TOP_RIGHT )
+cbOne:setMargin( 5 )
+--]]
+
+
+--[[
+for i = 1, 10 do
+    local window = Window:new()
+    local pos = i * 10
+
+    window:setPos( pos, pos )
+end
+--]]
+
+
+-- Scrollable test
+--[[
+local scrollOne = Scrollable:new( nil )
+--scrollOne:setAnchor( ANCHOR_TOP_LEFT )
+scrollOne:setPos( 300, 300 )
+scrollOne:setSize( 200, 200 )
+scrollOne:setScrollSize( 400, 400 )
+
+function scrollOne:tostringInner()
+    return "ScrollOne"
+end
+
+
+local panelTwo = Panel:new( scrollOne )
+panelTwo:setSize( 75, 50 )
+panelTwo:setAnchor( ANCHOR_TOP_LEFT )
+
+local panelThree = Panel:new( scrollOne )
+panelThree:setSize( 75, 50 )
+panelThree:setAnchor( ANCHOR_BOTTOM_RIGHT )
+
+
+local scrollTwo = Scrollable:new( scrollOne )
+scrollTwo:setPos( 100, 100 )
+scrollTwo:setSize( 200, 200 )
+scrollTwo:setScrollSize( 400, 400 )
+
+function scrollTwo:tostringInner()
+    return "ScrollTwo"
+end
+
+
+local panelFour = Panel:new( scrollTwo )
+panelFour:setSize( 75, 50 )
+panelFour:setAnchor( ANCHOR_TOP_LEFT )
+--]]
+
+
+--[[ Slider test
+local holder = Panel:new( panelOne )
+holder:setAnchor( ANCHOR_TOP_LEFT )
+
+
+local sliderOne = Slider:new( holder )
+--sliderOne:setAnchor( ANCHOR_TOP_LEFT )
+sliderOne:setDock( DOCK_TOP )
+
+function sliderOne:onValueChanged( oldValue, newValue )
+    print( "SliderOne:  old = " .. oldValue .. " new = " .. newValue )
+end
+
+
+local sliderTwo = Slider:new( holder )
+--sliderTwo:setAnchor( ANCHOR_TOP_LEFT )
+sliderTwo:setDock( DOCK_TOP )
+sliderTwo:setValueSnap( 0.25 )
+
+function sliderTwo:onValueChanged( oldValue, newValue )
+    print( "SliderTwo:  old = " .. oldValue .. " new = " .. newValue )
+end
+--]]
+
+
+--[[ LabeledSlider test
+local sliderOne = LabeledSlider:new( panelOne )
+sliderOne:setAnchor( ANCHOR_TOP_LEFT )
+
+sliderOne:setRounding( 2 )
+sliderOne:setText( "var" )
+--sliderOne:setMinMaxValues( -5, 20 )
+--sliderOne:setValueSnap( 1 )
+
+timer.simple( 2, function()
+    sliderOne:setExpand( EXPAND_WIDTH )
+end )
+--]]
+
+
+--[[ List test
+--local listOne = List:new( nil, LIST_VERTICAL, LIST_ALIGN_TOP_LEFT )
+local listOne = ScrollableList:new( nil, LIST_VERTICAL, LIST_ALIGN_TOP_LEFT )
+listOne:setPos( 300, 300 )
+listOne:setMinSize( 200, 300 )
+
+listOne:add( Panel:new() )
+listOne:add( Slider:new() )
+
+local s1 = Slider:new( listOne )
+--s1:setExpand( EXPAND_WIDTH )
+
+
+timer.simple( 2, function()
+    listOne:add( Panel:new() )
+
+    timer.simple( 0.5, function()
+        local panel = Panel:new()
+        panel:setSize( 300, 100 )
+        listOne:add( panel )
+
+        timer.simple( 0.5, function()
+            listOne:add( Panel:new() )
+
+            timer.simple( 2, function()
+                --listOne:setListDirection( LIST_HORIZONTAL )
+                listOne:add( Panel:new() )
+            end )
+        end )
+    end )
+end )
+--]]
+
+
+-- ComboBox test
+local numChoices = 10
+local comboOne = ComboBox:new( panelOne )
+comboOne:setAnchor( ANCHOR_TOP_LEFT )
+--comboOne:setPos( 300, 300 )
+
+for i = 1, numChoices do
+    comboOne:addChoice( "test" .. i, i )
+end
+--]]
+
+
+
+--[[
+hook.add( "think", "blah", function()
+    local panel = Panel:getHoveredPanel()
+    if not panel then return end
+
+    print( panel )
+    print( panel:getParent() )
+    print()
+end )
+--]]
+

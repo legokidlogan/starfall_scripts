@@ -1,0 +1,154 @@
+--@name Sequential Fire
+--@author legokidlogan
+--@server
+
+local numFires = 9 -- Number of outputs in the sequence
+local fireTime = 4 -- Total time for fire sequence
+local holdTime = 0.5 -- How long each output will stay on for. Can be set to linger well after the sequence ends. Set to false to hold until the sequence ends.
+local maxSequences = 20 -- Max number of sequences that can be active at one time.
+local mode = 0 --[[
+    0 = Sequence is canceled when input is 0
+    1 = Sequence is restarted when input toggles off then on during a sequence
+    2 = Sequences can overlap and don't cancel each other. Set input to -1 to cancel all sequences
+--]]
+
+
+local timerName = "LKL_SeqFire_Sequence|"
+local timerNameHold = "LKL_SeqFire_StopHolding|"
+local outNameCombined = "FireArray"
+local sequenceCount = 0
+local sequenceCountActive = 0
+local stepTime = fireTime / numFires
+local repeatOnFinish = false
+local sequences = {}
+local outputNames = {}
+local outputTypes = {}
+local outputCombined = {}
+local stopSequences
+
+wire.adjustInputs( { "Fire", "RepeatOnFinish", "ForceCancel" }, { "NUMBER", "NUMBER", "NUMBER" } )
+
+outputNames[1] = outNameCombined
+outputTypes[1] = "ARRAY"
+
+for i = 2, numFires + 1 do
+    outputNames[i] = "Fire" .. ( i - 1 )
+    outputTypes[i] = "NUMBER"
+    outputCombined[i - 1] = 0
+end
+
+wire.adjustOutputs( outputNames, outputTypes )
+
+local function disableOut( outInd, outName )
+    outputCombined[outInd] = 0
+    wire.ports[outName] = 0
+    wire.ports[outNameCombined] = outputCombined
+end
+
+local function startSequence()
+    if sequenceCountActive >= maxSequences then return end
+
+    local seqInd = sequenceCount + 1
+
+    sequenceCount = seqInd
+    sequenceCountActive = sequenceCountActive + 1
+    sequences[seqInd] = 0
+
+    pcall( function()
+        timer.create( timerName .. seqInd, stepTime, numFires, function()
+            local outInd = ( sequences[seqInd] or 0 ) + 1
+            local outName = outputNames[outInd + 1]
+
+            sequences[seqInd] = outInd
+            outputCombined[outInd] = 1
+
+            wire.ports[outName] = 1
+            wire.ports[outNameCombined] = outputCombined
+
+            local success = pcall( function()
+                timer.create( timerNameHold .. outInd, holdTime or math.max( fireTime - stepTime * outInd, 0.01 ), 1, function()
+                    disableOut( outInd, outName )
+                end )
+            end )
+
+            if not success then
+                disableOut( outInd, outName )
+            end
+
+            if outInd == numFires then
+                sequenceCountActive = math.max( sequenceCountActive - 1, 0 )
+
+                if sequenceCountActive == 0 then
+                    sequences = {}
+                    sequenceCount = 0
+                end
+
+                if repeatOnFinish then
+                    if sequenceCountActive >= maxSequences then
+                        stopSequences()
+                    end
+
+                    startSequence()
+                end
+            end
+        end )
+    end )
+end
+
+local function stopSequences()
+    for i = 1, sequenceCount do
+        timer.remove( timerName .. i )
+        timer.remove( timerNameHold .. i )
+    end
+
+    for i = 1, numFires do
+        wire.ports[outputNames[i + 1]] = 0
+        outputCombined[i] = 0
+    end
+
+    sequenceCount = 0
+    sequenceCountActive = 0
+    sequences = {}
+
+    wire.ports[outNameCombined] = outputCombined
+end
+
+local function wireInput( name, value )
+    if name == "Fire" then
+        if wire.ports.ForceCancel ~= 0 then return end
+
+        local state = value ~= 0
+
+        if mode == 0 then
+            if not state then
+                stopSequences()
+            end
+        elseif mode == 1 then
+            if state and sequenceCountActive > 0 then
+                stopSequences()
+            end
+        elseif mode == 2 then
+            if value == -1 then
+                stopSequences()
+
+                return
+            end
+        end
+
+        if state then
+            startSequence()
+        end
+    elseif name == "RepeatOnFinish" then
+        repeatOnFinish = value ~= 0
+    elseif name == "ForceCancel" then
+        if value == 0 then return end
+
+        stopSequences()
+    end
+end
+
+hook.add( "input", "LKL_SeqFire_WireInput", wireInput )
+
+timer.simple( 1, function()
+    wireInput( "RepeatOnFinish", wire.ports.RepeatOnFinish )
+end )

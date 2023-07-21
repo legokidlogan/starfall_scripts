@@ -1,0 +1,343 @@
+--@name Enhanced First Person
+--@author legokidlogan
+--@client
+--@include lkl/cl_check_permissions.txt
+--@include lkl/targeted_input.txt
+--@include lkl/key_globalizer.txt
+
+require( "lkl/targeted_input.txt" )
+require( "lkl/key_globalizer.txt" )
+
+
+-- CONFIG:
+-- Note: camPos offset will adjust your view in this manner:
+    -- X - Forwards/backwards along aimDir
+    -- Y - Right/left from aimDir
+    -- Z - Up/down from aimDir
+    -- All values will be multiplied by a factor of 'hitboxHeight / 72' (72 is the standard hl2 player hitbox height)
+local offsetDefault = Vector( 0, 0, 0 ) -- Base positional offset for the camera. Will be overridden by the table entries below if applicable.
+local offsetsFromModel = { -- Automatially adds a camera offset if your model matches a specific path
+}
+local offsetsFromBone = { -- Automatially adds a camera offset if your model contains a particular bone (for use with url-based PACs, since model name becomes unreliable)
+    ["wristwing02right"] = Vector( -0.8, -1, 2.8 ),
+}
+local offsetAdd = Vector( 0, 0, 0 ) -- Adds a view offset on top of the default/fromModel/fromBone
+local controlKey = KEY_RCONTROL
+local controlFontSize = 20
+
+-- Anti-viewbob settings:
+-- Anticipate jankiness when holding tools, etc.
+local disableViewBob = false -- Disables the view bobbing effect when walking. Will use the following values (and player scale) to position the eyes.
+local eyeForward = 8
+local eyeOffsetX = 6
+local eyeOffsetY = 66
+local eyeOffsetYCrouched = 38
+local eyeOffsetYSitting = 28
+
+-- Third person settings:
+local thirdPersonZoom = 130 -- Will be multiplied against 'hitboxHeight / 72'
+local thirdPersonZoomRate = 10
+local thirdPersonZoomMin = 20
+local thirdPersonZoomMax = 1000
+local thirdPersonYaw = 0 -- Offset (in degrees) from the player's yaw.
+local thirdPersonYawRate = 20
+local thirdPersonYaw90Snap = 15 -- If the yaw offset is this close to a multiple of 90, it will snap to that multiple. Set to 0 to disable.
+
+-- Usage:
+    -- In-game, tap controlKey to swtich between first person, third person, and off.
+    -- In third person, hold controlKey and use mouse wheel and left/right panning to change zoom and yaw offset.
+
+-- END CONFIG
+
+
+-- DEBUG:
+local holo
+local debugEnabled = false
+
+if debugEnabled and player() == owner() then
+    holo = holograms.create( Vector( 0, 0, 0 ), Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1, 1, 1 ) * 0.1 )
+end
+--
+
+
+permissions = {
+    "render.hud",
+    "render.calcview"
+}
+
+permissionSatisfied = false
+permissionRequestSent = false
+checkPermissions = false
+
+setupPermissionRequest( permissions, "See yourself in first person", true )
+
+require( "lkl/cl_check_permissions.txt" )
+
+checkPermissions()
+
+local STATE_OFF = 0
+local STATE_FIRST_PERSON = 1
+local STATE_THIRD_PERSON = 2
+    local STATE_COUNT = 3
+
+local curState = STATE_FIRST_PERSON
+local isEditing = false
+local canPrintRamWarning = false
+local boneID = player():lookupAttachment( "eyes" )
+local camPos
+local camAng
+local chair
+local camPosOffsetX = 0
+local camPosOffsetY = 0
+local camPosOffsetZ = 0
+local scrW
+local scrH
+local thirdPersonZoomDir = false
+local offsetsFromBoneList = table.getKeys( offsetsFromBone )
+local offsetsFromBoneCount = #offsetsFromBoneList
+local plyScale = player():obbSize().z / 72
+local plyModel
+local controlFont = render.createFont( "Roboto Mono", controlFontSize, 500, true, false, false, true, false, false )
+local controlTextColor = Color( 255, 255, 255, 255 )
+
+local camTbl = {
+    drawviewer = true,
+}
+
+local mClamp = math.clamp
+local mAbs = math.abs
+local mSign = math.sign
+local mRound = math.round
+
+
+local function negativeMod( a, b )
+    local remainder = a % b
+    if a >= 0 or remainder == 0 then return remainder end
+
+    return remainder - b
+end
+
+local function calcOffset()
+    local model = player():getModel()
+
+    if plyModel == model then return end
+
+    local pos = offsetsFromModel[model] -- fromModel
+
+    if not pos then -- fromBone
+        for i = 1, offsetsFromBoneCount do
+            local boneName = offsetsFromBoneList[i]
+
+            if player():lookupBone( boneName ) then
+                pos = offsetsFromBone[boneName]
+
+                break
+            end
+        end
+    end
+
+    pos = pos or offsetDefault
+    pos = ( pos + offsetAdd ) * plyScale
+
+    plyModel = model
+    camPosOffsetX = pos[1]
+    camPosOffsetY = pos[2]
+    camPosOffsetZ = pos[3]
+end
+calcOffset()
+
+
+hook.add( "calcview", "LKL_EFP_Calcview", function()
+    if not permissionSatisfied then return end
+    if curState == STATE_OFF then return end
+    if ramUsed() >= ramMax() * 0.7 then
+        if canPrintRamWarning then
+            print(
+                Color( 255, 255, 255 ), "[EFP] ",
+                Color( 150, 0, 0 ), "The garbage buffer is almost full, pausing rendering to not exceed RAM limits!"
+            )
+
+            canPrintRamWarning = false
+
+            timer.simple( 1, function()
+                canPrintRamWarning = true
+            end )
+        end
+
+        return
+    end
+
+    --local camPos
+    --local camAng = player():getEyeAngles()
+    --local chair = player():getVehicle()
+    camAng = player():getEyeAngles()
+    chair = player():getVehicle()
+    chair = isValid( chair ) and chair
+
+    if chair then
+        camAng = chair:localToWorldAngles( camAng )
+    end
+
+    local aimDir = camAng:getForward()
+    local camPosOffsetEff = Vector( 0, 0, 0 )
+
+    if boneID ~= 0 and not disableViewBob then
+        camPos = player():getAttachment( boneID )
+        camPos = camPos + aimDir * 5
+    else
+        if chair then
+            camPos = player():getPos() + chair:getUp() * eyeOffsetYSitting * plyScale
+        else
+            local eyeOffsetYEff = player():isCrouching() and eyeOffsetYCrouched or eyeOffsetY
+            camPos = player():getPos() + Vector( 0, 0, eyeOffsetYEff * plyScale )
+        end
+
+        local forwardOffset = aimDir * eyeForward
+        local xOffset = aimDir * Vector( 1, 1, 0 ) * eyeOffsetX
+
+        camPos = camPos + ( forwardOffset + xOffset ) * plyScale
+    end
+
+    if camPosOffsetX ~= 0 then
+        camPosOffsetEff = camPosOffsetEff + aimDir * camPosOffsetX
+    end
+
+    if camPosOffsetY ~= 0 then
+        local aimRight = camAng:getRight()
+        camPosOffsetEff = camPosOffsetEff + aimRight * camPosOffsetY
+    end
+
+    if camPosOffsetZ ~= 0 then
+        local aimUp = camAng:getUp()
+        camPosOffsetEff = camPosOffsetEff + aimUp * camPosOffsetZ
+    end
+
+    if curState == STATE_THIRD_PERSON then
+        camAng = camAng + Angle( 0, thirdPersonYaw, 0 )
+        aimDir = camAng:getForward()
+        camPos = camPos - aimDir * thirdPersonZoom * plyScale
+    end
+
+    camPos = camPos + camPosOffsetEff
+
+    camTbl.origin = camPos
+    camTbl.angles = camAng
+
+    return camTbl
+end )
+
+hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, state )
+    if key == controlKey then
+        if state then return end
+        if not isEditing then return end
+
+        isEditing = false
+
+        if thirdPersonYaw90Snap <= 0 then return end
+
+        local diff = negativeMod( thirdPersonYaw, 90 )
+
+        if mAbs( diff ) > thirdPersonYaw90Snap then
+            diff = 90 * mSign( thirdPersonYaw ) - diff
+            diff = -diff
+        end
+
+        if mAbs( diff ) <= thirdPersonYaw90Snap then
+            thirdPersonYaw = thirdPersonYaw - diff
+        end
+    elseif key == MOUSE_WHEEL_UP or key == MOUSE_WHEEL_DOWN then
+        if not state then
+            thirdPersonZoomDir = false
+
+            return
+        end
+
+        if input.getCursorVisible() then return end
+
+        thirdPersonZoomDir = key == MOUSE_WHEEL_UP and -1 or 1
+    end
+end )
+
+hook.add( "LKL_TargetedInput_Tap", "LKL_EFP_Tap", function( _, key, numTaps )
+    if key == controlKey then
+        curState = ( curState + numTaps ) % STATE_COUNT
+    end
+end )
+
+hook.add( "LKL_TargetedInput_HoldStart", "LKL_EFP_HoldStart", function( _, key )
+    if key == controlKey then
+        isEditing = true
+    end
+end )
+
+hook.add( "mousemoved", "LKL_EFP_ChangeThirdPersonYaw", function( x, _ )
+    if not isEditing then return end
+    if curState ~= STATE_THIRD_PERSON then return end
+    if not scrW then return end
+
+    x = x / scrW
+    --y = y / scrH
+
+    thirdPersonYaw = thirdPersonYaw - x * thirdPersonYawRate
+end )
+
+hook.add( "think", "LKL_EFP_ThirdPersonZoom", function()
+    if not isEditing then return end
+    if curState ~= STATE_THIRD_PERSON or not thirdPersonZoomDir then return end
+
+    thirdPersonZoom = mClamp( thirdPersonZoom + thirdPersonZoomDir * thirdPersonZoomRate, thirdPersonZoomMin, thirdPersonZoomMax )
+end )
+
+hook.add( "drawhud", "LKL_EFP_DrawHUD", function()
+    if not permissionSatisfied then return end
+
+    if not scrW then
+        scrW, scrH = render.getGameResolution()
+    end
+
+    if not isEditing then return end
+    if curState ~= STATE_THIRD_PERSON then return end
+
+    local controlTextOffsetY = 40
+
+    render.setFont( controlFont )
+    render.setColor( controlTextColor )
+
+    render.drawSimpleText( scrW * 0.5, scrH * 0.5 + controlTextOffsetY, "Zoom: " .. mRound( thirdPersonZoom, 1 ), 1, 3 )
+    render.drawSimpleText( scrW * 0.5, scrH * 0.5 + controlTextOffsetY + controlFontSize, "Yaw: " .. mRound( thirdPersonYaw, 1 ), 1, 3 )
+end )
+
+
+timer.create( "LKL_EFP_GetBoneID", 1, 0, function()
+    --plyScale = player():obbSize().z / 72
+    boneID = player():lookupAttachment( "eyes" )
+
+    if player():isCrouching() then
+        plyScale = player():obbSize().z / 36
+    else
+        plyScale = player():obbSize().z / 72
+    end
+
+    if id == 0 then
+        id = player():lookupAttachment( "head" )
+    end
+end )
+
+timer.create( "LKL_EFP_CalcOffset", 5, 0, calcOffset )
+
+if debugEnabled and holo then
+    timer.create( "LKL_EFP_SeeCamPos", 0.1, 0, function()
+        local result = doCalcview()
+
+        holo:setPos( result.origin )
+    end )
+end
+
+timer.simple( 1, function()
+    tiSetTargets( player() )
+    tiSetTargetButtons( {
+        [controlKey] = true,
+        [MOUSE_WHEEL_UP] = true,
+        [MOUSE_WHEEL_DOWN] = true
+    }, false )
+end )

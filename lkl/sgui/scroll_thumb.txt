@@ -1,0 +1,118 @@
+--@name scroll_thumb
+--@author legokidlogan
+--@client
+--@include lkl/sgui/draggable.txt
+
+--[[
+    - SGUI.ScrollThumb
+    - THIS IS AN INTERNAL CLASS, DO NOT USE
+--]]
+
+
+require( "lkl/sgui/draggable.txt" )
+
+if SGUI.ScrollThumb then return end -- Don't run twice
+
+
+SGUI.ScrollThumb = class( "ScrollThumb", SGUI.Draggable )
+
+
+local ScrollThumb = SGUI.ScrollThumb
+
+
+----- STATIC FUNCTIONS -----
+
+function ScrollThumb:initialize( parent, scrollable, scrollDirection )
+    ScrollThumb.super.initialize( self, parent )
+
+    self._scrollDirection = scrollDirection
+    self._scrollable = scrollable
+    self:setBorderSize( 0 )
+    self:setMargin( 0 )
+    self:setDragParent( true )
+    self:setDragReleaseMode( DRAG_RELEASE_ORIGINAL )
+    self:allowDragParenting( false )
+
+    if self:isVertical() then
+        self:setExpand( EXPAND_WIDTH )
+    else
+        self:setExpand( EXPAND_HEIGHT )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ScrollThumb:getScrollDirection()
+    return self._scrollDirection
+end
+
+function ScrollThumb:isVertical()
+    return self:getScrollDirection() == SCROLL_VERTICAL
+end
+
+function ScrollThumb:isHorizontal()
+    return self:getScrollDirection() == SCROLL_HORIZONTAL
+end
+
+function ScrollThumb:getScrollable()
+    return self._scrollable
+end
+
+function ScrollThumb:getScrollRegion()
+    return self:getParent()
+end
+
+function ScrollThumb:getScrollBar()
+    return self:getParent():getParent()
+end
+
+function ScrollThumb:getScrollFromPos()
+    local scrollable = self:getScrollable()
+    local isVertical = self:isVertical()
+    local scrollPos = isVertical and self:getYPos() or self:getXPos()
+    local scrollRegionSize = isVertical and ( self:getScrollRegion():getHeight() - self:getHeight() ) or ( self:getScrollRegion():getWidth() - self:getWidth() )
+    local scrollFrac = scrollPos / scrollRegionSize
+    local scrollSize = isVertical and scrollable:getScrollYMax() or scrollable:getScrollXMax()
+
+    return scrollFrac * scrollSize
+end
+
+function ScrollThumb:getPosFromScroll()
+    local scrollable = self:getScrollable()
+    local isVertical = self:isVertical()
+    local scroll = self:getScrollBar():getScroll()
+    local scrollRegionSize = isVertical and ( self:getScrollRegion():getHeight() - self:getHeight() ) or ( self:getScrollRegion():getWidth() - self:getWidth() )
+    local scrollSize = isVertical and scrollable:getScrollYMax() or scrollable:getScrollXMax()
+    local scrollFrac = scroll / scrollSize
+    local scrollPos = scrollFrac * scrollRegionSize
+
+    if isVertical then
+        return 0, scrollPos
+    else
+        return scrollPos, 0
+    end
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ScrollThumb:dragThink()
+    self:getScrollBar():setScroll( self:getScrollFromPos() )
+end
+
+function ScrollThumb:rerouteChild( _ )
+    error( "Cannot parent to a ScrollThumb" )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+

@@ -1,0 +1,275 @@
+--@name Collapsible
+--@author legokidlogan
+--@client
+--@include lkl/sgui/collapse_button.txt
+
+--[[
+    - SGUI.Collapsible
+    - A Panel that can be collapsed and uncollapsed.
+    - Where you would normally use :setSize(), instead use :setUncollapsedSize() and equivalents.
+    - :setCollapsedHeight() will set the height of the collapse bar. Width is the same between states.
+--]]
+
+
+require( "lkl/sgui/collapse_button.txt" )
+
+if SGUI.Collapsible then return end -- Don't run twice
+
+
+SGUI.Collapsible = class( "Collapsible", SGUI.Panel )
+
+
+local Collapsible = SGUI.Collapsible
+local getIntendedSize
+
+local mathFloor = math.floor
+local mathMax = math.max
+
+
+----- STATIC FUNCTIONS -----
+
+function Collapsible:initialize( parent )
+    Collapsible.super.initialize( self, parent )
+
+    local selfObj = self
+    self._collapseIsChanging = false
+
+
+    local collapseRegion = SGUI.Panel()
+    self._collapseRegion = collapseRegion
+    collapseRegion:setParent( self ) -- Set parent after due to re-routing
+    collapseRegion:setBackgroundRoundedCorners( false, false, true, true )
+    collapseRegion:setBorderSize( 0 )
+    collapseRegion:setMargin( 0 )
+    collapseRegion:setInnerMargin( 0 )
+
+    function collapseRegion:getBackgroundColor( fallbackColor, ... )
+        return selfObj:getBackgroundColor( fallbackColor, ... )
+    end
+
+
+    local collapseBar = SGUI.Panel()
+    self._collapseBar = collapseBar
+    collapseBar:setParent( self ) -- Set parent after due to re-routing
+    collapseBar:setBorderSize( 0 )
+    collapseBar:setMargin( 0 )
+    collapseBar:setInnerMargin( 0 )
+    collapseBar:allowDragParenting( false )
+
+    function collapseBar:getBackgroundColor( fallbackColor, ... )
+        return selfObj:getCollapseBarColor( fallbackColor, ... )
+    end
+
+
+    local collapseButton = SGUI.CollapseButton( collapseBar, nil )
+    self._collapseButton = collapseButton
+    collapseButton:setSize( 15, 15 )
+    collapseButton:setMargin( 2, 0, 0, 0 )
+    collapseButton:setDock( DOCK_LEFT )
+    collapseButton:setText()
+
+    function collapseButton:onToggleChanged( state )
+        selfObj:setCollapseState( state )
+    end
+
+
+    self:setUncollapsedSize( self:getSize() )
+    self:setCollapsedHeight( 20 )
+    self:uncollapse()
+    self:setBackgroundRadius( 5 )
+
+    collapseBar:setDock( DOCK_TOP )
+    collapseRegion:setDock( DOCK_FILL )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Collapsible:getCollapseBar()
+    return self._collapseBar
+end
+
+function Collapsible:getCollapseRegion()
+    return self._collapseRegion
+end
+
+function Collapsible:getCollapseButton()
+    return self._collapseButton
+end
+
+function Collapsible:setUncollapsedWidth( width )
+    if self._uncollapsedWidth == width then return end
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    if width < 0 then error( "Expected width to be >= 0" ) end
+
+    width = mathFloor( width )
+
+    self._uncollapsedWidth = width
+
+    local newWidth = getIntendedSize( self )
+    self:setWidth( newWidth )
+end
+
+function Collapsible:getUncollapsedWidth()
+    return self._uncollapsedWidth
+end
+
+function Collapsible:setUncollapsedHeight( height )
+    if self._uncollapsedHeight == height then return end
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+
+    height = mathMax( mathFloor( height ), self:getCollapsedHeight() or 0 )
+
+    self._uncollapsedHeight = height
+
+    local _, newHeight = getIntendedSize( self )
+    self:setHeight( newHeight )
+end
+
+function Collapsible:getUncollapsedHeight()
+    return self._uncollapsedHeight
+end
+
+function Collapsible:setUncollapsedSize( width, height )
+    self:setUncollapsedWidth( width )
+    self:setUncollapsedHeight( height )
+end
+
+function Collapsible:getUncollapsedSize()
+    return self:getUncollapsedWidth(), self:getUncollapsedHeight()
+end
+
+function Collapsible:setCollapsedHeight( height )
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    if height < 0 then error( "Expected height to be >= 0" ) end
+
+    self._collapsedHeight = height
+    self:getCollapseBar():setHeight( height )
+
+    local _, newHeight = getIntendedSize( self )
+    self:setHeight( newHeight )
+end
+
+function Collapsible:getCollapsedHeight()
+    return self._collapsedHeight
+end
+
+-- True if the Collapsible is in the middle of (un)collapsing.
+function Collapsible:isCollapseChanging()
+    return self._collapseIsChanging
+end
+
+function Collapsible:setCollapseState( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if self:isCollapsed() == state then return end
+
+    local collapseBar = self:getCollapseBar()
+
+    self._collapseIsChanging = true
+    self._collapseState = state
+    self:setSize( getIntendedSize( self ) )
+
+    if state then
+        collapseBar:setBackgroundRoundedCorners( true, true, true, true )
+    else
+        collapseBar:setBackgroundRoundedCorners( true, true, false, false )
+    end
+
+    self:getCollapseRegion():setVisible( not state )
+    self:getCollapseButton():setStateSilent( state )
+
+    if state then
+        self:onCollapsed()
+    else
+        self:onUncollapsed()
+    end
+
+    self:onCollapseChanged( state )
+
+    self._collapseIsChanging = false
+end
+
+function Collapsible:collapse()
+    self:setCollapseState( true )
+end
+
+function Collapsible:uncollapse()
+    self:setCollapseState( false )
+end
+
+function Collapsible:isCollapsed()
+    return self.__collapseState
+end
+
+function Collapsible:toggleCollapse()
+    self:setCollapseState( not self:isCollapsed() )
+end
+
+function Collapsible:setCollapseBarColor( color )
+    self:setColor( self.class.name .. "Bar", color )
+end
+
+function Collapsible:getCollapseBarColor( fallbackColor, ... )
+    return self:getClassColor( "Bar", fallbackColor, ... )
+end
+
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function Collapsible:onCollapsed()
+
+end
+
+function Collapsible:onUncollapsed()
+
+end
+
+function Collapsible:onCollapseChanged( state )
+
+end
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Collapsible:rerouteChild( child )
+    if child == self:getCollapseBar() then return self end
+    if child == self:getCollapseRegion() then return self end
+
+    return self:getCollapseRegion()
+end
+
+function Collapsible:handleDrawBackground()
+    -- Do nothing.
+end
+
+function Collapsible:setBackgroundRadius( radius )
+    if not self:getCollapseBar() then return end
+
+    self:getCollapseBar():setBackgroundRadius( radius )
+    self:getCollapseRegion():setBackgroundRadius( radius )
+end
+
+function Collapsible:acceptMouseInput( state )
+    local collapseRegion = self:getCollapseRegion()
+    if not collapseRegion then return end
+
+    collapseRegion:acceptMouseInput( state )
+end
+
+function Collapsible:doesAcceptMouseInput()
+    return self:getCollapseRegion():doesAcceptMouseInput()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+getIntendedSize = function( collapsible )
+    local width, uncollapsedHeight = collapsible:getUncollapsedSize()
+    if not collapsible:isCollapsed() then return width, uncollapsedHeight end
+
+    local collapsedHeight = collapsible:getCollapsedHeight() or 0
+
+    return width, collapsedHeight
+end

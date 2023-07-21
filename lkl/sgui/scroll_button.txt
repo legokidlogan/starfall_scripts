@@ -1,0 +1,177 @@
+--@name scroll_button
+--@author legokidlogan
+--@client
+--@include lkl/sgui/button.txt
+
+--[[
+    - SGUI.ScrollButton
+    - THIS IS AN INTERNAL CLASS, DO NOT USE
+--]]
+
+
+require( "lkl/sgui/button.txt" )
+
+if SGUI.ScrollButton then return end -- Don't run twice
+
+
+SGUI.ScrollButton = class( "ScrollButton", SGUI.Button )
+
+
+local ScrollButton = SGUI.ScrollButton
+local Panel = SGUI.Panel
+local arrowPolyGroups = {}
+
+
+----- STATIC FUNCTIONS -----
+
+function ScrollButton:initialize( parent, scrollDirection, doesIncrement )
+    ScrollButton.super.initialize( self, parent )
+
+    self._scrollDirection = scrollDirection
+
+    local arrowPolys
+
+    if self:isVertical() then
+        arrowPolys = arrowPolyGroups[doesIncrement and DIR_BOTTOM or DIR_TOP]
+    else
+        arrowPolys = arrowPolyGroups[doesIncrement and DIR_RIGHT or DIR_LEFT]
+    end
+
+    self._doesIncrement = doesIncrement
+    self._arrowPolys = arrowPolys
+    self:setBorderSize( 0 )
+    self:setMargin( 0 )
+    self:allowDragParenting( false )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ScrollButton:setScrollStep( step )
+    self._scrollStep = step
+end
+
+function ScrollButton:getScrollStep()
+    return self._scrollStep
+end
+
+function ScrollButton:doesIncrement()
+    return self._doesIncrement
+end
+
+function ScrollButton:getScrollDirection()
+    return self._scrollDirection
+end
+
+function ScrollButton:isVertical()
+    return self:getScrollDirection() == SCROLL_VERTICAL
+end
+
+function ScrollButton:isHorizontal()
+    return self:getScrollDirection() == SCROLL_HORIZONTAL
+end
+
+function ScrollButton:setArrowColor( color )
+    self:setColor( self.class.name .. "Arrow", color )
+end
+
+function ScrollButton:getArrowColor( fallbackColor, ... )
+    return self:getClassColor( "Arrow", fallbackColor, ... )
+end
+
+function ScrollButton:getScrollBar()
+    return self:getParent()
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ScrollButton:onHeldThink()
+    local dt = Panel:getThinkDelta()
+    local scrollBar = self:getScrollBar()
+    local step = self:getScrollStep()
+    step = self:doesIncrement() and step or -step
+
+    scrollBar:setScroll( scrollBar:getScroll() + step * dt )
+end
+
+function ScrollButton:handleDraw()
+    render.setColor( self:getArrowColor() )
+
+    for _, poly in ipairs( self._arrowPolys ) do
+        self:drawPoly( poly )
+    end
+end
+
+function ScrollButton:handleDrawBackground()
+    -- Do nothing.
+end
+
+function ScrollButton:rerouteChild( _ )
+    error( "Cannot parent to a ScrollButton" )
+end
+
+function ScrollButton:setWidth( width )
+    ScrollButton.super.setWidth( self, width )
+
+    if self:isHorizontal() then return end
+    if self:getHeight() == width then return end
+
+    self:setHeight( width )
+
+    if self:getScrollBar() then
+        self:getScrollBar():invalidateLayout()
+    end
+end
+
+function ScrollButton:setHeight( height )
+    ScrollButton.super.setHeight( self, height )
+
+    if self:isVertical() then return end
+    if self:getWidth() == height then return end
+
+    self:setWidth( height )
+
+    if self:getScrollBar() then
+        self:getScrollBar():invalidateLayout()
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+
+do
+    local arrowPoly_A = { -- Points down
+        { x = 0.5, y = 0.5625 - 0.025 },
+        { x = 0.75, y = 0.25 },
+        { x = 0.875, y = 0.1875 },
+        { x = 1, y = 0.3125 },
+        { x = 0.9375, y = 0.4375 },
+        { x = 0.59375, y = 0.78125 },
+        { x = 0.5, y = 0.78125 },
+    }
+    local arrowPoly_B = SGUI.polyFlipHorizontal( arrowPoly_A )
+
+    arrowPolyGroups[DIR_BOTTOM] = { arrowPoly_A, arrowPoly_B }
+    arrowPolyGroups[DIR_RIGHT] = {
+        SGUI.polyRotateAround( arrowPoly_A, -90, 0.5, 0.5 ),
+        SGUI.polyRotateAround( arrowPoly_B, -90, 0.5, 0.5 )
+    }
+    arrowPolyGroups[DIR_TOP] = {
+        SGUI.polyRotateAround( arrowPoly_A, 180, 0.5, 0.5 ),
+        SGUI.polyRotateAround( arrowPoly_B, 180, 0.5, 0.5 )
+    }
+    arrowPolyGroups[DIR_LEFT] = {
+        SGUI.polyRotateAround( arrowPoly_A, 90, 0.5, 0.5 ),
+        SGUI.polyRotateAround( arrowPoly_B, 90, 0.5, 0.5 )
+    }
+end

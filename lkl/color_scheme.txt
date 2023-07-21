@@ -1,0 +1,664 @@
+--@name Color Scheme
+--@author legokidlogan
+--@shared
+--@include lkl/gcolors.txt
+--@include lkl/middleclass_extras.txt
+
+--[[
+    - A library for standardizing color schemes, such as for chat prints or HUD elements.
+    - For performance, this library stores and returns colors by reference, so be careful not to modify them directly.
+--]]
+
+
+if ColorScheme then return end -- Don't run twice.
+
+require( "lkl/gcolors.txt" )
+require( "lkl/middleclass_extras.txt" )
+
+
+ColorScheme = class( "ColorScheme" )
+
+ColorScheme.FALLBACK_COLOR = Color( 220, 30, 150, 255 ) -- The default fallback color for schemes. An obnoxious dark magenta to make it easy to tell that something's wrong.
+
+
+local defaultScheme
+local allSchemes = {
+    _anonymous = {}
+}
+
+
+local function schemeGetColor( prevSchemes, scheme, name )
+    if prevSchemes[scheme] then return end
+
+    local color = scheme._colorTypes[name]
+    if color then return color end
+
+    local baseScheme = scheme._baseScheme
+
+    if baseScheme then
+        prevSchemes[scheme] = true
+
+        return schemeGetColor( prevSchemes, baseScheme, name )
+    end
+end
+
+local function schemeGetFallbackColor( prevSchemes, scheme )
+    if prevSchemes[scheme] then return end
+
+    local fallbackColor = scheme._fallbackColor
+    if fallbackColor then return fallbackColor end
+
+    local baseScheme = scheme._baseScheme
+
+    if baseScheme then
+        prevSchemes[scheme] = true
+
+        return schemeGetFallbackColor( prevSchemes, baseScheme )
+    end
+end
+
+local function schemeIsCRC( scheme, chainScheme )
+    if scheme == chainScheme then return true end
+
+    local baseScheme = chainScheme._baseScheme
+
+    if baseScheme then
+        return schemeIsCRC( scheme, baseScheme )
+    end
+
+    return false
+end
+
+
+----- STATIC FUNCTIONS -----
+
+
+--[[
+    - Initialization.
+    - Note that this uses middleclass, so create the color scheme with ColorScheme:new()
+
+    name: (optional) (string)
+        - The name of the scheme. If nil, the scheme will be anonymous.
+        - Names, if set, must be unique per each starfall instance.
+    baseScheme: (optional) (ColorScheme or false)
+        - The base scheme to inherit from.
+        - If nil, the scheme will be based on the default color scheme.
+        - If false, the scheme will not have a base.
+        - The properties of the default color scheme can be found at the bottom of this file.
+        - While the default color scheme cannot be removed or renamed, it can be modified.
+    fallbackColor: (optional) (Color)
+        - The fallback color to use if a color type is not found in the scheme.
+        - The global default is ColorScheme.FALLBACK_COLOR
+    colorTypes: (optional) (table)
+        - A table of color types to add to the scheme.
+        - The table should be in the format of {
+            STRING = COLOR_OR_FUNCTION,
+            ...
+        } as described by colorScheme:addColorType().
+--]]
+function ColorScheme:initialize( name, baseScheme, fallbackColor, colorTypes )
+    colorTypes = colorTypes or {}
+    baseScheme = baseScheme == nil and defaultScheme or baseScheme
+
+    self._colorTypes = {}
+    self._getColorCalls = {}
+
+    self:setName( name )
+    self:setBase( baseScheme )
+    self:setFallbackColor( fallbackColor )
+
+    for colorName, color in pairs( colorTypes ) do
+        self:addColorType( colorName, color )
+    end
+end
+
+--[[
+    - If the name is already taken, will return the existing scheme, and not modify it.
+    - Otherwise, creates a new color scheme.
+--]]
+function ColorScheme.createIfNew( name, baseScheme, fallbackColor, colorTypes )
+    if name then
+        local scheme = ColorScheme.getColorScheme( name )
+
+        if scheme then return scheme end
+    end
+
+    return ColorScheme:new( name, baseScheme, fallbackColor, colorTypes )
+end
+
+--[[
+    - Gets a color scheme by name.
+
+    name: (string)
+        - The name of the scheme to get.
+--]]
+function ColorScheme.getColorScheme( name )
+    if name == "_anonymous" then
+        error( "\"_anonymous\" is a reserved ColorScheme name." )
+    end
+
+    return allSchemes[name]
+end
+
+--[[
+    - Gets the default color scheme.
+--]]
+function ColorScheme.getDefaultColorScheme()
+    return defaultScheme
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+
+--[[
+    -- Adds/sets a color to the color scheme.
+
+    name: (string)
+        - The name of the color. e.g. "Plain", "Error", "Highlight", etc.
+        - If the name already exists, its associated color will be overwritten.
+        - Must be alphanumeric (a-z, A-Z, 0-9) and underscores (_).
+    color: (Color or function)
+        - The color associated with the name.
+        - COLOR:
+            - A simple color object.
+        - FUNCTION: function( callingScheme, ... )  return returnVal  end
+            - returnVal: (Color)
+                - The color to use for this specific call.
+                - If desired, you can return as many different colors as you want as separate return values.
+                    - For example, the default color scheme returns 4 colors for Vectors and Angles, allowing for this:
+                        A.
+                            local defaultScheme = ColorScheme.getDefaultColorScheme()
+                            local basicColorForArbitraryType = defaultScheme:getColorAuto( unpredictableValue )
+
+                            print( basicColorForArbitraryType, tostring( unpredictableValue ) )
+                            -- If unpredictableValue is a Vector, this color will be 'Highlight' to fit with most types being single-color
+                        B.
+                            local defaultScheme = ColorScheme.getDefaultColorScheme()
+                            local _, c1, c2, c3 = defaultScheme:getColor( "Vector", nil, someVector )
+                            local textColor = defaultScheme:getColor( "Text" )
+
+                            print(
+                                textColor, "( ",
+                                c1, tostring( someVector[1] ),
+                                textColor, ", ",
+                                c2, tostring( someVector[2] ),
+                                textColor, ", ",
+                                c3, tostring( someVector[3] ),
+                                textColor, " )"
+                            )
+                            -- Prints a vector with each axis getting its own color for easy readability.
+                            -- Only good if you know you are expecting the extra colors.
+            - Allows for dynamic colors.
+            - When calling someColorScheme:getColor( name, fallbackColor, ... ), the function will receive ( callingScheme, ... ) as its args.
+                - ex:  someColorScheme:getColor( "Player", fallbackColor, ply, extraInfo )  ==>  color( someColorScheme, ply, extraInfo )
+--]]
+function ColorScheme:addColorType( name, color )
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    if type( name ) ~= "string" then
+        error( "name must be a string" )
+    end
+
+    if type( color ) ~= "Color" and type( color ) ~= "function" then
+        error( "color must be a Color or a function" )
+    end
+
+    if string.find( name , "[%c%s]" ) then
+        error( "name must not contain whitespace characters" )
+    end
+
+    self._colorTypes[name] = color
+end
+
+--[[
+    - Removes a color from the color scheme.
+--]]
+function ColorScheme:removeColorType( name )
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    if type( name ) ~= "string" then
+        error( "name must be a string" )
+    end
+
+    self._colorTypes[name] = nil
+end
+
+--[[
+    - Gets a color from the color scheme.
+    - If the given color type isn't found, then it will search through its base color schemes.
+
+    name: (string)
+        - The name of the color type to get.
+    fallbackColor: (Color or nil)
+        - If the color type couldn't be found, then this color will be returned.
+        - If nil, then defaults to self:getFallbackColor()
+    ...: (varargs)
+        - If the color is a function, then it will receive ( callingScheme, ... ) as its args.
+        - ex: someColorScheme:getColor( "Player", nil, ply, extraInfo )  ==>  color( someColorScheme, ply, extraInfo )
+--]]
+function ColorScheme:getColor( name, fallbackColor, ... )
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    if type( name ) ~= "string" then
+        error( "name must be a string" )
+    end
+
+    -- Since :getColor() passes on the calling color scheme, it's possible to make color types that loop infinitely, so they must be prevented.
+    if self._getColorCalls[name] then
+        self._getColorCalls[name] = nil
+
+        return fallbackColor or self:getFallbackColor()
+    end
+
+    self._getColorCalls[name] = true
+    local color = schemeGetColor( {}, self, name ) or fallbackColor or self:getFallbackColor()
+
+    if type( color ) == "function" then
+        local retVals = { color( self, ... ) }
+        self._getColorCalls[name] = nil
+
+        return unpack( retVals )
+    else
+        self._getColorCalls[name] = nil
+        return color
+    end
+end
+
+--[[
+    - Gets a color automatically for an arbitrary object or primitive.
+
+    - If the given color type isn't found, then it will search through its base color schemes.
+    - Mostly just a shortcut for colorScheme:getColor( type( obj ), fallbackColor, obj, ... )
+        - This behaves differently when type( obj ) == "table", as it will search for a custom type.
+        - Custom types are determined via middleclass support or if the table has a .__type string.
+
+    obj: (any)
+        - The thing to try and get color for.
+    fallbackColor: (Color or nil)
+        - If the color type couldn't be found, then this color will be returned.
+        - If nil, then defaults to self:getFallbackColor()
+    ...: (varargs)
+        - If the color type is a function, then it will receive ( obj, ... ) as its parameters.
+        - ex: colorScheme:getColorAuto( ply, nil, extraInfo1 )  ==>  colorScheme:getColor( "Player", nil, ply, extraInfo1 )
+--]]
+function ColorScheme:getColorAuto( obj, fallbackColor, ... )
+    local objType = type( obj )
+
+    if objType == "table" then -- Check for custom types (uses middleclass or has .__type as a string)
+        local __type = obj.__type
+        objType = type( __type ) == "string" and __type or objType
+
+        -- Middleclass support, will search through super classes as well
+        local classObj = obj.class
+        local isMiddleclassObject = isClassObject( classObj )
+        while isMiddleclassObject do
+            local classType = classObj.name
+            if not classType then break end -- Not a middleclass class
+
+            local results = { self:hasColor( classType, obj, ... ) }
+            if results[1] then return unpack( results, 2 ) end -- Has an explicitly defined color for the class type
+
+            local superClass = classObj.super
+            if type( superClass ) ~= "table" then break end -- No more super classes
+
+            classObj = superClass
+        end
+
+        if objType ~= "table" or isMiddleclassObject then -- Has a custom type, either non-middleclass (__type), or middleclass without explicitly defined color
+            if not isMiddleclassObject then -- non-middleclass custom type
+                local results = { self:hasColor( objType, obj, ... ) }
+                if results[1] then return unpack( results, 2 ) end -- Has an explicitly defined color for the custom type
+            end
+
+            -- It is a custom type, but there's no explicitly defined color, so check for the generic "CustomClass" color
+            results = { self:hasColor( "CustomType", obj, ... ) }
+            if results[1] then return unpack( results, 2 ) end
+        end
+    end
+
+    return self:getColor( objType, fallbackColor, obj, ... )
+end
+
+--[[
+    - Determines whether or not the color scheme (or its bases) has the given color type.
+    - If the color type is found, then the result will be passed in the secondary return arg(s).
+    - Identical to :getColor(), but returns an extra boolean in front, and doesn't use a fallback color.
+
+    name: (string)
+        - The name of the color type to get.
+    ...: (varargs)
+        - Additional arguments to pass to the color type, if it exists and is a function.
+        - Note that, unlike :getColor(), there is no fallbackColor arg.
+
+    RETURNS: colorExists, ...
+        - colorExists: (boolean)
+            - Whether or not the color type exists.
+        - ...: (varargs)
+            - The result of the color type, if it exists.
+            - Varargs are used because the color type may return multiple values if it is a function.
+--]]
+function ColorScheme:hasColor( name, ... )
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    if type( name ) ~= "string" then
+        error( "name must be a string" )
+    end
+
+    -- Since :getColor() passes on the calling color scheme, it's possible to make color types that loop infinitely, so they must be prevented.
+    if self._getColorCalls[name] then
+        self._getColorCalls[name] = nil
+
+        return false
+    end
+
+    self._getColorCalls[name] = true
+    local color = schemeGetColor( {}, self, name )
+
+    if type( color ) == "function" then
+        local retVals = { color( self, ... ) }
+        self._getColorCalls[name] = nil
+
+        return retVals[1] ~= nil, unpack( retVals )
+    end
+
+    self._getColorCalls[name] = nil
+
+    return color ~= nil, color
+end
+
+--[[
+    - Sets the base color scheme.
+    - If nil, will set the base to the default color scheme.
+    - If false, completely removes the base color scheme.
+--]]
+function ColorScheme:setBase( baseScheme )
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    if baseScheme == false then
+        self._baseScheme = nil
+
+        return
+    end
+
+    baseScheme = baseScheme or defaultScheme
+
+    if not isInstanceOf( baseScheme, ColorScheme ) then
+        error( "baseScheme must be a ColorScheme" )
+    end
+
+    if schemeIsCRC( self, baseScheme ) then
+        error( "baseScheme cannot be a child of this ColorScheme" )
+    end
+
+    self._baseScheme = baseScheme
+end
+
+--[[
+    - Gets the base color scheme.
+--]]
+function ColorScheme:getBase()
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    return self._baseScheme
+end
+
+--[[
+    - Sets the name of the scheme.
+    - Names, if set, must be unique.
+    - Removes the name if provided nil.
+--]]
+function ColorScheme:setName( name )
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    if name ~= nil and type( name ) ~= "string" then
+        error( "name must be a string" )
+    end
+
+    if name then
+        -- Remove non-alphanumeric characters.
+        name = string.gsub( name, "[^%w_]", "" )
+
+        if name == "" then
+            error( "name must not be empty" )
+        end
+    end
+
+    if self._name == "Default" then -- Can't change the name of the default scheme
+        error( "\"Default\" is a reserved ColorScheme name." )
+    end
+
+    if name == "_anonymous" then
+        error( "\"_anonymous\" is a reserved ColorScheme name." )
+    end
+
+    if allSchemes[name] then
+        error( "There is already a ColorScheme with the name of \"" .. name .. "\"" )
+    end
+
+    if self._name then
+        allSchemes[self._name] = nil
+    else
+        allSchemes[self] = nil
+    end
+
+    self._name = name
+
+    if not name then
+        allSchemes._anonymous[self] = true
+    end
+end
+
+--[[
+    - Gets the name of the scheme.
+    - nil if unset.
+--]]
+function ColorScheme:getName()
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    return self._name
+end
+
+--[[
+    - Sets/removes the fallback color.
+--]]
+function ColorScheme:setFallbackColor( color )
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    if not color then
+        self._fallbackColor = nil
+
+        return
+    end
+
+    if type( color ) ~= "Color" then
+        error( "color must be a Color" )
+    end
+
+    self._fallbackColor = color
+end
+
+--[[
+    - Gets the fallback color.
+    - ColorScheme.FALLBACK_COLOR if unset.
+--]]
+function ColorScheme:getFallbackColor()
+    if not isValid( self ) then
+        error( "Invalid ColorScheme" )
+    end
+
+    return schemeGetFallbackColor( {}, self ) or ColorScheme.FALLBACK_COLOR
+end
+
+--[[
+    - Destroys a color scheme and readjusts the bases of any schemes that used it.
+--]]
+function ColorScheme:destroy()
+    if not isValid( self ) then
+        error( "This ColorScheme is already destroyed." )
+    end
+
+    if self == defaultScheme then
+        error( "The default ColorScheme cannot be destroyed." )
+    end
+
+    if self._name then
+        allSchemes[self._name] = nil
+    else
+        allSchemes._anonymous[self] = nil
+    end
+
+    local baseScheme = self._baseScheme
+
+    for name, scheme in pairs( allSchemes ) do
+        if name ~= "_anonymous" and scheme._baseScheme == self then
+            scheme._baseScheme = baseScheme
+        end
+    end
+
+    for scheme in pairs( allSchemes._anonymous ) do
+        if scheme._baseScheme == self then
+            scheme._baseScheme = baseScheme
+        end
+    end
+
+    self._baseScheme = nil
+    self._colorTypes = nil
+    self._getColorCalls = nil
+    self._fallbackColor = nil
+    self._name = nil
+
+    self.isValid = function() return false end
+end
+
+function ColorScheme:isValid()
+    return true
+end
+
+function ColorScheme:__concat( other )
+    return tostring( self ) .. tostring( other )
+end
+
+function ColorScheme:__tostring()
+    local address = table.address( self )
+    local name = ( self.getName and self:getName() ) or self.name or self._name
+    local customType = self.class.name or self.__type
+
+    if not isValid( self ) then
+        customType = customType .. " (INVALID)"
+    end
+
+    if type( name ) == "string" then
+        return customType .. " [" .. name .. "][" .. address .. "]"
+    end
+
+    return customType .. " [" .. address .. "]"
+end
+
+
+----- SETUP -----
+
+
+defaultScheme = ColorScheme:new( "Default", false, nil, {
+    -- Type-based colors
+    ["nil"] = c_code_nil,
+    ["boolean"] = c_code_boolean,
+    ["number"] = c_code_number_sat,
+    ["string"] = c_code_string_sat,
+    ["function"] = c_code_function,
+    ["table"] = c_table,
+    ["CustomType"] = c_custom_type,
+    ["Entity"] = function( _, ent )
+        if isValid( ent ) then return c_orange end
+        return c_pale_red
+    end,
+    ["Player"] = function( callingScheme, ply )
+        if not isValid( ply ) or not ply:isPlayer() then
+            return callingScheme:getColor( "Entity", nil, ply )
+        end
+
+        return team.getColor( ply:getTeam() )
+    end,
+    ["Color"] = function( callingScheme, color )
+        if not color then
+            return callingScheme:getColor( "Highlight", nil )
+        end
+
+        return Color( color.r, color.g, color.b, color.a )
+    end,
+    ["Vector"] = function( callingScheme, ... )
+        local basicColor = callingScheme:getColor( "Highlight", nil, ... )
+        local c1 = callingScheme:getColor( "VectorX", nil, ... )
+        local c2 = callingScheme:getColor( "VectorY", nil, ... )
+        local c3 = callingScheme:getColor( "VectorZ", nil, ... )
+
+        return basicColor, c1, c2, c3
+    end,
+    ["Angle"] = function( callingScheme, ... )
+        local basicColor = callingScheme:getColor( "Highlight", nil, ... )
+        local c1 = callingScheme:getColor( "AnglePitch", nil, ... )
+        local c2 = callingScheme:getColor( "AngleYaw", nil, ... )
+        local c3 = callingScheme:getColor( "AngleRoll", nil, ... )
+
+        return basicColor, c1, c2, c3
+    end,
+
+    -- Other
+    ["Text"] = c_white,
+    ["TextQuiet"] = c_light_grey,
+    ["Highlight"] = c_yellow,
+    ["HighlightWeak"] = c_pale_yellow,
+    ["VectorX"] = c_pale_red,
+    ["VectorY"] = c_pale_green,
+    ["VectorZ"] = c_pale_blue,
+    ["AnglePitch"] = c_pale_green,
+    ["AngleYaw"] = c_pale_blue,
+    ["AngleRoll"] = c_pale_red,
+    ["Pending"] = c_pend_orange,
+    ["Fail"] = c_red,
+    ["Success"] = c_green,
+    ["true"] = c_pale_green,
+    ["false"] = c_pale_red,
+    ["Alert"] = c_alert_red,
+    ["Attention"] = c_attention_red,
+    ["BulletPoint"] = c_info_blue,
+    ["ArgRequired"] = c_arg_req,
+    ["ArgOptional"] = c_arg_opt,
+    ["ArgReturn"] = c_arg_return,
+    ["Console"] = c_ply_console,
+    ["PlayerSelf"] = c_ulib_self,
+    ["PlayerCommand"] = function( callingScheme, caller, target )
+        if caller == target then
+            return callingScheme:getColor( "PlayerSelf", nil, target )
+        end
+
+        return callingScheme:getColor( "Player", nil, target )
+    end,
+    ["PvPStatus"] = function( _, ply )
+        local pvpStatus = ply.isInPvp and ply:isInPvp()
+
+        return pvpStatus and c_pvp or c_build
+    end,
+} )
+
+--defaultScheme._name = "Default"
+--allSchemes.Default = defaultScheme
+--allSchemes._anonymous[defaultScheme] = nil

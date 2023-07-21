@@ -1,0 +1,1295 @@
+--@name HText
+--@author legokidlogan
+--@client
+--@include lkl/middleclass_extras.txt
+--@include lkl/table_clone_deep.txt
+
+if HText then return end -- Don't run twice
+
+require( "lkl/middleclass_extras.txt" )
+require( "lkl/table_clone_deep.txt" )
+
+
+HText = class( "HText" )
+c_white = c_white or Color( 255, 255, 255, 255 )
+
+TEXT_ALIGN_LEFT = TEXT_ALIGN.LEFT
+TEXT_ALIGN_CENTER = TEXT_ALIGN.CENTER
+TEXT_ALIGN_RIGHT = TEXT_ALIGN.RIGHT
+TEXT_ALIGN_TOP = TEXT_ALIGN.TOP
+TEXT_ALIGN_BOTTOM = TEXT_ALIGN.BOTTOM
+
+
+local NEWLINE = "::NEWLINE::"
+local FONT_DEFAULT_NAME
+local FONT_DEFAULT_PARAMS = {
+    font = "Roboto Mono",
+    size = 16,
+    weight = 400,
+    antialias = true,
+    additive = false,
+    shadow = false,
+    outline = false,
+    blursize = 0,
+    extended = false,
+    scanlines = 0,
+}
+local FONT_PARAM_ORDER = { -- Because starfall doesn't use a key-value table for font params for some reason
+    "font",
+    "size",
+    "weight",
+    "antialias",
+    "additive",
+    "shadow",
+    "outline",
+    "blursize",
+    "extended",
+    "scanlines",
+}
+
+local htexts = {}
+local _lastUsedFont = ""
+
+local tableInsert = table.insert
+local tableRemove = table.remove
+local tableConcat = table.concat
+local stringSplit = string.split
+local stringSub = string.sub
+local renderGetTextSize = render.getTextSize
+local _renderSetFont = render.setFont
+local realtime = timer.realtime
+
+
+local function renderSetFont( font )
+    if font == _lastUsedFont then return end
+
+    _lastUsedFont = font
+    _renderSetFont( font )
+end
+
+local function createFontFromParams( fontParams )
+    fontParams = fontParams or FONT_DEFAULT_PARAMS
+
+    if type( fontParams ) == "string" then
+        fontParams = {
+            font = fontParams
+        }
+    end
+
+    local fullParams = {}
+    local fullParamsSequential = {}
+
+    for i, name in ipairs( FONT_PARAM_ORDER ) do
+        local param = fontParams[name] or FONT_DEFAULT_PARAMS[name]
+
+        fullParams[name] = param
+        fullParamsSequential[i] = param
+    end
+
+    local fontName = render.createFont( unpack( fullParamsSequential ) )
+
+    return fontName, fullParams
+end
+
+local function stringSplitToFit( str, maxWidth, font )
+    if maxWidth <= 0 then return str, "" end
+
+    if font then
+        renderSetFont( font )
+    end
+
+    local splitA = str
+    local splitB = ""
+
+    while renderGetTextSize( splitA ) > maxWidth do
+        local splitInd = #splitA
+
+        splitB = stringSub( splitA, splitInd ) .. splitB
+        splitA = stringSub( splitA, 1, splitInd - 1 )
+    end
+
+    return splitA, splitB
+end
+
+local function hyphenateCutoff( splitA, splitB )
+    local splitInd = #splitA
+
+    splitB = stringSub( splitA, splitInd ) .. splitB
+    splitA = stringSub( splitA, 1, splitInd - 1 ) .. "-"
+
+    return splitA, splitB
+end
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    - Creates a new HText.
+
+    width: (number > 0)
+        - Width of the HText in pixels.
+    height: (number > 0)
+        - Height of the HText in pixels.
+    xPos: (number)
+        - X position of the HText in pixels.
+    yPos: (number)
+        - Y position of the HText in pixels.
+    fontParams: (nil, string, or table)
+        - Font parameters for the HText.
+        STRING: Name of a baseline font to use, with other params being defaulted.
+        TABLE: String-indexed table of font parameters to use. See FONT_DEFAULT_PARAMS at the top of this file.
+    ... (optional) (varargs)
+        - Initial text to display.
+        - See HText:setText() for more info.
+--]]
+function HText:initialize( width, height, xPos, yPos, fontParams, ... )
+    self._textTbl = {}
+
+    self:setSize( width, height )
+    self:setPos( xPos, yPos )
+    self:setFont( fontParams )
+    self:setTextColor( Color( 255, 255, 255, 255 ) )
+    self:setTextAlignment( TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP )
+    self:setText( ... )
+    self:setAutoDraw( true )
+    self:setBackgroundColor( Color( 0, 0, 0, 255 ) )
+    self:setBorderColor( Color( 255, 255, 255, 255 ) )
+    self:setBorderSize( 1 )
+    self:setAutoHeight( false )
+    self:setAutoHeightMargin( 0 )
+    self:setAutoHeightBounds( 0, math.huge )
+
+    tableInsert( htexts, self )
+end
+
+function HText.getAll()
+    local out = {}
+
+    for i, htext in ipairs( htexts ) do
+        out[i] = htext
+    end
+
+    return out
+end
+
+function HText.makeRainbowColorFunc( speed, timeOffset, saturation, value, alpha )
+    speed = speed or 1
+    timeOffset = timeOffset or 0
+    saturation = saturation or 1
+    value = value or 1
+    alpha = alpha or 1
+
+    return function()
+        return Color( ( realtime() * speed + timeOffset ) % 360, saturation, value ):hsvToRGB()
+    end
+end
+
+function HText.makeStaticRainbow( text, fontParams, hueStart, hueEnd, saturation, value, alpha )
+    if type( text ) ~= "string" then error( "Expected text to be a string" ) end
+    if text == "" then return "" end
+
+    fontParams = fontParams or FONT_DEFAULT_PARAMS
+    hueStart = hueStart or 0
+    hueEnd = hueEnd or 360
+    saturation = saturation or 1
+    value = value or 1
+    alpha = alpha or 1
+
+    local letters = stringSplit( text, "" )
+    local count = #letters
+    local hueStep = ( hueEnd - hueStart ) / ( count - 1 )
+    local hue = hueStart
+    local out = {}
+
+    for i = 1, count do
+        local letter = letters[i]
+
+        tableInsert( out, Color( hue, saturation, value ):hsvToRGB() )
+        tableInsert( out, fontParams )
+        tableInsert( out, letter )
+
+        hue = hue + hueStep
+    end
+
+    return out
+end
+
+function HText.makeShiftingRainbow( timeStep, text, fontParams, speed, timeOffset, saturation, value, alpha )
+    if type( timeStep ) ~= "number" then error( "Expected timeStep to be a number" ) end
+    if type( text ) ~= "string" then error( "Expected text to be a string" ) end
+    if text == "" then return "" end
+
+    fontParams = fontParams or FONT_DEFAULT_PARAMS
+    speed = speed or 1
+    timeOffset = timeOffset or 0
+    saturation = saturation or 1
+    value = value or 1
+    alpha = alpha or 1
+
+    local letters = stringSplit( text, "" )
+    local count = #letters
+    local timeAccum = 0
+    local out = {}
+
+    for i = 1, count do
+        local letter = letters[i]
+
+        tableInsert( out, HText.makeRainbowColorFunc( speed, timeOffset + timeAccum, saturation, value, alpha ) )
+        tableInsert( out, fontParams )
+        tableInsert( out, letter )
+
+        timeAccum = timeAccum + timeStep
+    end
+
+    return out
+end
+
+--[[
+    - Standardizes the multi-format args seen in HText:setText().
+    - Outputs a table in the form of {
+        {
+            Color = COLOR,
+            FontParams = FONT_PARAMS,
+            TextStr = STRING,
+        },
+        ...
+    }
+
+    - Color and FontParams may be nil if they were not specified for a given section of text.
+        - If so, use HText:getTextColor() and HText:getFontParams() respectively.
+--]]
+function HText.getTextArgs( ... )
+    local args = { ... }
+    local argCount = #args
+    if argCount == 0 then return HText.getTextArgs( "" ) end
+    if argCount ~= 1 then return HText.getTextArgs( args ) end
+
+    local textIn = args[1]
+
+    if type( textIn ) == "string" then
+        textIn = { textIn }
+    elseif type( textIn ) ~= "table" then
+        error( "Expected textIn to be nil, a string, or a table" )
+    end
+
+    local nextColor
+    local nextFontParams
+    local argsOut = {}
+
+    for _, val in ipairs( textIn ) do
+        local valType = type( val )
+
+        if valType == "Color" or valType == "function" then
+            nextColor = val
+
+            continue
+        elseif valType == "table" then
+            nextFontParams = val
+
+            continue
+        elseif valType ~= "string" then
+            error( "Unexpected type \"" .. valType .. "\" in text" )
+        end
+
+        tableInsert( argsOut, {
+            FontParams = nextFontParams,
+            Color = nextColor,
+            TextStr = val,
+        } )
+
+        nextColor = nil
+        nextFontName = nil
+        nextFontParams = nil
+    end
+
+    return argsOut
+end
+
+-- Same as HText.getTextArgs(), but splits each character into its own section.
+function HText.getSplitTextArgs( ... )
+    local sectionsIn = HText.getTextArgs( ... )
+    local sectionsOut = {}
+
+    for _, section in ipairs( sectionsIn ) do
+        local color = section.Color
+        local fontParams = section.FontParams
+        local text = section.TextStr
+        local length = #text
+
+        if length == 1 then
+            tableInsert( sectionsOut, section )
+        elseif length ~= 0 then
+            local chars = stringSplit( text, "" )
+
+            for i = 1, length do
+                tableInsert( sectionsOut, {
+                    Color = color,
+                    FontParams = fontParams,
+                    TextStr = chars[i]
+                } )
+            end
+        end
+    end
+
+    return sectionsOut
+end
+
+----- INSTANCE FUNCTIONS -----
+
+function HText:destroy()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    tableRemoveByValue( htexts, self )
+    self.isValid = function() return false end
+end
+
+function HText:isValid()
+    return true
+end
+
+function HText:setWidth( width )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if self._width == width then return end
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    if width <= 0 then error( "Expected width to be greater than zero" ) end
+
+    self._width = width
+    self:invalidateLayout()
+end
+
+function HText:getWidth()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._width
+end
+
+function HText:setHeight( height )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if self._height == height then return end
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    if height <= 0 then error( "Expected height to be greater than zero" ) end
+
+    self._height = height
+    --self:invalidateLayout()
+end
+
+function HText:getHeight()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._height
+end
+
+--[[
+    - Returns the height of all the rendered text.
+    - Since excess text will draw beyond the bottom of the HText, this can be used with :setHeight() to auto-size the HText.
+--]]
+function HText:getTextHeight()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._textHeight or 0
+end
+
+-- Makes the HText automatically adjust its height to fit the rendered text.
+function HText:setAutoHeight( state )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._useAutoHeight = state
+end
+
+function HText:getAutoHeight()
+    return self._useAutoHeight
+end
+
+-- If setAutoHeight() is true, this will add a flat amount to the height on top of the rendered text height.
+function HText:setAutoHeightMargin( margin )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if type( margin ) ~= "number" then error( "Expected margin to be nil or a number" ) end
+
+    self._autoHeightMargin = margin
+end
+
+function HText:getAutoHeightMargin()
+    return self._autoHeightMargin
+end
+
+-- Sets the minimum height of the HText when setAutoHeight() is true.
+function HText:setAutoHeightMin( min )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if type( min ) ~= "number" then error( "Expected min to be nil or a number" ) end
+
+    self._autoHeightMin = math.max( min, 0 )
+end
+
+function HText:getAutoHeightMin()
+    return self._autoHeightMin
+end
+
+-- Sets the maximum height of the HText when setAutoHeight() is true.
+function HText:setAutoHeightMax( max )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if type( max ) ~= "number" then error( "Expected max to be nil or a number" ) end
+
+    self._autoHeightMax = math.min( max, math.huge )
+end
+
+function HText:getAutoHeightMax()
+    return self._autoHeightMax
+end
+
+-- Sets the minimum and maximum height of the HText when setAutoHeight() is true.
+function HText:setAutoHeightBounds( min, max )
+    self:setAutoHeightMin( min )
+    self:setAutoHeightMax( max )
+end
+
+function HText:getAutoHeightBounds()
+    return self._autoHeightMin, self._autoHeightMax
+end
+
+function HText:setSize( width, height )
+    self:setWidth( width )
+    self:setHeight( height )
+end
+
+function HText:getSize()
+    return self._width, self._height
+end
+
+function HText:setWidthFractional( width, scrW )
+    scrW = scrW or render.getResolution()
+
+    self:setWidth( width * scrW )
+end
+
+function HText:getWidthFractional( scrW )
+    scrW = scrW or render.getResolution()
+
+    return self:getWidth() / scrW
+end
+
+function HText:setHeightFractional( height, scrH )
+    if not scrH then
+        local _
+        _, scrH = render.getResolution()
+    end
+
+    self:setHeight( height * scrH )
+end
+
+function HText:getHeightFractional( scrH )
+    if not scrH then
+        local _
+        _, scrH = render.getResolution()
+    end
+
+    return self:getHeight() / scrH
+end
+
+function HText:setSizeFractional( width, height, scrW, scrH )
+    self:setWidthFractional( width, scrW )
+    self:setHeightFractional( height, scrH )
+end
+
+function HText:getSizeFractional( scrW, scrH )
+    return self:getWidthFractional( scrW ), self:getHeightFractional( scrH )
+end
+
+function HText:setXPos( xPos )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if type( xPos ) ~= "number" then error( "Expected xPos to be a number" ) end
+
+    self._xPos = xPos
+end
+
+function HText:getXPos()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._xPos
+end
+
+function HText:setYPos( yPos )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if type( yPos ) ~= "number" then error( "Expected yPos to be a number" ) end
+
+    self._yPos = yPos
+end
+
+function HText:getYPos()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._yPos
+end
+
+function HText:setPos( xPos, yPos )
+    self:setXPos( xPos )
+    self:setYPos( yPos )
+end
+
+function HText:getPos()
+    return self._xPos, self._yPos
+end
+
+function HText:setXPosFractional( xPos, scrW )
+    scrW = scrW or render.getResolution()
+
+    self:setXPos( xPos * scrW )
+end
+
+function HText:getXPosFractional( scrW )
+    scrW = scrW or render.getResolution()
+
+    return self:getXPos() / scrW
+end
+
+function HText:setYPosFractional( yPos, scrH )
+    if not scrH then
+        local _
+        _, scrH = render.getResolution()
+    end
+
+    self:setYPos( yPos * scrH )
+end
+
+function HText:getYPosFractional( scrH )
+    if not scrH then
+        local _
+        _, scrH = render.getResolution()
+    end
+
+    return self:getYPos() / scrH
+end
+
+function HText:setPosFractional( xPos, yPos, scrW, scrH )
+    self:setXPosFractional( xPos, scrW )
+    self:setYPosFractional( yPos, scrH )
+end
+
+function HText:setTextAlignment( xAlign, yAlign )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if type( xAlign ) ~= "number" then error( "Expected xAlign to be a number" ) end
+    if type( yAlign ) ~= "number" then error( "Expected yAlign to be a number" ) end
+    if xAlign ~= TEXT_ALIGN_LEFT and xAlign ~= TEXT_ALIGN_CENTER and xAlign ~= TEXT_ALIGN_RIGHT then
+        error( "Expected xAlign to be TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER, or TEXT_ALIGN_RIGHT" )
+    end
+    if yAlign ~= TEXT_ALIGN_TOP and yAlign ~= TEXT_ALIGN_CENTER and yAlign ~= TEXT_ALIGN_BOTTOM then
+        error( "Expected yAlign to be TEXT_ALIGN_TOP, TEXT_ALIGN_CENTER, or TEXT_ALIGN_BOTTOM" )
+    end
+
+    self._textAlignX = xAlign
+    self._textAlignY = yAlign
+end
+
+function HText:getTextAlignment()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._textAlignX, self._textAlignY
+end
+
+function HText:getTextAlignmentSwapped()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    local xAlign, yAlign = self:getTextAlignment()
+
+    if xAlign == TEXT_ALIGN_LEFT then
+        xAlign = TEXT_ALIGN_RIGHT
+    elseif xAlign == TEXT_ALIGN_RIGHT then
+        xAlign = TEXT_ALIGN_LEFT
+    end
+
+    if yAlign == TEXT_ALIGN_TOP then
+        yAlign = TEXT_ALIGN_BOTTOM
+    elseif yAlign == TEXT_ALIGN_BOTTOM then
+        yAlign = TEXT_ALIGN_TOP
+    end
+
+    return xAlign, yAlign
+end
+
+function HText:SetTextAlignmentX( xAlign )
+    self:setTextAlignment( xAlign, self:getTextAlignmentY() )
+end
+
+function HText:GetTextAlignmentX()
+    local xAlign, _ = self:getTextAlignment()
+
+    return xAlign
+end
+
+function HText:SetTextAlignmentY( yAlign )
+    self:setTextAlignment( self:getTextAlignmentX(), yAlign )
+end
+
+function HText:GetTextAlignmentY()
+    local _, yAlign = self:getTextAlignment()
+
+    return yAlign
+end
+
+--[[
+    - Sets the text.
+    - Takes one of the following as args:
+        NIL: Same as setText( "" )
+        STRING: same as setText( { STRING } )
+        VARARGS: same as setText( { ... } )
+        TABLE: A sequential table of the form {
+            COLOR or FUNCTION, -- Color for the following string. Optional, defaults to white.
+            TABLE, -- Font override parameters. Optional, defaults to whatever the HText's current font is from :setFont()
+            STRING, -- A piece of text.
+
+            COLOR or FUNCTION,
+            TABLE,
+            STRING,
+
+            ...
+        }
+
+    - Optional entries (i.e. everything besides strings) in the table arg can be skipped entirely.
+        ex: setText( {
+            someColor,
+            someFontParams,
+            someString,
+
+            someColor,
+            someString,
+
+            someColor,
+            someString,
+
+            someFunctionReturningAColor,
+            someString,
+
+            someString,
+
+            someString,
+
+            someFontParams,
+            someString,
+        } )
+--]]
+function HText:setText( ... )
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    local textIn = HText.getTextArgs( ... )
+    local textTbl = {}
+    local textFlat = ""
+    local forcedAlpha = self:getForcedAlpha()
+    local textColorDefault = self._textColor or c_white
+    local fontParamsDefault = self._fontParams or FONT_DEFAULT_PARAMS
+
+    for _, section in ipairs( textIn ) do
+        local color = section.Color or textColorDefault
+        local fontParams = section.FontParams or fontParamsDefault
+        local lines = stringSplit( section.TextStr, "\n" )
+        local lineCount = #lines
+        local fontName
+
+        fontName, fontParams = createFontFromParams( fontParams )
+
+        for i = 1, lineCount do
+            local line = lines[i]
+
+            if type( color ) == "Color" and forcedAlpha then
+                color = Color( color.r, color.g, color.b, forcedAlpha )
+            end
+
+            textFlat = textFlat .. line
+            tableInsert( textTbl, {
+                TextStr = line,
+                Color = color,
+                FontName = fontName,
+                FontParams = fontParams,
+            } )
+
+            if i ~= lineCount then
+                textFlat = textFlat .. "\n"
+                tableInsert( textTbl, NEWLINE )
+            end
+        end
+    end
+
+    self._textTbl = textTbl
+    self._textFlat = textFlat
+    self:invalidateLayout()
+end
+
+function HText:addText( ... )
+    local args = { ... }
+    local textTbl = {}
+
+    if #args == 1 and type( args[1] ) == "table" then
+        args = args[1]
+    end
+
+    for _, entry in ipairs( self._textTbl ) do
+        if entry.TextStr == "" then continue end
+
+        if entry == NEWLINE then
+            tableInsert( textTbl, "\n" )
+
+            continue
+        end
+
+        tableInsert( textTbl, entry.Color )
+        tableInsert( textTbl, entry.FontParams )
+        tableInsert( textTbl, entry.TextStr )
+    end
+
+    table.add( textTbl, args )
+    self:setText( textTbl )
+end
+
+function HText:getText()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return table.cloneDeep( self._textTbl )
+end
+
+function HText:getTextFlat()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._textFlat
+end
+
+-- Sets the default font for this HText.
+function HText:setFont( fontParams )
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    local fontName
+    fontName, fontParams = createFontFromParams( fontParams )
+
+    self._fontName = fontName
+    self._fontParams = fontParams
+    self:invalidateLayout()
+end
+
+function HText:getFontName()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._fontName
+end
+
+function HText:getFontParams()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return table.cloneDeep( self._fontParams )
+end
+
+-- Sets the default text color for this HText.
+function HText:setTextColor( color )
+    if not isValid( self ) then error( "Invalid HText" ) end
+    if type( color ) ~= "Color" then error( "Expected a Color" ) end
+
+    self._textColor = Color( color.r, color.g, color.b, color.a )
+    self:invalidateLayout()
+end
+
+function HText:gettextColor()
+    local color = self._textColor
+
+    return Color( color.r, color.g, color.b, color.a )
+end
+
+--[[
+    - Forces this HText to draw with a specific alpha value for all of its text.
+    - False to disable.
+--]]
+function HText:setForcedAlpha( alpha )
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    if not alpha then
+        self._forcedAlpha = false
+
+        return
+    end
+
+    if type( alpha ) ~= "number" then error( "Expected false or a number" ) end
+
+    self._forcedAlpha = math.clamp( alpha, 0, 255 )
+end
+
+function HText:getForcedAlpha()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._forcedAlpha or false
+end
+
+function HText:invalidateLayout()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    self._layoutIsValid = false
+end
+
+function HText:setAutoDraw( state )
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    self._autoDraw = state and true or false
+end
+
+function HText:getAutoDraw()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    return self._autoDraw
+end
+
+function HText:setBackgroundColor( color )
+    if type( color ) ~= "Color" then error( "Expected a Color" ) end
+
+    self._backgroundColor = Color( color.r, color.g, color.b, color.a )
+end
+
+function HText:getBackgroundColor()
+    local color = self._backgroundColor
+
+    return Color( color.r, color.g, color.b, color.a )
+end
+
+function HText:setBorderColor( color )
+    if type( color ) ~= "Color" then error( "Expected a Color" ) end
+
+    self._borderColor = Color( color.r, color.g, color.b, color.a )
+end
+
+function HText:getBorderColor()
+    local color = self._borderColor
+
+    return Color( color.r, color.g, color.b, color.a )
+end
+
+function HText:setBorderSize( size )
+    if type( size ) ~= "number" then error( "Expected a number" ) end
+    if size < 0 then error( "Expected a number >= 0" ) end
+
+    self._borderSize = size
+end
+
+function HText:getBorderSize()
+    return self._borderSize
+end
+
+-- Only for use within a 2D HUD render context.
+-- Only call manually if you have first done :setAutoDraw( false ).
+function HText:draw()
+    if not isValid( self ) then error( "Invalid HText" ) end
+
+    _lastUsedFont = ""
+
+    self:_performLayout()
+    self:drawBackground()
+
+    local xAlign, yAlign = self:getTextAlignment()
+    local xPos, yPos = self:getPos()
+    local forcedAlpha = self:getForcedAlpha()
+
+    for _, section in ipairs( self._layoutSections ) do
+        local color = section.ColorFunc
+
+        if color then
+            color = section.ColorFunc( self )
+            color = type( color ) == "Color" and color or c_white
+
+            if forcedAlpha then
+                color = Color( color.r, color.g, color.b, forcedAlpha )
+            end
+        else
+            color = section.Color
+        end
+
+        render.setColor( color )
+        renderSetFont( section.FontName )
+        render.drawSimpleText( xPos + section.XPos, yPos + section.YPos, section.TextStr, xAlign, yAlign )
+    end
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+-- Override this function to draw a custom background.
+-- This should not be called manually.
+function HText:drawBackground()
+    local backgroundColor = self._backgroundColor
+    local borderColor = self._borderColor
+    local backgroundAlphaIsZero = backgroundColor.a == 0
+    local borderAlphaIsZero = borderColor.a == 0
+    if backgroundAlphaIsZero and borderAlphaIsZero then return end
+
+    local x, y = self:getPos()
+    local w, h = self:getSize()
+
+    if not backgroundAlphaIsZero then
+        render.setColor( backgroundColor )
+        render.drawRect( x, y, w, h )
+    end
+
+    if not borderAlphaIsZero then
+        render.setColor( borderColor )
+        render.drawRectOutline( x, y, w, h, self._borderSize )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+function HText:_performLayout()
+    if self._layoutIsValid then return end
+
+    _lastUsedFont = ""
+
+    local xAlign, yAlign = self:getTextAlignment()
+    --local fontParams = self:getFontParams()
+    --local fontSize = fontParams.size
+    local boundsWidth, boundsHeight = self:getSize()
+    local layoutSections = {}
+    local textTblEff = {}
+    local lineWidths = {}
+    local lineHeights = {}
+    local lineGaps = {}
+
+    -- Split text that goes outside the horizontal bounds.
+    local totalWidth = 0
+    local textTbl = self:getText()
+    local _i = 1
+
+    while _i <= #textTbl do
+        local curInd = _i
+        local section = textTbl[curInd]
+        _i = _i + 1
+
+        if section == NEWLINE then
+            totalWidth = 0
+            tableInsert( textTblEff, section )
+
+            continue
+        end
+
+        local textFont = section.FontName
+        renderSetFont( textFont )
+
+        local textStr = section.TextStr
+        local textWidth, textHeight = renderGetTextSize( textStr )
+
+        if totalWidth + textWidth <= boundsWidth then -- Section is small enoough, add it.
+            tableInsert( textTblEff, {
+                TextStr = textStr,
+                Color = section.Color,
+                FontName = textFont,
+                FontParams = section.FontParams,
+                Width = textWidth,
+                Height = textHeight,
+            } )
+            totalWidth = totalWidth + textWidth
+
+            continue
+        end
+
+        -- Text doesn't fit within bounds, split it.
+        local words = stringSplit( textStr, " " )
+        local firstWord = tableRemove( words, 1 )
+        local firstWordWidth, firstWordHeight = renderGetTextSize( firstWord .. ( #words > 1 and " " or "" ) )
+
+        if firstWordWidth > boundsWidth then -- First word is massive on its own, split it apart.
+            if totalWidth > 0 then -- Only add a newline if there's already text on the current line.
+                tableInsert( textTblEff, NEWLINE )
+            end
+
+            -- Split the word itself into multiple lines.
+            local splitA, splitB = stringSplitToFit( firstWord, boundsWidth )
+            splitA, splitB = hyphenateCutoff( splitA, splitB )
+
+            firstWordWidth, firstWordHeight = renderGetTextSize( splitA )
+            table.insert( words, 1, splitB )
+
+            tableInsert( textTblEff, {
+                TextStr = splitA,
+                Color = section.Color,
+                FontName = textFont,
+                FontParams = section.FontParams,
+                Width = firstWordWidth,
+                Height = firstWordHeight,
+            } )
+            tableInsert( textTblEff, NEWLINE )
+            totalWidth = 0
+
+            -- Put the rest of the section back into the initial text table.
+            tableInsert( textTbl, curInd + 1, {
+                TextStr = tableConcat( words, " " ),
+                Color = section.Color,
+                FontName = textFont,
+                FontParams = section.FontParams,
+            } )
+
+            continue
+        end
+
+        -- Split the text into multiple lines.
+        local textAccum = ""
+        local textAccumWidth = 0
+        local nextWord = firstWord
+        local nextWordWidth = firstWordWidth
+
+        while totalWidth + textAccumWidth + nextWordWidth <= boundsWidth do
+            textAccum = textAccum .. nextWord .. " "
+            textAccumWidth = textAccumWidth + nextWordWidth
+
+            local word = tableRemove( words, 1 )
+            if not word then break end -- By definition, this should never occur.
+
+            local wordWidth = renderGetTextSize( word .. " " )
+
+            nextWord = word
+            nextWordWidth = wordWidth
+        end
+
+        tableInsert( words, 1, nextWord ) -- nextWord was too large to fit, so put it back into the words table.
+
+        local _, textAccumHeight = renderGetTextSize( textAccum )
+
+        -- Put fittable text into the effective text table.
+        tableInsert( textTblEff, {
+            TextStr = textAccum,
+            Color = section.Color,
+            FontName = textFont,
+            FontParams = section.FontParams,
+            Width = textAccumWidth,
+            Height = textAccumHeight,
+        } )
+        tableInsert( textTblEff, NEWLINE )
+        totalWidth = 0
+
+        -- Put the rest of the section back into the initial text table.
+        if #words > 0 then
+            tableInsert( textTbl, curInd + 1, {
+                TextStr = tableConcat( words, " " ),
+                Color = section.Color,
+                FontName = textFont,
+                FontParams = section.FontParams,
+            } )
+        end
+    end
+
+    -- Determine the max height of each line and multi-newline gap, and the total width of each line.
+    local curLine = 1
+    local curMaxHeight = 0
+    local widthAccum = 0
+    local gapAccum = 0
+    local totalLineHeight = 0
+    local lastFontName = self._fontName or FONT_DEFAULT_NAME
+
+    for _, section in ipairs( textTblEff ) do
+        if section == NEWLINE then
+            if curMaxHeight == 0 then -- Previous line had no text, this is part of a gap.
+                renderSetFont( lastFontName )
+                local _, lineHeight = renderGetTextSize( "|" )
+
+                gapAccum = gapAccum + lineHeight
+                totalLineHeight = totalLineHeight + lineHeight
+            end
+
+            -- Line has ended.
+            totalLineHeight = totalLineHeight + curMaxHeight
+            lineHeights[curLine] = curMaxHeight
+            lineWidths[curLine] = widthAccum
+            curLine = curLine + 1
+            curMaxHeight = 0
+            widthAccum = 0
+
+            continue
+        end
+
+        local sectionHeight = section.Height
+
+        if sectionHeight > curMaxHeight then
+            curMaxHeight = sectionHeight
+        end
+
+        if gapAccum ~= 0 then -- Gap has ended.
+            lineGaps[curLine] = gapAccum
+            gapAccum = 0
+        end
+
+        widthAccum = widthAccum + section.Width
+        lastFontName = section.FontName
+    end
+
+    if curMaxHeight ~= 0 then -- End last line if it didn't have a newline.
+        totalLineHeight = totalLineHeight + curMaxHeight
+        lineHeights[curLine] = curMaxHeight
+        lineWidths[curLine] = widthAccum
+        curLine = curLine + 1
+        curMaxHeight = 0
+        widthAccum = 0
+    end
+
+    -- Determine line positions based on alignment.
+    local lineXPositions = {}
+    local lineYPositions = {}
+    local numLines = curLine - 1
+    local heightAccum = 0
+    local yOffset =
+        ( yAlign == TEXT_ALIGN_CENTER and ( boundsHeight - totalLineHeight ) / 2 ) or
+        ( yAlign == TEXT_ALIGN_BOTTOM and boundsHeight - totalLineHeight )
+
+    for i = 1, numLines do
+        local lineHeight = lineHeights[i]
+        if lineHeight == 0 then continue end
+
+        local lineWidth = lineWidths[i]
+        local lineGap = lineGaps[i] or 0
+        local xPos
+        local yPos
+
+        heightAccum = heightAccum + lineGap
+
+        -- Horizontal alignment.
+        if xAlign == TEXT_ALIGN_LEFT then
+            xPos = 0
+        elseif xAlign == TEXT_ALIGN_CENTER then
+            xPos = ( boundsWidth - lineWidth ) / 2
+        else -- TEXT_ALIGN_RIGHT
+            xPos = boundsWidth - lineWidth
+        end
+
+        -- Vertical alignment.
+        if yAlign == TEXT_ALIGN_TOP then
+            yPos = heightAccum
+        elseif yAlign == TEXT_ALIGN_CENTER then
+            yPos = yOffset + heightAccum + lineHeight / 2
+        else -- TEXT_ALIGN_BOTTOM
+            yPos = yOffset + heightAccum + lineHeight
+        end
+
+        lineXPositions[i] = xPos
+        lineYPositions[i] = yPos
+        heightAccum = heightAccum + lineHeight
+    end
+
+    self._textHeight = heightAccum
+
+    -- Determine final section positions.
+    curLine = 1
+    local lineXPos = lineXPositions[curLine]
+    local lineYPos = lineYPositions[curLine]
+    local lineHeight = lineHeights[curLine]
+
+    for _, section in ipairs( textTblEff ) do
+        if section == NEWLINE then
+            curLine = curLine + 1
+            lineXPos = lineXPositions[curLine]
+            lineYPos = lineYPositions[curLine]
+            lineHeight = lineHeights[curLine]
+
+            continue
+        end
+
+        local sectionWidth = section.Width
+        local sectionHeight = section.Height
+        local xPos
+        local yPos = lineYPos
+
+        -- Horizontal alignment.
+        if xAlign == TEXT_ALIGN_LEFT then
+            xPos = lineXPos
+        elseif xAlign == TEXT_ALIGN_CENTER then
+            xPos = lineXPos + sectionWidth / 2
+        else -- TEXT_ALIGN_RIGHT
+            xPos = lineXPos + sectionWidth
+        end
+
+        if yAlign ~= TEXT_ALIGN_CENTER and sectionHeight < lineHeight then
+            local offset = ( lineHeight - sectionHeight ) / 2
+
+            if yAlign == TEXT_ALIGN_TOP then
+                yPos = yPos + offset
+            elseif yAlign == TEXT_ALIGN_BOTTOM then
+                yPos = yPos - offset
+            end
+        end
+
+        section.XPos = xPos
+        section.YPos = yPos
+        lineXPos = lineXPos + sectionWidth
+    end
+
+    -- Build layout sections.
+    local count = 0
+
+    for _, section in ipairs( textTblEff ) do
+        if section == NEWLINE then continue end
+
+        local prevSection = count == 0 and {} or layoutSections[count]
+        local sectionColor = section.Color
+
+        -- Merge sections with the same properties on the same line.
+        -- This will reduce unnecessary render calls during drawing.
+        if prevSection.YPos == section.YPos and prevSection.Color == sectionColor and prevSection.FontName == section.FontName then
+            local prevWidth = prevSection.Width
+            local sectionWidth = section.Width
+            local xPos
+
+            if xAlign == TEXT_ALIGN_LEFT then
+                xPos = prevSection.XPos
+            elseif xAlign == TEXT_ALIGN_CENTER then
+                -- Weighted average of the two X positions.
+                xPos = ( prevSection.XPos * prevWidth + section.XPos * sectionWidth ) / ( prevWidth + sectionWidth )
+            else -- TEXT_ALIGN_RIGHT
+                xPos = section.XPos
+            end
+
+            prevSection.TextStr = prevSection.TextStr .. section.TextStr -- Combine text
+            prevSection.XPos = xPos
+
+            continue
+        end
+
+        -- Append new section.
+        count = count + 1
+        layoutSections[count] = section
+
+        if type( sectionColor ) == "function" then
+            section.ColorFunc = sectionColor
+        end
+    end
+
+    self._layoutSections = layoutSections
+    self._layoutIsValid = true
+
+    if self:getAutoHeight() then
+        local height = self:getTextHeight() + self:getAutoHeightMargin()
+        height = math.clamp( height, self:getAutoHeightMin(), self:getAutoHeightMax() )
+
+        self._height = height
+    end
+end
+
+function HText:__concat( other )
+    return tostring( self ) .. tostring( other )
+end
+
+function HText:__tostring()
+    local address = table.address( self )
+    local name = ( self.getName and self:getName() ) or self.name or self.Name
+    local customType = self.class.name or self.__type
+
+    if not isValid( self ) then
+        customType = customType .. " (INVALID)"
+    end
+
+    if type( name ) == "string" then
+        return customType .. " [" .. name .. "][" .. address .. "]"
+    end
+
+    return customType .. " [" .. address .. "]"
+end
+
+
+hook.add( "drawhud", "LKL_HText_AutoDraw", function()
+    for _, htext in ipairs( htexts ) do
+        if htext:getAutoDraw() then
+            htext:draw()
+        end
+    end
+end )
+
+
+do
+    FONT_DEFAULT_NAME = createFontFromParams( FONT_DEFAULT_PARAMS )
+end

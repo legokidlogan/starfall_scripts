@@ -1,0 +1,535 @@
+--@name Scrollable
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+--@include lkl/sgui/scroll_insert.txt
+--@include lkl/sgui/scroll_bar.txt
+
+--[[
+    - SGUI.Scrollable
+    - Use :setScrollSize() to adjust the size of the scrollable region.
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+require( "lkl/sgui/scroll_insert.txt" )
+require( "lkl/sgui/scroll_bar.txt" )
+
+if SGUI.Scrollable then return end -- Don't run twice
+
+
+SGUI.Scrollable = class( "Scrollable", SGUI.Panel )
+
+
+local KEY_LSHIFT = KEY.LSHIFT
+local MOUSE_WHEEL_UP = MOUSE.WHEEL_UP
+local MOUSE_WHEEL_DOWN = MOUSE.WHEEL_DOWN
+
+local Scrollable = SGUI.Scrollable
+local ScrollInsert = SGUI.ScrollInsert
+local ScrollBar = SGUI.ScrollBar
+local Panel = SGUI.Panel
+local isHoldingShift = false
+local mouseWheelDir = 0
+local adjustScrollBars
+local handleMouseScroll
+
+local mathFloor = math.floor
+local mathMin = math.min
+local mathClamp = math.clamp
+
+
+----- STATIC FUNCTIONS -----
+
+function Scrollable:initialize( parent, scrollDirection )
+    Scrollable.super.initialize( self, parent )
+
+    scrollDirection = scrollDirection or SCROLL_BOTH
+    self._scrollWidth = 0
+    self._scrollHeight = 0
+    self._scrollBarSize = 5
+
+
+    local scrollInsert = ScrollInsert:new()
+    self._scrollInsert = scrollInsert
+    scrollInsert:_forceNextParent()
+    scrollInsert:setParent( self )
+
+    Scrollable.super.setInnerMargin( self, 0 )
+    self:setInnerMargin( self:getBorderSize() )
+    self:setScrollWidth( self:getWidth() * 2 )
+    self:setScrollHeight( self:getHeight() * 2 )
+    self:setScrollBarSize( 20 )
+    self:setScrollDirection( scrollDirection )
+    self:setScrollX( 0 )
+    self:setScrollY( 0 )
+    self:setScrollStep( 100 )
+    self:setScrollWheelStep( 500 )
+    self:acceptMouseInput( true )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Scrollable:setScrollDirection( scrollDirection )
+    if self._scrollDirection == scrollDirection then return end
+    SGUI.expectValidScroll( scrollDirection, 1, "scrollDirection" )
+
+    if scrollDirection == SCROLL_VERTICAL then
+        self:setScrollX( 0 )
+    elseif scrollDirection == SCROLL_HORIZONTAL then
+        self:setScrollY( 0 )
+    end
+
+    self._scrollDirection = scrollDirection
+    adjustScrollBars( self )
+end
+
+function Scrollable:getScrollDirection()
+    return self._scrollDirection or SCROLL_VERTICAL
+end
+
+function Scrollable:doesScrollVertically()
+    local scrollDirection = self:getScrollDirection()
+    if scrollDirection == SCROLL_HORIZONTAL then return false end
+    if scrollDirection == SCROLL_VERTICAL then return self._scrollHeight > self:getHeight() end
+
+    local lostHeight = self._scrollWidth > self:getWidth() and self:getScrollBarSize() or 0
+
+    return self._scrollHeight > self:getHeight() - lostHeight
+end
+
+function Scrollable:doesScrollHorizontally()
+    local scrollDirection = self:getScrollDirection()
+    if scrollDirection == SCROLL_VERTICAL then return false end
+    if scrollDirection == SCROLL_HORIZONTAL then return self._scrollWidth > self:getWidth() end
+
+    local lostWidth = self._scrollHeight > self:getHeight() and self:getScrollBarSize() or 0
+
+    return self._scrollWidth > self:getWidth() - lostWidth
+end
+
+function Scrollable:doesScrollBoth()
+    return self:getScrollDirection() == SCROLL_BOTH
+end
+
+-- The width of the scrollable region.
+function Scrollable:setScrollWidth( width )
+    if self._scrollWidth == width then return end
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    width = mathFloor( width )
+    if width <= 0 then error( "Expected width to be > 0" ) end
+
+    self._scrollWidth = width
+    self:getScrollInsert():invalidateLayout()
+    self:setScrollX( mathMin( self:getScrollX(), self:getScrollXMax() ) )
+    adjustScrollBars( self )
+
+    local scrollBarHorizontal = self:getScrollBarHorizontal()
+
+    if scrollBarHorizontal then
+        scrollBarHorizontal:updateThumbSize()
+    end
+end
+
+function Scrollable:getScrollWidth()
+    if self:doesScrollHorizontally() then return self._scrollWidth end
+
+    return self:getWidth()
+end
+
+-- The height of the scrollable region.
+function Scrollable:setScrollHeight( height )
+    if self._scrollHeight == height then return end
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    height = mathFloor( height )
+    if height <= 0 then error( "Expected height to be > 0" ) end
+
+    self._scrollHeight = height
+    self:getScrollInsert():invalidateLayout()
+    self:setScrollY( mathMin( self:getScrollY(), self:getScrollYMax() ) )
+    adjustScrollBars( self )
+
+    local scrollBarVertical = self:getScrollBarVertical()
+
+    if scrollBarVertical then
+        scrollBarVertical:updateThumbSize()
+    end
+end
+
+function Scrollable:getScrollHeight()
+    if self:doesScrollVertically() then return self._scrollHeight end
+
+    return self:getHeight()
+end
+
+-- Set the size of the scrollable region.
+function Scrollable:setScrollSize( width, height )
+    self:setScrollWidth( width )
+    self:setScrollHeight( height )
+end
+
+function Scrollable:getScrollSize()
+    return self:getScrollWidth(), self:getScrollHeight()
+end
+
+function Scrollable:setScrollBarSize( size )
+    if self._scrollBarSize == size then return end
+    if type( size ) ~= "number" then error( "Expected size to be a number" ) end
+    size = mathFloor( size )
+    if size <= 0 then error( "Expected size to be > 0" ) end
+
+    self._scrollBarSize = size
+    adjustScrollBars( self )
+end
+
+function Scrollable:getScrollBarSize()
+    return self._scrollBarSize
+end
+
+-- Set the scroll value of the horizontal scroll bar
+function Scrollable:setScrollX( x )
+    if type( x ) ~= "number" then error( "Expected x to be a number" ) end
+
+    local scrollBarHorizontal = self:getScrollBarHorizontal()
+    if not scrollBarHorizontal then return end
+
+    self._scrollX = mathClamp( x, 0, self:getScrollXMax() )
+
+    scrollBarHorizontal:updateThumbPos()
+    self:getScrollInsert():updateScrollPos()
+end
+
+function Scrollable:getScrollX()
+    return self._scrollX or 0
+end
+
+function Scrollable:setScrollXFractional( frac )
+    if type( frac ) ~= "number" then error( "Expected frac to be a number" ) end
+
+    self:setScrollX( frac * self:getScrollXMax() )
+end
+
+function Scrollable:getScrollXFractional()
+    return self:getScrollX() / self:getScrollXMax()
+end
+
+function Scrollable:getScrollXMax()
+    local _, _, right, _ = self:getInnerMargin()
+    local lostWidth = self:getScrollBarVertical() and self:getScrollBarSize() or 0
+    lostWidth = lostWidth + right
+
+    return self:getScrollWidth() - self:getWidth() + lostWidth
+end
+
+-- Set the scroll value of the vertical scroll bar
+function Scrollable:setScrollY( y )
+    if type( y ) ~= "number" then error( "Expected y to be a number" ) end
+
+    local scrollBarVertical = self:getScrollBarVertical()
+    if not scrollBarVertical then return end
+
+    self._scrollY = mathClamp( y, 0, self:getScrollYMax() )
+
+    scrollBarVertical:updateThumbPos()
+    self:getScrollInsert():updateScrollPos()
+end
+
+function Scrollable:getScrollY()
+    return self._scrollY or 0
+end
+
+function Scrollable:setScrollYFractional( frac )
+    if type( frac ) ~= "number" then error( "Expected frac to be a number" ) end
+
+    self:setScrollY( frac * self:getScrollYMax() )
+end
+
+function Scrollable:getScrollYFractional()
+    return self:getScrollY() / self:getScrollYMax()
+end
+
+function Scrollable:getScrollYMax()
+    local _, _, _, bottom = self:getInnerMargin()
+    local lostHeight = self:getScrollBarHorizontal() and self:getScrollBarSize() or 0
+    lostHeight = lostHeight + bottom
+
+    return self:getScrollHeight() - self:getHeight() + lostHeight
+end
+
+function Scrollable:setScroll( x, y )
+    self:setScrollX( x )
+    self:setScrollY( y )
+end
+
+function Scrollable:getScroll()
+    return self:getScrollX(), self:getScrollY()
+end
+
+function Scrollable:setScrollFractional( xFrac, yFrac )
+    self:setScrollXFractional( xFrac )
+    self:setScrollYFractional( yFrac )
+end
+
+function Scrollable:getScrollFractional()
+    return self:getScrollXFractional(), self:getScrollYFractional()
+end
+
+-- Sets the scroll speed for pressing the scroll arrow buttons.
+function Scrollable:setScrollStep( step )
+    if type( step ) ~= "number" then error( "Expected step to be a number" ) end
+    if step <= 0 then error( "Expected step to be > 0" ) end
+
+    self._scrollStep = step
+
+    local scrollBarVertical = self:getScrollBarVertical()
+    local scrollBarHorizontal = self:getScrollBarHorizontal()
+
+    if scrollBarVertical then
+        scrollBarVertical:setScrollStep( step )
+    end
+
+    if scrollBarHorizontal then
+        scrollBarHorizontal:setScrollStep( step )
+    end
+end
+
+function Scrollable:getScrollStep()
+    return self._scrollStep
+end
+
+-- Sets the scroll speed for using the mouse wheel.
+function Scrollable:setScrollWheelStep( step )
+    if type( step ) ~= "number" then error( "Expected step to be a number" ) end
+    if step <= 0 then error( "Expected step to be > 0" ) end
+
+    self._scrollWheelStep = step
+end
+
+function Scrollable:getScrollWheelStep()
+    return self._scrollWheelStep
+end
+
+function Scrollable:getInsertBounds()
+    --local innerMarginLeft, innerMarginTop, innerMarginRight, innerMarginBottom = self:getInnerMargin()
+    local borderSize = self:getBorderSize()
+    local scrollBarSize = self:getScrollBarSize()
+    local scrollDirection = self:getScrollDirection()
+
+    local xMin, yMin = self:getPosEffective()
+
+    --[[
+    xMin = xMin + innerMarginLeft
+    yMin = yMin + innerMarginTop
+    local xMax = xMin + self:getWidth() - innerMarginRight - ( scrollDirection == SCROLL_HORIZONTAL and 0 or scrollBarSize )
+    local yMax = yMin + self:getHeight() - innerMarginBottom - ( scrollDirection == SCROLL_VERTICAL and 0 or scrollBarSize )
+    --]]
+    xMin = xMin + borderSize
+    yMin = yMin + borderSize
+    local xMax = xMin + self:getWidth() - borderSize - ( scrollDirection == SCROLL_HORIZONTAL and 0 or scrollBarSize )
+    local yMax = yMin + self:getHeight() - borderSize - ( scrollDirection == SCROLL_VERTICAL and 0 or scrollBarSize )
+
+    return xMin, yMin, xMax, yMax
+end
+
+function Scrollable:getScrollBarVertical()
+    return self._scrollBarVertical
+end
+
+function Scrollable:getScrollBarHorizontal()
+    return self._scrollBarHorizontal
+end
+
+function Scrollable:getScrollInsert()
+    return self._scrollInsert
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Scrollable:think()
+    if mouseWheelDir ~= 0 and not Panel:isMouseDown() then
+        handleMouseScroll( self, Panel:getThinkDelta() )
+    end
+end
+
+function Scrollable:setWidth( width )
+    Scrollable.super.setWidth( self, width )
+
+    if not self:getScrollInsert() then return end
+
+    adjustScrollBars( self )
+end
+
+function Scrollable:setHeight( height )
+    Scrollable.super.setHeight( self, height )
+
+    if not self:getScrollInsert() then return end
+
+    adjustScrollBars( self )
+end
+
+function Scrollable:rerouteChild( child )
+    if child == self:getScrollInsert() then return self end
+    if child == self:getScrollBarVertical() then return self end
+    if child == self:getScrollBarHorizontal() then return self end
+
+    return self:getScrollInsert()
+end
+
+function Scrollable:acceptMouseInput( state )
+    local scrollInsert = self:getScrollInsert()
+    if not scrollInsert then return end
+
+    scrollInsert:acceptMouseInput( state )
+end
+
+function Scrollable:doesAcceptMouseInput()
+    return self:getScrollInsert():doesAcceptMouseInput()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+adjustScrollBars = function( scrollable )
+    local scrollBarVertical = scrollable:getScrollBarVertical()
+    local scrollBarHorizontal = scrollable:getScrollBarHorizontal()
+    local scrollVerticalIsNew = false
+    local scrollHorizontalIsNew = false
+
+    -- Create/undock/destroy vertical scroll bar
+    if scrollBarVertical then
+        if scrollable:doesScrollVertically() then
+            scrollBarVertical:setDock( DOCK_NONE )
+        else
+            scrollable._scrollBarVertical = nil
+            scrollBarVertical:destroy()
+            scrollBarVertical = nil
+        end
+    elseif scrollable:doesScrollVertically() then
+        scrollBarVertical = ScrollBar:new( nil, scrollable, SCROLL_VERTICAL )
+        scrollable._scrollBarVertical = scrollBarVertical
+
+        scrollBarVertical:_forceNextParent()
+        scrollBarVertical:setParent( scrollable )
+        scrollBarVertical:setScrollStep( scrollable:getScrollStep() )
+        scrollVerticalIsNew = true
+    end
+
+    -- Create/undock/destroy horizontal scroll bar
+    if scrollBarHorizontal then
+        if scrollable:doesScrollHorizontally() then
+            scrollBarHorizontal:setDock( DOCK_NONE )
+        else
+            scrollable._scrollBarHorizontal = nil
+            scrollBarHorizontal:destroy()
+            scrollBarHorizontal = nil
+        end
+    elseif scrollable:doesScrollHorizontally() then
+        scrollBarHorizontal = ScrollBar:new( nil, scrollable, SCROLL_HORIZONTAL )
+        scrollable._scrollBarHorizontal = scrollBarHorizontal
+
+        scrollBarHorizontal:_forceNextParent()
+        scrollBarHorizontal:setParent( scrollable )
+        scrollBarHorizontal:setScrollStep( scrollable:getScrollStep() )
+        scrollHorizontalIsNew = true
+    end
+
+    local scrollBarSize = scrollable:getScrollBarSize()
+
+    -- Apply settings to vertical scroll bar
+    if scrollBarVertical then
+        scrollBarVertical:setDock( DOCK_RIGHT )
+        scrollBarVertical:setWidth( scrollBarSize )
+
+        if scrollBarHorizontal then
+            scrollBarVertical:setMargin( 0, 0, 0, scrollBarSize )
+        else
+            scrollBarVertical:setMargin( 0, 0, 0, 0 )
+        end
+
+        if scrollVerticalIsNew then
+            scrollable:setScrollY( 0 )
+        end
+    end
+
+    -- Apply settings to horizontal scroll bar
+    if scrollBarHorizontal then
+        scrollBarHorizontal:setDock( DOCK_BOTTOM )
+        scrollBarHorizontal:setHeight( scrollBarSize )
+        scrollBarHorizontal:setMargin( 0, 0, 0, 0 ) -- Always uses margin 0 since vertical bar takes up width when present
+
+        if scrollHorizontalIsNew then
+            scrollable:setScrollX( 0 )
+        end
+    end
+
+    scrollable:getScrollInsert():invalidateLayout()
+end
+
+handleMouseScroll = function( scrollable, dt )
+    local hoveredPanel = Panel:getHoveredPanel()
+    if not hoveredPanel then return end
+
+    local scrollBarHorizontal = scrollable:getScrollBarHorizontal()
+    local scrollBarVertical = scrollable:getScrollBarVertical()
+    if not scrollBarHorizontal and not scrollBarVertical then return end
+
+    if hoveredPanel:getParentBySubclass( Scrollable ) ~= scrollable then return end
+    if hoveredPanel ~= scrollable and not hoveredPanel:isRecursiveChildOf( scrollable ) then return end
+
+    local scrollHorizontally = false
+    local hoveringOverVertical = scrollBarVertical and ( hoveredPanel == scrollBarVertical or hoveredPanel:isRecursiveChildOf( scrollBarVertical, scrollable ) )
+
+    if not hoveringOverVertical then
+        if isHoldingShift then
+            scrollHorizontally = true
+        else
+            local hoveringOverHorizontal = scrollBarHorizontal and ( hoveredPanel == scrollBarHorizontal or hoveredPanel:isRecursiveChildOf( scrollBarHorizontal, scrollable ) )
+            scrollHorizontally = hoveringOverHorizontal
+        end
+    end
+
+    local step = scrollable:getScrollWheelStep()
+    local scrollBar = scrollHorizontally and scrollBarHorizontal or scrollBarVertical
+
+    scrollBar:setScroll( scrollBar:getScroll() - step * mouseWheelDir * dt )
+end
+
+
+----- SETUP -----
+
+local function performMouseScrollForOneFrameOnAll()
+    if mouseWheelDir == 0 then return end
+    if Panel:isMouseDown() then return end
+
+    local dt = timer.frametime() * 2
+
+    for _, scrollable in ipairs( Panel:getAllInstancesOf( Scrollable ) ) do
+        handleMouseScroll( scrollable, dt )
+    end
+end
+
+local function keyClk( key, state )
+    if key == KEY_LSHIFT then
+        isHoldingShift = state
+    elseif key == MOUSE_WHEEL_UP then
+        mouseWheelDir = state and 1 or 0
+        performMouseScrollForOneFrameOnAll()
+    elseif key == MOUSE_WHEEL_DOWN then
+        mouseWheelDir = state and -1 or 0
+        performMouseScrollForOneFrameOnAll()
+    end
+end
+
+hook.add( "inputPressed", "LKL_SGUI_Scrollable_ScrollWithMouseWheel", function( key )
+    keyClk( key, true )
+end )
+
+hook.add( "inputReleased", "LKL_SGUI_Scrollable_ScrollWithMouseWheel", function( key )
+    keyClk( key, false )
+end )

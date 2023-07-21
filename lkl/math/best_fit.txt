@@ -1,0 +1,123 @@
+--@name Best Fit
+--@author legokidlogan
+--@shared
+
+
+bestFit = bestFit or {}
+
+
+-- func:  function( x ) return numOut end
+local function iterateSum( func, vals, startInd, endInd )
+    startInd = startInd or 1
+    endInd = endInd or #vals
+
+    local sum = 0
+
+    for i = startInd, endInd do
+        sum = sum + func( vals[i] )
+    end
+
+    return sum
+end
+
+-- func:  function( x, y, z, ... ) return numOut end
+local function iterateSumMultiple( func, startInd, endInd, ... )
+    startInd = startInd or 1
+
+    local tblVals = {}
+
+    for i = 1, select( "#", ... ) do
+        tblVals[i] = select( i, ... )
+    end
+
+    endInd = endInd or #tblVals[1]
+    local sum = 0
+    local numVars = #tblVals
+
+    for i = startInd, endInd do
+        local vals = {}
+
+        for i2 = 1, numVars do
+            vals[i2] = tblVals[i2][i]
+        end
+
+        sum = sum + func( unpack( vals ) )
+    end
+
+    return sum
+end
+
+-- Returns a, b, c, f(x)  for the best-fit equation f(x) = a*x^2 + b*x + c
+function bestFit.quadratic( xVals, yVals, startInd, endInd )
+    startInd = startInd or 1
+    endInd = endInd or math.min( #xVals, #yVals )
+    local n = endInd - startInd + 1
+
+    if n <= 0 then return 0, 0, 0, function() return 0 end end
+
+    --[[
+    local xMean = 0
+    local yMean = 0
+    local xSqrMean = 0
+
+    for i = 1, n do
+        local x = xVals[i]
+
+        xMean = xMean + x
+        yMean = yMean + yVals[i]
+        xSqrMean = xSqrMean + x * x
+    end
+
+    xMean = xMean / n
+    yMean = yMean / n
+    xSqrMean = xSqrMean / n
+    --]]
+
+    local xMean = iterateSum( function( x ) return x end, xVals, startInd, endInd ) / n
+    local yMean = iterateSum( function( y ) return y end, yVals, startInd, endInd ) / n
+    local xSqrMean = iterateSum( function( x ) return x * x end, xVals, startInd, endInd ) / n
+
+    -- Quadratic regression
+    -- Taken from https://keisan.casio.com/exec/system/14059932254941
+
+    --local S_xx = iterateSum( function( x ) return ( x - xMean ) ^ 2 end, xVals )
+    local Sxx = xSqrMean * n - n * xMean * xMean
+    local Sxy = iterateSumMultiple( function( x, y ) return x * y end, startInd, endInd, xVals, yVals ) - n * xMean * yMean
+    local Sxx2 = iterateSum( function( x ) return x * x * x end, xVals, startInd, endInd ) - n * xMean * xSqrMean
+    local Sx2x2 = iterateSum( function( x ) return x * x * x * x end, xVals, startInd, endInd ) - n * xSqrMean * xSqrMean
+    local Sx2y = iterateSumMultiple( function( x, y ) return x * x * y end, startInd, endInd, xVals, yVals ) - n * xSqrMean * yMean
+
+    local b = ( Sxy * Sx2x2 - Sx2y * Sxx2 ) / ( Sxx * Sx2x2 - Sxx2 * Sxx2 )
+    local a = ( Sx2y * Sxx - Sxy * Sxx2 ) / ( Sxx * Sx2x2 - Sxx2 * Sxx2 )
+    local c = yMean - b * xMean - a * xSqrMean
+
+    return a, b, c, function( x ) return a * x * x + b * x + c end
+end
+
+
+
+
+--[[
+local testA = 1
+local testB = 2
+local testC = 3
+local testFunc = function( x ) return testA * x * x + testB * x + testC end
+local testXVals = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }
+local testYVals = {}
+
+for i = 1, #testXVals do
+    testYVals[i] = testFunc( testXVals[i] )
+end
+
+local a, b, c, func = bestFit.quadratic( testXVals, testYVals )
+
+print( "a: " .. testA .. " -> " .. a )
+print( "b: " .. testB .. " -> " .. b )
+print( "c: " .. testC .. " -> " .. c )
+
+
+print( iterateSum( function( x ) return x end, { 1, 2, 3 } ) )
+print( iterateSum( function( y ) return y end, { 2, 4, 6 } ) )
+print( iterateSumMultiple( function( x, y ) return x + y end, nil, nil, { 1, 2, 3 }, { 2, 4, 6 } ) )
+--]]
+

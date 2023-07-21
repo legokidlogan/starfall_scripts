@@ -1,0 +1,497 @@
+--@name Hook Remote Fix
+--@author legokidlogan
+--@shared
+
+
+c_white = c_white or Color( 255, 255, 255, 255 )
+c_alert_red = c_alert_red or Color( 150, 0, 0, 255 )
+c_yellow = c_yellow or Color( 255, 255, 0, 255 )
+
+local tableInsert = table.insert
+local tableRemoveByValue = table.removeByValue
+local _hookRunRemote = hook.runRemote
+local myGroupName = ""
+local allRemoteGroups = {}
+local chipToGroupName = {}
+
+
+--[[
+    Works similarly to hook.runRemote( target, ... ) except it auto-catches invalid starfall instances and can take a list of target chips.
+
+    - In the other chip, you'd listen to the call with something like this:
+        hook.add( "remote", LISTENER_NAME, function( callingChip, callingPly, hookName, ... )
+            if hookName ~= TARGET_HOOK_NAME then return end
+
+            -- stuff
+        end )
+    - Alternatively, if you have this script included in the recipient starfall, you could listen with this:
+        hook.add( "Remote_" .. TARGET_HOOK_NAME, LISTENER_NAME, function( callingChip, callingPly, ... )
+            -- stuff
+        end )
+
+
+    targets: (nil, entity, or table)
+        NIL: Will send to all starfall chips.
+        ENTITY: (starfall_processor) A specific starfall chip to send to.
+        TABLE: A list of starfall chips to send to. Can send to other players' chips, so be careful!
+    hookName: (string)
+        - A special identifier for the call, same concept as a regular hook name, like "PlayerSay" or "OnEntityCreated"
+        - I have no idea why starfall doesn't make this a required arg in base hook.runRemote, since you need one in order to differentiate everything.
+
+
+    Returns:  results
+        results: (table)
+            {
+                [1] = {
+                    Chip = targetChipThatSentThisResult,
+                    [1] = chipReturnArg1,
+                    [2] = chipReturnArg2,
+                    [3] = chipReturnArg3,
+                    ...
+                }
+                [2] = {
+                    Chip = targetChipThatSentThisResult,
+                    [1] = chipReturnArg1,
+                    [2] = chipReturnArg2,
+                    [3] = chipReturnArg3,
+                    ...
+                }
+                ...
+            }
+--]]
+function hookRunRemoteFixed( targets, hookName, ... )
+    if type( hookName ) ~= "string" then error( "You must provide a custom hook name to identify your remote call" ) end
+
+    local args = { ... }
+    targets = targets or find.byClass( "starfall_processor" )
+
+    if type( targets ) ~= "table" then
+        return _hookRunRemote( { [1] = targets }, hookName, unpack( args ) )
+    end
+
+    local results = {}
+
+    for _, target in pairs( targets ) do
+        if isValid( target ) then
+            local result
+
+            local success, err = pcall( function() -- Can sometimes error from invalid starfall instances (such as during the removal process )
+                result = _hookRunRemote( target, hookName, unpack( args ) )[1] or {}
+            end )
+
+            if success then
+                result.Chip = target
+                tableInsert( results, result )
+            else
+                local chipStr = printName or ( projectNameID and ( "[" .. projectNameID .. "]" ) )
+                local chipColor = chipStr and c_white or c_yellow
+                chipStr = chipStr or tostring( chip() )
+
+                err = type( err ) == "table" and err.message or err
+
+                print(
+                    chipColor, chipStr,
+                    c_alert_red, " failed to send to ",
+                    c_yellow, tostring( target )
+                )
+
+                print( "Error: ", err )
+            end
+        end
+    end
+
+    return results
+end
+
+--[[
+    Behaves similarly to hookRunRemoteFixed(), though it sends to all chips in a group instead of a list of chips.
+
+    groupName: (nil or string)
+        NIL: Will send to all groups.
+        STRING: The name of the group to send to. "" is the default group.
+    targetOwner: (nil or Player)
+        NIL: Will send to all chips in the group, regardless of owner.
+        PLAYER: Will only send to chips owned by this player.
+--]]
+function hookRunRemoteGroup( groupName, targetOwner, hookName, ... )
+    if groupName == nil and targetOwner ~= nil then
+        return find.byClass( "starfall_processor" )
+    end
+
+    local targets = {}
+
+    if groupName == nil then
+        for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
+            if chipEnt:getOwner() == targetOwner then
+                tableInsert( targets, chipEnt )
+            end
+        end
+    else
+        targets = findRemoteGroupByOwner( groupName, targetOwner )
+    end
+
+    return hookRunRemoteFixed( targets, hookName, ... )
+end
+
+--[[
+    Sends a remote hook to all chips in the group that this chip is in.
+--]]
+function hookRunRemoteMyGroup( targetOwner, hookName, ... )
+    return hookRunRemoteGroup( getRemoteGroupName(), targetOwner, hookName, ... )
+end
+
+--[[
+    Sends a remote hook to chips that are in this chips group, and owned by the owner of this chip.
+--]]
+function hookRunRemoteMyOwnersGroup( hookName, ... )
+    return hookRunRemoteGroup( getRemoteGroupName(), owner(), hookName, ... )
+end
+
+--[[
+    Takes a list of starfalls, discards any chips with invalid sf instances, and returns the result.
+
+    - Sometimes a starfall can be marked as valid, but not have a proper instance.
+        - For example, when a chip is getting removed.
+        - Also, the caller arg from hook.add( "remote" ) often returns a 'fake' starfall object.
+        - Any of these circumstances will cause hook.runRemote/hookRunRemote to error if said starfall chip is used as a remote target, hence the need for validation.
+    - This validates chips by checking their tostring() result, which is different when the instance isn't set up correctly.
+    - hookRunRemoteFixed automatically uses pcall() to avoid errors, though this function is useful if you need to keep track of the chips for additional uses, like auto-assigning IDs for a group of chips to work together
+
+    ex:
+        -- During initial setup of the sf:
+        local chips = { chip1, chip2, chip3 }
+
+        -- Later, after some of the chips might have been removed or otherwise invalidated:
+        local validChips = validateRemoteChips( chips )
+        local results = hookRunRemoteFixed( validChips, "MyHook", arg1, arg2, arg3 )
+--]]
+function validateRemoteChips( chips )
+    local chipCount = table.count( chips )
+
+    local chipsByString = {}
+    local allChips = find.byClass( "starfall_processor" )
+
+    for _, ent in ipairs( allChips ) do
+        chipsByString[tostring( ent )] = ent
+    end
+
+    local newChips = {}
+
+    if #chips == chipCount then
+        -- Numerical indices
+
+        local newChipCount = 0
+
+        for i = 1, chipCount do
+            local ent = chips[i]
+            local entStr = tostring( ent )
+            local validChip = chipsByString[entStr]
+
+            if isValid( validChip ) then
+                newChipCount = newChipCount + 1
+                newChips[newChipCount] = validChip
+            end
+        end
+    else
+        -- Non-numerical
+
+        for key, ent in pairs( chips ) do
+            local entStr = tostring( ent )
+            local validChip = chipsByString[entStr]
+
+            if isValid( validChip ) then
+                newChips[key] = validChip
+            end
+        end
+    end
+
+    return newChips
+end
+
+--[[
+    SERVER ONLY
+    Sets the group name for this chip and notifies all others of its change.
+
+    groupName: (nil or string)
+        NIL: Clears the group name, same as providing "".
+        STRING: The group name to use.
+--]]
+if SERVER then
+    function setRemoteGroupName( groupName )
+        if groupName ~= nil and type( groupName ) ~= "string" then
+            error( "Group name must be nil or a string" )
+        end
+
+        myGroupName = groupName or ""
+
+        notifyRemoteGroups()
+
+        net.start( "LKL_HookRemoteFix_SetRemoteGroupName" )
+        net.writeEntity( chip() )
+        net.writeString( myGroupName )
+        net.send()
+    end
+end
+
+--[[
+    Returns the group name for a chip.
+
+    chipEnt: (nil or Entity)
+        NIL: Returns the group name for this chip.
+        ENTITY: Returns the group name for the provided chip.
+
+    Returns:  groupName
+        groupName: (string)
+            - The group name for the chip.
+            - An empty string means it is in the default group.
+--]]
+function getRemoteGroupName( chipEnt )
+    if chipEnt == nil then
+        return myGroupName
+    end
+
+    if not isValid( chipEnt ) or chipEnt:getClass() ~= "starfall_processor" then
+        error( "Invalid chip provided" )
+    end
+
+    for groupName, group in pairs( allRemoteGroups ) do
+        for _, groupChip in pairs( group ) do
+            if groupChip == chipEnt then
+                return groupName
+            end
+        end
+    end
+
+    return ""
+end
+
+--[[
+    Returns a list of chips in a specific group that are owned by a specific player.
+
+    groupName: (string)
+        - The group name to search for.
+        - An empty string means it is in the default group.
+    targetOwner: (nil or Player)
+        NIL: Returns all chips in the group.
+        PLAYER: Returns all chips in the group that are owned by the player.
+
+    Returns:  chips
+        chips: (table)
+            - A list of chips in the group that are owned by the player.
+            - If no chips are found, an empty table is returned.
+--]]
+function findRemoteGroupByOwner( groupName, targetOwner )
+    groupName = groupName or ""
+
+    if type( groupName ) ~= "string" then
+        error( "Group name must be a string" )
+    end
+
+    if targetOwner ~= nil and ( not isValid( targetOwner ) or not targetOwner:isPlayer() ) then
+        error( "Invalid owner provided" )
+    end
+
+    local groupByOwner = allRemoteGroups[groupName]
+    if groupByOwner == nil then
+        return {}
+    end
+
+    local chips = {}
+
+    if targetOwner == nil then
+        for _, group in pairs( groupByOwner ) do
+            for _, chipEnt in ipairs( group ) do
+                tableInsert( chips, chipEnt )
+            end
+        end
+
+        return chips
+    end
+
+    local group = groupByOwner[targetOwner] or {}
+
+    for _, chipEnt in ipairs( group ) do
+        tableInsert( chips, chipEnt )
+    end
+
+    return chips
+end
+
+--[[
+    Returns a list of chips in a specific group, regardless of owner.
+--]]
+function findRemoteGroup( groupName )
+    return findRemoteGroupByOwner( groupName, nil )
+end
+
+--[[
+    Returns a list of chips in the current group owned by a specific player.
+--]]
+function findMyRemoteGroupByOwner( targetOwner )
+    return findRemoteGroupByOwner( myGroupName, targetOwner )
+end
+
+--[[
+    Returns a list of chips in the current group, regardless of owner.
+--]]
+function findMyRemoteGroup()
+    return findRemoteGroup( myGroupName )
+end
+
+--[[
+    Returns a list of chips in the current group, owned by this chip's owner.
+--]]
+function findMyOwnersRemoteGroup()
+    return findRemoteGroup( myGroupName, owner() )
+end
+
+--[[
+    Updates the list of chips in each group.
+    Handled automatically by chips being added or removed, though you can call it manually to force an update.
+--]]
+function queryRemoteGroups()
+    local allChips = find.byClass( "starfall_processor" )
+    local responses = hookRunRemoteFixed( allChips, "RemoteGroupQuery" )
+    local responsesEff = {}
+
+    -- Since base hook.runRemote doersn't include chips that never had a listener, we need to add them manually
+    for _, chipEnt in ipairs( allChips ) do
+        responsesEff[chipEnt] = ""
+    end
+
+    for _, response in ipairs( responses ) do
+        local respondingChip = response.Chip
+        local groupName = response[1]
+
+        if type( groupName ) ~= "string" then
+            groupName = ""
+        end
+
+        responsesEff[respondingChip] = groupName
+    end
+
+    allRemoteGroups = {}
+    chipToGroupName = {}
+
+    for chipEnt, groupName in pairs( responsesEff ) do
+        local groupByOwner = allRemoteGroups[groupName]
+        if not groupByOwner then
+            groupByOwner = {}
+            allRemoteGroups[groupName] = groupByOwner
+        end
+
+        local chipOwner = chipEnt:getOwner()
+        local group = groupByOwner[chipOwner]
+        if not group then
+            group = {}
+            groupByOwner[chipOwner] = group
+        end
+
+        table.insert( group, chipEnt )
+        chipToGroupName[chipEnt] = groupName
+    end
+end
+
+--[[
+    Notifies all chips that this chip's group has changed.
+    Handled automatically by setRemoteGroupName, though you can call it manually to force an update.
+--]]
+function notifyRemoteGroups()
+    hookRunRemoteFixed( find.byClass( "starfall_processor" ), "RemoteGroupChanged", myGroupName )
+end
+
+-- END OF GLOBAL FUNCTIONS
+
+
+hook.add( "remote", "LKL_HookRemoteFix_ConvertRemoteHooks", function( callingChip, callingPly, hookName, ... )
+    if type( hookName ) ~= "string" then return end
+
+    local args = { ... }
+
+    return hook.run( "Remote_" .. hookName, callingChip, callingPly, unpack( args ) )
+end )
+
+hook.add( "Remote_RemoteGroupQuery", "LKL_HookRemoteFix_RemoteGroupQuery", function( callingChip )
+    return getRemoteGroupName( callingChip )
+end )
+
+hook.add( "Remote_RemoteGroupChanged", "LKL_HookRemoteFix_RemoteGroupChanged", function( callingChip, callingPlayer, groupName )
+    local prevGroupName = chipToGroupName[callingChip]
+    if prevGroupName == groupName then return end
+
+    if prevGroupName then
+        local group = ( allRemoteGroups[prevGroupName] or {} )[callingPlayer]
+        tableRemoveByValue( group, callingChip )
+    end
+
+    local groupByOwner = allRemoteGroups[groupName]
+    if not groupByOwner then
+        groupByOwner = {}
+        allRemoteGroups[groupName] = groupByOwner
+    end
+
+    local group = groupByOwner[callingPlayer]
+    if not group then
+        group = {}
+        groupByOwner[callingPlayer] = group
+    end
+
+    tableInsert( group, callingChip )
+    chipToGroupName[callingChip] = groupName
+end )
+
+hook.add( "EntityRemoved", "LKL_HookRemoteFix_TrackRemovedChips", function( ent )
+    if not isValid( ent ) then return end
+    if ent:getClass() ~= "starfall_processor" then return end
+
+    local groupName = chipToGroupName[ent]
+    if not groupName then return end
+
+    chipToGroupName[ent] = nil
+
+    local groupByOwner = allRemoteGroups[groupName]
+    if not groupByOwner then return end
+
+    local group = groupByOwner[ent:getOwner()]
+    if not group then return end
+
+    tableRemoveByValue( group, ent )
+end )
+
+
+if CLIENT then
+    net.receive( "LKL_HookRemoteFix_SetRemoteGroupName", function()
+        if net.readEntity() ~= chip() then return end
+
+        myGroupName = net.readString()
+
+        notifyRemoteGroups()
+    end )
+
+end
+
+
+
+do
+    allRemoteGroups[""] = {}
+
+    for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
+        local chipOwner = chipEnt:getOwner()
+        local groupByOwner = allRemoteGroups[""][chipOwner]
+
+        if chipOwner == nil then
+            error( "Got nil owner on " .. tostring( chipEnt ) )
+        end
+
+        if not groupByOwner then
+            groupByOwner = {}
+            allRemoteGroups[""][chipOwner] = groupByOwner
+        end
+
+        chipToGroupName[chipEnt] = ""
+        tableInsert( groupByOwner, chipEnt )
+    end
+
+    notifyRemoteGroups()
+    queryRemoteGroups()
+end

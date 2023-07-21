@@ -1,0 +1,345 @@
+--@name Labeled Slider
+--@author legokidlogan
+--@client
+--@include lkl/sgui/slider.txt
+--@include lkl/sgui/label.txt
+
+--[[
+    - SGUI.LabeledSlider
+    - Don't use :setDock( DOCK_RIGHT or DOCK_LEFT or DOCK_FILL ), :setExpand( EXPAND_HEIGHT ), :setHeight() on this class.
+        - :setExpand( EXPAND_WIDTH ), :setWidth(), :setSliderWidth(), and :setButtonRadius() are fine.
+--]]
+
+
+require( "lkl/sgui/slider.txt" )
+require( "lkl/sgui/label.txt" )
+
+if SGUI.LabeledSlider then return end -- Don't run twice
+
+
+SGUI.LabeledSlider = class( "LabeledSlider", SGUI.Panel )
+
+
+local LabeledSlider = SGUI.LabeledSlider
+local Slider = SGUI.Slider
+local Label = SGUI.Label
+local calcFinalSize
+
+local mathMax = math.max
+local mathFloor = math.floor
+
+
+----- STATIC FUNCTIONS -----
+
+function LabeledSlider:initialize( parent )
+    LabeledSlider.super.initialize( self, parent )
+
+    local selfObj = self
+
+
+    local label = Label()
+    self._label = label
+    label:setParent( self )
+    label:setDock( DOCK_LEFT )
+    label:setWidth( 1 )
+    label:setMargin( 1, 0, 1, 0 )
+    label:setInnerMargin( 0 )
+    label:allowDragParenting( false )
+
+    function label:onRenderedTextSizeChanged()
+        selfObj:setSize( calcFinalSize( selfObj ) )
+        self:setSize( self:getSizeToFitText() )
+    end
+
+    function label:getTextColorEffective( fallbackColor, ... )
+        local name = "Text"
+
+        if selfObj:isDisabled() then
+            name = "TextDisabled"
+        end
+
+        return selfObj:getColor( name, fallbackColor, ... )
+    end
+
+
+    local slider = Slider()
+    self._slider = slider
+    slider:setParent( self )
+    slider:setExpand( EXPAND_WIDTH )
+    slider:setAnchor( ANCHOR_RIGHT )
+    slider:setMargin( 1, 0, 1, 0 )
+    slider:setInnerMargin( 0 )
+
+    function slider:onValueChanged( oldValue, newValue )
+        local roundDecimals = selfObj:getRounding()
+        local labelPrefix = selfObj:getText()
+        local labelText = labelPrefix == "" and "" or ( labelPrefix .. ": " )
+
+        if roundDecimals < 0 then
+            labelText = labelText .. newValue
+        else
+            labelText = labelText .. string.format( "%." .. roundDecimals .. "f", newValue )
+        end
+
+        selfObj:getLabel():setText( labelText )
+        selfObj:onValueChanged( oldValue, newValue )
+    end
+
+    function slider:onMinValueChanged( oldValue, newValue )
+        selfObj:onMinValueChanged( oldValue, newValue )
+    end
+
+    function slider:onMaxValueChanged( oldValue, newValue )
+        selfObj:onMaxValueChanged( oldValue, newValue )
+    end
+
+
+    self:setSliderWidth( 100 )
+    self:allowDragParenting( false )
+    self:setBorderAndInnerMargin( 0 )
+    self:setText( "" )
+    self:setRounding( 0 )
+    self:setEnabled( true )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - nil or "" to only show the number.
+    - Otherwise, label will display  text .. ": " .. sliderValue
+--]]
+function LabeledSlider:setText( text )
+    text = text or ""
+    if type( text ) ~= "string" then error( "Expected text to be a string" ) end
+    if text == self._labelPrefix then return end
+
+    self._labelPrefix = text
+    self:getSlider():onValueChanged( nil, self:getSlider():getValue() ) -- Update label.
+end
+
+function LabeledSlider:getText()
+    return self._labelPrefix
+end
+
+--[[
+    - Lets how many decimal places to round to.
+    - -1 disables rounding.
+    - Default is 0.
+--]]
+function LabeledSlider:setRounding( numDecimals )
+    if type( numDecimals ) ~= "number" then error( "Expected numDecimals to be a number" ) end
+    if mathFloor( numDecimals ) ~= numDecimals then error( "Expected numDecimals to be an integer" ) end
+
+    self._roundDecimals = numDecimals
+    self:getSlider():onValueChanged( nil, self:getSlider():getValue() ) -- Update label.
+end
+
+function LabeledSlider:getRounding()
+    return self._roundDecimals or 0
+end
+
+function LabeledSlider:setSliderWidth( width )
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    width = mathFloor( width )
+    if width <= self:getButtonRadius() * 2 then error( "Expected width to be > buttonRadius * 2" ) end
+
+    self._sliderWidth = width
+    self:getSlider():setWidth( width )
+    self:setSize( calcFinalSize( self ) )
+end
+
+function LabeledSlider:getSliderWidth()
+    return self._sliderWidth
+end
+
+function LabeledSlider:setButtonRadius( radius )
+    local slider = self:getSlider()
+    if not slider then return end
+
+    slider:setButtonRadius( radius )
+end
+
+function LabeledSlider:getButtonRadius()
+    local slider = self:getSlider()
+    if not slider then return 0 end
+
+    return slider:getButtonRadius()
+end
+
+function LabeledSlider:setValue( value )
+    self:getSlider():setValue( value )
+end
+
+function LabeledSlider:getValue()
+    return self:getSlider():getValue()
+end
+
+function LabeledSlider:setValueFractional( frac )
+    self:getSlider():setValueFractional( frac )
+end
+
+function LabeledSlider:getValueFractional()
+    return self:getSlider():getValueFractional()
+end
+
+function LabeledSlider:setMinValue( min )
+    self:getSlider():setMinValue( min )
+end
+
+function LabeledSlider:getMinValue()
+    return self:getSlider():getMinValue()
+end
+
+function LabeledSlider:setMaxValue( max )
+    self:getSlider():setMaxValue( max )
+end
+
+function LabeledSlider:getMaxValue()
+    return self:getSlider():getMaxValue()
+end
+
+function LabeledSlider:setMinMaxValues( min, max )
+    self:getSlider():setMinMaxValues( min, max )
+end
+
+function LabeledSlider:getMinMaxValues()
+    return self:getSlider():getMinMaxValues()
+end
+
+--[[
+    - Snaps :setValue() to multiples of this value.
+    - 0 to not snap.
+--]]
+function LabeledSlider:setValueSnap( snap )
+    self:getSlider():setValueSnap( snap )
+end
+
+function LabeledSlider:getValueSnap()
+    return self:getSlider():getValueSnap()
+end
+
+function LabeledSlider:setEnabled( state )
+    self._enabled = state
+    self:getSlider():setEnabled( state )
+end
+
+function LabeledSlider:enable()
+    self:setEnabled( true )
+end
+
+function LabeledSlider:disable()
+    self:setEnabled( false )
+end
+
+function LabeledSlider:isEnabled()
+    return self._enabled
+end
+
+function LabeledSlider:isDisabled()
+    return not self._enabled
+end
+
+function LabeledSlider:getLabel()
+    return self._label
+end
+
+function LabeledSlider:getSlider()
+    return self._slider
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function LabeledSlider:onValueChanged( oldValue, newValue )
+
+end
+
+function LabeledSlider:onMinValueChanged( oldValue, newValue )
+
+end
+
+function LabeledSlider:onMaxValueChanged( oldValue, newValue )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function LabeledSlider:rerouteChild( child )
+    if child == self:getLabel() then return self end
+    if child == self:getSlider() then return self end
+
+    error( "Cannot parent to a LabeledSlider" )
+end
+
+function LabeledSlider:setDock( dock )
+    if dock == DOCK_RIGHT then error( self.class.name .. " cannot use DOCK_RIGHT" ) end
+    if dock == DOCK_LEFT then error( self.class.name .. " cannot use DOCK_LEFT" ) end
+    if dock == DOCK_FILL then error( self.class.name .. " cannot use DOCK_FILL" ) end
+
+    LabeledSlider.super.setDock( self, dock )
+end
+
+function LabeledSlider:setExpand( expand )
+    if expand == EXPAND_HEIGHT then error( self.class.name .. " cannot use EXPAND_HEIGHT" ) end
+
+    LabeledSlider.super.setExpand( self, expand )
+end
+
+function LabeledSlider:setWidth( width )
+    local expectedWidth = calcFinalSize( self )
+
+    -- Adjust slider width to fit
+    if expectedWidth ~= width then
+        local slider = self:getSlider()
+        if not slider then LabeledSlider.super.setWidth( self, width ) return end -- Setup is not complete, allow width.
+
+        local expectedWdithNonSlider = expectedWidth - slider:getWidth()
+        local newSliderWidth = width - expectedWdithNonSlider
+        if newSliderWidth <= slider:getButtonRadius() * 2 then return end -- Don't allow slider width to be too small.
+
+        self:setSliderWidth( newSliderWidth )
+
+        return
+    end
+
+    LabeledSlider.super.setWidth( self, width )
+end
+
+function LabeledSlider:setHeight( height )
+    local _, expectedHeight = calcFinalSize( self )
+    if height ~= expectedHeight then return end
+
+    LabeledSlider.super.setHeight( self, height )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+calcFinalSize = function( labeledSlider )
+    local label = labeledSlider:getLabel()
+    local slider = labeledSlider:getSlider()
+    if not label or not slider then return labeledSlider:getSize() end
+
+    local labelWidth, labelHeight = label:getSizeToFitText()
+    local labelMarginLeft, labelMarginTop, labelMarginRight, labelMarginBottom = label:getMargin()
+    labelWidth = labelWidth + labelMarginLeft + labelMarginRight
+    labelHeight = labelHeight + labelMarginTop + labelMarginBottom
+
+    --local sliderWidth, sliderHeight = slider:getSize()
+    local sliderWidth = labeledSlider:getSliderWidth()
+    local sliderHeight = slider:getHeight()
+    local sliderMarginLeft, sliderMarginTop, sliderMarginRight, sliderMarginBottom = slider:getMargin()
+    sliderWidth = sliderWidth + sliderMarginLeft + sliderMarginRight
+    sliderHeight = sliderHeight + sliderMarginTop + sliderMarginBottom
+
+    local width = labelWidth + sliderWidth
+    local height = mathMax( labelHeight, sliderHeight )
+
+    return width, height
+end
+
+
+----- SETUP -----
+

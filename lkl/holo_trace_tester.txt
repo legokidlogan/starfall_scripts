@@ -1,0 +1,210 @@
+--@name Holo Trace Tester
+--@author legokidlogan
+--@shared
+--@include lkl/holo_trace.txt
+--@include lkl/targeted_input.txt
+--@include lkl/key_globalizer.txt
+--@include lkl/gcolors.txt
+
+----- VERY OLD -----
+
+
+projectNameID = "HoloTraceTester"
+printName = "[" .. projectNameID .. "]"
+
+require( "lkl/gcolors.txt" )
+require( "lkl/holo_trace.txt" )
+require( "lkl/targeted_input.txt" )
+require( "lkl/key_globalizer.txt" )
+
+
+local function testHoloTrace( traceArgs, nonHoloTraceArgs, hidePrint )
+    local traceResult, nonHoloTraceResult, isHoloTraceVisible = holoTrace( traceArgs, nonHoloTraceArgs )
+
+    if hidePrint then return traceResult, nonHoloTraceResult, isHoloTraceVisible end
+
+    print(
+        c_white, "\n" .. printName .. " ",
+        c_info_blue, "Trace Test:",
+            c_info_blue, "\n  - ",
+            c_arg_req, "traceArgs: ",
+                c_white, table.toString( traceArgs, "  ", true ),
+            c_info_blue, "\n  - ",
+            c_arg_opt, "nonHoloTraceArgs: ",
+                c_white, table.toString( nonHoloTraceArgs or {}, "  ", true ),
+
+            c_info_blue, "\n  - ",
+            c_pale_yellow, "traceResult: ",
+                c_white, table.toString( traceResult, "  ", true ),
+
+            c_info_blue, "\n  - ",
+            c_pale_yellow, "nonHoloTraceResult: ",
+                c_white, table.toString( nonHoloTraceResult or {}, "  ", true ),
+
+            c_info_blue, "\n  - ",
+            c_pale_yellow, "isHoloTraceVisible: ",
+                isHoloTraceVisible and c_pale_green or c_pale_red, tostring( isHoloTraceVisible ),
+        c_white, "\n"
+    )
+
+    return traceResult, nonHoloTraceResult, isHoloTraceVisible
+end
+
+local function blinkHolo( holo, duration, blinkColor )
+    if not isValid( holo ) then return end
+
+    local originalColor = holo.HTT_OriginalColor or holo:getColor()
+    holo.HTT_OriginalColor = originalColor
+
+    local blinker
+    local hasAccess = pcall( function()
+        holo:setColor( blinkColor )
+    end )
+
+    if not hasAccess then
+        blinker = holograms.create( holo:getPos(), holo:getAngles(), holo:getModel() )
+        blinker:setSize( holo:obbSize() * 1.1 )
+        blinker:setMaterial( holo:getMaterial() )
+        blinker:setColor( blinkColor )
+    end
+
+    timer.simple( duration, function()
+        if isValid( blinker ) then
+            blinker:remove()
+        end
+
+        if not hasAccess or not isValid( holo ) then return end
+
+        holo:setColor( originalColor )
+    end )
+end
+
+
+if SERVER then
+    local ownerOwnly = false
+    local hideBigPrint = true
+    local traceRange = 500
+    local blinkDuration = 0.5
+    local blinkColor = Color( 0, 255, 0 )
+    local holoSpawnRadius = 100
+    local holoSpawnHeight = 100
+    local holoSpawnCount = 10
+    local holoColor = Color( 255, 0, 0 )
+    local holoScale = Vector( 1, 2, 3 )
+
+    local targetHolos = {}
+    local holos = {}
+
+    local tableInsert = table.insert
+
+    inputNames = inputNames or {}
+    inputTypes = inputTypes or {}
+
+    outputNames = outputNames or {}
+    outputTypes = outputTypes or {}
+
+    tableInsert( inputNames, "TargetHolos" )
+    tableInsert( inputTypes, "ARRAY" )
+
+    tableInsert( outputNames, "Holos" )
+    tableInsert( outputTypes, "ARRAY" )
+
+    wire.adjustInputs( inputNames, inputTypes )
+    wire.adjustOutputs( outputNames, outputTypes )
+
+
+    local function randAng()
+        return Angle( math.rand( -180, 180 ), math.rand( -180, 180 ), math.rand( -180, 180 ) )
+    end
+
+    local function randDir()
+        return randAng():getForward()
+    end
+
+    local function makeTestHolo( pos, ang, model, material, color, scale, size )
+        local holo = holograms.create( pos, ang, model or "models/hunter/blocks/cube025x025x025.mdl", scale )
+        holo:setMaterial( material or "models/debug/debugwhite" )
+        holo:setColor( color or Color( 255, 255, 255 ) )
+
+        if size then
+            holo:setSize( size )
+        end
+
+        tableInsert( holos, holo )
+
+        timer.create( "UpdateWireOutput", 1, 1, function()
+            wire.ports.Holos = holos
+        end )
+    end
+
+    local function wireInput( name, value )
+        if name == "TargetHolos" then
+            targetHolos = value or {}
+        end
+    end
+
+
+    local buttonFuncs = {
+        [KEY_E] = function( ply, key, state )
+            if not state then return end
+
+            local startPos = ply:getEyePos()
+            local endDir = ply:getEyeAngles():getForward()
+
+            local traceResult, nonHoloTraceResult, isHoloTraceVisible = testHoloTrace(
+                {
+                    StartPos = startPos,
+                    EndDir = endDir,
+                    Length = traceRange,
+                    Whitelist = targetHolos,
+                },
+                --{
+                nil and {
+
+                },
+                hideBigPrint
+            )
+
+            if not traceResult.Hit then return end
+
+            local holo = traceResult.Entity
+            if not isValid( holo ) then return end
+
+            blinkHolo( holo, blinkDuration, blinkColor )
+        end,
+    }
+
+    tiSetTargets( ownerOwnly and owner() or find.allPlayers() )
+    tiSetTargetButtons( table.getKeys( buttonFuncs ) )
+
+    local function keyClk( ply, key, state )
+        ( buttonFuncs[key] or function() end )( ply, key, state )
+    end
+
+
+    hook.add( "input", "LKL_HoloTraceTester_WireInput", wireInput )
+
+    hook.add( "LKL_TargetedInput_InputClk", "LKL_HoloTraceTester_KeyClk", keyClk )
+
+
+    timer.simple( 1, function()
+        for _ = 1, holoSpawnCount do
+            local pos = chip():localToWorld( Vector( 0, 0, holoSpawnHeight ) + randDir() * holoSpawnRadius )
+
+            makeTestHolo( pos, randAng(), nil, nil, holoColor, holoScale )
+        end
+    end )
+else
+
+end
+
+
+
+
+
+
+
+
+
+
+

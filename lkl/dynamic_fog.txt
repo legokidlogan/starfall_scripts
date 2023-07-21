@@ -1,0 +1,425 @@
+--@name Dynamic Fog
+--@author legokidlogan
+--@shared
+--@include lkl/cl_check_permissions.txt
+
+if SERVER then
+    local lights = {}
+    local lightStrengths = {}
+    local connectedPlys = {}
+
+    local function skyFilter( ent )
+        if isValid( ent ) or ent ~= game.getWorld() then return false end
+        return true
+    end
+
+    wire.adjustInputs( { "Lights", "LightStrengths", "Disconnect" }, { "ARRAY", "ARRAY", "ENTITY" } )
+
+    hook.add( "input", "LKL_DFog_InputChanged", function( name, value )
+        if name == "Lights" then
+            lights = value or {}
+
+            net.start( "LKL_DFog_DefineLights" )
+            net.writeTable( lights )
+            net.send( find.allPlayers() )
+        elseif name == "LightStrengths" then
+            lightStrengths = value or {}
+
+            net.start( "LKL_DFog_DefineLightStrengths" )
+            net.writeTable( lightStrengths )
+            net.send( find.allPlayers() )
+        elseif name == "Disconnect" then
+            if isValid( value ) and connectedPlys[ value ] then
+                net.start( "LKL_DFog_ForceDisconnect" )
+                net.send( value )
+            end
+        end
+    end )
+
+    hook.add( "PlayerSay", "LKL_DFog_PlayerSay", function( ply, msg )
+        if ply ~= owner() then return end
+
+        local LS = string.explode( " ", msg )
+
+        if LS[1] ~= "/fog" then return end
+
+        local command = LS[2]
+
+        if command == "players" or command == "users" or command == "p" or command == "u" then
+            local plyCount = table.count( connectedPlys )
+            plyCount = plyCount > 0 and plyCount
+
+            local out = plyCount and {
+                Color( 255, 255, 255 ), "[Dynamic Fog] The players currently in the fog are ",
+            } or {
+                Color( 255, 255, 255 ), "[Dynamic Fog] ",
+                Color( 255, 150, 150 ), "No one is in the fog!"
+            }
+
+            if plyCount then
+                local indBase = 2
+
+                for cPly, plyData in pairs( connectedPlys ) do
+                    plyData = plyData or {
+                        "An unkown player",
+                        Color( 152, 212, 255 ),
+                    }
+
+                    rawset( out, indBase + 1, rawget( plyData, 2 ) )
+                    rawset( out, indBase + 2, rawget( plyData, 1 ) )
+                    rawset( out, indBase + 3, Color( 255, 255, 255 ) )
+                    rawset( out, indBase + 4, ", " )
+
+                    indBase = indBase + 4
+                end
+
+                indBase = ( plyCount - 1 ) * 4 + 2
+
+                rawset( out, indBase + 4, "." )
+
+                if plyCount > 1 then
+                    rawset( out, indBase, plyCount == 2 and " and " or ", and " )
+                end
+            end
+
+            print( unpack( out ) )
+        else
+            print(
+                Color( 255, 255, 255 ), "[Dynamic Fog] ",
+                Color( 255, 0, 0 ), "That is not a valid command! ",
+                Color( 255, 255, 255 ), "The available commands are ",
+                Color( 255, 255, 0 ), "users",
+                Color( 255, 255, 255 ),"."
+            )
+        end
+
+        return ""
+    end )
+
+    net.receive( "LKL_DFog_HUDChange", function( _, ply )
+        local valid = isValid( ply )
+        local state = net.readBool()
+
+        local plyName = valid and ply:getName() or "An unkown player"
+        local plyColor = valid and team.getColor( ply:getTeam() ) or Color( 152, 212, 255 )
+        local stateStr = state and " has entered the fog." or " has left the fog."
+        local stateColor = state and Color( 150, 255, 150 ) or Color( 255, 150, 150 )
+
+        if valid then
+            rawset( connectedPlys, ply, state and { plyName, plyColor } or nil )
+        else
+            if state then
+                if ply then
+                    local plyData = rawget( connectedPlys, ply )
+
+                    if plyData then
+                        plyName = rawget( plyData, 1 )
+                        plyColor = rawget( plyData, 2 )
+                    else
+                        rawset( connectedPlys, ply, { plyName, plyColor } )
+                    end
+                end
+            else
+                if ply then
+                    local plyData = rawget( connectedPlys, ply )
+
+                    if plyData then
+                        plyName = rawget( plyData, 1 )
+                        plyColor = rawget( plyData, 2 )
+                    end
+                end
+
+                for i = 1, #connectedPlys do
+                    if not isValid( rawget( connectedPlys, i ) ) then
+                        rawset( connectedPlys, i, nil )
+                    end
+                end
+            end
+        end
+
+        print(
+            Color( 255, 255, 255 ), "[Dynamic Fog] ",
+            plyColor, plyName,
+            stateColor, stateStr
+        )
+    end )
+
+    timer.simple( 1, function()
+        lights = wire.ports.Lights or {}
+        lightStrengths = wire.ports.LightStrengths or {}
+
+        net.start( "LKL_DFog_DefineLights" )
+        net.writeTable( lights )
+        net.send( find.allPlayers() )
+
+        net.start( "LKL_DFog_DefineLightStrengths" )
+        net.writeTable( lightStrengths )
+        net.send( find.allPlayers() )
+
+        local skyCenter = find.byClass( "sky_camera" )[1]:getPos()
+        local skyEdgeX1 = trace.trace( skyCenter, skyCenter + Vector( 1, 0, 0 ) * 100000, skyFilter ).HitPos
+        local skyEdgeX2 = trace.trace( skyCenter, skyCenter + Vector( -1, 0, 0 ) * 100000, skyFilter ).HitPos
+        local skyEdgeY1 = trace.trace( skyCenter, skyCenter + Vector( 0, 1, 0 ) * 100000, skyFilter ).HitPos
+        local skyEdgeY2 = trace.trace( skyCenter, skyCenter + Vector( 0, -1, 0 ) * 100000, skyFilter ).HitPos
+        local skyEdgeZ1 = trace.trace( skyCenter, skyCenter + Vector( 0, 0, 1 ) * 100000, skyFilter ).HitPos
+        local skyEdgeZ2 = trace.trace( skyCenter, skyCenter + Vector( 0, 0, -1 ) * 100000, skyFilter ).HitPos
+
+        local skyInvSize = skyEdgeX2 - skyEdgeX1 + skyEdgeY2 - skyEdgeY1 + skyEdgeZ2 - skyEdgeZ1
+        skyInvSize = skyInvSize + Vector( 1, 1, 1 ) * 50
+
+        net.start( "LKL_DFog_DefineSky" )
+        net.writeVector( skyCenter )
+        net.writeVector( skyInvSize )
+        net.send( find.allPlayers() )
+    end )
+else
+    local fogStartMult = -100
+    local fogEnd = 200
+    local fogEnd = 700
+    local fogEndLightMult = 200
+    local fogStartLightMult = 0.0001
+    local fogEndMin = 1
+    local fogStartMin = -70
+    local fogDensity = 1.999
+    local fogColor = Color( 0, 0, 0 )
+    local lightUpdateRate = 0.05
+    local lightUpdateRateHeavy = 1
+    local lightBaseStrength = 150
+    local realLightBrightness = 4
+    local realLightDistMult = 4
+    local createRealLights = true
+
+    local lights = {}
+    local lightStrengths = {}
+    local lightStrengthsSqr = {}
+    local realLights = {}
+    local lightCount = 0
+    local fogEndLight = 0
+    local fogStartLight = 0
+    local skyCenter
+    local skyInvSize
+    local connected
+
+    local skyHolo
+
+    permissions = {
+        "light.create",
+        "hologram.create",
+    }
+
+    permissionSatisfied = false
+    permissionRequestSent = false
+    checkPermissions = false
+
+    setupPermissionRequest( permissions, "See the glow of lights within the fog", true )
+
+    require( "lkl/cl_check_permissions.txt" )
+
+    checkPermissions()
+
+
+    local function renderFog( scale )
+        scale = scale or 1
+
+        local effectiveFogEnd = ( fogEnd + fogEndLight ) * scale
+
+        render.setFogColor( fogColor )
+        render.setFogStart( effectiveFogEnd * ( fogStartMult + fogStartLight ) )
+        --render.setFogStart( fogEnd * fogStartMult * scale )
+        render.setFogEnd( effectiveFogEnd )
+        render.setFogDensity( fogDensity )
+    end
+
+    local function createLights()
+        if not permissionSatisfied then return end
+
+        for i = 1, math.max( lightCount - #realLights, 0 ) do
+            table.insert( realLights, light.create( Vector( 0, 0, 0 ), 0, 0, Color( 0, 0, 0 ) ) )
+        end
+    end
+
+    local function createSkyHolo()
+        if not permissionSatisfied or not skyCenter then return end
+        if isValid( skyHolo ) then return end
+
+        skyHolo = holograms.create( skyCenter, Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1, 1, 1 ) )
+        skyHolo:setColor( fogColor )
+        --skyHolo:setSize( Vector( 1, 1, 1 ) * -1000 )
+        skyHolo:setSize( skyInvSize )
+        skyHolo:suppressEngineLighting( true )
+        skyHolo:setNoDraw( not connected )
+    end
+
+    --[[
+    local function HUDChange( state )
+        permissionSatisfied = hasPermission( "light.create" )
+
+        if permissionSatisfied then
+            net.start( "LKL_DFog_HUDChange" )
+            net.writeBool( state )
+            net.send()
+        else
+            sendPermissionRequest()
+        end
+    end
+
+    if render.isHUDActive() then
+        HUDChange( true )
+    end
+    --]]
+
+    --
+    local function HUDChange( state )
+        connected = state
+
+        timer.simple( 0.1, function()
+            createSkyHolo()
+        end )
+
+        if isValid( skyHolo ) then
+            skyHolo:setNoDraw( not connected )
+        end
+
+        if permissionSatisfied then
+            net.start( "LKL_DFog_HUDChange" )
+            net.writeBool( state )
+            net.send()
+        end
+    end
+
+    if render.isHUDActive() then
+        HUDChange( true )
+    end
+    --]]
+
+    hook.add( "setupworldfog", "LKL_DFog_RenderFog", renderFog )
+
+    hook.add( "setupskyboxfog", "LKL_DFog_RenderSkyboxFox", renderFog )
+
+    --
+    hook.add( "hudconnected", "LKL_DFog_HUDConnect", function()
+        HUDChange( true )
+    end )
+
+    hook.add( "huddisconnected", "LKL_DFog_HUDConnect", function()
+        HUDChange( false )
+    end )
+
+    --[[
+    hook.add( "permissionrequest", "LKL_DFog_PermissionRequest", function()
+        permissionSatisfied = hasPermission( "light.create" )
+
+        if not permissionSatisfied then
+            enableHud( player(), false )
+        end
+    end )
+    --]]
+
+    hook.add( "think", "LKL_DFog_DrawLights", function()
+        if not permissionSatisfied then return end
+
+        for i = 1, lightCount do
+            if rawget( lightStrengthsSqr, i ) > 0 then
+                local realLight = rawget( realLights, i )
+
+                pcall( function()
+                    realLight:draw()
+                end )
+            end
+        end
+    end )
+
+    hook.add( "postdrawopaquerenderables", "LKL_DFog_ColorSkybox", function( _, skybox )
+        if not permissionSatisfied or not isValid( skyHolo ) then return end
+
+        if skybox then
+            --skyHolo:draw()
+        end
+
+        --skyHolo:setNoDraw( not skybox )
+    end )
+
+
+    net.receive( "LKL_DFog_DefineLights", function()
+        lights = net.readTable()
+        lightCount = math.min( #lights, #lightStrengthsSqr )
+
+        createLights()
+    end )
+
+    net.receive( "LKL_DFog_DefineLightStrengths", function()
+        lightStrengths = net.readTable()
+        lightStrengthsSqr = {}
+
+        local count = #lightStrengths
+
+        for i = 1, count do
+            local lightStrength = rawget( lightStrengths, i )
+            rawset( lightStrengthsSqr, i, math.sign( lightStrength ) * lightStrength * lightStrength )
+        end
+
+        lightCount = math.min( #lights, count )
+
+        createLights()
+    end )
+
+    net.receive( "LKL_DFog_ForceDisconnect", function()
+        enableHud( player(), false )
+    end )
+
+    net.receive( "LKL_DFog_DefineSky", function()
+        skyCenter = net.readVector()
+        skyInvSize = net.readVector()
+
+        createSkyHolo()
+    end )
+
+    timer.create( "LKL_DFog_AnalyzeLights", lightUpdateRate, 0, function()
+        local lightLevel = 0
+        local eyePos = eyePos()
+
+        for i = 1, lightCount do
+            local lightEnt = rawget( lights, i )
+
+            if isValid( lightEnt ) then
+                local lightPos = lightEnt:getPos()
+                local lightStrengthSqr = rawget( lightStrengthsSqr, i )
+                local lightStrength = math.abs( rawget( lightStrengths, i ) )
+
+                lightLevel = lightLevel + math.clamp( lightStrengthSqr / math.max( eyePos:getDistanceSqr( lightPos ), 1 ), -1.5, 1.5 ) * lightStrength / lightBaseStrength
+
+                if lightStrengthSqr > 0 then
+                    rawget( realLights, i ):setPos( lightPos )
+                end
+            end
+        end
+
+        lightLevel = math.clamp( lightLevel, -20, 200 )
+
+        fogEndLight = math.max( lightLevel * fogEndLightMult, fogEndMin - fogEnd )
+        --fogStartLight = lightLevel * fogStartLightMult
+        --fogStartLight = fogStartLightMult * fogEndLight / fogEndLightMult
+        fogStartLight = math.min( lightLevel * fogStartLightMult, fogStartMin - fogStartMult )
+    end )
+
+    timer.create( "LKL_DFog_AdjustLights", lightUpdateRateHeavy, 0, function()
+        if not permissionSatisfied then return end
+
+        local hudActive = render.isHUDActive()
+
+        for i = 1, lightCount do
+            local lightEnt = rawget( lights, i )
+            local realLight = rawget( realLights, i )
+            local lightStrength = rawget( lightStrengths, i )
+
+            if hudActive and isValid( lightEnt ) and lightStrength > 0 then
+                realLight:setColor( lightEnt:getColor() )
+                realLight:setSize( lightStrength * realLightDistMult )
+                realLight:setBrightness( realLightBrightness )
+            else
+                realLight:setBrightness( 0 )
+                realLight:setSize( 0 )
+            end
+        end
+    end )
+end

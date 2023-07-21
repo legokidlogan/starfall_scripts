@@ -1,0 +1,268 @@
+--@name RHText
+--@author legokidlogan
+--@client
+--@include lkl/htext.txt
+--@include lkl/queue.txt
+--@include lkl/easy_bass.txt
+
+if RHText then return end -- Don't run twice
+
+require( "lkl/htext.txt" )
+require( "lkl/queue.txt" )
+require( "lkl/easy_bass.txt" )
+
+
+RHText = class( "RHText", HText )
+
+
+----- STATIC FUNCTIONS -----
+
+function RHText:initialize( width, height, posX, posY, fontParams, ... )
+    local selfObj = self
+
+    self._revealQueue = Queue:new(
+        function( _, entry )
+            selfObj:addText( entry )
+            selfObj:onRevealCharacter( entry.TextStr, entry.Color, entry.FontParams )
+            selfObj:_playRevealSound( entry.TextStr )
+        end,
+        function( _ )
+            selfObj:onRevealComplete()
+            selfObj:_playRevealCompleteSound()
+        end,
+        nil,
+        nil,
+        1
+    )
+
+    HText.initialize( self, width, height, posX, posY, fontParams, ... )
+    self:setInterval( 0.1 )
+    self:setSilentWithoutHUD( true )
+end
+
+----- INSTANCE FUNCTIONS -----
+
+function RHText:destroy()
+    self._revealQueue:destroy()
+
+    HText.destroy( self )
+end
+
+function RHText:setInterval( interval )
+    if type( interval ) ~= "number" then error( "interval must be a number" ) end
+    if interval < 0 then error( "interval must be >= 0" ) end
+
+    self._interval = interval
+    self._revealQueue:setInterval( interval )
+end
+
+function RHText:getInterval()
+    return self._interval
+end
+
+-- If true, will not play sounds if the player isn't connected to a starfall HUD.
+function RHText:setSilentWithoutHUD( state )
+    if type( state ) ~= "boolean" then error( "state must be a boolean" ) end
+
+    self._silentWithoutHUD = state
+end
+
+function RHText:getSilentWithoutHUD()
+    return self._silentWithoutHUD
+end
+
+-- Shortcut for clearing to-be-revealed text and stopping the reveal queue.
+function RHText:clearRevealText()
+    self._revealQueue:setEntries()
+    self._revealQueue:stop()
+end
+
+-- Sets the text that's yet to be revealed.
+-- Currently-displayed text will not be affected.
+function RHText:setRevealText( ... )
+    if #{ ... } == 0 then
+        self._revealQueue:setEntries()
+
+        return
+    end
+
+    local sections = HText.getSplitTextArgs( ... )
+
+    self._revealQueue:setEntries( sections )
+end
+
+-- Appends to the text that's yet to be revealed.
+function RHText:addRevealText( ... )
+    local sections = HText.getSplitTextArgs( ... )
+
+    self._revealQueue:addEntries( sections )
+end
+
+-- Starts/resumes revealing text. Analogous to Queue:start().
+function RHText:start()
+    self._revealQueue:start()
+end
+
+-- Stops revealing text. Analogous to Queue:stop().
+function RHText:stop()
+    self._revealQueue:stop()
+end
+
+-- Pauses revealing text. Analogous to Queue:pause().
+function RHText:pause( duration )
+    self._revealQueue:pause( duration )
+end
+
+--[[
+    -- Sound to play when a character is revealed.
+
+    soundProperties: (table or nil)
+        - A table with the following fields:
+            Path: STRING  or  function( char ) return STRING_path, BOOLEAN_isURL end
+            IsURL: BOOLEAN   (default false)
+            Volume: NUMBER 0-10  or  function( char ) return NUMBER end   (default 1)
+            Pitch: NUMBER 0-100  or  function( char ) return NUMBER end   (default 1)
+            FadeIn: NUMBER >= 0 or  function( char ) return NUMBER end   (default 0)
+            FadeOut: NUMBER >= 0 or  function( char ) return NUMBER end   (default 0) (disabled if Duration == 0)
+            Duration: NUMBER >= 0 or  function( char ) return NUMBER end   (default 0) (will play the full sound once if 0)
+            Target: ENTITY   (default player())
+        - If nil, removes the reveal sound.
+    callback: (optional) (function)
+        - A function of the form  function( bassObj, char )  that will be called when the sound has been played.
+--]]
+function RHText:setRevealSound( soundProperties, callback )
+    if not soundProperties then
+        self._revealSoundProperties = nil
+
+        return
+    end
+
+    local path = soundProperties.Path
+    if type( path ) ~= "string" and type( path ) ~= "function" then error( "soundProperties.Path must be a string or function" ) end
+
+    self._revealSoundProperties = soundProperties
+    self._revealSoundCallback = callback
+end
+
+--[[
+    -- Sound to play when the text is fully revealed.
+
+    soundProperties: (table or nil)
+        - A table with the following fields:
+            Path: STRING  or  function() return STRING_path, BOOLEAN_isURL end
+            IsURL: BOOLEAN   (default false)
+            Volume: NUMBER 0-10  or  function() return NUMBER end   (default 1)
+            Pitch: NUMBER 0-100  or  function() return NUMBER end   (default 1)
+            FadeIn: NUMBER >= 0 or  function() return NUMBER end   (default 0)
+            FadeOut: NUMBER >= 0 or  function() return NUMBER end   (default 0) (disabled if Duration == 0)
+            Duration: NUMBER >= 0 or  function() return NUMBER end   (default 0) (will play the full sound once if 0)
+            Target: ENTITY   (default player())
+        - If nil, removes the reveal completion sound.
+    callback: (optional) (function)
+        - A function of the form  function( bassObj )  that will be called when the sound has been played.
+--]]
+function RHText:setRevealCompleteSound( soundProperties, callback )
+    if not soundProperties then
+        self._revealCompleteSoundProperties = nil
+
+        return
+    end
+
+    local path = soundProperties.Path
+    if type( path ) ~= "string" and type( path ) ~= "function" then error( "soundProperties.Path must be a string or function" ) end
+
+    self._revealCompleteSoundProperties = soundProperties
+    self._revealSoundCallback = callback
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function RHText:onRevealCharacter( char, color, fontParams )
+    -- Override this to do something when a character is revealed.
+end
+
+function RHText:onRevealComplete()
+    -- Override this to do something when the text is fully revealed.
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+local function softCheckPerms()
+    if permissionSatisfied ~= nil then return permissionSatisfied end
+    if permissionsSatisfied ~= nil then return permissionsSatisfied end
+
+    return true
+end
+
+function RHText:_playSound( soundProperties, callback, ... )
+    if not soundProperties then return end
+    if self:getSilentWithoutHUD() and not render.isHUDActive() then return end
+    if bass.soundsLeft() == 0 then return end
+    if not softCheckPerms() then return end
+
+    local path = soundProperties.Path
+    local isURL = soundProperties.IsURL
+    local volume = soundProperties.Volume
+    local pitch = soundProperties.Pitch
+    local fadeIn = soundProperties.FadeIn
+    local fadeOut = soundProperties.FadeOut
+    local duration = soundProperties.Duration
+    local target = soundProperties.Target or player()
+    local args = { ... }
+
+    if type( path ) == "function" then
+        path, isURL = path( unpack( args ) )
+    end
+
+    if type( volume ) == "function" then
+        volume = volume( unpack( args ) )
+    end
+
+    if type( pitch ) == "function" then
+        pitch = pitch( unpack( args ) )
+    end
+
+    if type( fadeIn ) == "function" then
+        fadeIn = fadeIn( unpack( args ) )
+    end
+
+    if type( fadeOut ) == "function" then
+        fadeOut = fadeOut( unpack( args ) )
+    end
+
+    if type( duration ) == "function" then
+        duration = duration( unpack( args ) )
+    end
+
+    callback = callback or function() end
+
+    local loadFunc = isURL and easyBass.loadURL or easyBass.loadFile
+    loadFunc(
+        path,
+        {
+            Flags = "3d stereo noblock noplay",
+            Volume = volume,
+            FadeStart = 700,
+            FadeEnd = 2000,
+            FadeIn = fadeIn,
+            FadeOut = fadeOut,
+            Duration = duration,
+            Target = target,
+            Loop = false,
+            DestroyWhenDone = true,
+        },
+        function( x )
+            callback( x, unpack( args ) )
+        end
+    )
+end
+
+function RHText:_playRevealSound( char )
+    return self:_playSound( self._revealSoundProperties, self._revealSoundCallback, char )
+end
+
+function RHText:_playRevealCompleteSound()
+    return self:_playSound( self._revealCompleteSoundProperties, self._revealCompleteSoundCallback )
+end
