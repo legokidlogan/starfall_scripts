@@ -1,8 +1,9 @@
 --@name Panel
 --@author legokidlogan
 --@client
---@include lkl/middleclass_extras.txt
 --@include lkl/sgui/base.txt
+--@include lkl/middleclass_extras.txt
+--@include lkl/destroyable.txt
 
 --[[
     - SGUI.Panel
@@ -47,9 +48,10 @@ require( "lkl/sgui/base.txt" )
 if SGUI.Panel then return end -- Don't run twice
 
 require( "lkl/middleclass_extras.txt" )
+require( "lkl/destroyable.txt" )
 
 
-SGUI.Panel = class( "Panel" )
+SGUI.Panel = class( "Panel", Destroyable )
 
 --[[
     - Whether or not to cache ColorScheme colors for optimization.
@@ -87,14 +89,8 @@ local boundaryStacksEffMinX = 0
 local boundaryStacksEffMinY = 0
 local boundaryStacksEffMaxX = 0
 local boundaryStacksEffMaxY = 0
-local unremovableFuncs = {
-    __tostring = true,
-    isInstanceOf = true,
-    isValid = true,
-}
 local isPointWithinBounds
 local mouseClk
-local destroyedFunc
 local panelIsCRC
 local setCachedColor
 local getCachedColor
@@ -320,35 +316,6 @@ end
 
 
 ----- INSTANCE FUNCTIONS -----
-
-function Panel:isValid()
-    return true
-end
-
--- Destroys the Panel and its children.
-function Panel:destroy()
-    self:onDestroyed()
-    self:setParent()
-
-    local children = self:getChildren()
-
-    for i = #children, 1, -1 do
-        children[i]:destroy()
-    end
-
-    tableRemoveByValue( allPanels, self )
-    tableRemoveByValue( parentlessPanels, self )
-
-    for funcName in pairs( self.class.__declaredMethods ) do
-        if not unremovableFuncs[funcName] then
-            self[funcName] = destroyedFunc
-        end
-    end
-
-    function self:isValid()
-        return false
-    end
-end
 
 -- Invalidate the Panel's layout, causing it to be recalculated next time it's needed.
 function Panel:invalidateLayout()
@@ -664,7 +631,7 @@ end
     - Expanding Panels will not impede the expansion of their siblings.
     - Expanding Panels are calculated after their docked siblings.
     - Values are EXPAND_NONE, EXPAND_WIDTH, or EXPAND_HEIGHT.
-    - Behavior will become unreliable if there's a sibling Panel with DOCK_FILL, or enough docked panels to reach past the center of the parent. 
+    - Behavior will become unreliable if there's a sibling Panel with DOCK_FILL, or enough docked panels to reach past the center of the parent.
     - If expand ~= EXPAND_NONE and the Panel is using :setDock(), the dock will automatically be disabled first.
     - A Panel can be both expanded and anchored at the same time.
         - However, doing so will have effectively the same result as using DOCK (besides multi-dock interaction) unless you're anchoring to the center.
@@ -1734,11 +1701,6 @@ function Panel:think()
 
 end
 
--- Called when the Panel is destroyed.
-function Panel:onDestroyed()
-
-end
-
 -- Called when the mouse starts to hover over this Panel.
 function Panel:onMouseEntered()
 
@@ -1805,6 +1767,23 @@ end
 function Panel:rerouteChild( child )
     return self
 end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Panel:onDestroyed()
+    self:setParent()
+
+    local children = self:getChildren()
+
+    for i = #children, 1, -1 do
+        children[i]:destroy()
+    end
+
+    tableRemoveByValue( allPanels, self )
+    tableRemoveByValue( parentlessPanels, self )
+end
+
 
 ----- PRIVATE FUNCTIONS -----
 
@@ -2121,10 +2100,6 @@ mouseClk = function( key, state )
     end
 
     hook.run( "LKL_SGUI_MouseClk", state )
-end
-
-destroyedFunc = function( panel )
-    error( "Invalid " .. panel.class.name )
 end
 
 panelIsCRC = function( panel, chainPanel )

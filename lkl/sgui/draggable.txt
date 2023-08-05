@@ -238,6 +238,8 @@ end
 
 function Draggable:onDestroyed()
     unwrapDragTarget( self )
+
+    Draggable.super.onDestroyed( self )
 end
 
 
