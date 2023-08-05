@@ -1,0 +1,55 @@
+--@name Destroyable
+--@author legokidlogan
+--@shared
+
+--[[
+    - A super simple class that handles :isValid() and :destroy()
+    - Also calls :onDestroyed() right before destruction completes, which is for subclasses to implement.
+--]]
+
+if Destroyable then return end
+
+Destroyable = class( "Destroyable" )
+
+
+local unremovableFuncs = {
+    __tostring = true,
+    isInstanceOf = true,
+    isValid = true,
+}
+local destroyedFunc
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Destroyable:isValid()
+    return true
+end
+
+function Destroyable:destroy()
+    self:onDestroyed()
+
+    for funcName in pairs( self.class.__declaredMethods ) do
+        if not unremovableFuncs[funcName] then
+            self[funcName] = destroyedFunc
+        end
+    end
+
+    function self:isValid()
+        return false
+    end
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function Destroyable:onDestroyed()
+
+end
+
+
+----- SETUP -----
+
+destroyedFunc = function( obj )
+    error( "Invalid " .. obj.class.name )
+end
