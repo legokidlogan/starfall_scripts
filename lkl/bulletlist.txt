@@ -2,13 +2,15 @@
 --@author legokidlogan
 --@shared
 --@include lkl/middleclass_extras.txt
+--@include lkl/destroyable.txt
 
 
 if BulletList then return end -- Don't run twice
 
 require( "lkl/middleclass_extras.txt" )
+require( "lkl/destroyable.txt" )
 
-BulletList = class( "BulletList" )
+BulletList = class( "BulletList", Destroyable )
 
 
 local mFloor = math.floor
@@ -276,10 +278,6 @@ end
         - The new contents for the point.
 --]]
 function BulletList:setPointContents( index, contents )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     validateNewPointIndex( self, index )
 
     if isInstanceOf( contents, BulletList ) then
@@ -313,10 +311,6 @@ end
         - If given as nil, the subList will be removed.
 --]]
 function BulletList:setPointSubList( index, subList )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     validateNewPointIndex( self, index )
 
     if subList == true then
@@ -375,10 +369,6 @@ end
             - Will be nil if subList wasn't provided.
 --]]
 function BulletList:insertPoint( index, contents, subList )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     local pointCount = validateNewPointIndex( self, index )
 
     if index == pointCount + 1 then
@@ -413,10 +403,6 @@ end
             - Will be nil if subList wasn't provided.
 --]]
 function BulletList:addPoint( contents, subList )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     local pointCount = #self._points
     local newInd = pointCount + 1
 
@@ -438,10 +424,6 @@ end
             - The subList of the point.
 --]]
 function BulletList:getPoint( index )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     validatePointRemovalIndex( self, index )
 
     local point = self._points[index]
@@ -453,10 +435,6 @@ end
     - Gets the contents of a point in the BulletList.
 --]]
 function BulletList:getPointContents( index )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     validatePointRemovalIndex( self, index )
 
     local point = self._points[index]
@@ -468,10 +446,6 @@ end
     - Gets the pointList of a point in the BulletList.
 --]]
 function BulletList:getPointSubList( index )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     validatePointRemovalIndex( self, index )
 
     local point = self._points[index]
@@ -492,10 +466,6 @@ end
             - The subList of the removed point.
 --]]
 function BulletList:removePoint( index )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     local pointCount = validatePointRemovalIndex( self, index )
     local points = self._points
 
@@ -526,10 +496,6 @@ end
         - Defaults to self.pointCount + 1.
 --]]
 function BulletList:mergeIn( blist, index )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     if isCRC( self, blist ) then
         error( "Cannot merge a BulletList into itself" )
     end
@@ -607,10 +573,6 @@ end
             func( "Point 3", 0, 3, {} )
 --]]
 function BulletList:traverse( func, indentLevel, prevPointIndices )
-    if not isValid( self ) then
-        error( "Invalid BulletList" )
-    end
-
     if type( func ) ~= "function" then
         error( "func must be a function" )
     end
@@ -640,24 +602,8 @@ function BulletList:traverse( func, indentLevel, prevPointIndices )
     end
 end
 
---[[
-    - Destroyes a BulletList.
---]]
-function BulletList:destroy()
-    if not isValid( self ) then
-        error( "This BulletList has already been destroyed" )
-    end
 
-    self._points = nil
-
-    function self:isValid()
-        return false
-    end
-end
-
-function BulletList:isValid()
-    return true
-end
+----- META FUNCTIONS -----
 
 function BulletList:__add( other ) -- Adds item b to the end of the list a.
     if not isValid( self ) then
@@ -725,4 +671,11 @@ function BulletList:__tostring()
     end
 
     return customType .. " [" .. address .. "]"
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function BulletList:onDestroyed()
+    self._points = nil
 end

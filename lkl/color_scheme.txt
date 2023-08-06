@@ -3,6 +3,7 @@
 --@shared
 --@include lkl/gcolors.txt
 --@include lkl/middleclass_extras.txt
+--@include lkl/destroyable.txt
 
 --[[
     - A library for standardizing color schemes, such as for chat prints or HUD elements.
@@ -14,9 +15,10 @@ if ColorScheme then return end -- Don't run twice.
 
 require( "lkl/gcolors.txt" )
 require( "lkl/middleclass_extras.txt" )
+require( "lkl/destroyable.txt" )
 
 
-ColorScheme = class( "ColorScheme" )
+ColorScheme = class( "ColorScheme", Destroyable )
 
 ColorScheme.FALLBACK_COLOR = Color( 220, 30, 150, 255 ) -- The default fallback color for schemes. An obnoxious dark magenta to make it easy to tell that something's wrong.
 
@@ -194,10 +196,6 @@ end
                 - ex:  someColorScheme:getColor( "Player", fallbackColor, ply, extraInfo )  ==>  color( someColorScheme, ply, extraInfo )
 --]]
 function ColorScheme:addColorType( name, color )
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     if type( name ) ~= "string" then
         error( "name must be a string" )
     end
@@ -217,10 +215,6 @@ end
     - Removes a color from the color scheme.
 --]]
 function ColorScheme:removeColorType( name )
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     if type( name ) ~= "string" then
         error( "name must be a string" )
     end
@@ -242,10 +236,6 @@ end
         - ex: someColorScheme:getColor( "Player", nil, ply, extraInfo )  ==>  color( someColorScheme, ply, extraInfo )
 --]]
 function ColorScheme:getColor( name, fallbackColor, ... )
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     if type( name ) ~= "string" then
         error( "name must be a string" )
     end
@@ -345,10 +335,6 @@ end
             - Varargs are used because the color type may return multiple values if it is a function.
 --]]
 function ColorScheme:hasColor( name, ... )
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     if type( name ) ~= "string" then
         error( "name must be a string" )
     end
@@ -381,10 +367,6 @@ end
     - If false, completely removes the base color scheme.
 --]]
 function ColorScheme:setBase( baseScheme )
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     if baseScheme == false then
         self._baseScheme = nil
 
@@ -408,10 +390,6 @@ end
     - Gets the base color scheme.
 --]]
 function ColorScheme:getBase()
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     return self._baseScheme
 end
 
@@ -421,10 +399,6 @@ end
     - Removes the name if provided nil.
 --]]
 function ColorScheme:setName( name )
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     if name ~= nil and type( name ) ~= "string" then
         error( "name must be a string" )
     end
@@ -468,10 +442,6 @@ end
     - nil if unset.
 --]]
 function ColorScheme:getName()
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     return self._name
 end
 
@@ -479,10 +449,6 @@ end
     - Sets/removes the fallback color.
 --]]
 function ColorScheme:setFallbackColor( color )
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     if not color then
         self._fallbackColor = nil
 
@@ -501,21 +467,36 @@ end
     - ColorScheme.FALLBACK_COLOR if unset.
 --]]
 function ColorScheme:getFallbackColor()
-    if not isValid( self ) then
-        error( "Invalid ColorScheme" )
-    end
-
     return schemeGetFallbackColor( {}, self ) or ColorScheme.FALLBACK_COLOR
 end
 
---[[
-    - Destroys a color scheme and readjusts the bases of any schemes that used it.
---]]
-function ColorScheme:destroy()
+
+----- META FUNCTIONS -----
+
+function ColorScheme:__concat( other )
+    return tostring( self ) .. tostring( other )
+end
+
+function ColorScheme:__tostring()
+    local address = table.address( self )
+    local name = ( self.getName and self:getName() ) or self.name or self._name
+    local customType = self.class.name or self.__type
+
     if not isValid( self ) then
-        error( "This ColorScheme is already destroyed." )
+        customType = customType .. " (INVALID)"
     end
 
+    if type( name ) == "string" then
+        return customType .. " [" .. name .. "][" .. address .. "]"
+    end
+
+    return customType .. " [" .. address .. "]"
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ColorScheme:onDestroyed()
     if self == defaultScheme then
         error( "The default ColorScheme cannot be destroyed." )
     end
@@ -545,37 +526,10 @@ function ColorScheme:destroy()
     self._getColorCalls = nil
     self._fallbackColor = nil
     self._name = nil
-
-    self.isValid = function() return false end
-end
-
-function ColorScheme:isValid()
-    return true
-end
-
-function ColorScheme:__concat( other )
-    return tostring( self ) .. tostring( other )
-end
-
-function ColorScheme:__tostring()
-    local address = table.address( self )
-    local name = ( self.getName and self:getName() ) or self.name or self._name
-    local customType = self.class.name or self.__type
-
-    if not isValid( self ) then
-        customType = customType .. " (INVALID)"
-    end
-
-    if type( name ) == "string" then
-        return customType .. " [" .. name .. "][" .. address .. "]"
-    end
-
-    return customType .. " [" .. address .. "]"
 end
 
 
 ----- SETUP -----
-
 
 defaultScheme = ColorScheme:new( "Default", false, nil, {
     -- Type-based colors

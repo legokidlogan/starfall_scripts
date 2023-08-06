@@ -2,15 +2,17 @@
 --@author
 --@shared
 --@include lkl/middleclass_extras.txt
+--@include lkl/destroyable.txt
 --@include lkl/table_clone_deep.txt
 
 if Queue then return end
 
 require( "lkl/middleclass_extras.txt" )
+require( "lkl/destroyable.txt" )
 require( "lkl/table_clone_deep.txt" )
 
 
-Queue = class( "Queue" )
+Queue = class( "Queue", Destroyable )
 
 
 local allQueues = {}
@@ -98,36 +100,7 @@ end
 
 ----- INSTANCE FUNCTIONS -----
 
-function Queue:destroy()
-    if not isValid( self ) then
-        error( "This Queue is already destroyed." )
-    end
-
-    self._entryFunction = nil
-    self._onComplete = nil
-    self._entries = nil
-    self._interval = nil
-    self._batchSize = nil
-    self._perfLimit = nil
-    self._name = nil
-    self._running = false
-
-    tableRemoveByValue( allQueues, self )
-
-    function self:isValid()
-        return false
-    end
-end
-
-function Queue:isValid()
-    return true
-end
-
 function Queue:setEntryFunction( entryFunc )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if type( entryFunc ) ~= "function" then
         error( "entryFunc must be a function." )
     end
@@ -136,18 +109,10 @@ function Queue:setEntryFunction( entryFunc )
 end
 
 function Queue:getEntryFunction()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     return self._entryFunction
 end
 
 function Queue:setOnComplete( onComplete )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if onComplete == nil then
         self._onComplete = nil
 
@@ -163,20 +128,12 @@ end
 
 -- Note that this will return nil if no OnComplete function has been set.
 function Queue:getOnComplete()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     return self._onComplete
 end
 
 -- If nil, then entries will be emptied.
 -- If a table, entries will be set to a deep clone of it. The table must be numerically indexed.
 function Queue:setEntries( entries )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if entries == nil then
         self._entries = {}
 
@@ -192,10 +149,6 @@ end
 
 -- Returns the exact entries table. Modifying it will modify the queue.
 function Queue:getEntries()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     return self._entries
 end
 
@@ -209,10 +162,6 @@ function Queue:len()
 end
 
 function Queue:setInterval( interval )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if interval == nil then
         self._interval = 0.1
 
@@ -231,18 +180,10 @@ function Queue:setInterval( interval )
 end
 
 function Queue:getInterval()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     return self._interval
 end
 
 function Queue:setBatchSize( batchSize )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if batchSize == nil then
         self._batchSize = 0
 
@@ -261,18 +202,10 @@ function Queue:setBatchSize( batchSize )
 end
 
 function Queue:getBatchSize()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     return self._batchSize
 end
 
 function Queue:setPerfLimit( perfLimit )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if perfLimit == nil then
         self._perfLimit = 0.9
 
@@ -291,18 +224,10 @@ function Queue:setPerfLimit( perfLimit )
 end
 
 function Queue:getPerfLimit()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     return self._perfLimit
 end
 
 function Queue:setName( name )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if name == nil then
         self._name = nil
 
@@ -318,37 +243,21 @@ end
 
 -- Note that this may return nil if the name is not set.
 function Queue:getName()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     return self._name
 end
 
 function Queue:start()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     self._running = true
     self._nextBatchTime = timer.realtime()
 end
 
 function Queue:stop()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     self._running = false
 end
 
 -- Sets the next batch proccess time to the current time + duration.
 -- Does effectively nothing if the Queue is already stopped.
 function Queue:pause( duration )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if type( duration ) ~= "number" then
         error( "duration must be a number." )
     end
@@ -361,10 +270,6 @@ function Queue:pause( duration )
 end
 
 function Queue:isRunning()
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     return self._running
 end
 
@@ -378,10 +283,6 @@ end
         - Defaults to the end of the Queue (queue:len() + 1).
 --]]
 function Queue:addEntry( entry, index )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if entry == nil then
         error( "entry cannot be nil." )
     end
@@ -395,10 +296,6 @@ end
 
 -- Adds an entry to the Queue and starts the Queue if it is not already running.
 function Queue:addEntryAndStart( entry, index )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     self:addEntry( entry, index )
 
     if not self:isRunning() then
@@ -409,10 +306,6 @@ end
 -- Adds multiple entries to the Queue.
 -- entries must be a sequential table.
 function Queue:addEntries( entries, startIndex )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if type( entries ) ~= "table" then
         error( "entries must be a table." )
     end
@@ -428,10 +321,6 @@ end
 
 -- Adds multiple entries to the Queue and starts the Queue if it is not already running.
 function Queue:addEntriesAndStart( entries, startIndex )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     self:addEntries( entries, startIndex )
 
     if not self:isRunning() then
@@ -447,10 +336,6 @@ end
         - Defaults to the first entry (1).
 --]]
 function Queue:removeEntry( index )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     index = index or 1
 
     if type( index ) ~= "number" then
@@ -467,10 +352,6 @@ end
         - The value to search for and remove.
 --]]
 function Queue:removeEntryByValue( val )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     if val == nil then
         error( "val cannot be nil." )
     end
@@ -486,10 +367,6 @@ end
         - Defaults to the first entry (1).
 --]]
 function Queue:moveEntryToEnd( index )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     index = index or 1
 
     if type( index ) ~= "number" then
@@ -513,10 +390,6 @@ end
     - Will set the next batch time automatically, so be careful about calling this while the batch is paused.
 --]]
 function Queue:processBatch( batchSize )
-    if not isValid( self ) then
-        error( "Invalid Queue" )
-    end
-
     batchSize = batchSize or self:getBatchSize()
     batchSize = batchSize == 0 and math.huge or batchSize
     local now = timer.realtime()
@@ -557,6 +430,9 @@ function Queue:processBatch( batchSize )
     end
 end
 
+
+----- META FUNCTIONS -----
+
 function Queue:__concat( other )
     return tostring( self ) .. tostring( other )
 end
@@ -581,6 +457,24 @@ function Queue:__tostring()
     return customType .. " [" .. address .. "]"
 end
 
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Queue:onDestroyed()
+    self._entryFunction = nil
+    self._onComplete = nil
+    self._entries = nil
+    self._interval = nil
+    self._batchSize = nil
+    self._perfLimit = nil
+    self._name = nil
+    self._running = false
+
+    tableRemoveByValue( allQueues, self )
+end
+
+
+----- SETUP -----
 
 hook.add( "think", "LKL_QueueCreator_ProcessQueues", function()
     local now = timer.realtime()

@@ -2,15 +2,17 @@
 --@author legokidlogan
 --@client
 --@include lkl/middleclass_extras.txt
+--@include lkl/destroyable.txt
 --@include lkl/table_clone_deep.txt
 
 if HText then return end -- Don't run twice
 
 require( "lkl/middleclass_extras.txt" )
+require( "lkl/destroyable.txt" )
 require( "lkl/table_clone_deep.txt" )
 
 
-HText = class( "HText" )
+HText = class( "HText", Destroyable )
 c_white = c_white or Color( 255, 255, 255, 255 )
 
 TEXT_ALIGN_LEFT = TEXT_ALIGN.LEFT
@@ -119,6 +121,7 @@ local function hyphenateCutoff( splitA, splitB )
 
     return splitA, splitB
 end
+
 
 ----- STATIC FUNCTIONS -----
 
@@ -333,21 +336,10 @@ function HText.getSplitTextArgs( ... )
     return sectionsOut
 end
 
+
 ----- INSTANCE FUNCTIONS -----
 
-function HText:destroy()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
-    tableRemoveByValue( htexts, self )
-    self.isValid = function() return false end
-end
-
-function HText:isValid()
-    return true
-end
-
 function HText:setWidth( width )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if self._width == width then return end
     if type( width ) ~= "number" then error( "Expected width to be a number" ) end
     if width <= 0 then error( "Expected width to be greater than zero" ) end
@@ -357,13 +349,10 @@ function HText:setWidth( width )
 end
 
 function HText:getWidth()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._width
 end
 
 function HText:setHeight( height )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if self._height == height then return end
     if type( height ) ~= "number" then error( "Expected height to be a number" ) end
     if height <= 0 then error( "Expected height to be greater than zero" ) end
@@ -373,8 +362,6 @@ function HText:setHeight( height )
 end
 
 function HText:getHeight()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._height
 end
 
@@ -383,14 +370,11 @@ end
     - Since excess text will draw beyond the bottom of the HText, this can be used with :setHeight() to auto-size the HText.
 --]]
 function HText:getTextHeight()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._textHeight or 0
 end
 
 -- Makes the HText automatically adjust its height to fit the rendered text.
 function HText:setAutoHeight( state )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
 
     self._useAutoHeight = state
@@ -402,7 +386,6 @@ end
 
 -- If setAutoHeight() is true, this will add a flat amount to the height on top of the rendered text height.
 function HText:setAutoHeightMargin( margin )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if type( margin ) ~= "number" then error( "Expected margin to be nil or a number" ) end
 
     self._autoHeightMargin = margin
@@ -414,7 +397,6 @@ end
 
 -- Sets the minimum height of the HText when setAutoHeight() is true.
 function HText:setAutoHeightMin( min )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if type( min ) ~= "number" then error( "Expected min to be nil or a number" ) end
 
     self._autoHeightMin = math.max( min, 0 )
@@ -426,7 +408,6 @@ end
 
 -- Sets the maximum height of the HText when setAutoHeight() is true.
 function HText:setAutoHeightMax( max )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if type( max ) ~= "number" then error( "Expected max to be nil or a number" ) end
 
     self._autoHeightMax = math.min( max, math.huge )
@@ -495,28 +476,22 @@ function HText:getSizeFractional( scrW, scrH )
 end
 
 function HText:setXPos( xPos )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if type( xPos ) ~= "number" then error( "Expected xPos to be a number" ) end
 
     self._xPos = xPos
 end
 
 function HText:getXPos()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._xPos
 end
 
 function HText:setYPos( yPos )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if type( yPos ) ~= "number" then error( "Expected yPos to be a number" ) end
 
     self._yPos = yPos
 end
 
 function HText:getYPos()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._yPos
 end
 
@@ -565,7 +540,6 @@ function HText:setPosFractional( xPos, yPos, scrW, scrH )
 end
 
 function HText:setTextAlignment( xAlign, yAlign )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if type( xAlign ) ~= "number" then error( "Expected xAlign to be a number" ) end
     if type( yAlign ) ~= "number" then error( "Expected yAlign to be a number" ) end
     if xAlign ~= TEXT_ALIGN_LEFT and xAlign ~= TEXT_ALIGN_CENTER and xAlign ~= TEXT_ALIGN_RIGHT then
@@ -580,14 +554,10 @@ function HText:setTextAlignment( xAlign, yAlign )
 end
 
 function HText:getTextAlignment()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._textAlignX, self._textAlignY
 end
 
 function HText:getTextAlignmentSwapped()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     local xAlign, yAlign = self:getTextAlignment()
 
     if xAlign == TEXT_ALIGN_LEFT then
@@ -667,8 +637,6 @@ end
         } )
 --]]
 function HText:setText( ... )
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     local textIn = HText.getTextArgs( ... )
     local textTbl = {}
     local textFlat = ""
@@ -739,21 +707,15 @@ function HText:addText( ... )
 end
 
 function HText:getText()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return table.cloneDeep( self._textTbl )
 end
 
 function HText:getTextFlat()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._textFlat
 end
 
 -- Sets the default font for this HText.
 function HText:setFont( fontParams )
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     local fontName
     fontName, fontParams = createFontFromParams( fontParams )
 
@@ -763,20 +725,15 @@ function HText:setFont( fontParams )
 end
 
 function HText:getFontName()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._fontName
 end
 
 function HText:getFontParams()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return table.cloneDeep( self._fontParams )
 end
 
 -- Sets the default text color for this HText.
 function HText:setTextColor( color )
-    if not isValid( self ) then error( "Invalid HText" ) end
     if type( color ) ~= "Color" then error( "Expected a Color" ) end
 
     self._textColor = Color( color.r, color.g, color.b, color.a )
@@ -794,8 +751,6 @@ end
     - False to disable.
 --]]
 function HText:setForcedAlpha( alpha )
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     if not alpha then
         self._forcedAlpha = false
 
@@ -808,26 +763,18 @@ function HText:setForcedAlpha( alpha )
 end
 
 function HText:getForcedAlpha()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._forcedAlpha or false
 end
 
 function HText:invalidateLayout()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     self._layoutIsValid = false
 end
 
 function HText:setAutoDraw( state )
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     self._autoDraw = state and true or false
 end
 
 function HText:getAutoDraw()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     return self._autoDraw
 end
 
@@ -869,8 +816,6 @@ end
 -- Only for use within a 2D HUD render context.
 -- Only call manually if you have first done :setAutoDraw( false ).
 function HText:draw()
-    if not isValid( self ) then error( "Invalid HText" ) end
-
     _lastUsedFont = ""
 
     self:_performLayout()
@@ -924,6 +869,13 @@ function HText:drawBackground()
         render.setColor( borderColor )
         render.drawRectOutline( x, y, w, h, self._borderSize )
     end
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function HText:onDestroyed()
+    table.removeByValue( htexts, self )
 end
 
 
