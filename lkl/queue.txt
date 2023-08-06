@@ -441,22 +441,6 @@ function Queue:__len( x ) -- Get the number of entries left in the Queue
     return #x:getEntries()
 end
 
-function Queue:__tostring()
-    local address = table.address( self )
-    local name = ( self.getName and self:getName() ) or self.name or self.Name
-    local customType = self.class.name or self.__type
-
-    if not isValid( self ) then
-        customType = customType .. " (INVALID)"
-    end
-
-    if type( name ) == "string" then
-        return customType .. " [" .. name .. "][" .. address .. "]"
-    end
-
-    return customType .. " [" .. address .. "]"
-end
-
 
 ----- IMPLEMENTED FUNCTIONS -----
 
@@ -471,6 +455,10 @@ function Queue:onDestroyed()
     self._running = false
 
     tableRemoveByValue( allQueues, self )
+end
+
+function Queue:tostringInner()
+    return self:getName()
 end
 
 

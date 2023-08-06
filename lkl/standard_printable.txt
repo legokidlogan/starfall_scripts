@@ -1,0 +1,52 @@
+--@name Standard Printable
+--@author legokidlogan
+--@shared
+
+--[[
+    - Standardizes :__tostring() to give the class name and address.
+        - Style is loosely based off of how GMod prints entities.
+        - If the class has :isValid(), it will also add text to indicate the object is invalid, if it is.
+        - Examples:
+            - Panel[0xf2e83e22]
+            - Panel(INVALID)[0xf2e83e22]
+            - ColorScheme[Dark][0x1a2b3c4d]
+    - Subclasses can implement :tostringInner() to add more information.
+        - This will be skipped if the object is considered invalid.
+        - Example setup:
+            function MyClass:tostringInner()
+                return self:getName()
+            end
+--]]
+
+if StandardPrintable then return end
+
+StandardPrintable = class( "StandardPrintable" )
+
+
+----- META FUNCTIONS -----
+
+function StandardPrintable:__tostring()
+    local address = table.address( self )
+    local valid = self.isValid == nil or self:isValid() -- Automatically considered valid if isValid() doesn't exist
+    local tostringInner = valid and self:tostringInner() or ""
+    local out = self.class.name
+
+    if not valid then
+        out = out .. "(INVALID)"
+    end
+
+    if tostringInner ~= "" then
+        out = out .. "[" .. tostringInner .. "]"
+    end
+
+    out = out .. "[" .. address .. "]"
+
+    return out
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function StandardPrintable:tostringInner()
+    return ""
+end

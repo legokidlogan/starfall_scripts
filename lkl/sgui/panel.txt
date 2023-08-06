@@ -8,6 +8,8 @@
 --[[
     - SGUI.Panel
     - The most basic SGUI element which all others derive from.
+    - Note that this inherits from Destroyable, so it has :isValid(), :destroy(), and you can implement :tostringInner().
+        - Also, if you override :onDestroyed(), make sure to call MyClass.super.onDestroyed( self ) at the end of it.
 
     - HOOKS:
         LKL_SGUI_HoveredPanelChanged( oldHoveredPanel, hoveredPanel )
@@ -1601,36 +1603,15 @@ function Panel:drawPoly( points, xOff, yOff, widthOverride, heightOverride )
     SGUI.drawPoly( points, x + xOff, y + yOff, widthOverride or w, heightOverride or h )
 end
 
+
+----- META FUNCTIONS -----
+
 function Panel:__concat( other )
     return tostring( self ) .. tostring( other )
 end
 
-function Panel:__tostring()
-    local address = table.address( self )
-    local tostringInner = ( self.tostringInner and self:tostringInner() ) or ""
-    local customType = self.class.name or self.__type
-    local out = customType .. " "
-
-    if not isValid( self ) then
-        out = out .. "(INVALID) "
-    end
-
-    if tostringInner ~= "" then
-        out = out .. "[" .. tostringInner .. "]"
-    end
-
-    out = out .. "[" .. address .. "]"
-
-    return out
-end
-
 
 ----- OVERRIDABLE FUNCTIONS -----
-
--- Appends to the Panel's tostring() output for easy debugging.
-function Panel:tostringInner()
-    return ""
-end
 
 --[[
     - Determines how to draw the Panel's background.

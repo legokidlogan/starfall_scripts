@@ -1,6 +1,7 @@
 --@name Destroyable
 --@author legokidlogan
 --@shared
+--@include lkl/standard_printable.txt
 
 --[[
     - A super simple class that handles :isValid() and :destroy()
@@ -9,7 +10,10 @@
 
 if Destroyable then return end
 
-Destroyable = class( "Destroyable" )
+require( "lkl/standard_printable.txt" )
+
+
+Destroyable = class( "Destroyable", StandardPrintable )
 
 
 local unremovableFuncs = {

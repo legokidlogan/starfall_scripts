@@ -477,22 +477,6 @@ function ColorScheme:__concat( other )
     return tostring( self ) .. tostring( other )
 end
 
-function ColorScheme:__tostring()
-    local address = table.address( self )
-    local name = ( self.getName and self:getName() ) or self.name or self._name
-    local customType = self.class.name or self.__type
-
-    if not isValid( self ) then
-        customType = customType .. " (INVALID)"
-    end
-
-    if type( name ) == "string" then
-        return customType .. " [" .. name .. "][" .. address .. "]"
-    end
-
-    return customType .. " [" .. address .. "]"
-end
-
 
 ----- IMPLEMENTED FUNCTIONS -----
 
@@ -526,6 +510,10 @@ function ColorScheme:onDestroyed()
     self._getColorCalls = nil
     self._fallbackColor = nil
     self._name = nil
+end
+
+function ColorScheme:tostringInner()
+    return self:getName()
 end
 
 
