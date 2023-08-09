@@ -409,6 +409,24 @@ function SGUI.polyTranslate( points, xOff, yOff )
     return newPoints
 end
 
+-- Scales relative to the 0,0 origin.
+function SGUI.polyScale( points, xMult, yMult )
+    local newPoints = {}
+
+    yMult = yMult or xMult
+
+    for _, point in ipairs( points ) do
+        tableInsert( newPoints, {
+            x = point.x * xMult,
+            y = point.y * yMult,
+            u = point.u,
+            v = point.v,
+        } )
+    end
+
+    return newPoints
+end
+
 function SGUI.polyMakeCircleFilled( x, y, radius, numSegments, numDegrees, degreeOffset )
     local circle = {}
 
