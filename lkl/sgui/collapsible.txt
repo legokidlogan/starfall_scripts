@@ -185,7 +185,6 @@ function Collapsible:setCollapseState( state )
     end
 
     self:onCollapseChanged( state )
-
     self._collapseIsChanging = false
 end
 
