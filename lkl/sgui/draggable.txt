@@ -245,7 +245,7 @@ end
 
 ----- PRIVATE FUNCTIONS -----
 
-local function getSpecialParent( parent )
+local function getHoverParent( parent )
     if not isValid( parent ) then return parent end
 
     parent = parent:getContainingList() or parent
@@ -275,11 +275,11 @@ getDragReleaseParent = function( draggable, dragTarget )
     local dragReleaseMode = draggable:getDragReleaseMode()
 
     if dragReleaseMode == DRAG_RELEASE_NONE then return nil end
-    if dragReleaseMode == DRAG_RELEASE_ORIGINAL then return getSpecialParent( draggable._dragTargetParentOriginal ) end
+    if dragReleaseMode == DRAG_RELEASE_ORIGINAL then return draggable._dragTargetParentOriginal end
 
     -- DRAG_RELEASE_HOVERED
 
-    local hoveredPanel = getSpecialParent( Panel:getHoveredPanel() )
+    local hoveredPanel = getHoverParent( Panel:getHoveredPanel() )
     if hoveredPanel then hoveredPanel = hoveredPanel:rerouteChild( dragTarget ) end
     if hoveredPanel and not hoveredPanel:doesAllowDragParenting() then return false end
     if not draggable:canParentTo( dragTarget, hoveredPanel ) then return false end
