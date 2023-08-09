@@ -198,7 +198,7 @@ function Collapsible:uncollapse()
 end
 
 function Collapsible:isCollapsed()
-    return self.__collapseState
+    return self._collapseState
 end
 
 function Collapsible:toggleCollapse()
