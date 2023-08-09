@@ -403,6 +403,7 @@ createChoiceButton = function( comboBox, index, text )
     button:setBackgroundRadius( 0 )
     button:setText( text )
     button:setExpand( EXPAND_WIDTH )
+    button:setTextAlign( TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER )
 
     function button:onClicked()
         comboBox:selectChoice( index )
