@@ -2324,6 +2324,8 @@ hook.add( "drawhud", "LKL_SGUI_AutoDraw", function()
 
     for _, panel in ipairs( parentlessPanels ) do
         if panel:doesAutoDraw() and panel:isHUD() then
+            if not SGUI.perfCheck() then return end
+
             panel:draw()
         end
     end
@@ -2339,6 +2341,8 @@ hook.add( "render", "LKL_SGUI_AutoDraw", function()
 
     for _, panel in ipairs( parentlessPanels ) do
         if panel:doesAutoDraw() and panel:getAssociatedScreen() == screen then
+            if not SGUI.perfCheck() then return end -- Note that perf isn't checked recursively, to recude overhead.
+
             panel:draw()
         end
     end
@@ -2374,6 +2378,8 @@ hook.add( "think", "LKL_SGUI_MouseHoverAndThink", function()
     lastThinkTime = now
 
     for _, panel in ipairs( parentlessPanels ) do
+        if not SGUI.perfCheck() then break end -- Note that perf isn't checked recursively, to recude overhead.
+
         propogateThink( panel )
     end
 
