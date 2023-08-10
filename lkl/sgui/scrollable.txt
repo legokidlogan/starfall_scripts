@@ -311,16 +311,16 @@ function Scrollable:getScrollWheelStep()
 end
 
 function Scrollable:getInsertBounds()
-    local borderSize = self:getBorderSize()
     local scrollBarSize = self:getScrollBarSize()
-    local scrollDirection = self:getScrollDirection()
+    local borderSize = self:getBorderSize()
+    local borderSizeDouble = borderSize * 2
 
     local xMin, yMin = self:getPosEffective()
 
     xMin = xMin + borderSize
     yMin = yMin + borderSize
-    local xMax = xMin + self:getWidth() - borderSize - ( scrollDirection == SCROLL_HORIZONTAL and 0 or scrollBarSize )
-    local yMax = yMin + self:getHeight() - borderSize - ( scrollDirection == SCROLL_VERTICAL and 0 or scrollBarSize )
+    local xMax = xMin + self:getWidth() - borderSizeDouble - ( self:getScrollBarHorizontal() and scrollBarSize or 0 )
+    local yMax = yMin + self:getHeight() - borderSizeDouble - ( self:getScrollBarVertical() and scrollBarSize or 0 )
 
     return xMin, yMin, xMax, yMax
 end
