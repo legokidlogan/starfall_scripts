@@ -2396,7 +2396,7 @@ end )
 
 hook.add( "EntityRemoved", "LKL_SGUI_RemoveAssociatedPanels", function( ent )
     if not isValid( ent ) then return end
-    if ent:getClass() ~= "starfall_component" then return end
+    if ent:getClass() ~= "starfall_screen" then return end
 
     for i = #parentlessPanels, 1, -1 do
         local panel = parentlessPanels[i]
