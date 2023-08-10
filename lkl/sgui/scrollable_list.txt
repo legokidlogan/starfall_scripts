@@ -71,6 +71,14 @@ function ScrollableList:getScrollBarSize()
     return self:getScrollable():getScrollBarSize()
 end
 
+function ScrollableList:setBackgroundColor( color )
+    self:getScrollable():setBackgroundColor( color )
+end
+
+function ScrollableList:getBackgroundColor( fallbackColor, ... )
+    return self:getScrollable():getBackgroundColor( fallbackColor, ... )
+end
+
 function ScrollableList:getScrollable()
     return self._scrollable
 end
