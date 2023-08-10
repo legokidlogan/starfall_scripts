@@ -45,7 +45,6 @@ end
 function Button:setEnabled( state )
     self._enabled = state
     SGUI.Panel.acceptMouseInput( self, state )
-    SGUI.Label.setTextColor( self, state and self:getEnabledTextColor() or self:getDisabledTextColor() )
 end
 
 function Button:enable()
@@ -92,6 +91,14 @@ end
 
 
 ----- IMPLEMENTED FUNCTIONS -----
+
+function Button:getTextColorEffective( fallbackColor, ... )
+    if self:isEnabled() then
+        return self:getEnabledTextColor( fallbackColor, ... )
+    end
+
+    return self:getDisabledTextColor( fallbackColor, ... )
+end
 
 function Button:setHoveredBackgroundColor( color )
     self:setColor( self.class.name .. "BackgroundHovered", color )
