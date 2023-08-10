@@ -54,6 +54,7 @@ function ComboBox:initialize( parent )
     local scrollListScrollable = scrollList:getScrollable()
     self._scrollList = scrollList
     scrollList:setAutoExpand( false )
+    scrollList:setColorScheme( self:getColorScheme() )
     applyReferenceRecursive( self, scrollList )
 
     function scrollListScrollable:onScrollBarCreated( scrollBar )
@@ -336,6 +337,19 @@ end
 
 function ComboBox:rerouteChild()
     error( "Cannot parent to a ComboBox" )
+end
+
+function ComboBox:setColorScheme( colorScheme )
+    ComboBox.super.setColorScheme( self, colorScheme )
+
+    -- Since the scroll list isn't parented, we need to handle ColorScheme inheritance manually.
+
+    local scrollList = self:getScrollList()
+    if not scrollList then return end
+
+    if scrollList:doesAutoInheritParentColorScheme() then
+        scrollList:setColorScheme( colorScheme )
+    end
 end
 
 function ComboBox:handleDraw()
