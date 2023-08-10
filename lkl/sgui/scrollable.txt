@@ -347,6 +347,28 @@ end
 
 ----- OVERRIDABLE FUNCTIONS -----
 
+--[[
+    - Called when a scroll bar is created, which happens dynamically as needed.
+    - Use with caution, as ScrollBar is an internal class, not designed for flexibility.
+
+    scrollBar: (ScrollBar)
+        - The new ScrollBar being added.
+    scrollDirection: (SCROLL_VERTICAL or SCROLL_HORIZONTAL)
+        - The direction of the ScrollBar.
+--]]
+function Scrollable:onScrollBarCreated( scrollBar, scrollDirection )
+
+end
+
+--[[
+    - Called when a scroll bar is destroyed, which happens dynamically as needed.
+
+    scrollDirection: (SCROLL_VERTICAL or SCROLL_HORIZONTAL)
+        - The direction of the ScrollBar that was removed.
+--]]
+function Scrollable:onScrollBarDestroyed( scrollDirection )
+
+end
 
 
 ----- IMPLEMENTED FUNCTIONS -----
@@ -409,6 +431,7 @@ adjustScrollBars = function( scrollable )
             scrollable._scrollBarVertical = nil
             scrollBarVertical:destroy()
             scrollBarVertical = nil
+            scrollable:onScrollBarDestroyed( SCROLL_VERTICAL )
         end
     elseif scrollable:doesScrollVertically() then
         scrollBarVertical = ScrollBar:new( nil, scrollable, SCROLL_VERTICAL )
@@ -428,6 +451,7 @@ adjustScrollBars = function( scrollable )
             scrollable._scrollBarHorizontal = nil
             scrollBarHorizontal:destroy()
             scrollBarHorizontal = nil
+            scrollable:onScrollBarDestroyed( SCROLL_HORIZONTAL )
         end
     elseif scrollable:doesScrollHorizontally() then
         scrollBarHorizontal = ScrollBar:new( nil, scrollable, SCROLL_HORIZONTAL )
@@ -469,6 +493,16 @@ adjustScrollBars = function( scrollable )
     end
 
     scrollable:getScrollInsert():invalidateLayout()
+
+    -- Notify vertical scroll bar creation
+    if scrollVerticalIsNew then
+        scrollable:onScrollBarCreated( scrollBarVertical, SCROLL_VERTICAL )
+    end
+
+    -- Notify horizontal scroll bar creation
+    if scrollHorizontalIsNew then
+        scrollable:onScrollBarCreated( scrollBarHorizontal, SCROLL_HORIZONTAL )
+    end
 end
 
 handleMouseScroll = function( scrollable, dt )

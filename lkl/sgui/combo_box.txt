@@ -25,8 +25,10 @@ local Panel = SGUI.Panel
 local ScrollableList = SGUI.ScrollableList
 local Button = SGUI.Button
 local validateIndex
+local repositionScrollList
 local adjustScrolList
 local createChoiceButton
+local applyReferenceRecursive
 local arrowPoly
 
 local mathFloor = math.floor
@@ -45,11 +47,18 @@ function ComboBox:initialize( parent )
     self._choiceDataLookup = {}
     self._scrollListHeight = 10
 
+    local selfObj = self
+
 
     local scrollList = ScrollableList:new( nil, LIST_VERTICAL, LIST_ALIGN_TOP_LEFT )
+    local scrollListScrollable = scrollList:getScrollable()
     self._scrollList = scrollList
-    scrollList:setParent( self )
     scrollList:setAutoExpand( false )
+    applyReferenceRecursive( self, scrollList )
+
+    function scrollListScrollable:onScrollBarCreated( scrollBar )
+        applyReferenceRecursive( selfObj, scrollBar )
+    end
 
 
     self:setBorderSize( 2 )
@@ -272,7 +281,9 @@ function ComboBox:uncollapse()
     if not self:isCollapsed() then return end
 
     self._collapsed = false
+    repositionScrollList( self )
     self:getScrollList():setVisible( true )
+    self:getScrollList():moveToFront()
 end
 
 function ComboBox:setArrowColor( color )
@@ -323,9 +334,7 @@ function ComboBox:onClicked()
     end
 end
 
-function ComboBox:rerouteChild( child )
-    if child == self:getScrollList() then return self end
-
+function ComboBox:rerouteChild()
     error( "Cannot parent to a ComboBox" )
 end
 
@@ -358,6 +367,24 @@ function ComboBox:setHeight( height )
     adjustScrolList( self )
 end
 
+function ComboBox:setXPos( x )
+    ComboBox.super.setXPos( self, x )
+
+    repositionScrollList( self )
+end
+
+function ComboBox:setYPos( y )
+    ComboBox.super.setYPos( self, y )
+
+    repositionScrollList( self )
+end
+
+function ComboBox:setPos( x, y )
+    ComboBox.super.setPos( self, x, y )
+
+    repositionScrollList( self )
+end
+
 
 ----- PRIVATE FUNCTIONS -----
 
@@ -380,18 +407,29 @@ validateIndex = function( comboBox, index, allowZero, allowCountPlusOne )
     end
 end
 
+repositionScrollList = function( comboBox )
+    local scrollList = comboBox:getScrollList()
+    if not scrollList then return end
+
+    local x, y = comboBox:getPosEffective()
+    local height = comboBox:getHeight()
+    local borderSize = comboBox:getBorderSize()
+
+    scrollList:setPos( x, y + height - borderSize )
+end
+
 adjustScrolList = function( comboBox )
     local scrollList = comboBox:getScrollList()
     if not scrollList then return end
 
-    local width, height = comboBox:getSize()
+    local width = comboBox:getWidth()
     local listHeight = comboBox:getListHeight()
     local borderSize = comboBox:getBorderSize()
     local scrollBarSize = scrollList:getScrollBarSize()
 
     scrollList:setMinSize( width - scrollBarSize, listHeight )
-    scrollList:setYPos( height - borderSize )
     scrollList:setBorderSize( borderSize )
+    repositionScrollList( comboBox )
 end
 
 createChoiceButton = function( comboBox, index, text )
@@ -410,6 +448,14 @@ createChoiceButton = function( comboBox, index, text )
     end
 
     return button
+end
+
+applyReferenceRecursive = function( comboBox, panel )
+    panel._parentComboBox = comboBox
+
+    for _, child in ipairs( panel:getChildren() ) do
+        applyReferenceRecursive( comboBox, child )
+    end
 end
 
 
@@ -435,17 +481,33 @@ arrowPolyFlipped[#arrowPolyFlipped] = nil -- Last point is redundant.
 arrowPoly = table.add( arrowPoly, arrowPolyFlipped )
 
 
+local function getParentComboBox( panel )
+    if not panel then return end
+    if panel:isInstanceOf( ComboBox ) then return panel end
+
+    local comboBox = panel._parentComboBox
+    if isValid( comboBox ) then return comboBox end
+
+    local parentScrollableList = panel:getParentBySubclass( ScrollableList )
+    if not parentScrollableList then return end
+
+    comboBox = parentScrollableList._parentComboBox
+    if not isValid( comboBox ) then return end
+
+    return comboBox
+end
+
 local function closeIfUnfocused( wasHover, old, new )
     if old == nil then return end -- Going from not hovered to hovered will never mean focus was lost.
 
-    local oldComboBox = old:isInstanceOf( ComboBox ) and old or old:getParentBySubclass( ComboBox )
+    local oldComboBox = getParentComboBox( old )
     if not oldComboBox then return end -- Wasn't hovering over a ComboBox.
 
-    local newComboBox = new and ( new:isInstanceOf( ComboBox ) and new or new:getParentBySubclass( ComboBox ) )
+    local newComboBox = getParentComboBox( new )
     if oldComboBox == newComboBox then return end -- Still hovering over the same ComboBox.
 
     local otherPanel = wasHover and Panel:getHeldPanel() or Panel:getHoveredPanel()
-    local otherComboBox = otherPanel and ( otherPanel:isInstanceOf( ComboBox ) and otherPanel or otherPanel:getParentBySubclass( ComboBox ) )
+    local otherComboBox = getParentComboBox( otherPanel )
     if oldComboBox == otherComboBox then return end -- Still holding the same ComboBox.
 
     oldComboBox:collapse()
