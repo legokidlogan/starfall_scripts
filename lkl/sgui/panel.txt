@@ -1972,19 +1972,19 @@ local function performDockLayout( panel )
     end
 end
 
-local function calcPosEffective( panel )
-    local xPos, yPos = panel:getPos()
-    local parent = panel:getParent()
+local function calcPosEffective( panel, parentXOverride, parentYOverride )
+    local x, y = panel:getPos()
 
-    while parent do
-        local parentX, parentY = parent:getPos()
-        xPos = xPos + parentX
-        yPos = yPos + parentY
-
-        parent = parent:getParent()
+    if parentXOverride and parentYOverride then
+        return x + parentXOverride, y + parentYOverride
     end
 
-    return xPos, yPos
+    local parent = panel:getParent()
+    if not parent then return x, y end
+
+    local parentX, parentY = parent:getPosEffective()
+
+    return x + parentX, y + parentY
 end
 
 local function propogateThink( panel )
@@ -2123,13 +2123,13 @@ _performLayout = function( panel )
     end
 end
 
-updatePosEffective = function( panel )
-    local xPos, yPos = calcPosEffective( panel )
-    panel._xPosEffective = xPos
-    panel._yPosEffective = yPos
+updatePosEffective = function( panel, parentXOverride, parentYOverride )
+    local x, y = calcPosEffective( panel, parentXOverride, parentYOverride )
+    panel._xPosEffective = x
+    panel._yPosEffective = y
 
     for _, child in ipairs( panel:getChildren() ) do
-        updatePosEffective( child )
+        updatePosEffective( child, x, y )
     end
 end
 
