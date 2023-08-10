@@ -31,6 +31,8 @@ local ScrollBar = SGUI.ScrollBar
 local Panel = SGUI.Panel
 local isHoldingShift = false
 local mouseWheelDir = 0
+local shouldScrollVertically
+local shouldScrollHorizontally
 local adjustScrollBars
 local handleMouseScroll
 
@@ -89,28 +91,24 @@ function Scrollable:getScrollDirection()
     return self._scrollDirection or SCROLL_VERTICAL
 end
 
+-- Returns whether or not the vertical scroll bar is present.
 function Scrollable:doesScrollVertically()
-    local scrollDirection = self:getScrollDirection()
-    if scrollDirection == SCROLL_HORIZONTAL then return false end
-    if scrollDirection == SCROLL_VERTICAL then return self._scrollHeight > self:getHeight() end
-
-    local lostHeight = self._scrollWidth > self:getWidth() and self:getScrollBarSize() or 0
-
-    return self._scrollHeight > self:getHeight() - lostHeight
+    return self:getScrollBarVertical() ~= nil
 end
 
+-- Returns whether or not the horizontal scroll bar is present.
 function Scrollable:doesScrollHorizontally()
-    local scrollDirection = self:getScrollDirection()
-    if scrollDirection == SCROLL_VERTICAL then return false end
-    if scrollDirection == SCROLL_HORIZONTAL then return self._scrollWidth > self:getWidth() end
-
-    local lostWidth = self._scrollHeight > self:getHeight() and self:getScrollBarSize() or 0
-
-    return self._scrollWidth > self:getWidth() - lostWidth
+    return self:getScrollBarHorizontal() ~= nil
 end
 
+-- Returns whether or not both scroll bars are present.
 function Scrollable:doesScrollBoth()
-    return self:getScrollDirection() == SCROLL_BOTH
+    return self:doesScrollVertically() and self:doesScrollHorizontally()
+end
+
+-- Returns whether or not at least one of the scroll bars are present.
+function Scrollable:doesScroll()
+    return self:doesScrollVertically() or self:doesScrollHorizontally()
 end
 
 -- The width of the scrollable region.
@@ -412,6 +410,26 @@ end
 
 ----- PRIVATE FUNCTIONS -----
 
+shouldScrollVertically = function( scrollable )
+    local scrollDirection = scrollable:getScrollDirection()
+    if scrollDirection == SCROLL_HORIZONTAL then return false end
+    if scrollDirection == SCROLL_VERTICAL then return scrollable._scrollHeight > scrollable:getHeight() end
+
+    local lostHeight = scrollable._scrollWidth > scrollable:getWidth() and scrollable:getScrollBarSize() or 0
+
+    return scrollable._scrollHeight > scrollable:getHeight() - lostHeight
+end
+
+shouldScrollHorizontally = function( scrollable )
+    local scrollDirection = scrollable:getScrollDirection()
+    if scrollDirection == SCROLL_VERTICAL then return false end
+    if scrollDirection == SCROLL_HORIZONTAL then return scrollable._scrollWidth > scrollable:getWidth() end
+
+    local lostWidth = scrollable._scrollHeight > scrollable:getHeight() and scrollable:getScrollBarSize() or 0
+
+    return scrollable._scrollWidth > scrollable:getWidth() - lostWidth
+end
+
 adjustScrollBars = function( scrollable )
     local scrollBarVertical = scrollable:getScrollBarVertical()
     local scrollBarHorizontal = scrollable:getScrollBarHorizontal()
@@ -420,7 +438,7 @@ adjustScrollBars = function( scrollable )
 
     -- Create/undock/destroy vertical scroll bar
     if scrollBarVertical then
-        if scrollable:doesScrollVertically() then
+        if shouldScrollVertically( scrollable ) then
             scrollBarVertical:setDock( DOCK_NONE )
         else
             scrollable._scrollBarVertical = nil
@@ -428,7 +446,7 @@ adjustScrollBars = function( scrollable )
             scrollBarVertical = nil
             scrollable:onScrollBarDestroyed( SCROLL_VERTICAL )
         end
-    elseif scrollable:doesScrollVertically() then
+    elseif shouldScrollVertically( scrollable ) then
         scrollBarVertical = ScrollBar:new( nil, scrollable, SCROLL_VERTICAL )
         scrollable._scrollBarVertical = scrollBarVertical
 
@@ -440,7 +458,7 @@ adjustScrollBars = function( scrollable )
 
     -- Create/undock/destroy horizontal scroll bar
     if scrollBarHorizontal then
-        if scrollable:doesScrollHorizontally() then
+        if shouldScrollHorizontally( scrollable ) then
             scrollBarHorizontal:setDock( DOCK_NONE )
         else
             scrollable._scrollBarHorizontal = nil
@@ -448,7 +466,7 @@ adjustScrollBars = function( scrollable )
             scrollBarHorizontal = nil
             scrollable:onScrollBarDestroyed( SCROLL_HORIZONTAL )
         end
-    elseif scrollable:doesScrollHorizontally() then
+    elseif shouldScrollHorizontally( scrollable ) then
         scrollBarHorizontal = ScrollBar:new( nil, scrollable, SCROLL_HORIZONTAL )
         scrollable._scrollBarHorizontal = scrollBarHorizontal
 
