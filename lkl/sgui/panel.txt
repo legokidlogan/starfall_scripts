@@ -1972,7 +1972,7 @@ local function performDockLayout( panel )
     end
 end
 
-local function _calcPosEffective( panel )
+local function calcPosEffective( panel )
     local xPos, yPos = panel:getPos()
     local parent = panel:getParent()
 
@@ -2124,7 +2124,7 @@ _performLayout = function( panel )
 end
 
 updatePosEffective = function( panel )
-    local xPos, yPos = _calcPosEffective( panel )
+    local xPos, yPos = calcPosEffective( panel )
     panel._xPosEffective = xPos
     panel._yPosEffective = yPos
 
