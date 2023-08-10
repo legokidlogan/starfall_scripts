@@ -32,6 +32,7 @@ function Label:initialize( parent )
     self._renderedTextWidth = 0
     self._renderedTextHeight = 0
 
+    self:setSize( 200, 25 )
     self:setTextAlign( TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
     self:setText()
     self:setFont( render.getDefaultFont() )

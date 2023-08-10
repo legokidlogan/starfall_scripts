@@ -25,7 +25,8 @@ local Button = SGUI.Button
 function Button:initialize( parent )
     Button.super.initialize( self, parent )
 
-    self:setBackgroundRadius( 15 )
+    self:setSize( 80, 40 )
+    self:setBackgroundRadius( 10 )
     self:setBorderSize( 0 )
     self:enable()
     self:setText( "Button" )

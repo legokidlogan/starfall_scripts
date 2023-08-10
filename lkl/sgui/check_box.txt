@@ -28,7 +28,7 @@ local mathMin = math.min
 function CheckBox:initialize( parent, initialState )
     CheckBox.super.initialize( self, parent, initialState )
 
-    self:setWidth( 30 )
+    self:setWidth( 25 )
     self:setBackgroundRadius( 0 )
     self:setBorderSize( 2 )
     self:setText( "" )
