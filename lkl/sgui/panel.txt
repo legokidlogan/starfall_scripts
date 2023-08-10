@@ -1339,6 +1339,16 @@ function Panel:getColorScheme()
     return self._colorScheme
 end
 
+-- Recursively applies the Panel's ColorScheme to all of its children.
+function Panel:applyColorSchemeToChildren()
+    local colorScheme = self:getColorScheme()
+
+    for _, child in ipairs( self:getChildren() ) do
+        child:setColorScheme( colorScheme )
+        child:applyColorSchemeToChildren()
+    end
+end
+
 --[[
     - Sets/removes a color override for one of the Panel's colors.
     - This causes the named color to bypass the Panel's ColorScheme.
