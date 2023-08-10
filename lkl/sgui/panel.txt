@@ -1333,7 +1333,7 @@ function Panel:getExtraDrawOrder()
 end
 
 function Panel:setColorScheme( colorScheme )
-    colorScheme = colorScheme or SGUI.DEFAULT_COLOR_SCHEME
+    colorScheme = colorScheme or SGUI.COLOR_SCHEME_DEFAULT
     if not isValid( colorScheme ) or not isInstanceOf( colorScheme, ColorScheme ) then error( "Expected a valid ColorScheme" ) end
 
     self._colorScheme = colorScheme

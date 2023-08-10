@@ -35,7 +35,7 @@ local tableInsert = table.insert
 
 SGUI = {}
 SGUI.PERF_LIMIT = 0.8
-SGUI.DEFAULT_COLOR_SCHEME = ColorScheme:new( "SGUI", nil, nil, {
+SGUI.COLOR_SCHEME_DEFAULT = ColorScheme:new( "SGUI", nil, nil, {
     ["Text"] = Color( 205, 200, 230 ),
     ["TextSelected"] = Color( 219, 218, 229 ),
     ["TextSelectedBackground"] = Color( 70, 80, 228 ),
