@@ -633,9 +633,9 @@ end
         function List:setWidth( width )
             if self:getApplyingDock() or self:getApplyingExpand() then
                 self:setMinWidth( width )
-            else
-                List.super.setWidth( self, width )
             end
+
+            List.super.setWidth( self, width )
         end
 --]]
 function Panel:getApplyingDock()
