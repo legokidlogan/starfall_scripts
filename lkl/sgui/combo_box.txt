@@ -439,9 +439,8 @@ adjustScrolList = function( comboBox )
     local width = comboBox:getWidth()
     local listHeight = comboBox:getListHeight()
     local borderSize = comboBox:getBorderSize()
-    local scrollBarSize = scrollList:getScrollBarSize()
 
-    scrollList:setMinSize( width - scrollBarSize, listHeight )
+    scrollList:setMinSize( width, listHeight )
     scrollList:setBorderSize( borderSize )
     repositionScrollList( comboBox )
 end

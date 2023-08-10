@@ -103,13 +103,15 @@ end
 function ScrollableList:handleListResize( width, height )
     local scrollable = self:getScrollable()
     local doAutoExpand = self:getAutoExpand()
+    local scrollBarSize = scrollable:getScrollBarVertical() or scrollable:getScrollBarHorizontal()
+    scrollBarSize = scrollBarSize and scrollable:getScrollBarSize() or 0
 
     if self:getListDirection() == LIST_VERTICAL then
-        width = doAutoExpand and ( width + scrollable:getScrollBarSize() ) or self:getWidth()
+        width = doAutoExpand and ( width + scrollBarSize ) or self:getMinWidth()
         self:setWidth( width )
         scrollable:setWidth( width )
     else
-        height = doAutoExpand and ( height + scrollable:getScrollBarSize() ) or self:getHeight()
+        height = doAutoExpand and ( height + scrollBarSize ) or self:getMinHeight()
         self:setHeight( height )
         scrollable:setHeight( height )
     end

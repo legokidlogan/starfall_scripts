@@ -97,6 +97,7 @@ local panelIsCRC
 local setCachedColor
 local getCachedColor
 local _performLayout
+local invalidateParentLayoutOnResize
 local addDockedChild
 local removeDockedChild
 local addExpandingChild
@@ -474,12 +475,7 @@ function Panel:setWidth( width )
 
     self._width = width
     self:invalidateLayout()
-
-    local parent = self:getParent()
-
-    if parent and ( self:isDocked() or self:doesExpand() or self:isAnchored() ) then
-        parent:invalidateLayout()
-    end
+    invalidateParentLayoutOnResize( self )
 end
 
 function Panel:getWidth()
@@ -499,12 +495,7 @@ function Panel:setHeight( height )
 
     self._height = height
     self:invalidateLayout()
-
-    local parent = self:getParent()
-
-    if parent and ( self:isDocked() or self:doesExpand() or self:isAnchored() ) then
-        parent:invalidateLayout()
-    end
+    invalidateParentLayoutOnResize( self )
 end
 
 function Panel:getHeight()
@@ -629,6 +620,29 @@ function Panel:isDocked()
 end
 
 --[[
+    - Returns the Panel's DOCK value when in the middle of applying dock calculations, otherwise nil.
+    - For use in custom :setXPos(), :setYPos(), :setPos(), :setWidth(), and :setHeight() overrides.
+        - During dock calculations, the Panel will return DOCK_NONE and false for :getDock() and :isDocked(), respectively.
+        - During that time, you would instead use this function to get the Panel's true DOCK value.
+        - This is to prevent the natural :setPos() and :setSize() restrictions placed on docked Panels from interfering with dock calculations.
+    - This will never return DOCK_NONE.
+
+    - Example usage, as seen in List:
+        -- Wraps :setWidth() so that dock and expand will change min width instead.
+        -- Has a similar function wrap for :setHeight().
+        function List:setWidth( width )
+            if self:getApplyingDock() or self:getApplyingExpand() then
+                self:setMinWidth( width )
+            else
+                List.super.setWidth( self, width )
+            end
+        end
+--]]
+function Panel:getApplyingDock()
+    return self._applyingDock
+end
+
+--[[
     - Behaves similarly to :setDock( DOCK_FILL ), but only by expanding in one direction.
         - e.g. EXPAND_WIDTH will maintain vertical size and position, but expand horizontally to fill the remaining space in the parent.
     - Expanding Panels will not impede the expansion of their siblings.
@@ -665,6 +679,11 @@ end
 
 function Panel:doesExpand()
     return self._expand ~= EXPAND_NONE
+end
+
+-- Same as :getApplyingDock(), but for expanding.
+function Panel:getApplyingExpand()
+    return self._applyingExpand
 end
 
 --[[
@@ -708,6 +727,11 @@ end
 
 function Panel:isAnchored()
     return self._anchor ~= ANCHOR_NONE
+end
+
+-- Same as :getApplyingDock(), but for anchoring.
+function Panel:getApplyingAnchor()
+    return self._applyingAnchor
 end
 
 --[[
@@ -1919,6 +1943,7 @@ local function performDockLayout( panel )
         local marginLeft, marginTop, marginRight, marginBottom = child:getMargin()
 
         child._dock = DOCK_NONE -- Bypass :setPos() and :setSize() restrictions on docked panels.
+        child._applyingDock = dock
 
         if dock == DOCK_FILL then
             child:setPos( baseWidthHalf - remainingLeft + marginLeft, baseHeightHalf - remainingTop + marginTop )
@@ -1928,6 +1953,7 @@ local function performDockLayout( panel )
             remainingLeft = 0
             remainingRight = 0
             child._dock = dock
+            child._applyingDock = nil
 
             break -- Can't have any more docked children after a DOCK_FILL.
         elseif dock == DOCK_TOP then
@@ -1961,6 +1987,7 @@ local function performDockLayout( panel )
         end
 
         child._dock = dock
+        child._applyingDock = nil
     end
 
     local leftX = baseWidthHalf - remainingLeft
@@ -1979,6 +2006,7 @@ local function performDockLayout( panel )
         local marginLeft, marginTop, marginRight, marginBottom = child:getMargin()
 
         child._expand = EXPAND_NONE -- Bypass :setPos() and :setSize() restrictions on expanding panels.
+        child._applyingExpand = expand
         child._anchor = ANCHOR_NONE
 
         if expand == EXPAND_WIDTH then
@@ -1990,6 +2018,7 @@ local function performDockLayout( panel )
         end
 
         child._expand = expand
+        child._applyingExpand = nil
         child._anchor = anchor
     end
 
@@ -2002,6 +2031,7 @@ local function performDockLayout( panel )
         local marginLeft, marginTop, marginRight, marginBottom = child:getMargin()
 
         child._anchor = ANCHOR_NONE -- Bypass :setPos() and :setSize() restrictions on anchored panels.
+        child._applyingAnchor = anchor
 
         if anchor == ANCHOR_TOP_LEFT then
             child:setPos( leftX + marginLeft, topY + marginTop )
@@ -2024,6 +2054,7 @@ local function performDockLayout( panel )
         end
 
         child._anchor = anchor
+        child._applyingAnchor = nil
     end
 end
 
@@ -2175,6 +2206,25 @@ _performLayout = function( panel )
 
     for _, childPanel in ipairs( panel:getChildren() ) do
         childPanel:invalidateLayout()
+    end
+end
+
+invalidateParentLayoutOnResize = function( panel )
+    local parent = panel:getParent()
+    if not parent then return end
+
+    local indirectList = parent._partOfList
+    if isValid( indirectList ) then
+        indirectList:invalidateLayout()
+
+        return
+    end
+
+    local doesAutoAdjust = panel:isDocked() or panel:doesExpand() or panel:isAnchored()
+    local parentIsList = parent:isInstanceOf( SGUI.List )
+
+    if doesAutoAdjust or parentIsList then
+        parent:invalidateLayout()
     end
 end
 
