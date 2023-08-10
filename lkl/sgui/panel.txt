@@ -137,6 +137,7 @@ function Panel:initialize( parent )
 
     self:acceptMouseInput( false )
     self:setAutoDraw( true )
+    self:autoInheritParentColorScheme( true )
     self:setColorScheme()
     self:setPos( 0, 0 )
     self:setSize( 100, 100 )
@@ -1101,6 +1102,10 @@ function Panel:setParent( parent )
     tableRemoveByValue( oldParent and oldParent:getChildren() or parentlessPanels, self )
     tableInsert( parent and parent:getChildren() or parentlessPanels, self )
     updatePosEffective( self )
+
+    if self:doesAutoInheritParentColorScheme() then
+        self:inheritParentColorScheme()
+    end
 end
 
 function Panel:getParent()
@@ -1333,20 +1338,60 @@ function Panel:setColorScheme( colorScheme )
 
     self._colorScheme = colorScheme
     self:refreshColorSchemeCache()
+
+    for _, child in ipairs( self:getChildren() ) do
+        if child:doesAutoInheritParentColorScheme() then
+            child:setColorScheme( colorScheme )
+        end
+    end
 end
 
 function Panel:getColorScheme()
     return self._colorScheme
 end
 
--- Recursively applies the Panel's ColorScheme to all of its children.
+-- Applies the Panel's ColorScheme to all of its direct children.
 function Panel:applyColorSchemeToChildren()
     local colorScheme = self:getColorScheme()
 
     for _, child in ipairs( self:getChildren() ) do
         child:setColorScheme( colorScheme )
-        child:applyColorSchemeToChildren()
     end
+end
+
+-- Applies the Panel's ColorScheme to all of its children recursively.
+function Panel:applyColorSchemeRecursively()
+    local colorScheme = self:getColorScheme()
+
+    for _, child in ipairs( self:getChildren() ) do
+        child:setColorScheme( colorScheme )
+        child:applyColorSchemeRecursively()
+    end
+end
+
+-- Sets the Panel's ColorScheme to its parent's ColorScheme.
+function Panel:inheritParentColorScheme()
+    local parent = self:getParent()
+    if not parent then return end
+
+    self:setColorScheme( parent:getColorScheme() )
+end
+
+--[[
+    - Whether or not the Panel should automatically inherit its parent's ColorScheme.
+    - Re-inherits every time the Panel is reparented or its parent changes ColorScheme.
+    - True by default.
+--]]
+function Panel:autoInheritParentColorScheme( state )
+    self._autoInheritParentColorScheme = state
+
+    if state then
+        self:inheritParentColorScheme()
+    end
+end
+
+function Panel:doesAutoInheritParentColorScheme()
+    return self._autoInheritParentColorScheme
 end
 
 --[[
