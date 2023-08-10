@@ -134,8 +134,9 @@ end
 
 function Scrollable:getScrollWidth()
     if self:doesScrollHorizontally() then return self._scrollWidth end
+    if not self:doesScrollVertically() then return self:getWidth() end
 
-    return self:getWidth()
+    return self:getWidth() - self:getScrollBarSize()
 end
 
 -- The height of the scrollable region.
@@ -159,8 +160,9 @@ end
 
 function Scrollable:getScrollHeight()
     if self:doesScrollVertically() then return self._scrollHeight end
+    if not self:doesScrollHorizontally() then return self:getHeight() end
 
-    return self:getHeight()
+    return self:getHeight() - self:getScrollBarSize()
 end
 
 -- Set the size of the scrollable region.

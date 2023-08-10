@@ -118,13 +118,13 @@ function ScrollableList:handleListResize( width, height )
         width = doAutoExpand and ( width + scrollBarSize ) or self:getMinWidth()
         self:setWidth( width )
         scrollable:setWidth( width )
+        scrollable:setScrollSize( width - scrollBarSize, height )
     else
         height = doAutoExpand and ( height + scrollBarSize ) or self:getMinHeight()
         self:setHeight( height )
         scrollable:setHeight( height )
+        scrollable:setScrollSize( width, height - scrollBarSize )
     end
-
-    scrollable:setScrollSize( width, height )
 end
 
 function ScrollableList:setMinWidth( width )
