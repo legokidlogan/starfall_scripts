@@ -319,8 +319,8 @@ function Scrollable:getInsertBounds()
 
     xMin = xMin + borderSize
     yMin = yMin + borderSize
-    local xMax = xMin + self:getWidth() - borderSizeDouble - ( self:getScrollBarHorizontal() and scrollBarSize or 0 )
-    local yMax = yMin + self:getHeight() - borderSizeDouble - ( self:getScrollBarVertical() and scrollBarSize or 0 )
+    local xMax = xMin + self:getWidth() - borderSizeDouble - ( self:getScrollBarVertical() and scrollBarSize or 0 )
+    local yMax = yMin + self:getHeight() - borderSizeDouble - ( self:getScrollBarHorizontal() and scrollBarSize or 0 )
 
     return xMin, yMin, xMax, yMax
 end
