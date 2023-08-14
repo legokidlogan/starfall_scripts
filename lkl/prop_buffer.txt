@@ -1,0 +1,290 @@
+--@name Prop Buffer
+--@author legokidlogan
+--@server
+--@include lkl/queue.txt
+
+--[[
+    - Creates a buffer of props which maintains a certain number of props at all times.
+        - "at all times" meaning it automatically spawns props when needed and when possible.
+    - The prop count is on a per-model basis.
+    - This is for use with props that are spawned and despawned frequently, such as projectiles.
+
+
+    - Hooks:
+        LKL_PropBuffer_PropCreated( ent )
+            - Called when a prop has been created in the buffer.
+            - Allows for one-time setup tweaks, like setting mass or nocolliding props between each other.
+
+            ent: (Entity)
+                - The prop that has been created.
+
+
+        LKL_PropBuffer_PropStored( ent )
+            - Called when a prop has been stored in the buffer.
+            - This means it can now be acquired with propBuffer.takeProp().
+
+            ent: (Entity)
+                - The prop that has been stored.
+
+
+    - Example usage:
+        local pelletModel = "models/hunter/plates/plate.mdl"
+
+        propBuffer.registerModel( pelletModel, 20 )
+
+        local function firePellet( pos, dir, expireTime )
+            local pellet = propBuffer.takeProp( pelletModel )
+
+            if not pellet then return end
+
+            pellet:setPos( pos )
+            pellet:enableMotion( true )
+            pellet:getPhysicsObject():setVelocity( dir * 1000 )
+
+            timer.simple( expireTime or 5, function()
+                propBuffer.storeProp( pellet )
+            end )
+        end
+--]]
+
+
+if propBuffer and propBuffer.DEFINEME then return end -- Don't run twice
+
+propBuffer = propBuffer or {}
+propBuffer.storePos = propBuffer.storePos or Vector( 0, 0, -4000 )
+
+
+
+require( "lkl/queue.txt" )
+
+prop.setPropUndo( false )
+prop.setPropClean( true )
+
+
+local bufferSizesByModel = {}
+local propsByModel = {}
+local readyPropsByModel = {}
+local usedPropLookup = {}
+local propLookup = {}
+local spawnQueue
+
+
+local function addToBuffer( model, amount )
+    if amount <= 0 then return end
+
+    local entries = {}
+
+    for i = 1, amount do
+        entries[i] = model
+    end
+
+    spawnQueue:addEntriesAndStart( entries )
+end
+
+
+----- GLOBAL FUNCTIONS -----
+
+--[[
+    - Registers a model to be used in the buffer.
+    - This must be done before you can use propBuffer.takeProp().
+
+    model: (string)
+        - The model to register.
+    bufferSize: (number)
+        - The number of props to keep in existence at all times.
+        - Re-registering a model will set the buffer size to the maximum of the old and new sizes.
+--]]
+function propBuffer.registerModel( model, bufferSize )
+    if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+    if type( bufferSize ) ~= "number" then error( "Expected bufferSize to be a number" ) end
+    if math.floor( bufferSize ) ~= bufferSize then error( "Expected bufferSize to be an integer" ) end
+    if bufferSize < 1 then error( "Expected bufferSize to be at least 1" ) end
+
+    local oldSize = bufferSizesByModel[model]
+    if not oldSize then
+        propsByModel[model] = {}
+        readyPropsByModel[model] = {}
+        oldSize = 0
+    end
+
+    local newSize = math.max( bufferSize, oldSize )
+
+    bufferSizesByModel[model] = newSize
+    addToBuffer( model, newSize - oldSize )
+end
+
+--[[
+    - Removes a prop from the buffer, if available, and returns it.
+    - You must register the model before you can use it.
+    - Be sure to call propBuffer.storeProp( ent ) when you are done with the prop.
+
+    model: (string)
+        - The model to get a prop from.
+
+    RETURNS: ent
+        ent: (Entity or false)
+            - The prop, or false if none are available.
+            - Props become marked as unavailable once they are taken from the buffer.
+--]]
+function propBuffer.takeProp( model )
+    if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+    if not bufferSizesByModel[model] then error( "Model not registered" ) end
+
+    local readyProps = readyPropsByModel[model]
+    local readyProp = readyProps[1]
+
+    if readyProp then
+        table.remove( readyProps, 1 )
+        usedPropLookup[readyProp] = true
+        propBuffer.onTakeProp( readyProp )
+
+        return readyProp
+    end
+
+    return false
+end
+
+--[[
+    - Puts a prop back in the buffer so that it may be used again.
+
+    ent: (Entity)
+        - The prop to store.
+        - This must be a prop that was previously taken from the buffer.
+--]]
+function propBuffer.storeProp( ent )
+    if not isValid( ent ) then return end
+    if not usedPropLookup[ent] then return end
+
+    local model = ent:getModel()
+    local readyProps = readyPropsByModel[model]
+
+    table.insert( readyProps, ent )
+    usedPropLookup[ent] = nil
+    propBuffer.onStoreProp( ent )
+
+    hook.run( "LKL_PropBuffer_PropStored", ent )
+end
+
+--[[
+    - This function is overridable!
+    - Determines how to 'unhide' a prop when taken from the buffer.
+    - Do not call this manually.
+--]]
+function propBuffer.onTakeProp( ent )
+    ent:setNocollideAll( false )
+    ent:setColor( Color( 255, 255, 255, 255 ) )
+end
+
+--[[
+    - This function is overridable!
+    - Determines how to 'hide' a prop when stored in the buffer.
+    - Do not call this manually.
+--]]
+function propBuffer.onStoreProp( ent )
+    ent:enableMotion( false )
+    ent:setNocollideAll( true )
+    ent:setColor( Color( 255, 255, 255, 0 ) )
+    ent:setPos( propBuffer.storePos )
+end
+
+--[[
+    - Returns the size of the buffer for a model, or false if the model has not been registered.
+    - This is the amount of props that will be kept in existence at all times.
+--]]
+function propBuffer.getBufferSize( model )
+    if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+
+    return bufferSizesByModel[model] or false
+end
+
+--[[
+    - Returns the number of currently-available props for a model, or false if the model has not been registered.
+    - This is the amount of props that can be taken from the buffer right now.
+--]]
+function propBuffer.getReadyCount( model )
+    if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+
+    local readyProps = readyPropsByModel[model]
+
+    return readyProps and #readyProps or false
+end
+
+-- Returns a list of models that have been registered.
+function propBuffer.getRegisteredModels()
+    local models = {}
+
+    for model in pairs( bufferSizesByModel ) do
+        table.insert( models, model )
+    end
+
+    return models
+end
+
+--[[
+    - Returns a list of all props with the given model that have been created by the buffer.
+    - The list includes both ready and non-ready props.
+    - This is for observing props and performing advanced setups (e.g. nocollide constraints), NOT for taking props to use them.
+
+    model: (string or nil)
+        - The model to search for.
+        - If nil, will get all props regardless of their model.
+--]]
+function propBuffer.getProps( model )
+    if model ~= nil and type( model ) ~= "string" then error( "Expected model to be a string or nil" ) end
+
+    local out = {}
+
+    if model == nil then
+        for _, props in pairs( propsByModel ) do
+            for _, ent in ipairs( props ) do
+                table.insert( out, ent )
+            end
+        end
+    else
+        for i, ent in ipairs( propsByModel[model] ) do
+            out[i] = ent
+        end
+    end
+
+    return out
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_PropBuffer_MaintainBuffer", function( ent )
+    if not propLookup[ent] then return end
+
+    local model = ent:getModel()
+
+    usedPropLookup[ent] = nil
+    table.removeByValue( propsByModel[model], ent )
+    table.removeByValue( readyPropsByModel[model], ent )
+    addToBuffer( model, 1 )
+end )
+
+
+spawnQueue = Queue:new(
+    function( _, model )
+        local ent
+        local success = pcall( function()
+            ent = prop.create( Vector(), Angle(), model, true )
+        end )
+
+        if not success then return true end
+
+        propLookup[ent] = true
+        table.insert( propsByModel[model], ent )
+        table.insert( readyPropsByModel[model], ent )
+        propBuffer.onStoreProp( ent )
+
+        hook.run( "LKL_PropBuffer_PropCreated", ent )
+        hook.run( "LKL_PropBuffer_PropStored", ent )
+    end,
+    nil,
+    nil,
+    0.25,
+    1,
+    0.7,
+    "PropBuffer_SpawnQueue"
+)
