@@ -160,6 +160,10 @@ end
 
 --[[
     Sends a remote hook to all chips in the group that this chip is in.
+
+    targetOwner: (nil or Player)
+        NIL: Sends to all chips in the group, regardless of owner.
+        PLAYER: Sends to all chips in the group owned by this player.
 --]]
 function hookRunRemoteMyGroup( targetOwner, hookName, ... )
     return hookRunRemoteGroup( getRemoteGroupName(), targetOwner, hookName, ... )
