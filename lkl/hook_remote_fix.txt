@@ -106,6 +106,29 @@ function hookRunRemoteFixed( targets, hookName, ... )
 end
 
 --[[
+    Behaves similarly to hookRunRemoteFixed(), though it sends to all chips owned by a specific player instead of a list of chips.
+
+    targetOwner: (Player)
+        - The player to send to.
+        - If you want to send to all chips, regardless of owner, use hookRunRemoteFixed() instead.
+--]]
+function hookRunRemoteByOwner( targetOwner, hookName, ... )
+    if not isValid( targetOwner ) or not targetOwner:isPlayer() then
+        error( "Expected targetOwner to be a valid player" )
+    end
+
+    local targets = {}
+
+    for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
+        if chipEnt:getOwner() == targetOwner then
+            tableInsert( targets, chipEnt )
+        end
+    end
+
+    return hookRunRemoteFixed( targets, hookName, ... )
+end
+
+--[[
     Behaves similarly to hookRunRemoteFixed(), though it sends to all chips in a group instead of a list of chips.
 
     groupName: (nil or string)
