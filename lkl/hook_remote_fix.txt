@@ -3,6 +3,8 @@
 --@shared
 
 
+if hookRunRemoteFixed then return end -- Don't run twice
+
 c_white = c_white or Color( 255, 255, 255, 255 )
 c_alert_red = c_alert_red or Color( 150, 0, 0, 255 )
 c_yellow = c_yellow or Color( 255, 255, 0, 255 )
