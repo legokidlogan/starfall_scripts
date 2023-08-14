@@ -48,7 +48,7 @@
 --]]
 
 
-if propBuffer and propBuffer.DEFINEME then return end -- Don't run twice
+if propBuffer and propBuffer.registerModel then return end -- Don't run twice
 
 propBuffer = propBuffer or {}
 propBuffer.storePos = propBuffer.storePos or Vector( 0, 0, -4000 )
