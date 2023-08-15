@@ -437,8 +437,8 @@ function Queue:__concat( other )
     return tostring( self ) .. tostring( other )
 end
 
-function Queue:__len( x ) -- Get the number of entries left in the Queue
-    return #x:getEntries()
+function Queue:__len() -- Get the number of entries left in the Queue
+    return #self:getEntries()
 end
 
 
