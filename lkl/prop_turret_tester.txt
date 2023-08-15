@@ -9,7 +9,6 @@ require( "lkl/prop_turret.txt" )
 TestTurret = class( "TestTurret", PropTurret )
 TestTurret.static.BULLET_MODEL = "models/hunter/plates/plate.mdl"
 TestTurret.static.BULLET_BUFFER_SIZE = 20
-TestTurret.static.NET_ENABLED = false
 TestTurret.static.AUTO_TARGET_CONE = 2
 
 TestTurret.static.BULLET_COUNT = 3

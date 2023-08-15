@@ -30,7 +30,7 @@ PropTurret = class( "PropTurret", Destroyable )
 -- These static vars can be overridden by subclasses.
 PropTurret.static.BULLET_MODEL = "models/hunter/plates/plate.mdl"
 PropTurret.static.BULLET_BUFFER_SIZE = 10
-PropTurret.static.NET_ENABLED = true -- Set to false if you don't want the turret to do any networking. Useful if networking is unused and you don't want to waste bandwidth.
+PropTurret.static.NET_ENABLED = false -- Set to false if you don't want the turret to do any networking. Useful if networking is unused and you don't want to waste bandwidth or sf net limits.
 PropTurret.static.AUTO_TARGET_INTERVAL = 0.5 -- How often the turret should auto target.
 PropTurret.static.AUTO_TARGET_CONE = 0.5 -- 0-1 fraction, corresponds to 0-180 degrees, i.e. a hemisphere at 1 cone. Set to 2 to force a full sphere.
 PropTurret.static.AUTO_TARGET_RANGE = 1500 -- How far the turret can see for auto targeting.
