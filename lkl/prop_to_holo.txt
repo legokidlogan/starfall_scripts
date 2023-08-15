@@ -127,6 +127,8 @@ else
         if isSaving then print( "Please wait for the current save to finish." ) return end
         if fileName == "" then print( "Please provide a file name." ) return end
 
+        isSaving = true
+
         if not string.endsWith( fileName, ".txt" ) then
             fileName = fileName .. ".txt"
         end
