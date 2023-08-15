@@ -1,0 +1,969 @@
+--@name Prop Turret
+--@author legokidlogan
+--@shared
+--@include lkl/global_whitelist.txt
+--@include lkl/prop_buffer.txt
+
+--[[
+    - TODO
+--]]
+
+if PropTurret then return end
+
+glist = glist or {}
+glist.groupName = glist.groupName or "turret"
+glist.startupSyncDelay = glist.startupSyncDelay or 2
+
+require( "lkl/global_whitelist.txt" )
+
+if SERVER then
+    propBuffer = propBuffer or {}
+    propBuffer.storePos = propBuffer.storePos or Vector( 0, 0, -4000 )
+
+    require( "lkl/prop_buffer.txt" )
+end
+
+
+
+PropTurret = class( "PropTurret", Destroyable )
+
+-- These static vars can be overridden by subclasses.
+PropTurret.static.BULLET_MODEL = "models/hunter/plates/plate.mdl"
+PropTurret.static.BULLET_BUFFER_SIZE = 10
+PropTurret.static.NET_ENABLED = true -- Set to false if you don't want the turret to do any networking. Useful if networking is unused and you don't want to waste bandwidth.
+PropTurret.static.AUTO_TARGET_INTERVAL = 0.5 -- How often the turret should auto target.
+PropTurret.static.AUTO_TARGET_CONE = 0.5 -- 0-1 fraction, corresponds to 0-180 degrees, i.e. a hemisphere at 1 cone. Set to 2 to force a full sphere.
+PropTurret.static.AUTO_TARGET_RANGE = 1500 -- How far the turret can see for auto targeting.
+
+-- These can be overridden by subclasses, as well as set on a per-instance basis.
+PropTurret.static.BULLET_GRAVITY_ENABLED = false
+PropTurret.static.BULLET_SPEED = 3000
+PropTurret.static.BULLET_MASS = 4
+PropTurret.static.BULLET_COUNT = 1
+PropTurret.static.BULLET_SPREAD = 0 -- 0-1 fraction, corresponds to 0-180 * 2 degrees, i.e. a full sphere at 1 spread.
+PropTurret.static.BULLET_LINGER = 3 -- How long bullets should stay in the world before being removed.
+PropTurret.static.BULLET_COLOR = Color( 255, 255, 255, 255 )
+PropTurret.static.TARGET_VEL_ACCOUNT = 1 -- Multiplier for adding the target's velocity when firing shots. Also gets affected by bullet speed and distance.
+PropTurret.static.SHOOT_COOLDOWN = 0.5
+
+
+local allPropTurrets = {}
+local turretsByClass = {}
+local turretsByID = {}
+local turretIncrement = 0
+local bulletModelLookup = {}
+local turretClasses = {}
+local turretClassLookup = {}
+local registerTurretClass
+
+
+----- STATIC FUNCTIONS -----
+
+function PropTurret.static:getAll()
+    return allPropTurrets
+end
+
+function PropTurret.static:getByID( id )
+    return turretsByID[id]
+end
+
+function PropTurret.static:targetFilter( ent )
+    if not isValid( ent ) then return false end
+    if not ent.isPlayer or not ent:isPlayer() then return false end
+    if not ent:isAlive() then return false end
+    if glist.filterPlayer( ent ) then return false end -- Ignore players in the whitelist.
+    if pvp and not pvp.playerIsInPvp( ent ) then return false end
+
+    return true
+end
+
+if SERVER then
+    function PropTurret:initialize( pos, ang, headPos, headAng )
+        table.insert( allPropTurrets, self )
+
+        if not turretClassLookup[self.class] then
+            registerTurretClass( self.class )
+        end
+
+        local bulletModel = self:getBulletModel()
+        propBuffer.registerModel( bulletModel, self.class.BULLET_BUFFER_SIZE )
+        bulletModelLookup[bulletModel] = true
+
+        turretIncrement = turretIncrement + 1
+        turretsByID[turretIncrement] = self
+        table.insert( turretsByClass[self.class], self )
+        self._id = turretIncrement
+        self._isOnShotCooldown = false
+
+        self._registeredProps = {}
+        self._registeredPropLookup = {}
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_Create" )
+            net.writeEntity( chip() )
+            net.writeUInt( turretIncrement, 16 )
+            net.send()
+        end
+
+        self:setHeadAngleLimits( -89.9, 89.9, -180, 180 )
+        self:setPos( pos )
+        self:setAngles( ang )
+        self:setHeadPos( headPos )
+        self:setHeadAngles( headAng )
+        self:setShootPos( Vector() )
+        self:setAutoTarget( true )
+        self:setAutoShoot( true )
+    end
+else
+    -- PropTurrets should not be created manually on client, this is only for networking.
+    function PropTurret:initialize( id )
+        self._id = id
+        turretsByID[id] = self
+        table.insert( allPropTurrets, self )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function PropTurret:getID()
+    return self._id
+end
+
+function PropTurret:doesAutoTarget()
+    return self._autoTarget
+end
+
+function PropTurret:getTarget()
+    return self._target
+end
+
+function PropTurret:getPos()
+    return self._pos
+end
+
+function PropTurret:getAngles()
+    return self._ang
+end
+
+function PropTurret:getHeadPos()
+    return self._headPos
+end
+
+function PropTurret:getHeadWorldPos()
+    local pos = self:localToWorld( self:getHeadPos(), Angle() )
+
+    return pos
+end
+
+function PropTurret:getHeadAngles()
+    return self._headAng
+end
+
+function PropTurret:getHeadWorldAngles()
+    local _, ang = self:localToWorld( Vector(), self:getHeadAngles() )
+
+    return ang
+end
+
+function PropTurret:getHeadWorldPosAng()
+    return self:localToWorld( self:getHeadPos(), self:getHeadAngles() )
+end
+
+function PropTurret:getShootPos()
+    return self._shootPos
+end
+
+function PropTurret:getShootWorldPos()
+    local headPos, headAng = self:getHeadWorldPosAng()
+    local pos = localToWorld( self:getShootPos(), Angle(), headPos, headAng )
+
+    return pos
+end
+
+function PropTurret:localToWorld( pos, ang )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    return localToWorld( pos, ang, self:getPos(), self:getAngles() )
+end
+
+function PropTurret:worldToLocal( pos, ang )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    return worldToLocal( pos, ang, self:getPos(), self:getAngles() )
+end
+
+if SERVER then
+    function PropTurret:destroy()
+        table.removeByValue( turretsByClass[self.class], self )
+        timer.remove( "LKL_PropTurret_CooldownFinished_" .. self:getID() )
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_Destroy" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.send()
+        end
+
+        PropTurret.super.destroy( self )
+    end
+
+    function PropTurret:isNetEnabled()
+        return self.class.NET_ENABLED
+    end
+
+    function PropTurret:setAutoTarget( enabled )
+        if type( enabled ) ~= "boolean" then error( "Expected enabled to be a boolean" ) end
+
+        self._autoTarget = enabled
+        self:onAutoTargetChanged()
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_SetAutoTarget" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeBool( enabled )
+            net.send()
+        end
+    end
+
+    function PropTurret:setTarget( target )
+        if target ~= nil and type( target ) ~= "Entity" and type( target ) ~= "Player" then error( "Expected target to be an Entity or nil" ) end
+
+        self._target = target
+        self:onSetTarget()
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_SetTarget" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeEntity( target or game.getWorld() )
+            net.send()
+        end
+    end
+
+    function PropTurret:setAutoShoot( state )
+        if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+        self._autoShoot = state
+    end
+
+    function PropTurret:doesAutoShoot()
+        return self._autoShoot
+    end
+
+    function PropTurret:shoot()
+        if not self:canShoot() then return end
+
+        local cooldown = self:getShootCooldown()
+        local bulletHasGravity = self:isBulletGravityEnabled()
+        local bulletModel = self:getBulletModel()
+        local bulletCount = self:getBulletCount()
+        local bulletMass = self:getBulletMass()
+        local bulletSpeed = self:getBulletSpeed()
+        local bulletColor = self:getBulletColor()
+        local bullets = {}
+        local shootPos = self:getShootWorldPos()
+        local shootDir = self:_getShootDir()
+
+        self._isOnShotCooldown = true
+
+        for i = 1, bulletCount do
+            local bullet = propBuffer.takeProp( bulletModel )
+            local dir = self:_spreadDir( shootDir )
+
+            bullets[i] = bullet
+
+            if bulletHasGravity then
+                bullet:enableGravity( bulletHasGravity )
+            end
+
+            bullet:setPos( shootPos )
+            bullet:setAngles( dir:getAngle() )
+            bullet:setMass( bulletMass )
+            bullet:setColor( bulletColor )
+            bullet:setNocollideAll( false )
+            bullet:enableMotion( true )
+            bullet:getPhysicsObject():setVelocity( dir * bulletSpeed )
+        end
+
+        timer.simple( self:getBulletLinger(), function()
+            for _, bullet in ipairs( bullets ) do
+                propBuffer.storeProp( bullet )
+            end
+        end )
+
+        timer.create( "LKL_PropTurret_CooldownFinished_" .. self:getID(), cooldown, 1, function()
+            self._isOnShotCooldown = false
+        end )
+
+        self:onShoot( bullets )
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_Shoot" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeTable( bullets )
+            net.send()
+        end
+    end
+
+    --[[
+        - Returns a sorted list of valid targets in a cone/sphere from the PropTurret's head depending on its settings.
+        - Line of sight is not checked.
+    --]]
+    function PropTurret:getTargetsInCone()
+        local cone = self:getAutoTargetCone()
+        local pos = self:getHeadWorldPos()
+        local range = self:getAutoTargetRange()
+        local targets
+        local filter = self.class.targetFilter
+
+        local function filterFunc( ent ) -- Workaround since we can't directly pass self.class.targetFilter as an argument.
+            return filter( nil, ent )
+        end
+
+        if cone == 2 then
+            targets = find.inSphere( pos, range, filterFunc )
+        else
+            local coneRadius = math.cos( math.rad( cone * 180 ) )
+
+            targets = find.inCone( pos, self:getHeadWorldAngles():getForward(), range, coneRadius, filterFunc )
+        end
+
+        targets = find.sortByClosest( targets, pos )
+
+        return targets
+    end
+
+    --[[
+        - Returns whether or not the PropTurret can see the given entity.
+
+        ent: (Entity)
+            - The Entity to check.
+        endPos: (optional) (Vector)
+            - The position on the Entity to check. Defaults to the Entity's bounding box center.
+    --]]
+    function PropTurret:canSee( ent, endPos )
+        if not isValid( ent ) then return false end
+
+        endPos = endPos or ent:obbCenterW()
+        local startPos = self:getHeadWorldPos()
+        local filter = table.add( self:getProps(), propBuffer.getProps( self:getBulletModel() ) )
+        local trace = trace.line( startPos, endPos, filter )
+
+        return trace.Entity == ent
+    end
+
+    --[[
+        - Returns the list of entities that have been registered as being part of the PropTurret.
+        - This is used for filtering the props from line of sight traces.
+        - Register entities with :registerProp() and deregister them with :deregisterProp().
+    --]]
+    function PropTurret:getProps()
+        return self._registeredProps
+    end
+
+    --[[
+        - Registers an entity as being part of the PropTurret.
+        - This is used for filtering the props from line of sight traces.
+    --]]
+    function PropTurret:registerProp( ent )
+        if not isValid( ent ) then return end
+        if self._registeredPropLookup[ent] then return end
+
+        self._registeredPropLookup[ent] = true
+        table.insert( self._registeredProps, ent )
+    end
+
+    --[[
+        - Deregisters an entity as being part of the PropTurret.
+        - This is used for filtering the props from line of sight traces.
+    --]]
+    function PropTurret:deregisterProp( ent )
+        if not isValid( ent ) then return end
+        if not self._registeredPropLookup[ent] then return end
+
+        self._registeredPropLookup[ent] = nil
+        table.removeByValue( self._registeredProps, ent )
+    end
+
+    -- Sets the position of the PropTurret.
+    function PropTurret:setPos( pos )
+        if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+        if self._pos == pos then return end
+
+        self._pos = pos
+        self:onSetPos()
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_SetPos" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeVector( pos )
+            net.send()
+        end
+    end
+
+    -- Sets the angles of the PropTurret.
+    function PropTurret:setAngles( ang )
+        if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+        if self._ang == ang then return end
+
+        self._ang = ang
+        self:onSetAngles()
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_SetAngles" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeAngle( ang )
+            net.send()
+        end
+    end
+
+    --[[
+        - Sets the head position of the PropTurret, which is in local coords to the PropTurret.
+        - The head position is used as the origin for target detection.
+    --]]
+    function PropTurret:setHeadPos( pos )
+        if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+        if self._headPos == pos then return end
+
+        self._headPos = pos
+        self:onSetHeadPos()
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_SetHeadPos" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeVector( pos )
+            net.send()
+        end
+    end
+
+    --[[
+        - Sets the head angles of the PropTurret, which is in local coords to the PropTurret.
+        - The head angles are used as the cone direction for target detection.
+    --]]
+    function PropTurret:setHeadAngles( ang )
+        if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+        if self._headAng == ang then return end
+
+        local pitchMin, pitchMax, yawMin, yawMax = self:getHeadAngleLimits()
+        local pitch = math.clamp( ang[1], pitchMin, pitchMax )
+        local yaw = math.clamp( ang[2], yawMin, yawMax )
+
+        self._headAng = Angle( pitch, yaw, ang[3] )
+        self:onSetHeadAngles()
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_SetHeadAngles" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeAngle( ang )
+            net.send()
+        end
+    end
+
+    --[[
+        - Changes the PropTurret's head angles to aim at the given position.
+    --]]
+    function PropTurret:aimAt( pos )
+        if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+
+        local headPos = self:getHeadWorldPos()
+        local ang = ( pos - headPos ):getAngle()
+        local _
+        _, ang = self:worldToLocal( Vector(), ang )
+
+        self:setHeadAngles( ang )
+    end
+
+    --[[
+        - Sets the shoot offset of the PropTurret, which is in local coords to the PropTurret's head.
+        - Bullets will spawn from here.
+    --]]
+    function PropTurret:setShootPos( pos )
+        if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+        if self._shootPos == pos then return end
+
+        self._shootPos = pos
+        self:onSetShootPos()
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_SetShootPos" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeVector( pos )
+            net.send()
+        end
+    end
+
+    --[[
+        - Sets the pitch and yaw limits for the head of the PropTurret.
+        - Note that the roll has no limit.
+    --]]
+    function PropTurret:setHeadAngleLimits( pitchMin, pitchMax, yawMin, yawMax )
+        if type( pitchMin ) ~= "number" then error( "Expected pitchMin to be a number" ) end
+        if type( pitchMax ) ~= "number" then error( "Expected pitchMax to be a number" ) end
+        if type( yawMin ) ~= "number" then error( "Expected yawMin to be a number" ) end
+        if type( yawMax ) ~= "number" then error( "Expected yawMax to be a number" ) end
+        if pitchMin > pitchMax then error( "pitchMin cannot be greater than pitchMax" ) end
+        if yawMin > yawMax then error( "yawMin cannot be greater than yawMax" ) end
+        if pitchMin < -89.9 or pitchMin > 89.9 then error( "pitchMin must be between -89.9 and 89.9" ) end
+        if pitchMax < -89.9 or pitchMax > 89.9 then error( "pitchMax must be between -89.9 and 89.9" ) end
+        if yawMin < -180 or yawMin > 180 then error( "yawMin must be between -180 and 180" ) end
+        if yawMax < -180 or yawMax > 180 then error( "yawMax must be between -180 and 180" ) end
+
+        self._headPitchMin = pitchMin
+        self._headPitchMax = pitchMax
+        self._headYawMin = yawMin
+        self._headYawMax = yawMax
+    end
+
+    function PropTurret:getHeadAngleLimits()
+        return self._headPitchMin, self._headPitchMax, self._headYawMin, self._headYawMax
+    end
+
+    function PropTurret:getAutoTargetCone()
+        return self.class.AUTO_TARGET_CONE
+    end
+
+    function PropTurret:getAutoTargetRange()
+        return self.class.AUTO_TARGET_RANGE
+    end
+
+    function PropTurret:setBulletGravityEnabled( state )
+        if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+        self._bulletGravityEnabled = state
+    end
+
+    function PropTurret:isBulletGravityEnabled()
+        local state = self._bulletGravityEnabled
+        if state == nil then return self.class.BULLET_GRAVITY_ENABLED end
+
+        return state
+    end
+
+    function PropTurret:setBulletSpeed( speed )
+        if type( speed ) ~= "number" then error( "Expected speed to be a number" ) end
+        if speed <= 0 then error( "speed must be > 0" ) end
+
+        self._bulletSpeed = speed
+    end
+
+    function PropTurret:getBulletSpeed()
+        return self._bulletSpeed or self.class.BULLET_SPEED
+    end
+
+    function PropTurret:setBulletMass( mass )
+        if type( mass ) ~= "number" then error( "Expected mass to be a number" ) end
+        if mass <= 0 then error( "mass must be > 0" ) end
+
+        self._bulletMass = math.min( mass, 50000 )
+    end
+
+    function PropTurret:getBulletMass()
+        return self._bulletMass or self.class.BULLET_MASS
+    end
+
+    function PropTurret:setBulletCount( count )
+        if type( count ) ~= "number" then error( "Expected count to be a number" ) end
+        if math.floor( count ) ~= count then error( "count must be an integer" ) end
+        if count <= 0 then error( "count must be > 0" ) end
+
+        self._bulletCount = math.min( count, 100 )
+    end
+
+    function PropTurret:getBulletCount()
+        return self._bulletCount or self.class.BULLET_COUNT
+    end
+
+    function PropTurret:setBulletSpread( spread )
+        if type( spread ) ~= "number" then error( "Expected spread to be a number" ) end
+        if spread < 0 or spread > 1 then error( "spread must be between 0 and 1" ) end
+
+        self._bulletSpread = spread
+    end
+
+    function PropTurret:getBulletSpread()
+        return self._bulletSpread or self.class.BULLET_SPREAD
+    end
+
+    function PropTurret:setBulletColor( color )
+        if type( color ) ~= "Color" then error( "Expected color to be a Color" ) end
+
+        self._bulletColor = color
+    end
+
+    function PropTurret:setBulletLinger( duration )
+        if type( duration ) ~= "number" then error( "Expected duration to be a number" ) end
+        if duration <= 0 then error( "duration must be > 0" ) end
+
+        self._bulletLinger = duration
+    end
+
+    function PropTurret:getBulletLinger()
+        return self._bulletLinger or self.class.BULLET_LINGER
+    end
+
+    function PropTurret:getBulletColor()
+        return self._bulletColor or self.class.BULLET_COLOR
+    end
+
+    function PropTurret:getBulletModel()
+        return self.class.BULLET_MODEL
+    end
+
+    function PropTurret:setShootCooldown( duration )
+        if type( duration ) ~= "number" then error( "Expected duration to be a number" ) end
+        if duration < 0 then error( "duration must be >= 0" ) end
+
+        self._shootCooldown = duration
+    end
+
+    function PropTurret:setTargetVelAccount( multiplier )
+        if type( multiplier ) ~= "number" then error( "Expected multiplier to be a number" ) end
+
+        self._targetVelAccount = multiplier
+    end
+
+    function PropTurret:getTargetVelAccount()
+        return self._targetVelAccount or self.class.TARGET_VEL_ACCOUNT
+    end
+
+    function PropTurret:getShootCooldown()
+        return self._shootCooldown or self.class.SHOOT_COOLDOWN
+    end
+
+    function PropTurret:isOnShotCooldown()
+        return self._isOnShotCooldown
+    end
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+-- Called every tick.
+function PropTurret:think()
+
+end
+
+--[[
+    - Callback for when the PropTurret is destroyed.
+    - Used for cleaning up props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onDestroyed()
+
+end
+
+--[[
+    - Callback for when the auto target of the PropTurret is changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onAutoTargetChanged()
+
+end
+
+--[[
+    - Callback for when the target of the PropTurret is changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onSetTarget()
+
+end
+
+--[[
+    - Callback for when the position of the PropTurret is changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onSetPos()
+
+end
+
+--[[
+    - Callback for when the angles of the PropTurret are changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onSetAngles()
+
+end
+
+--[[
+    - Callback for when the head angles of the PropTurret are changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onSetHeadPos()
+
+end
+
+--[[
+    - Callback for when the head angles of the PropTurret are changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onSetHeadAngles()
+
+end
+
+--[[
+    - Callback for when the shoot position of the PropTurret is changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onSetShootPos()
+
+end
+
+--[[
+    - Callback for when the PropTurret shoots.
+    - Used for updating props, holograms, playing sounds, etc.
+    - Can safely be made different between server and client.
+
+    bullets: A table of bullet props that were shot.
+--]]
+function PropTurret:onShoot( bullets )
+
+end
+
+if SERVER then
+    --[[
+        - Returns whether or not the PropTurret can shoot.
+        - If you override this function in subclasses, it's recommended to put the following at the top of your version:
+            if not ClassNameGoesHere.super.canShoot( self ) then return false end
+    --]]
+    function PropTurret:canShoot()
+        if self:isOnShotCooldown() then return false end
+        if propBuffer.getReadyCount( self:getBulletModel() ) < self:getBulletCount() then return false end
+
+        return true
+    end
+
+    -- This should return the Entity that the PropTurret should auto-target, or nil if it shouldn't target anything.
+    function PropTurret:handleAutoTarget()
+        local targets = self:getTargetsInCone()
+
+        for _, target in ipairs( targets ) do
+            if self:canSee( target ) then
+                return target
+            end
+        end
+    end
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function PropTurret:tostringInner()
+    return "ID " .. self:getID()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+if SERVER then
+    registerTurretClass = function( classObj )
+        turretClassLookup[classObj] = true
+        table.insert( turretClasses, classObj )
+        turretsByClass[classObj] = {}
+
+        timer.create( "LKL_PropTurret_AutoTargetThink_" .. classObj.name, classObj.AUTO_TARGET_INTERVAL, 0, function()
+            for _, turret in ipairs( turretsByClass[classObj] ) do
+                if turret:doesAutoTarget() then
+                    turret:setTarget( turret:handleAutoTarget() )
+                end
+            end
+        end )
+    end
+
+    function PropTurret:_getShootDir()
+        local target = self:getTarget()
+        local velAccount = self:getTargetVelAccount()
+
+        if isValid( target ) then
+            local shootPos = self:getShootWorldPos()
+            local targetPos = target:obbCenterW()
+
+            if velAccount ~= 0 then
+                local dist = shootPos:getDistance( targetPos )
+                targetPos = targetPos + target:getVelocity() * velAccount * dist / self:getBulletSpeed()
+            end
+
+            return ( targetPos - shootPos ):getNormalized()
+        end
+
+        local headAng = self:getHeadWorldAngles()
+
+        return headAng:getForward()
+    end
+
+    function PropTurret:_spreadDir( dir )
+        local spread = self:getBulletSpread()
+        if spread == 0 then return dir end
+
+        local spreadYaw = math.rand( -spread, spread ) * 180
+        local spreadPitch = math.rand( -spread, spread ) * 180
+
+        dir = dir:rotateAroundAxis( dir:getAngle():getUp(), spreadYaw )
+        dir = dir:rotateAroundAxis( dir:getAngle():getRight(), spreadPitch )
+
+        return dir
+    end
+end
+
+
+----- SETUP -----
+
+hook.add( "think", "LKL_PropTurret_Think", function()
+    for _, turret in ipairs( allPropTurrets ) do
+        turret:think()
+
+        if turret:doesAutoShoot() and isValid( turret:getTarget() ) then
+            turret:shoot()
+        end
+    end
+end )
+
+if SERVER then
+    hook.add( "LKL_PropBuffer_PropCreated", "LKL_PropTurret_NocollideBullets", function( ent )
+        local model = ent:getModel()
+        if not bulletModelLookup[model] then return end
+
+        local bullets = propBuffer.getProps( model )
+
+        for _, otherEnt in ipairs( bullets ) do
+            if otherEnt ~= ent then
+                constraint.nocollide( ent, otherEnt )
+            end
+        end
+    end )
+else
+    function PropTurret:destroy()
+        error( ":destroy() cannot be used on a PropTurret in the client realm." )
+    end
+
+
+    net.receive( "LKL_PropTurret_Create", function()
+        if net.readEntity() ~= chip() then return end
+
+        PropTurret:new( net.readUInt( 16 ) )
+    end )
+
+    net.receive( "LKL_PropTurret_Destroy", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :destroy() an invalid PropTurret id " .. id ) return end
+
+        PropTurret.super.destroy( turret )
+    end )
+
+    net.receive( "LKL_PropTurret_SetAutoTarget", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :setAutoTarget() on an invalid PropTurret id " .. id ) return end
+
+        local enabled = net.readBool()
+
+        turret._autoTarget = enabled
+        turret:onAutoTargetChanged()
+    end )
+
+    net.receive( "LKL_PropTurret_SetTarget", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :setTarget() on an invalid PropTurret id " .. id ) return end
+
+        local target = net.readEntity()
+
+        if isValid( target ) then
+            turret._target = target
+        else
+            turret._target = nil
+        end
+
+        turret:onSetTarget()
+    end )
+
+    net.receive( "LKL_PropTurret_SetPos", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :setPos() on an invalid PropTurret id " .. id ) return end
+
+        turret._pos = net.readVector()
+        turret:onSetPos()
+    end )
+
+    net.receive( "LKL_PropTurret_SetAngles", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :setAngles() on an invalid PropTurret id " .. id ) return end
+
+        turret._ang = net.readAngle()
+        turret:onSetAngles()
+    end )
+
+    net.receive( "LKL_PropTurret_SetHeadPos", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :setHeadPos() on an invalid PropTurret id " .. id ) return end
+
+        turret._headPos = net.readVector()
+        turret:onSetHeadPos()
+    end )
+
+    net.receive( "LKL_PropTurret_SetHeadAngles", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :setHeadAngles() on an invalid PropTurret id " .. id ) return end
+
+        turret._headAng = net.readAngle()
+        turret:onSetHeadAngles()
+    end )
+
+    net.receive( "LKL_PropTurret_SetShootPos", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :setShootPos() on an invalid PropTurret id " .. id ) return end
+
+        turret._shootPos = net.readVector()
+        turret:onSetShootPos()
+    end )
+
+    net.receive( "LKL_PropTurret_Shoot", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :shoot() on an invalid PropTurret id " .. id ) return end
+
+        local bullets = net.readTable()
+        turret:onShoot( bullets )
+    end )
+end
+

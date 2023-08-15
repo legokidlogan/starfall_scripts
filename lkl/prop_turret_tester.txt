@@ -1,0 +1,74 @@
+--@name Prop Turret Tester
+--@author legokidlogan
+--@server
+--@include lkl/prop_turret.txt
+
+require( "lkl/prop_turret.txt" )
+
+
+TestTurret = class( "TestTurret", PropTurret )
+TestTurret.static.BULLET_MODEL = "models/hunter/plates/plate.mdl"
+TestTurret.static.BULLET_BUFFER_SIZE = 20
+TestTurret.static.NET_ENABLED = false
+TestTurret.static.AUTO_TARGET_CONE = 2
+
+TestTurret.static.BULLET_COUNT = 3
+TestTurret.static.BULLET_SPREAD = 0.01
+TestTurret.static.SHOOT_COOLDOWN = 1
+
+
+local cubeModel = "models/hunter/blocks/cube025x025x025.mdl"
+
+
+function TestTurret:initialize( pos, ang )
+    TestTurret.super.initialize( self, pos, ang, Vector( 0, 0, 50 ), Angle() )
+
+    local baseHolo = hologram.create( pos, ang, cubeModel, Vector( 1.5, 1, 0.25 ) )
+    self._baseHolo = baseHolo
+
+    local headHolo = hologram.create( pos, ang, cubeModel, Vector( 1, 0.25, 0.25 ) )
+    self._headHolo = headHolo
+end
+
+function TestTurret:getBaseHolo()
+    return self._baseHolo
+end
+
+function TestTurret:getHeadHolo()
+    return self._headHolo
+end
+
+function TestTurret:think()
+    if self:doesAutoTarget() then
+        local target = self:getTarget()
+
+        if target then
+            self:aimAt( target:obbCenterW() )
+        end
+    else
+        self:aimAt( owner():getEyeTrace().HitPos )
+    end
+
+    local baseHolo = self:getBaseHolo()
+    baseHolo:setPos( self:getPos() )
+    baseHolo:setAngles( self:getAngles() )
+
+    local headHolo = self:getHeadHolo()
+    local headPos, headAng = self:getHeadWorldPosAng()
+    headHolo:setPos( headPos )
+    headHolo:setAngles( headAng )
+end
+
+
+local turretOne = TestTurret:new( chip():getPos(), chip():getAngles() )
+turretOne:setAutoTarget( true )
+turretOne:setAutoShoot( true )
+
+hook.add( "KeyPress", "Test_Shoot", function( ply, key )
+    if ply ~= owner() then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    if not turretOne:doesAutoShoot() then
+        turretOne:shoot()
+    end
+end )
