@@ -1,0 +1,219 @@
+--@name Prop to Holo
+--@author legokidlogan
+--@shared
+--@include lkl/simple_file_handler.txt
+
+if CLIENT and player() ~= owner() then return end
+
+--[[
+    - Allows you to select multiple props and save them to a file to create them as holograms.
+    - Spawning is done in lkl/prop_to_holo_spawner.txt via the pthSpawner.spawn() function.
+    - To select a prop, hold the SWEP specified in the config and left/right click on the prop.
+        - By default, it uses the remote controller from WireMod.
+    - Additional entities can be added via wire inputs.
+        - This is useful for including holos from some other chip.
+        - Unfortunately, at this time the scale of E2/SF holos cannot be acquired due to how it gets stored, and a starfall/wire bug.
+    - The origin of the holos is the position of this starfall chip.
+--]]
+
+-- CONFIG
+local selectionSwep = "remotecontroller" -- The SWEP to hold in order to left/right click to select/deselect props.
+local selectionColor = Color( 0, 255, 0, 150 ) -- Manually-selected entities will temporarily be set to this color.
+local extraEntsListCount = 3 -- How many 'extra ents' wire inputs to make for adding additional entities, such as wiring in E2/SF holos. These will not get colored.
+-- END CONFIG
+
+
+sfhBaseFolder = "lkl/prop_to_holo"
+sfhHookBase = "LKL_PtH_FileHandler_"
+local fileHandler = require( "lkl/simple_file_handler.txt" )
+
+
+if CLIENT then
+    -- Turn the file contents into a lua string, so it can be directly placed into a sf file to return data via require().
+    function fileHandler.alterDataString( dataStr )
+        return "return [===[" .. dataStr .. "]===]"
+    end
+
+    -- TODO
+else
+    local COLOR_DEFAULT = Color( 255, 255, 255, 255 )
+    local RENDER_MODE_DEFAULT = 0
+
+    local props = {}
+    local propLookup = {}
+    local extraEntsLists = {}
+    local isSaving = false
+
+
+    inputNames = inputNames or {}
+    inputTypes = inputTypes or {}
+
+    for i = 1, extraEntsListCount do
+        table.insert( inputNames, "ExtraEnts__" .. i )
+        table.insert( inputTypes, "ARRAY" )
+
+        extraEntsLists[i] = {}
+    end
+
+    wire.adjustInputs( inputNames, inputTypes )
+
+
+    local function selectProp( prop )
+        if not isValid( prop ) then return end
+        if propLookup[prop] then return end
+
+        propLookup[prop] = true
+        table.insert( props, prop )
+
+        prop._color = prop:getColor()
+        prop:setColor( selectionColor )
+    end
+
+    local function deselectProp( prop )
+        if not isValid( prop ) then return end
+        if not propLookup[prop] then return end
+
+        propLookup[prop] = nil
+        table.removeByValue( props, prop )
+
+        prop:setColor( prop._color )
+        prop._color = nil
+    end
+
+    local function getHoloData( prop )
+        if prop then
+            local origin = chip():getPos()
+
+            local color = prop._color or prop:getColor()
+            color = color ~= COLOR_DEFAULT and color or nil -- Assume color is COLOR_DEFAULT if it's not set.
+
+            local renderMode = prop:getRenderMode()
+            renderMode = renderMode ~= RENDER_MODE_DEFAULT and renderMode or nil -- Assume renderMode is 0 if it's not set.
+
+            return {
+                Model = prop:getModel(),
+                Pos = prop:getPos() - origin,
+                Ang = prop:getAngles(),
+                Material = prop:getMaterial(),
+                Color = color,
+                RenderMode = renderMode,
+                --Scale = nil, -- Scale can't be set on props, and currently we can't get the scale from E2/SF holos from a different serverside chip from the creating one.
+            }
+        end
+
+        local data = {}
+        local count = 0
+
+        for _, ent in ipairs( props ) do
+            if isValid( ent ) then
+                count = count + 1
+                data[count] = getHoloData( ent )
+            end
+        end
+
+        for _, extraEntList in ipairs( extraEntsLists ) do
+            for _, ent in ipairs( extraEntList ) do
+                if isValid( ent ) then
+                    count = count + 1
+                    listData[count] = getHoloData( ent )
+                end
+            end
+        end
+
+        return data
+    end
+
+    local function save( fileName )
+        if isSaving then print( "Please wait for the current save to finish." ) return end
+        if fileName == "" then print( "Please provide a file name." ) return end
+
+        if not string.endsWith( fileName, ".txt" ) then
+            fileName = fileName .. ".txt"
+        end
+
+        print( "Saving " .. fileName .. ", please wait." )
+
+        fileHandler.save(
+            fileName,
+            getHoloData(),
+            function()
+                isSaving = false
+                print( "File saved to .../data/sf_filedata/" .. sfhBaseFolder .. "/" .. fileName )
+            end
+        )
+    end
+
+    local function wireInput( name, value )
+        local strs = string.split( name, "__" )
+
+        if strs[1] == "ExtraEnts" then
+            local listNum = tonumber( strs[2] )
+
+            if listNum then
+                local scrubbedEnts = {}
+
+                for _, ent in ipairs( value ) do
+                    if type( ent ) == "Entity" and ent:isValid() and ent:getOwner() == owner() then
+                        table.insert( scrubbedEnts, ent )
+                    end
+                end
+
+                extraEntsLists[listNum] = scrubbedEnts
+            end
+        end
+    end
+
+    hook.add( "input", "LKL_PtH_WireInput", wireInput )
+
+    hook.add( "EntityRemoved", "LKL_PtH_ClearFromSelection", deselectProp )
+
+    hook.add( "Removed", "LKL_PtH_RevertColors", function()
+        for _, prop in ipairs( props ) do
+            if isValid( prop ) then
+                prop:setColor( prop._color )
+                prop._color = nil
+            end
+        end
+    end )
+
+    hook.add( "KeyPress", "LKL_PtH_SelectProp", function( ply, key )
+        if ply ~= owner() then return end
+        if key ~= IN_KEY.ATTACK and key ~= IN_KEY.ATTACK2 then return end
+
+        local wep = ply:getActiveWeapon()
+        if not isValid( wep ) or wep:getClass() ~= selectionSwep then return end
+
+        local ent = ply:getEyeTrace().Entity
+        if not isValid( ent ) then return end
+        if ent:getOwner() ~= owner() then return end
+
+        if key == IN_KEY.ATTACK then
+            selectProp( ent )
+        elseif key == IN_KEY.ATTACK2 then
+            deselectProp( ent )
+        end
+    end )
+
+    hook.add( "PlayerSay", "LKL_PtH_Save", function( ply, msg )
+        if ply ~= owner() then return end
+
+        local args = string.split( msg, " " )
+        if table.remove( args, 1 ) ~= "/pth" then return end
+
+        local cmd = table.remove( args, 1 )
+
+        if cmd == "save" then
+            local fileName = table.concat( args, " " )
+            fileName = string.replace( fileName, " ", "_" )
+
+            save( fileName )
+        else
+            print( "Invalid command. The available commands are: save" )
+        end
+
+        return ""
+    end )
+end
+
+
+
