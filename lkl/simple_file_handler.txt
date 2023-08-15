@@ -158,6 +158,9 @@ else
 
         local uid = net.readUInt( 32 )
         local fileName = net.readString()
+        local folder = string.getPathFromFilename( fileName )
+
+        file.createDir( baseFolder .. folder )
 
         net.readStream( function( dataStr )
             file.write( baseFolder .. fileName, fileHandler.alterDataString( dataStr ) )
