@@ -138,6 +138,21 @@ if SERVER then
         end
     end )
 else
+    --[[
+        - Can be overridden to modify the data string before it is saved to the file.
+        - dataStr is json-encoded string.
+
+        - Example usage:
+            -- Turn the file contents into a lua string, so it can be directly placed into a sf file to return data via require().
+            function fileHandler.alterDataString( dataStr )
+                return "return [===[" .. dataStr .. "]===]"
+            end
+    --]]
+    function fileHandler.alterDataString( dataStr )
+        return dataStr
+    end
+
+
     net.receive( hookBase .. "SaveFile", function()
         if net.readEntity() ~= chip() then return end
 
@@ -145,7 +160,7 @@ else
         local fileName = net.readString()
 
         net.readStream( function( dataStr )
-            file.write( baseFolder .. fileName, dataStr )
+            file.write( baseFolder .. fileName, fileHandler.alterDataString( dataStr ) )
 
             net.start( hookBase .. "SaveFileFinished" )
             net.writeEntity( chip() )
