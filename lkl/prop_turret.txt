@@ -47,6 +47,7 @@ PropTurret.static.TARGET_VEL_ACCOUNT = 1 -- Multiplier for adding the target's v
 PropTurret.static.SHOOT_COOLDOWN = 0.5
 
 
+local startupSyncComplete = false
 local allPropTurrets = {}
 local turretsByClass = {}
 local turretsByID = {}
@@ -824,7 +825,14 @@ end
 
 ----- SETUP -----
 
+hook.add( "LKL_GList_StartupSync_Complete", "LKL_PropTurret_StartThinking", function()
+    -- Don't allow PropTurrets to think or auto-target until glist is ready.
+    startupSyncComplete = true
+end )
+
 hook.add( "think", "LKL_PropTurret_Think", function()
+    if not startupSyncComplete then return end
+
     for _, turret in ipairs( allPropTurrets ) do
         turret:think()
 
