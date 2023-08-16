@@ -155,8 +155,12 @@ else
                 local scrubbedEnts = {}
 
                 for _, ent in ipairs( value ) do
-                    if type( ent ) == "Entity" and ent:isValid() and ent:getOwner() == owner() then
-                        table.insert( scrubbedEnts, ent )
+                    if type( ent ) == "Entity" and ent:isValid() then
+                        local entOwner = ent:getOwner()
+
+                        if entOwner == owner() or entOwner == nil then
+                            table.insert( scrubbedEnts, ent )
+                        end
                     end
                 end
 
