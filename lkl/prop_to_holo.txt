@@ -147,26 +147,24 @@ else
 
     local function wireInput( name, value )
         local strs = string.split( name, "__" )
+        if strs[1] ~= "ExtraEnts" then return end
 
-        if strs[1] == "ExtraEnts" then
-            local listNum = tonumber( strs[2] )
+        local listNum = tonumber( strs[2] )
+        if not listNum then return end
 
-            if listNum then
-                local scrubbedEnts = {}
+        local scrubbedEnts = {}
 
-                for _, ent in ipairs( value ) do
-                    if type( ent ) == "Entity" and ent:isValid() then
-                        local entOwner = ent:getOwner()
+        for _, ent in ipairs( value ) do
+            if type( ent ) == "Entity" and ent:isValid() then
+                local entOwner = ent:getOwner()
 
-                        if entOwner == owner() or entOwner == nil then
-                            table.insert( scrubbedEnts, ent )
-                        end
-                    end
+                if entOwner == owner() or entOwner == nil then
+                    table.insert( scrubbedEnts, ent )
                 end
-
-                extraEntsLists[listNum] = scrubbedEnts
             end
         end
+
+        extraEntsLists[listNum] = scrubbedEnts
     end
 
     hook.add( "input", "LKL_PtH_WireInput", wireInput )
