@@ -215,6 +215,15 @@ else
 
         return ""
     end )
+
+
+    timer.simple( 1, function()
+        for i = 1, extraEntsListCount do
+            local name = "ExtraEnts__" .. i
+
+            wireInput( name, wire.ports[name] )
+        end
+    end )
 end
 
 
