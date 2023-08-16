@@ -115,7 +115,7 @@ else
             for _, ent in ipairs( extraEntList ) do
                 if isValid( ent ) then
                     count = count + 1
-                    listData[count] = getHoloData( ent )
+                    data[count] = getHoloData( ent )
                 end
             end
         end
