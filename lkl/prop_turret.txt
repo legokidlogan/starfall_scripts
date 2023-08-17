@@ -613,6 +613,10 @@ if SERVER then
         self._bulletColor = color
     end
 
+    function PropTurret:getBulletColor()
+        return self._bulletColor or self.class.BULLET_COLOR
+    end
+
     function PropTurret:setBulletLinger( duration )
         if type( duration ) ~= "number" then error( "Expected duration to be a number" ) end
         if duration <= 0 then error( "duration must be > 0" ) end
@@ -622,10 +626,6 @@ if SERVER then
 
     function PropTurret:getBulletLinger()
         return self._bulletLinger or self.class.BULLET_LINGER
-    end
-
-    function PropTurret:getBulletColor()
-        return self._bulletColor or self.class.BULLET_COLOR
     end
 
     function PropTurret:setBulletMaterial( material )
