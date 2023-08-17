@@ -43,6 +43,7 @@ PropTurret.static.BULLET_COUNT = 1
 PropTurret.static.BULLET_SPREAD = 0 -- 0-1 fraction, corresponds to 0-180 * 2 degrees, i.e. a full sphere at 1 spread.
 PropTurret.static.BULLET_LINGER = 3 -- How long bullets should stay in the world before being removed.
 PropTurret.static.BULLET_COLOR = Color( 255, 255, 255, 255 )
+PropTurret.static.BULLET_MATERIAL = ""
 PropTurret.static.TARGET_VEL_ACCOUNT = 1 -- Multiplier for adding the target's velocity when firing shots. Also gets affected by bullet speed and distance.
 PropTurret.static.SHOOT_COOLDOWN = 0.5
 
@@ -274,6 +275,7 @@ if SERVER then
         local bulletMass = self:getBulletMass()
         local bulletSpeed = self:getBulletSpeed()
         local bulletColor = self:getBulletColor()
+        local bulletMaterial = self:getBulletMaterial()
         local bullets = {}
         local shootPos = self:getShootWorldPos()
         local shootDir = self:_getShootDir()
@@ -294,6 +296,7 @@ if SERVER then
             bullet:setAngles( dir:getAngle() )
             bullet:setMass( bulletMass )
             bullet:setColor( bulletColor )
+            bullet:setMaterial( bulletMaterial )
             bullet:setNocollideAll( false )
             bullet:enableMotion( true )
             bullet:getPhysicsObject():setVelocity( dir * bulletSpeed )
@@ -623,6 +626,16 @@ if SERVER then
 
     function PropTurret:getBulletColor()
         return self._bulletColor or self.class.BULLET_COLOR
+    end
+
+    function PropTurret:setBulletMaterial( material )
+        if type( material ) ~= "string" then error( "Expected material to be a string" ) end
+
+        self._bulletMaterial = material
+    end
+
+    function PropTurret:getBulletMaterial()
+        return self._bulletMaterial or self.class.BULLET_MATERIAL
     end
 
     function PropTurret:getBulletModel()
