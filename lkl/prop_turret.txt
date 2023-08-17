@@ -196,10 +196,16 @@ function PropTurret:worldToLocal( pos, ang )
     return worldToLocal( pos, ang, self:getPos(), self:getAngles() )
 end
 
+function PropTurret:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
 if SERVER then
     function PropTurret:destroy()
         table.removeByValue( turretsByClass[self.class], self )
-        timer.remove( "LKL_PropTurret_CooldownFinished_" .. self:getID() )
+        timer.remove( self:getTimerName( "LKL_PropTurret_CooldownFinished" ) )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_Destroy" )
@@ -296,7 +302,7 @@ if SERVER then
             end
         end )
 
-        timer.create( "LKL_PropTurret_CooldownFinished_" .. self:getID(), cooldown, 1, function()
+        timer.create( self:getTimerName( "LKL_PropTurret_CooldownFinished" ), cooldown, 1, function()
             self._isOnShotCooldown = false
         end )
 
