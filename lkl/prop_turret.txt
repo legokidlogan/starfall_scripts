@@ -204,6 +204,7 @@ end
 
 if SERVER then
     function PropTurret:destroy()
+        table.removeByValue( allPropTurrets, self )
         table.removeByValue( turretsByClass[self.class], self )
         timer.remove( self:getTimerName( "LKL_PropTurret_CooldownFinished" ) )
 
