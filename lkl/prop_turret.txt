@@ -75,6 +75,7 @@ function PropTurret.static:targetFilter( ent )
     if glist.filterPlayer( ent ) then return false end -- Ignore players in the whitelist.
     if pvp and not pvp.playerIsInPvp( ent ) then return false end
     if ent:getColor().a ~= 255 then return false end -- Ignore cloaked and (on CFC) spawn-protected players.
+    if ent:inVehicle() then return false end -- Ignore players in vehicles.
 
     return true
 end
