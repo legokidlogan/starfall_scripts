@@ -69,7 +69,7 @@ local propLookup = {}
 local spawnQueue
 
 
-local function addToBuffer( model, amount )
+local function addToQueue( model, amount )
     if amount <= 0 then return end
 
     local entries = {}
@@ -110,7 +110,7 @@ function propBuffer.registerModel( model, bufferSize )
     local newSize = math.max( bufferSize, oldSize )
 
     bufferSizesByModel[model] = newSize
-    addToBuffer( model, newSize - oldSize )
+    addToQueue( model, newSize - oldSize )
 end
 
 --[[
@@ -260,7 +260,7 @@ hook.add( "EntityRemoved", "LKL_PropBuffer_MaintainBuffer", function( ent )
     usedPropLookup[ent] = nil
     table.removeByValue( propsByModel[model], ent )
     table.removeByValue( readyPropsByModel[model], ent )
-    addToBuffer( model, 1 )
+    addToQueue( model, 1 )
 end )
 
 
