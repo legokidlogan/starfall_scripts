@@ -227,6 +227,7 @@ if SERVER then
 
     function PropTurret:setAutoTarget( enabled )
         if type( enabled ) ~= "boolean" then error( "Expected enabled to be a boolean" ) end
+        if self._autoTarget == enabled then return end
 
         self._autoTarget = enabled
         self:onAutoTargetChanged()
@@ -243,8 +244,11 @@ if SERVER then
     function PropTurret:setTarget( target )
         if target ~= nil and type( target ) ~= "Entity" and type( target ) ~= "Player" then error( "Expected target to be an Entity or nil" ) end
 
+        local prevTarget = self._target
+        if prevTarget == target then return end
+
         self._target = target
-        self:onSetTarget()
+        self:onSetTarget( prevTarget )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetTarget" )
@@ -406,10 +410,12 @@ if SERVER then
     -- Sets the position of the PropTurret.
     function PropTurret:setPos( pos )
         if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
-        if self._pos == pos then return end
+
+        local prevPos = self._pos
+        if prevPos == pos then return end
 
         self._pos = pos
-        self:onSetPos()
+        self:onSetPos( prevPos )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetPos" )
@@ -423,10 +429,12 @@ if SERVER then
     -- Sets the angles of the PropTurret.
     function PropTurret:setAngles( ang )
         if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
-        if self._ang == ang then return end
+
+        local prevAng = self._ang
+        if prevAng == ang then return end
 
         self._ang = ang
-        self:onSetAngles()
+        self:onSetAngles( prevAng )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetAngles" )
@@ -443,10 +451,12 @@ if SERVER then
     --]]
     function PropTurret:setHeadPos( pos )
         if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
-        if self._headPos == pos then return end
+
+        local prevHeadPos = self._headPos
+        if prevHeadPos == pos then return end
 
         self._headPos = pos
-        self:onSetHeadPos()
+        self:onSetHeadPos( prevHeadPos )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetHeadPos" )
@@ -463,14 +473,19 @@ if SERVER then
     --]]
     function PropTurret:setHeadAngles( ang )
         if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
-        if self._headAng == ang then return end
+
+        local prevHeadAng = self._headAng
+        if prevHeadAng == ang then return end
 
         local pitchMin, pitchMax, yawMin, yawMax = self:getHeadAngleLimits()
         local pitch = math.clamp( ang[1], pitchMin, pitchMax )
         local yaw = math.clamp( ang[2], yawMin, yawMax )
 
-        self._headAng = Angle( pitch, yaw, ang[3] )
-        self:onSetHeadAngles()
+        ang = Angle( pitch, yaw, ang[3] )
+        if prevHeadAng == ang then return end
+
+        self._headAng = ang
+        self:onSetHeadAngles( prevHeadAng )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetHeadAngles" )
@@ -501,10 +516,12 @@ if SERVER then
     --]]
     function PropTurret:setShootPos( pos )
         if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
-        if self._shootPos == pos then return end
+
+        local prevShootPos = self._shootPos
+        if prevShootPos == pos then return end
 
         self._shootPos = pos
-        self:onSetShootPos()
+        self:onSetShootPos( prevShootPos )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetShootPos" )
@@ -698,8 +715,9 @@ end
     - Callback for when the target of the PropTurret is changed.
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
+    - Note that prevTarget will always be nil on the first call.
 --]]
-function PropTurret:onSetTarget()
+function PropTurret:onSetTarget( prevTarget )
 
 end
 
@@ -707,8 +725,9 @@ end
     - Callback for when the position of the PropTurret is changed.
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
+    - Note that prevPos will always be nil on the first call.
 --]]
-function PropTurret:onSetPos()
+function PropTurret:onSetPos( prevPos )
 
 end
 
@@ -716,8 +735,9 @@ end
     - Callback for when the angles of the PropTurret are changed.
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
+    - Note that prevAng will always be nil on the first call.
 --]]
-function PropTurret:onSetAngles()
+function PropTurret:onSetAngles( prevAng )
 
 end
 
@@ -725,8 +745,9 @@ end
     - Callback for when the head angles of the PropTurret are changed.
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
+    - Note that prevHeadPos will always be nil on the first call.
 --]]
-function PropTurret:onSetHeadPos()
+function PropTurret:onSetHeadPos( prevHeadPos )
 
 end
 
@@ -734,8 +755,9 @@ end
     - Callback for when the head angles of the PropTurret are changed.
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
+    - Note that prevHeadAng will always be nil on the first call.
 --]]
-function PropTurret:onSetHeadAngles()
+function PropTurret:onSetHeadAngles( prevHeadAng )
 
 end
 
@@ -743,8 +765,9 @@ end
     - Callback for when the shoot position of the PropTurret is changed.
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
+    - Note that prevShootPos will always be nil on the first call.
 --]]
-function PropTurret:onSetShootPos()
+function PropTurret:onSetShootPos( prevShootPos )
 
 end
 
@@ -920,6 +943,7 @@ else
         if not turret then print( "Tried to :setTarget() on an invalid PropTurret id " .. id ) return end
 
         local target = net.readEntity()
+        local prevTarget = turret._target
 
         if isValid( target ) then
             turret._target = target
@@ -927,7 +951,7 @@ else
             turret._target = nil
         end
 
-        turret:onSetTarget()
+        turret:onSetTarget( prevTarget )
     end )
 
     net.receive( "LKL_PropTurret_SetPos", function()
@@ -937,8 +961,10 @@ else
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setPos() on an invalid PropTurret id " .. id ) return end
 
+        local prevPos = turret._pos
+
         turret._pos = net.readVector()
-        turret:onSetPos()
+        turret:onSetPos( prevPos )
     end )
 
     net.receive( "LKL_PropTurret_SetAngles", function()
@@ -948,8 +974,10 @@ else
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setAngles() on an invalid PropTurret id " .. id ) return end
 
+        local prevAng = turret._ang
+
         turret._ang = net.readAngle()
-        turret:onSetAngles()
+        turret:onSetAngles( prevAng )
     end )
 
     net.receive( "LKL_PropTurret_SetHeadPos", function()
@@ -959,8 +987,10 @@ else
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setHeadPos() on an invalid PropTurret id " .. id ) return end
 
+        local prevHeadPos = turret._headPos
+
         turret._headPos = net.readVector()
-        turret:onSetHeadPos()
+        turret:onSetHeadPos( prevHeadPos )
     end )
 
     net.receive( "LKL_PropTurret_SetHeadAngles", function()
@@ -970,8 +1000,10 @@ else
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setHeadAngles() on an invalid PropTurret id " .. id ) return end
 
+        local prevHeadAng = turret._headAng
+
         turret._headAng = net.readAngle()
-        turret:onSetHeadAngles()
+        turret:onSetHeadAngles( prevHeadAng )
     end )
 
     net.receive( "LKL_PropTurret_SetShootPos", function()
@@ -981,8 +1013,10 @@ else
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setShootPos() on an invalid PropTurret id " .. id ) return end
 
+        local prevShootPos = turret._shootPos
+
         turret._shootPos = net.readVector()
-        turret:onSetShootPos()
+        turret:onSetShootPos( prevShootPos )
     end )
 
     net.receive( "LKL_PropTurret_Shoot", function()
