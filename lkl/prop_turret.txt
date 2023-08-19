@@ -845,6 +845,8 @@ if SERVER then
         turretsByClass[classObj] = {}
 
         timer.create( "LKL_PropTurret_AutoTargetThink_" .. classObj.name, classObj.AUTO_TARGET_INTERVAL, 0, function()
+            if not startupSyncComplete then return end
+
             for _, turret in ipairs( turretsByClass[classObj] ) do
                 if turret:doesAutoTarget() then
                     turret:setTarget( turret:handleAutoTarget() )
