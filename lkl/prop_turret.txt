@@ -81,6 +81,27 @@ function PropTurret.static:targetFilter( ent )
     return true
 end
 
+-- Gets the head position of a player, or the center of the bounding box if it's not a player.
+function PropTurret.static:getEntHeadPos( ent )
+    if not ent:isPlayer() then
+        return ent:obbCenterW()
+    end
+
+    local bone = ent:lookupBone( "ValveBiped.Bip01_Head1" )
+
+    if not bone then
+        bone = ent:lookupBone( "Head" )
+    end
+
+    if not bone then
+        bone = ent:lookupBone( "head" )
+    end
+
+    if bone then return ent:getBonePosition( bone ) end
+
+    return ent:getEyePos()
+end
+
 if SERVER then
     function PropTurret:initialize( pos, ang, headPos, headAng )
         table.insert( allPropTurrets, self )
