@@ -122,6 +122,7 @@ if SERVER then
 
         self._registeredProps = {}
         self._registeredPropLookup = {}
+        self._activeBullets = {}
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_Create" )
@@ -328,8 +329,19 @@ if SERVER then
         end
 
         timer.simple( self:getBulletLinger(), function()
+            local activeBullets = self._activeBullets
+
+            -- Store the bullets.
             for _, bullet in ipairs( bullets ) do
                 propBuffer.storeProp( bullet )
+                table.removeByValue( activeBullets, bullet )
+            end
+
+            -- Remove any invalid bullets from the active list.
+            for i = #activeBullets, 1 do
+                if not isValid( activeBullets[i] ) then
+                    table.remove( activeBullets, i )
+                end
             end
         end )
 
@@ -337,6 +349,7 @@ if SERVER then
             self._isOnShotCooldown = false
         end )
 
+        table.add( self._activeBullets, bullets )
         self:onShoot( bullets )
 
         if self:isNetEnabled() then
@@ -346,6 +359,11 @@ if SERVER then
             net.writeTable( bullets )
             net.send()
         end
+    end
+
+    -- Get all bullets fired by this turret that haven't been stored (despawned) yet.
+    function PropTurret:getActiveBullets()
+        return self._activeBullets
     end
 
     --[[
