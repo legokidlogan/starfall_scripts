@@ -71,6 +71,13 @@ end
 
 function PropTurret.static:targetFilter( ent )
     if not isValid( ent ) then return false end
+
+    if self:doesTargetNPCs() then
+        if not ent.isNPC or not ent:isNPC() then return false end
+
+        return true
+    end
+
     if not ent.isPlayer or not ent:isPlayer() then return false end
     if not ent:isAlive() then return false end
     if glist.filterPlayer( ent ) then return false end -- Ignore players in the whitelist.
@@ -139,6 +146,7 @@ if SERVER then
         self:setShootPos( Vector() )
         self:setAutoTarget( true )
         self:setAutoShoot( true )
+        self:setTargetNPCs( false )
     end
 else
     -- PropTurrets should not be created manually on client, this is only for networking.
@@ -289,6 +297,17 @@ if SERVER then
 
     function PropTurret:doesAutoShoot()
         return self._autoShoot
+    end
+
+    -- Target NPCs instead of players.
+    function PropTurret:setTargetNPCs( state )
+        if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+        self._targetNPCs = state
+    end
+
+    function PropTurret:doesTargetNPCs()
+        return self._targetNPCs
     end
 
     function PropTurret:shoot()
