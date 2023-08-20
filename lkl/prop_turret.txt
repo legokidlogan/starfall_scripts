@@ -264,7 +264,7 @@ if SERVER then
     end
 
     function PropTurret:setTarget( target )
-        if target ~= nil and type( target ) ~= "Entity" and type( target ) ~= "Player" then error( "Expected target to be an Entity or nil" ) end
+        if target ~= nil and not isValid( target ) then error( "Expected target to be nil or valid" ) end
 
         local prevTarget = self._target
         if prevTarget == target then return end
