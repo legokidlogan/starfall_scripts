@@ -69,25 +69,6 @@ function PropTurret.static:getByID( id )
     return turretsByID[id]
 end
 
-function PropTurret.static:targetFilter( ent )
-    if not isValid( ent ) then return false end
-
-    if self:doesTargetNPCs() then
-        if not ent.isNPC or not ent:isNPC() then return false end
-
-        return true
-    end
-
-    if not ent.isPlayer or not ent:isPlayer() then return false end
-    if not ent:isAlive() then return false end
-    if glist.filterPlayer( ent ) then return false end -- Ignore players in the whitelist.
-    if pvp and not pvp.playerIsInPvp( ent ) then return false end
-    if ent:getColor().a ~= 255 then return false end -- Ignore cloaked and (on CFC) spawn-protected players.
-    if ent:inVehicle() then return false end -- Ignore players in vehicles.
-
-    return true
-end
-
 -- Gets the head position of a player, or the center of the bounding box if it's not a player.
 function PropTurret.static:getEntHeadPos( ent )
     if not ent:isPlayer() then
@@ -394,10 +375,11 @@ if SERVER then
         local pos = self:getHeadWorldPos()
         local range = self:getAutoTargetRange()
         local targets
-        local filter = self.class.targetFilter
+        local filter = self.targetFilter
+        local selfObj = self
 
         local function filterFunc( ent ) -- Workaround since we can't directly pass self.class.targetFilter as an argument.
-            return filter( nil, ent )
+            return filter( selfObj, ent )
         end
 
         if cone == 2 then
@@ -838,6 +820,26 @@ end
 --]]
 function PropTurret:onShoot( bullets )
 
+end
+
+-- Filter for auto targetting.
+function PropTurret:targetFilter( ent )
+    if not isValid( ent ) then return false end
+
+    if self:doesTargetNPCs() then
+        if not ent.isNPC or not ent:isNPC() then return false end
+
+        return true
+    end
+
+    if not ent.isPlayer or not ent:isPlayer() then return false end
+    if not ent:isAlive() then return false end
+    if glist.filterPlayer( ent ) then return false end -- Ignore players in the whitelist.
+    if pvp and not pvp.playerIsInPvp( ent ) then return false end
+    if ent:getColor().a ~= 255 then return false end -- Ignore cloaked and (on CFC) spawn-protected players.
+    if ent:inVehicle() then return false end -- Ignore players in vehicles.
+
+    return true
 end
 
 if SERVER then
