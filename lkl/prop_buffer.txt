@@ -96,6 +96,7 @@ end
 --]]
 function propBuffer.registerModel( model, bufferSize )
     if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+    model = model:lower() -- Spawnmenu sometimes gives models with uppercase letters, while props always yield lowercase models.
     if type( bufferSize ) ~= "number" then error( "Expected bufferSize to be a number" ) end
     if math.floor( bufferSize ) ~= bufferSize then error( "Expected bufferSize to be an integer" ) end
     if bufferSize < 1 then error( "Expected bufferSize to be at least 1" ) end
@@ -128,6 +129,7 @@ end
 --]]
 function propBuffer.takeProp( model )
     if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+    model = model:lower()
     if not bufferSizesByModel[model] then error( "Model not registered" ) end
 
     local readyProps = readyPropsByModel[model]
@@ -193,6 +195,7 @@ end
 --]]
 function propBuffer.getBufferSize( model )
     if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+    model = model:lower()
 
     return bufferSizesByModel[model] or false
 end
@@ -203,6 +206,7 @@ end
 --]]
 function propBuffer.getReadyCount( model )
     if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+    model = model:lower()
 
     local readyProps = readyPropsByModel[model]
 
@@ -231,6 +235,10 @@ end
 --]]
 function propBuffer.getProps( model )
     if model ~= nil and type( model ) ~= "string" then error( "Expected model to be a string or nil" ) end
+
+    if model ~= nil then
+        model = model:lower()
+    end
 
     local out = {}
 
