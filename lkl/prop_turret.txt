@@ -327,6 +327,7 @@ if SERVER then
             bullet:enableGravity( bulletHasGravity )
 
             bullet:addCollisionListener( function( colData )
+                if not isValid( colData ) then return end -- Starfall callback is late, so explosive props might become invalid at this point.
                 if bullet._propTurret_HasCollided then return end -- Collision listener sometimes calls twice before it can be removed.
 
                 bullet._propTurret_HasCollided = true
@@ -882,7 +883,10 @@ function PropTurret:targetFilter( ent )
 end
 
 if SERVER then
-    -- For each bullet that gets shot, this is called the first time it collides with something.
+    --[[
+        - For each bullet that gets shot, this is called the first time it collides with something.
+        - If the bullet is an explosive prop going at high speed, it will likely explode first and not reach this callback.
+    --]]
     function PropTurret:onBulletImpact( bullet, colData )
 
     end
