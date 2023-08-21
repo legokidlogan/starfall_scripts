@@ -354,7 +354,6 @@ if SERVER then
         local cooldown = self:getShootCooldown()
         local bulletHasGravity = self:isBulletGravityEnabled()
         local bulletModel = self:getBulletModel()
-        local bulletCount = self:getBulletCount()
         local bulletMass = self:getBulletMass()
         local bulletSpeed = self:getBulletSpeed()
         local bulletColor = self:getBulletColor()
@@ -365,8 +364,10 @@ if SERVER then
 
         self._isOnShotCooldown = true
 
-        for i = 1, bulletCount do
+        for i = 1, self:getBulletCount() do
             local bullet = propBuffer.takeProp( bulletModel )
+            if not bullet then continue end
+
             local dir = self:_spreadDir( shootDir )
 
             bullets[i] = bullet
