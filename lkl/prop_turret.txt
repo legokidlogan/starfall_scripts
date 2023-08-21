@@ -58,6 +58,7 @@ local bulletModelLookup = {}
 local turretClasses = {}
 local turretClassLookup = {}
 local registerTurretClass
+local getRootParent
 
 
 ----- STATIC FUNCTIONS -----
@@ -942,6 +943,13 @@ if SERVER then
         end )
     end
 
+    getRootParent = function( ent )
+        local parent = ent:getParent()
+        if not isValid( parent ) then return ent end
+
+        return getRootParent( parent )
+    end
+
     function PropTurret:_getShootDir()
         local target = self:getTarget()
         local velAccount = self:getTargetVelAccount()
@@ -951,8 +959,14 @@ if SERVER then
             local targetPos = target:obbCenterW()
 
             if velAccount ~= 0 then
+                local targetVel = target:getVelocity()
+
+                if target.inVehicle and target:inVehicle() then
+                    targetVel = getRootParent( target:getVehicle() ):getVelocity()
+                end
+
                 local dist = shootPos:getDistance( targetPos )
-                targetPos = targetPos + target:getVelocity() * velAccount * dist / self:getBulletSpeed()
+                targetPos = targetPos + targetVel * velAccount * dist / self:getBulletSpeed()
             end
 
             return ( targetPos - shootPos ):getNormalized()
