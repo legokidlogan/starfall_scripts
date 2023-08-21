@@ -34,6 +34,7 @@ PropTurret.static.NET_ENABLED = false -- Set to false if you don't want the turr
 PropTurret.static.AUTO_TARGET_INTERVAL = 0.5 -- How often the turret should auto target.
 PropTurret.static.AUTO_TARGET_CONE = 2 -- 0-1 fraction, corresponds to 0-180 degrees, i.e. a hemisphere at 1 cone. Set to 2 to force a full sphere.
 PropTurret.static.AUTO_TARGET_RANGE = 1000 -- How far the turret can see for auto targeting.
+PropTurret.static.AUTO_TARGET_VEHICLES = 0 -- 0 = don't target vehicles, 1 = only target vehicles, 2 = target vehicles and players.
 
 -- These can be overridden by subclasses, as well as set on a per-instance basis.
 PropTurret.static.BULLET_GRAVITY_ENABLED = true
@@ -627,6 +628,10 @@ if SERVER then
         return self.class.AUTO_TARGET_RANGE
     end
 
+    function PropTurret:getVehicleTargetMode()
+        return self.class.AUTO_TARGET_VEHICLES
+    end
+
     function PropTurret:setBulletGravityEnabled( state )
         if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
 
@@ -858,7 +863,11 @@ function PropTurret:targetFilter( ent )
     if glist.filterPlayer( ent ) then return false end -- Ignore players in the whitelist.
     if pvp and not pvp.playerIsInPvp( ent ) then return false end
     if ent:getColor().a ~= 255 then return false end -- Ignore cloaked and (on CFC) spawn-protected players.
-    if ent:inVehicle() then return false end -- Ignore players in vehicles.
+
+    local vehiclePref = self:getVehicleTargetMode()
+    local isInVehicle = ent:inVehicle()
+    if vehiclePref == 0 and isInVehicle then return false end
+    if vehiclePref == 1 and not isInVehicle then return false end
 
     return true
 end
