@@ -431,8 +431,14 @@ if SERVER then
         if not isValid( ent ) then return end
         if self._registeredPropLookup[ent] then return end
 
+        local bullets = propBuffer.getProps( self:getBulletModel() )
+
         self._registeredPropLookup[ent] = true
         table.insert( self._registeredProps, ent )
+
+        for _, bullet in ipairs( bullets ) do
+            constraint.nocollide( ent, bullet )
+        end
     end
 
     --[[
@@ -959,6 +965,14 @@ if SERVER then
         for _, otherEnt in ipairs( bullets ) do
             if otherEnt ~= ent then
                 constraint.nocollide( ent, otherEnt )
+            end
+        end
+
+        for _, turret in ipairs( allPropTurrets ) do
+            if turret:getBulletModel() == model then
+                for _, prop in ipairs( turret:getProps() ) do
+                    constraint.nocollide( ent, prop )
+                end
             end
         end
     end )
