@@ -436,9 +436,9 @@ if SERVER then
             table.add( filter, vehicle:getAllConstrained() )
         end
 
-        local trace = trace.line( startPos, endPos, filter )
+        local tr = trace.line( startPos, endPos, filter )
 
-        return not trace.Hit or trace.Entity == ent
+        return not tr.Hit or tr.Entity == ent
     end
 
     --[[
