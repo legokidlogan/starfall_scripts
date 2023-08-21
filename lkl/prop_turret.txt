@@ -416,14 +416,12 @@ if SERVER then
 
         ent: (Entity)
             - The Entity to check.
-        endPos: (optional) (Vector)
-            - The position on the Entity to check. Defaults to the Entity's bounding box center.
     --]]
-    function PropTurret:canSee( ent, endPos )
+    function PropTurret:canSee( ent )
         if not isValid( ent ) then return false end
 
-        endPos = endPos or ent:obbCenterW()
         local startPos = self:getHeadWorldPos()
+        local endPos = ent:obbCenterW()
 
         local filter = {}
         table.add( filter, self:getProps() )
