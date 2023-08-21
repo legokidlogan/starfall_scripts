@@ -602,6 +602,12 @@ if SERVER then
         self._localAng = localAng
         self._parentPrevPos = ent and ent:getPos()
         self._parentPrevAng = ent and ent:getAngles()
+
+        if ent == nil then
+            self._pos = worldPos
+            self._ang = worldAng
+        end
+
         self:onSetParent( prevParent )
         self:onPosAngChanged( worldPos, worldAng )
 
@@ -1265,6 +1271,12 @@ else
         turret._localAng = net.readAngle()
         turret._parentPrevPos = parent and parent:getPos()
         turret._parentPrevAng = parent and parent:getAngles()
+
+        if parent == nil then
+            turret._pos = prevPos
+            turret._ang = prevAng
+        end
+
         turret:onSetParent( prevParent )
         turret:onPosAngChanged( prevPos, prevAng )
     end )
