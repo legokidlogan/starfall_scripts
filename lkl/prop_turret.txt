@@ -57,6 +57,8 @@ local turretIncrement = 0
 local bulletModelLookup = {}
 local turretClasses = {}
 local turretClassLookup = {}
+local turretParents = {}
+local turretParentLookup = {}
 local checkForPosAngChanges
 local registerTurretClass
 local getRootParent
@@ -591,7 +593,9 @@ if SERVER then
     function PropTurret:setParent( ent )
         if ent ~= nil and not isValid( ent ) then error( "Expected ent to be valid or nil" ) end
 
-        local prevParent = self._parent
+        local prevParent = self:getParent()
+        if prevParent == ent then return end
+
         local worldPos = self:getPos()
         local worldAng = self:getAngles()
         local localPos = ent and ent:worldToLocal( worldPos )
@@ -606,6 +610,23 @@ if SERVER then
         if ent == nil then
             self._pos = worldPos
             self._ang = worldAng
+
+            if isValid( prevParent ) then
+                table.removeByValue( prevParent._propTurret_Children, self )
+                table.removeByValue( turretParents, prevParent )
+                turretParentLookup[prevParent] = nil
+            end
+        else
+            local children = ent._propTurret_Children
+
+            if not children then
+                children = {}
+                ent._propTurret_Children = children
+            end
+
+            table.insert( children, self )
+            table.insert( turretParents, ent )
+            turretParentLookup[ent] = true
         end
 
         self:onSetParent( prevParent )
@@ -1170,6 +1191,21 @@ if SERVER then
                 end
             end
         end
+    end )
+
+    hook.add( "EntityRemoved", "LKL_PropTurret_DestroyChildrenTurrets", function( ent )
+        if not turretParentLookup[ent] then return end
+
+        local children = ent._propTurret_Children
+
+        for _, turret in ipairs( children ) do
+            if isValid( turret ) then
+                turret:destroy()
+            end
+        end
+
+        table.removeByValue( turretParents, ent )
+        turretParentLookup[ent] = nil
     end )
 else
     function PropTurret:destroy()
