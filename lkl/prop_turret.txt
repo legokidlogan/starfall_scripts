@@ -314,10 +314,6 @@ if SERVER then
 
             bullets[i] = bullet
 
-            if bulletHasGravity then
-                bullet:enableGravity( bulletHasGravity )
-            end
-
             bullet:setPos( shootPos )
             bullet:setAngles( dir:getAngle() )
             bullet:setMass( bulletMass )
@@ -326,6 +322,7 @@ if SERVER then
             bullet:setNocollideAll( false )
             bullet:enableMotion( true )
             bullet:getPhysicsObject():setVelocity( dir * bulletSpeed )
+            bullet:enableGravity( bulletHasGravity )
         end
 
         timer.simple( self:getBulletLinger(), function()
