@@ -36,7 +36,7 @@ PropTurret.static.AUTO_TARGET_CONE = 2 -- 0-1 fraction, corresponds to 0-180 deg
 PropTurret.static.AUTO_TARGET_RANGE = 1000 -- How far the turret can see for auto targeting.
 
 -- These can be overridden by subclasses, as well as set on a per-instance basis.
-PropTurret.static.BULLET_GRAVITY_ENABLED = false
+PropTurret.static.BULLET_GRAVITY_ENABLED = true
 PropTurret.static.BULLET_SPEED = 3000
 PropTurret.static.BULLET_MASS = 4
 PropTurret.static.BULLET_COUNT = 1
