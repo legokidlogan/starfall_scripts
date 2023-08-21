@@ -429,9 +429,16 @@ if SERVER then
         table.add( filter, self:getProps() )
         table.add( filter, propBuffer.getProps( self:getBulletModel() ) )
 
+        -- Trace for the player's vehicle if they're in one.
+        if ent.isPlayer and ent:isPlayer() and ent:inVehicle() then
+            local vehicle = ent:getVehicle()
+
+            table.add( filter, vehicle:getAllConstrained() )
+        end
+
         local trace = trace.line( startPos, endPos, filter )
 
-        return trace.Entity == ent
+        return not trace.Hit or trace.Entity == ent
     end
 
     --[[
