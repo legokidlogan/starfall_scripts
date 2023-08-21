@@ -424,7 +424,11 @@ if SERVER then
 
         endPos = endPos or ent:obbCenterW()
         local startPos = self:getHeadWorldPos()
-        local filter = table.add( self:getProps(), propBuffer.getProps( self:getBulletModel() ) )
+
+        local filter = {}
+        table.add( filter, self:getProps() )
+        table.add( filter, propBuffer.getProps( self:getBulletModel() ) )
+
         local trace = trace.line( startPos, endPos, filter )
 
         return trace.Entity == ent
