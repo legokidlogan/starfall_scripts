@@ -168,9 +168,7 @@ function PropTurret:getHeadPos()
 end
 
 function PropTurret:getHeadWorldPos()
-    local pos = self:localToWorld( self:getHeadPos(), Angle() )
-
-    return pos
+    return self:localToWorld( self:getHeadPos() )
 end
 
 function PropTurret:getHeadAngles()
@@ -178,13 +176,11 @@ function PropTurret:getHeadAngles()
 end
 
 function PropTurret:getHeadWorldAngles()
-    local _, ang = self:localToWorld( Vector(), self:getHeadAngles() )
-
-    return ang
+    return self:localToWorldAngles( self:getHeadAngles() )
 end
 
 function PropTurret:getHeadWorldPosAng()
-    return self:localToWorld( self:getHeadPos(), self:getHeadAngles() )
+    return self:localToWorldPosAng( self:getHeadPos(), self:getHeadAngles() )
 end
 
 function PropTurret:getShootPos()
@@ -198,19 +194,52 @@ function PropTurret:getShootWorldPos()
     return pos
 end
 
-function PropTurret:localToWorld( pos, ang )
+function PropTurret:localToWorld( pos )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+
+    local worldPos = localToWorld( pos, Angle(), self:getPos(), self:getAngles() )
+
+    return worldPos
+end
+
+function PropTurret:localToWorldAngles( ang )
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    local _, localAng = localToWorld( Vector(), ang, Vector(), self:getAngles() )
+
+    return localAng
+end
+
+function PropTurret:localToWorldPosAng( pos, ang )
     if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
     if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
 
     return localToWorld( pos, ang, self:getPos(), self:getAngles() )
 end
 
-function PropTurret:worldToLocal( pos, ang )
+function PropTurret:worldToLocal( pos )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+
+    local localPos = worldToLocal( pos, Angle(), self:getPos(), self:getAngles() )
+
+    return localPos
+end
+
+function PropTurret:worldToLocalAngles( ang )
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    local _, localAng = worldToLocal( Vector(), ang, Vector(), self:getAngles() )
+
+    return localAng
+end
+
+function PropTurret:worldToLocalPosAng( pos, ang )
     if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
     if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
 
     return worldToLocal( pos, ang, self:getPos(), self:getAngles() )
 end
+
 
 function PropTurret:getTimerName( timerName )
     if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
@@ -577,8 +606,7 @@ if SERVER then
 
         local headPos = self:getHeadWorldPos()
         local ang = ( pos - headPos ):getAngle()
-        local _
-        _, ang = self:worldToLocal( Vector(), ang )
+        ang = self:worldToLocalAngles( ang )
 
         self:setHeadAngles( ang )
     end
