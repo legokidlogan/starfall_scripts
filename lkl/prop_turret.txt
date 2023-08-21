@@ -294,6 +294,7 @@ if SERVER then
     function PropTurret:shoot()
         if not self:canShoot() then return end
 
+        local selfObj = self
         local cooldown = self:getShootCooldown()
         local bulletHasGravity = self:isBulletGravityEnabled()
         local bulletModel = self:getBulletModel()
@@ -323,6 +324,17 @@ if SERVER then
             bullet:enableMotion( true )
             bullet:getPhysicsObject():setVelocity( dir * bulletSpeed )
             bullet:enableGravity( bulletHasGravity )
+
+            bullet:addCollisionListener( function( colData )
+                if bullet._propTurret_HasCollided then return end -- Collision listener sometimes calls twice before it can be removed.
+
+                bullet._propTurret_HasCollided = true
+                bullet:removeCollisionListener()
+
+                if isValid( selfObj ) then
+                    selfObj:onBulletImpact( bullet, colData )
+                end
+            end )
         end
 
         timer.simple( self:getBulletLinger(), function()
@@ -332,6 +344,12 @@ if SERVER then
             for _, bullet in ipairs( bullets ) do
                 propBuffer.storeProp( bullet )
                 table.removeByValue( activeBullets, bullet )
+
+                if isValid( bullet ) then
+                    pcall( function()
+                        bullet:removeCollisionListener()
+                    end )
+                end
             end
 
             -- Remove any invalid bullets from the active list.
@@ -846,6 +864,11 @@ function PropTurret:targetFilter( ent )
 end
 
 if SERVER then
+    -- For each bullet that gets shot, this is called the first time it collides with something.
+    function PropTurret:onBulletImpact( bullet, colData )
+
+    end
+
     --[[
         - Returns whether or not the PropTurret can shoot.
         - If you override this function in subclasses, it's recommended to put the following at the top of your version:
