@@ -57,6 +57,7 @@ local turretIncrement = 0
 local bulletModelLookup = {}
 local turretClasses = {}
 local turretClassLookup = {}
+local checkForPosAngChanges
 local registerTurretClass
 local getRootParent
 
@@ -156,11 +157,33 @@ function PropTurret:getTarget()
 end
 
 function PropTurret:getPos()
+    local parent = self:getParent()
+    if isValid( parent ) then return parent:localToWorld( self._localPos ) end
+
     return self._pos
 end
 
+function PropTurret:getLocalPos()
+    if not isValid( self:getParent() ) then return self._pos end
+
+    return self._localPos
+end
+
 function PropTurret:getAngles()
+    local parent = self:getParent()
+    if isValid( parent ) then return parent:localToWorldAngles( self._localAng ) end
+
     return self._ang
+end
+
+function PropTurret:getLocalAngles()
+    if not isValid( self:getParent() ) then return self._ang end
+
+    return self._localAng
+end
+
+function PropTurret:getParent()
+    return self._parent
 end
 
 function PropTurret:getHeadPos()
@@ -513,11 +536,18 @@ if SERVER then
     function PropTurret:setPos( pos )
         if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
 
-        local prevPos = self._pos
+        local prevPos = self:getPos()
         if prevPos == pos then return end
+
+        local parent = self:getParent()
+
+        if isValid( parent ) then
+            self._localPos = parent:worldToLocal( pos )
+        end
 
         self._pos = pos
         self:onSetPos( prevPos )
+        self:onPosAngChanged( prevPos, self:getAngles() )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetPos" )
@@ -532,17 +562,56 @@ if SERVER then
     function PropTurret:setAngles( ang )
         if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
 
-        local prevAng = self._ang
+        local prevAng = self:getAngles()
         if prevAng == ang then return end
+
+        local parent = self:getParent()
+
+        if isValid( parent ) then
+            self._localAng = parent:worldToLocalAngles( ang )
+        end
 
         self._ang = ang
         self:onSetAngles( prevAng )
+        self:onPosAngChanged( self:getPos(), prevAng )
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetAngles" )
             net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeAngle( ang )
+            net.send()
+        end
+    end
+
+    --[[
+        - Sets/unsets the parent of the PropTurret.
+        - To track changes in the PropTurret's effective location due to the parent moving, see :onPosAngChanged().
+    --]]
+    function PropTurret:setParent( ent )
+        if ent ~= nil and not isValid( ent ) then error( "Expected ent to be valid or nil" ) end
+
+        local prevParent = self._parent
+        local worldPos = self:getPos()
+        local worldAng = self:getAngles()
+        local localPos = ent and ent:worldToLocal( worldPos )
+        local localAng = ent and ent:worldToLocalAngles( worldAng )
+
+        self._parent = ent
+        self._localPos = localPos
+        self._localAng = localAng
+        self._parentPrevPos = ent and ent:getPos()
+        self._parentPrevAng = ent and ent:getAngles()
+        self:onSetParent( prevParent )
+        self:onPosAngChanged( worldPos, worldAng )
+
+        if self:isNetEnabled() then
+            net.start( "LKL_PropTurret_SetParent" )
+            net.writeEntity( chip() )
+            net.writeUInt( self:getID(), 16 )
+            net.writeEntity( ent or game.getWorld() )
+            net.writeVector( localPos or Vector() )
+            net.writeAngle( localAng or Angle() )
             net.send()
         end
     end
@@ -827,6 +896,15 @@ function PropTurret:onSetTarget( prevTarget )
 end
 
 --[[
+    - Callback for when the effective position and/or angles of the PropTurret has changed for any reason.
+    - Caused by :setPos(), :setAngles(), :setParent(), or the parent Entity moving.
+    -- Can safely be made different between server and client.
+--]]
+function PropTurret:onPosAngChanged( prevPos, prevAng )
+
+end
+
+--[[
     - Callback for when the position of the PropTurret is changed.
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
@@ -843,6 +921,15 @@ end
     - Note that prevAng will always be nil on the first call.
 --]]
 function PropTurret:onSetAngles( prevAng )
+
+end
+
+--[[
+    - Callback for when the parent of the PropTurret is changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function PropTurret:onSetParent( prevParent )
 
 end
 
@@ -954,6 +1041,23 @@ end
 
 ----- PRIVATE FUNCTIONS -----
 
+checkForPosAngChanges = function( turret )
+    local parent = turret:getParent()
+    if not isValid( parent ) then return end
+
+    local parentPrevPos = turret._parentPrevPos
+    local parentPrevAng = turret._parentPrevAng
+    local parentPos = parent:getPos()
+    local parentAng = parent:getAngles()
+    if parentPrevPos == parentPos and parentPrevAng == parentAng then return end
+
+    local prevPos, prevAng = localToWorld( turret:getLocalPos(), turret:getLocalAngles(), parentPrevPos, parentPrevAng )
+
+    turret._parentPrevPos = parentPos
+    turret._parentPrevAng = parentAng
+    turret:onPosAngChanged( prevPos, prevAng )
+end
+
 if SERVER then
     registerTurretClass = function( classObj )
         turretClassLookup[classObj] = true
@@ -1031,6 +1135,7 @@ hook.add( "think", "LKL_PropTurret_Think", function()
     if not startupSyncComplete then return end
 
     for _, turret in ipairs( allPropTurrets ) do
+        checkForPosAngChanges( turret )
         turret:think()
 
         if turret:doesAutoShoot() and isValid( turret:getTarget() ) then
@@ -1121,10 +1226,11 @@ else
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setPos() on an invalid PropTurret id " .. id ) return end
 
-        local prevPos = turret._pos
+        local prevPos = turret:getPos()
 
         turret._pos = net.readVector()
         turret:onSetPos( prevPos )
+        turret:onPosAngChanged( prevPos, turret:getAngles() )
     end )
 
     net.receive( "LKL_PropTurret_SetAngles", function()
@@ -1134,10 +1240,33 @@ else
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setAngles() on an invalid PropTurret id " .. id ) return end
 
-        local prevAng = turret._ang
+        local prevAng = turret:getAngles()
 
         turret._ang = net.readAngle()
         turret:onSetAngles( prevAng )
+        turret:onPosAngChanged( turret:getPos(), prevAng )
+    end )
+
+    net.receive( "LKL_PropTurret_SetParent", function()
+        if net.readEntity() ~= chip() then return end
+
+        local id = net.readUInt( 16 )
+        local turret = PropTurret:getByID( id )
+        if not turret then print( "Tried to :setParent() on an invalid PropTurret id " .. id ) return end
+
+        local prevParent = turret._parent
+        local prevPos = turret:getPos()
+        local prevAng = turret:getAngles()
+        local parent = net.readEntity()
+        parent = isValid( parent ) and parent or nil
+
+        turret._parent = parent
+        turret._localPos = net.readVector()
+        turret._localAng = net.readAngle()
+        turret._parentPrevPos = parent and parent:getPos()
+        turret._parentPrevAng = parent and parent:getAngles()
+        turret:onSetParent( prevParent )
+        turret:onPosAngChanged( prevPos, prevAng )
     end )
 
     net.receive( "LKL_PropTurret_SetHeadPos", function()
