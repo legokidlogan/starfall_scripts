@@ -21,6 +21,7 @@ local LabeledSlider = SGUI.LabeledSlider
 local List = SGUI.List
 local ScrollableList = SGUI.ScrollableList
 local ComboBox = SGUI.ComboBox
+local ProgressBar = SGUI.ProgressBar
 
 
 addPermissions( {
@@ -378,7 +379,7 @@ end )
 --]]
 
 
--- ComboBox test
+--[[ ComboBox test
 local numChoices = 10
 local comboOne = ComboBox:new( panelOne )
 comboOne:setAnchor( ANCHOR_TOP_LEFT )
@@ -386,6 +387,26 @@ comboOne:setAnchor( ANCHOR_TOP_LEFT )
 
 for i = 1, numChoices do
     comboOne:addChoice( "test" .. i, i )
+end
+--]]
+
+
+-- ProgressBar test
+local barOne = ProgressBar:new( panelOne, 0.25 )
+barOne:setPos( 10, 10 )
+barOne:setProgressColor( function( _, progress )
+    return Color( 120 * progress, 1, 1 ):hsvToRGB()
+end )
+
+function barOne:think()
+    local mouseX = Panel.getMouseContext()
+    if not mouseX then return end
+
+    local barX = self:getXPosEffective()
+    local width = self:getWidth()
+    local progress = ( mouseX - barX ) / width
+
+    self:setProgress( progress )
 end
 --]]
 
