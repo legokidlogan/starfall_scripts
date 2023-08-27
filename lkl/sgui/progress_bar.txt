@@ -1,0 +1,155 @@
+--@name Progress Bar
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+--[[
+    - SGUI.ProgressBar
+    - Blah
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+
+if SGUI.ProgressBar then return end -- Don't run twice
+
+
+SGUI.ProgressBar = class( "ProgressBar", SGUI.Panel )
+
+
+local ProgressBar = SGUI.ProgressBar
+
+
+----- STATIC FUNCTIONS -----
+
+function ProgressBar:initialize( parent, progress, progressStyle, progressDirection )
+    ProgressBar.super.initialize( self, parent )
+
+    self:setProgress( progress or 0 )
+    self:setProgressStyle( progressStyle or PROGRESS_BAR_LEFT_TO_RIGHT )
+    self:setProgressDirection( progressDirection or LIST_HORIZONTAL )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ProgressBar:setProgress( progress )
+    if type( progress ) ~= "number" then error( "Expected progress to be a number" ) end
+
+    progress = math.clamp( progress, 0, 1 )
+    if self._progress == progress then return end
+
+    self._progress = progress
+end
+
+function ProgressBar:getProgress()
+    return self._progress
+end
+
+--[[
+    - Sets the direction the progress bar will fill in.
+        - PROGRESS_BAR_LEFT_TO_RIGHT / PROGRESS_BAR_BOTTOM_TO_TOP
+        - PROGRESS_BAR_RIGHT_TO_LEFT / PROGRESS_BAR_TOP_TO_BOTTOM
+        - PROGRESS_BAR_CENTER_TO_EDGES
+--]]
+function ProgressBar:setProgressStyle( style )
+    SGUI.expectValidProgressBar( style, 1, "style" )
+
+    self._progressStyle = style
+end
+
+function ProgressBar:getProgressStyle()
+    return self._progressStyle
+end
+
+--[[
+    - Sets the direction of the progress bar.
+    - Accepts LIST_VERTICAL or LIST_HORIZONTAL.
+--]]
+function ProgressBar:setProgressDirection( direction )
+    SGUI.expectValidList( direction, 1, "direction" )
+
+    self._progressDirection = direction
+end
+
+function ProgressBar:getProgressDirection()
+    return self._progressDirection
+end
+
+-- If color is given as a function, it will receive  self, progress  as arguments.
+function ProgressBar:setProgressColor( color )
+    self:setColor( self.class.name .. "Progress", color )
+end
+
+--[[
+    - Unlike most other :getColor() functions, this takes no arguments.
+    - If you used :setProgressColor( color ) with color being a function, it will receive  self, progress  as arguments.
+--]]
+function ProgressBar:getProgressColor()
+    return self:getClassColor( "Progress", nil, self:getProgress() )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+--function ProgressBar:handleDraw()
+function ProgressBar:handleDrawBackground()
+    local progress = self:getProgress()
+    if progress == 0 then
+        self:drawSimpleBackground()
+
+        return
+    end
+
+    self:drawSimpleBackground( nil, c_empty )
+
+    local progressStyle = self:getProgressStyle()
+    local progressDirection = self:getProgressDirection()
+    local progressColor = self:getProgressColor()
+
+    local x, y = self:getPosEffective()
+    local w, h = self:getSize()
+
+    if progressDirection == LIST_HORIZONTAL then
+        if progressStyle == PROGRESS_BAR_LEFT_TO_RIGHT then
+            w = w * progress
+        elseif progressStyle == PROGRESS_BAR_RIGHT_TO_LEFT then
+            x = x + w
+            w = w * progress
+            x = x - w
+        else -- PROGRESS_BAR_CENTER_TO_EDGES
+            x = x + w / 2
+            w = w * progress
+            x = x - w / 2
+        end
+    else
+        if progressStyle == PROGRESS_BAR_BOTTOM_TO_TOP then
+            h = h * progress
+        elseif progressStyle == PROGRESS_BAR_TOP_TO_BOTTOM then
+            y = y + h
+            h = h * progress
+            y = y - h
+        else -- PROGRESS_BAR_CENTER_TO_EDGES
+            y = y + h / 2
+            h = h * progress
+            y = y - h / 2
+        end
+    end
+
+    render.setColor( progressColor )
+    render.drawRectFast( x, y, w, h )
+
+    self:drawSimpleBackground( c_empty, nil )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+

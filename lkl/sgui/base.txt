@@ -112,6 +112,10 @@ SGUI.COLOR_SCHEME_DEFAULT = ColorScheme:new( "SGUI", nil, nil, {
     ["SliderButtonKnobPressed"] = Color( 45, 45, 110 ),
     ["SliderButtonDisabledKnob"] = Color( 65, 75, 125 ),
 
+    ["ProgressBarBackground"] = Color( 61, 71, 122 ),
+    ["ProgressBarBorder"] = Color( 40, 55, 105 ),
+    ["ProgressBarProgress"] = Color( 100, 50, 100 ),
+
     --["DEFINEME"] = Color( 255, 255, 255 ),
 } )
 
@@ -191,6 +195,14 @@ TEXT_ALIGN_RIGHT = TEXT_ALIGN.RIGHT
 TEXT_ALIGN_TOP = TEXT_ALIGN.TOP
 TEXT_ALIGN_BOTTOM = TEXT_ALIGN.BOTTOM
 
+PROGRESS_BAR_MIN = 1
+PROGRESS_BAR_LEFT_TO_RIGHT = 1
+PROGRESS_BAR_BOTTOM_TO_TOP = 1
+PROGRESS_BAR_RIGHT_TO_LEFT = 2
+PROGRESS_BAR_TOP_TO_BOTTOM = 2
+PROGRESS_BAR_CENTER_TO_EDGES = 3
+PROGRESS_BAR_MAX = 3
+
 
 ----- GLOBAL FUNCTIONS -----
 
@@ -265,6 +277,12 @@ function SGUI.expectValidVerticalTextAlign( yAlign, argNum, argName )
     if yAlign ~= TEXT_ALIGN_TOP and yAlign ~= TEXT_ALIGN_CENTER and yAlign ~= TEXT_ALIGN_BOTTOM then
         error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be TEXT_ALIGN_TOP, TEXT_ALIGN_CENTER, or TEXT_ALIGN_BOTTOM" )
     end
+end
+
+function SGUI.expectValidProgressBar( mode, argNum, argName )
+    if type( mode ) ~= "number" then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be a number", 3 ) end
+    if mode < PROGRESS_BAR_MIN or mode > PROGRESS_BAR_MAX then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be between " .. PROGRESS_BAR_MIN .. " and " .. PROGRESS_BAR_MAX .. ", see the PROGRESS_BAR enum in sgui/base" ) end
+    if mathFloor( mode ) ~= mode then error( "Expected argument #" .. argNum .. " (" .. argName .. ") to be an integer" ) end
 end
 
 function SGUI.isChatOpen()
