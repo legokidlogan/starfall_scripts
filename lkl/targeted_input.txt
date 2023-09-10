@@ -204,12 +204,10 @@ if SERVER then
 
         if responseType == "SetTargets" then
             net.start( "LKL_TargetedInput_SetTargets" )
-            net.writeEntity( chip() )
             net.writeTable( targets )
             net.send( ply )
         elseif responseType == "SetTargetButtons" then
             net.start( "LKL_TargetedInput_SetTargetButtons" )
-            net.writeEntity( chip() )
             net.writeBool( targetAllButtons )
             net.writeTable( targetButtons )
             net.send( ply )
@@ -279,7 +277,6 @@ if SERVER then
 
             awaitResponse( "SetTargets" )
             net.start( "LKL_TargetedInput_SetTargets" )
-            net.writeEntity( chip() )
             net.writeTable( targets )
             net.send()
 
@@ -315,7 +312,6 @@ if SERVER then
 
         awaitResponse( "SetTargets" )
         net.start( "LKL_TargetedInput_SetTargets" )
-        net.writeEntity( chip() )
         net.writeTable( targets )
         net.send()
     end
@@ -377,7 +373,6 @@ if SERVER then
 
             awaitResponse( "SetTargetButtons" )
             net.start( "LKL_TargetedInput_SetTargetButtons" )
-            net.writeEntity( chip() )
             net.writeBool( targetAllButtons )
             net.writeTable( targetButtons )
             net.send()
@@ -400,7 +395,6 @@ if SERVER then
 
             awaitResponse( "SetTargetButtons" )
             net.start( "LKL_TargetedInput_SetTargetButtons" )
-            net.writeEntity( chip() )
             net.writeBool( targetAllButtons )
             net.writeTable( targetButtons )
             net.send()
@@ -437,7 +431,6 @@ if SERVER then
 
         awaitResponse( "SetTargetButtons" )
         net.start( "LKL_TargetedInput_SetTargetButtons" )
-        net.writeEntity( chip() )
         net.writeBool( targetAllButtons )
         net.writeTable( targetButtons )
         net.send()
@@ -622,7 +615,6 @@ if SERVER then
 
 
     net.receive( "LKL_TargetedInput_InputClk", function( _, ply )
-        if net.readEntity() ~= chip() then return end
         if not targets[ply] then return end
 
         local key = net.readUInt( 10 )
@@ -651,7 +643,6 @@ if SERVER then
     end )
 
     net.receive( "LKL_TargetedInput_Tap", function( _, ply )
-        if net.readEntity() ~= chip() then return end
         if not targets[ply] then return end
 
         local key = net.readUInt( 10 )
@@ -661,7 +652,6 @@ if SERVER then
     end )
 
     net.receive( "LKL_TargetedInput_HoldStart", function( _, ply )
-        if net.readEntity() ~= chip() then return end
         if not targets[ply] then return end
 
         local key = net.readUInt( 10 )
@@ -671,14 +661,10 @@ if SERVER then
     end )
 
     net.receive( "LKL_TargetedInput_RefreshMyButtonStates", function( _, ply )
-        if net.readEntity() ~= chip() then return end
-
         buttonStatesPerPly[ply] = net.readTable()
     end )
 
     net.receive( "LKL_TargetedInput_Acknowledge", function( _, ply )
-        if net.readEntity() ~= chip() then return end
-
         local responseType = net.readString()
         local nonResponders = incompleteResponses[responseType]
         if not nonResponders then return end
@@ -689,12 +675,10 @@ if SERVER then
 
     timer.simple( 0.5, function() -- Net isn't reliable on init, so we'll send a delayed update on startup for just in case
         net.start( "LKL_TargetedInput_SetTargets" )
-        net.writeEntity( chip() )
         net.writeTable( targets )
         net.send()
 
         net.start( "LKL_TargetedInput_SetTargetButtons" )
-        net.writeEntity( chip() )
         net.writeBool( targetAllButtons )
         net.writeTable( targetButtons )
         net.send()
@@ -776,14 +760,12 @@ else
         iAmATarget = targets[player()]
 
         net.start( "LKL_TargetedInput_Acknowledge" )
-        net.writeEntity( chip() )
         net.writeString( "SetTargets" )
         net.send()
 
         if not iAmATarget then return end
 
         net.start( "LKL_TargetedInput_RefreshMyButtonStates" )
-        net.writeEntity( chip() )
         net.writeTable( myButtonStates )
         net.send()
     end
@@ -793,14 +775,12 @@ else
         targetButtons = newTargetButtons
 
         net.start( "LKL_TargetedInput_Acknowledge" )
-        net.writeEntity( chip() )
         net.writeString( "SetTargetButtons" )
         net.send()
 
         if not iAmATarget then return end
 
         net.start( "LKL_TargetedInput_RefreshMyButtonStates" )
-        net.writeEntity( chip() )
         net.writeTable( myButtonStates )
         net.send()
     end
@@ -825,7 +805,6 @@ else
                 hook.run( "LKL_TargetedInput_HoldStart", player(), key )
 
                 net.start( "LKL_TargetedInput_HoldStart" )
-                net.writeEntity( chip() )
                 net.writeUInt( key, 10 )
                 net.send()
             end )
@@ -844,7 +823,6 @@ else
             hook.run( "LKL_TargetedInput_Tap", player(), key, streakResult )
 
             net.start( "LKL_TargetedInput_Tap" )
-            net.writeEntity( chip() )
             net.writeUInt( key, 10 )
             net.writeUInt( streakResult, 10 )
             net.send()
@@ -871,7 +849,6 @@ else
         if not iAmATarget then return end
 
         net.start( "LKL_TargetedInput_InputClk" )
-        net.writeEntity( chip() )
         net.writeUInt( key, 10 )
         net.writeBool( state )
         net.writeFloat( now )
@@ -889,14 +866,10 @@ else
 
 
     net.receive( "LKL_TargetedInput_SetTargets", function()
-        if net.readEntity() ~= chip() then return end
-
         tiSetTargets( net.readTable() )
     end )
 
     net.receive( "LKL_TargetedInput_SetTargetButtons", function()
-        if net.readEntity() ~= chip() then return end
-
         local targetAll = net.readBool()
         local newTargetButtons = net.readTable()
 

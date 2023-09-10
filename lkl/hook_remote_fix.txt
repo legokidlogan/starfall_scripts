@@ -256,7 +256,6 @@ if SERVER then
         notifyRemoteGroups()
 
         net.start( "LKL_HookRemoteFix_SetRemoteGroupName" )
-        net.writeEntity( chip() )
         net.writeString( myGroupName )
         net.send()
     end
@@ -490,8 +489,6 @@ end )
 
 if CLIENT then
     net.receive( "LKL_HookRemoteFix_SetRemoteGroupName", function()
-        if net.readEntity() ~= chip() then return end
-
         myGroupName = net.readString()
 
         notifyRemoteGroups()

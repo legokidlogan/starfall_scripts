@@ -66,7 +66,6 @@ if SERVER then
 
         if id <= 0 then
             net.start( "LKL_MultiLights_SetAllOn" )
-            net.writeEntity( chip() )
             net.writeBool( state )
             net.send()
 
@@ -74,7 +73,6 @@ if SERVER then
         end
 
         net.start( "LKL_MultiLights_SetState" )
-        net.writeEntity( chip() )
         net.writeUInt( id, 10 )
         net.writeBool( state )
         net.send()
@@ -84,7 +82,6 @@ if SERVER then
         ent = isValid( ent ) and ent or game.getWorld()
 
         net.start( "LKL_MultiLights_SetAttachPoint" )
-        net.writeEntity( chip() )
         net.writeUInt( id, 10 )
         net.writeEntity( ent )
         net.send()
@@ -92,7 +89,6 @@ if SERVER then
 
     local function setLightColor( id, color )
         net.start( "LKL_MultiLights_SetColor" )
-        net.writeEntity( chip() )
         net.writeUInt( id, 10 )
         net.writeVector( color )
         net.send()
@@ -100,7 +96,6 @@ if SERVER then
 
     local function setLightBrightness( id, brightness )
         net.start( "LKL_MultiLights_SetBrightness" )
-        net.writeEntity( chip() )
         net.writeUInt( id, 10 )
         net.writeFloat( brightness )
         net.send()
@@ -108,7 +103,6 @@ if SERVER then
 
     local function setLightRadius( id, radius )
         net.start( "LKL_MultiLights_SetRadius" )
-        net.writeEntity( chip() )
         net.writeUInt( id, 10 )
         net.writeFloat( radius )
         net.send()
@@ -124,7 +118,6 @@ if SERVER then
                 lightCount = id
 
                 net.start( "LKL_MultiLights_SetCount" )
-                net.writeEntity( chip() )
                 net.writeUInt( lightCount, 10 )
                 net.send()
             end
@@ -250,8 +243,6 @@ else -- CLIENT
 
 
     net.receive( "LKL_MultiLights_SetCount", function()
-        if net.readEntity() ~= chip() then return end
-
         local oldCount = lightCount or 0
 
         lightCount = math.max( net.readUInt( 10 ), oldCount )
@@ -263,38 +254,26 @@ else -- CLIENT
     end )
 
     net.receive( "LKL_MultiLights_SetState", function()
-        if net.readEntity() ~= chip() then return end
-
         setLightState( net.readUInt( 10 ), net.readBool() )
     end )
 
     net.receive( "LKL_MultiLights_SetAllOn", function()
-        if net.readEntity() ~= chip() then return end
-
         setLightState( 0, net.readBool() )
     end )
 
     net.receive( "LKL_MultiLights_SetAttachPoint", function()
-        if net.readEntity() ~= chip() then return end
-
         setLightAttachPoint( net.readUInt( 10 ), net.readEntity() )
     end )
 
     net.receive( "LKL_MultiLights_SetColor", function()
-        if net.readEntity() ~= chip() then return end
-
         setLightColor( net.readUInt( 10 ), net.readVector() )
     end )
 
     net.receive( "LKL_MultiLights_SetBrightness", function()
-        if net.readEntity() ~= chip() then return end
-
         setLightBrightness( net.readUInt( 10 ), net.readFloat() )
     end )
 
     net.receive( "LKL_MultiLights_SetRadius", function()
-        if net.readEntity() ~= chip() then return end
-
         setLightRadius( net.readUInt( 10 ), net.readFloat() )
     end )
 end

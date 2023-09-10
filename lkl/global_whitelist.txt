@@ -77,7 +77,6 @@ local function modifyList( choice, ply, state, isDirect )
 
     if SERVER then
         net.start( "LKL_GList_Modify" .. chosenListStr )
-        net.writeEntity( chip() )
         net.writeEntity( ply )
         net.writeBool( state )
         net.send()
@@ -107,7 +106,6 @@ local function setListState( choice, state, isDirect )
 
     if SERVER then
         net.start( "LKL_GList_Set" .. chosenListStr .. "State" )
-        net.writeEntity( chip() )
         net.writeBool( state )
         net.send()
     end
@@ -396,8 +394,6 @@ end )
 
 if CLIENT then
     net.receive( "LKL_GList_ModifyWhitelist", function()
-        if net.readEntity() ~= chip() then return end
-
         local ply = net.readEntity()
         if not isValid( ply ) then return end
 
@@ -406,8 +402,6 @@ if CLIENT then
     end )
 
     net.receive( "LKL_GList_ModifyBlacklist", function()
-        if net.readEntity() ~= chip() then return end
-
         local ply = net.readEntity()
         if not isValid( ply ) then return end
 
@@ -416,15 +410,11 @@ if CLIENT then
     end )
 
     net.receive( "LKL_GList_SetWhitelistState", function()
-        if net.readEntity() ~= chip() then return end
-
         local state = net.readBool()
         setWhitelistState( state )
     end )
 
     net.receive( "LKL_GList_SetBlacklistState", function()
-        if net.readEntity() ~= chip() then return end
-
         local state = net.readBool()
         setBlacklistState( state )
     end )

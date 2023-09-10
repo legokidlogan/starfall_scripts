@@ -270,7 +270,6 @@ if SERVER then
 
         --[[
         net.start( "LKL_ChatCmds_PrintMessage" )
-        net.writeEntity( chip() )
         net.writeTable( printTbl )
         net.send( ply )
         --]]
@@ -1523,8 +1522,6 @@ else
 
     net.receive( "LKL_ChatCmds_PrintMessage", function()
         if not permissionSatisfied then return end
-
-        if net.readEntity() ~= chip() then return end -- Annoyingly, net messages are not local to each chip
 
         local printTbl = net.readTable()
         local printTblCount = #printTbl

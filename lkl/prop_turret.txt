@@ -119,7 +119,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_Create" )
-            net.writeEntity( chip() )
             net.writeUInt( turretIncrement, 16 )
             net.send()
         end
@@ -280,7 +279,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_Destroy" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.send()
         end
@@ -301,7 +299,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetAutoTarget" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeBool( enabled )
             net.send()
@@ -319,7 +316,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetTarget" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeEntity( target or game.getWorld() )
             net.send()
@@ -427,7 +423,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_Shoot" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeTable( bullets )
             net.send()
@@ -554,7 +549,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetPos" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeVector( pos )
             net.send()
@@ -580,7 +574,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetAngles" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeAngle( ang )
             net.send()
@@ -635,7 +628,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetParent" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeEntity( ent or game.getWorld() )
             net.writeVector( localPos or Vector() )
@@ -659,7 +651,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetHeadPos" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeVector( pos )
             net.send()
@@ -688,7 +679,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetHeadAngles" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeAngle( ang )
             net.send()
@@ -723,7 +713,6 @@ if SERVER then
 
         if self:isNetEnabled() then
             net.start( "LKL_PropTurret_SetShootPos" )
-            net.writeEntity( chip() )
             net.writeUInt( self:getID(), 16 )
             net.writeVector( pos )
             net.send()
@@ -1215,14 +1204,10 @@ else
 
 
     net.receive( "LKL_PropTurret_Create", function()
-        if net.readEntity() ~= chip() then return end
-
         PropTurret:new( net.readUInt( 16 ) )
     end )
 
     net.receive( "LKL_PropTurret_Destroy", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :destroy() an invalid PropTurret id " .. id ) return end
@@ -1231,8 +1216,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_SetAutoTarget", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setAutoTarget() on an invalid PropTurret id " .. id ) return end
@@ -1244,8 +1227,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_SetTarget", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setTarget() on an invalid PropTurret id " .. id ) return end
@@ -1263,8 +1244,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_SetPos", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setPos() on an invalid PropTurret id " .. id ) return end
@@ -1277,8 +1256,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_SetAngles", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setAngles() on an invalid PropTurret id " .. id ) return end
@@ -1291,8 +1268,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_SetParent", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setParent() on an invalid PropTurret id " .. id ) return end
@@ -1319,8 +1294,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_SetHeadPos", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setHeadPos() on an invalid PropTurret id " .. id ) return end
@@ -1332,8 +1305,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_SetHeadAngles", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setHeadAngles() on an invalid PropTurret id " .. id ) return end
@@ -1345,8 +1316,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_SetShootPos", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :setShootPos() on an invalid PropTurret id " .. id ) return end
@@ -1358,8 +1327,6 @@ else
     end )
 
     net.receive( "LKL_PropTurret_Shoot", function()
-        if net.readEntity() ~= chip() then return end
-
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
         if not turret then print( "Tried to :shoot() on an invalid PropTurret id " .. id ) return end

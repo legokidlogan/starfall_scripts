@@ -58,7 +58,6 @@ if SERVER then
         }
 
         net.start( hookBase .. "SaveFile" )
-        net.writeEntity( chip() )
         net.writeUInt( uid, 32 )
         net.writeString( fileName )
         net.writeStream( str, false )
@@ -80,7 +79,6 @@ if SERVER then
         }
 
         net.start( hookBase .. "LoadFile" )
-        net.writeEntity( chip() )
         net.writeUInt( uid, 32 )
         net.writeString( fileName )
         net.send( owner() )
@@ -88,8 +86,6 @@ if SERVER then
 
 
     net.receive( hookBase .. "SaveFileFinished", function()
-        if net.readEntity() ~= chip() then return end
-
         local uid = net.readUInt( 32 )
         local cbInfo = fileCallbacks[uid]
         fileCallbacks[uid] = nil
@@ -111,8 +107,6 @@ if SERVER then
     end )
 
     net.receive( hookBase .. "LoadFileFinished", function()
-        if net.readEntity() ~= chip() then return end
-
         local uid = net.readUInt( 32 )
         local cbInfo = fileCallbacks[uid]
         fileCallbacks[uid] = nil
@@ -154,8 +148,6 @@ else
 
 
     net.receive( hookBase .. "SaveFile", function()
-        if net.readEntity() ~= chip() then return end
-
         local uid = net.readUInt( 32 )
         local fileName = net.readString()
         local folder = string.getPathFromFilename( fileName )
@@ -166,22 +158,18 @@ else
             file.write( baseFolder .. fileName, fileHandler.alterDataString( dataStr ) )
 
             net.start( hookBase .. "SaveFileFinished" )
-            net.writeEntity( chip() )
             net.writeUInt( uid, 32 )
             net.send()
         end )
     end )
 
     net.receive( hookBase .. "LoadFile", function()
-        if net.readEntity() ~= chip() then return end
-
         local uid = net.readUInt( 32 )
         local fileName = net.readString()
 
         local dataStr = file.read( baseFolder .. fileName )
 
         net.start( hookBase .. "LoadFileFinished" )
-        net.writeEntity( chip() )
         net.writeUInt( uid, 32 )
         net.writeStream( dataStr, false )
         net.send()

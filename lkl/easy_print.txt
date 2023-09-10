@@ -1687,13 +1687,11 @@ if SERVER then
         local stringyTbl = ep.stringifyPrintTable( epScheme, printTbl )
 
         net.start( "LKL_EasyPrint_PrintFromServer" )
-        net.writeEntity( chip() )
         net.writeString( json.encode( stringyTbl ) )
         net.send( plys )
     end
 else
     net.receive( "LKL_EasyPrint_PrintFromServer", function()
-        if net.readEntity() ~= chip() then return end
         if permissionSatisfied ~= nil and not permissionSatisfied then return end -- Soft-integrate into cl_permissions if parent script uses it
 
         local printTbl = ep.colorizePrintTable( epScheme, json.decode( net.readString() ) )

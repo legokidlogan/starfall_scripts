@@ -107,7 +107,6 @@ if SERVER then
         end
 
         net.start( "LKL_CarCam_DefineCamForceEnt" )
-        net.writeEntity( chip() )
         net.writeEntity( camForceEnt )
         net.send( find.allPlayers() )
     end
@@ -128,7 +127,6 @@ if SERVER then
         camInd = newInd
 
         net.start( "LKL_CarCam_DefineCamInd" )
-        net.writeEntity( chip() )
         net.writeInt( camInd, 10 )
         net.send( find.allPlayers() )
 
@@ -154,7 +152,6 @@ if SERVER then
 
         if isValid( ply ) and ply:isPlayer() then
             net.start( "LKL_CarCam_DriverUpdate" )
-            net.writeEntity( chip() )
             net.writeBool( entered )
             net.send( ply )
         end
@@ -172,7 +169,6 @@ if SERVER then
             setCamInd( camInd, true, false )
 
             net.start( "LKL_CarCam_DefineLocalPoss" )
-            net.writeEntity( chip() )
             net.writeTable( localPoss )
             net.send( find.allPlayers() )
         elseif name == "CamDists" then
@@ -182,14 +178,12 @@ if SERVER then
             setCamInd( camInd, true, false )
 
             net.start( "LKL_CarCam_DefineCamDists" )
-            net.writeEntity( chip() )
             net.writeTable( camDists )
             net.send( find.allPlayers() )
         elseif name == "Base" then
             base = isValid( value ) and value
 
             net.start( "LKL_CarCam_DefineBase" )
-            net.writeEntity( chip() )
             net.writeEntity( base or world )
             net.send( find.allPlayers() )
 
@@ -203,7 +197,6 @@ if SERVER then
 
             if isValid( chair ) then
                 net.start( "LKL_CarCam_DefineChair" )
-                net.writeEntity( chip() )
                 net.writeEntity( chair )
                 net.send( find.allPlayers() )
             end
@@ -284,8 +277,6 @@ if SERVER then
 
 
     net.receive( "LKL_CarCam_UseCam", function()
-        if net.readEntity() ~= chip() then return end
-
         usingCam = net.readBool()
 
         if not usingCam and not traceWhileOutOfCam then
@@ -331,7 +322,6 @@ if SERVER then
 
         if isValid( chair ) then
             net.start( "LKL_CarCam_DefineChair" )
-            net.writeEntity( chip() )
             net.writeEntity( chair )
             net.send( find.allPlayers() )
         end
@@ -415,22 +405,16 @@ else
 
 
     net.receive( "LKL_CarCam_DefineCamForceEnt", function()
-        if net.readEntity() ~= chip() then return end
-
         camForceEnt = net.readEntity()
     end )
 
     net.receive( "LKL_CarCam_DefineChair", function()
-        if net.readEntity() ~= chip() then return end
-
         chair = net.readEntity()
         chair = isValid( chair ) and chair or false
         usingCam = player():getVehicle() == chair
     end )
 
     net.receive( "LKL_CarCam_DefineBase", function()
-        if net.readEntity() ~= chip() then return end
-
         base = net.readEntity()
         base = isValid( base ) and base
 
@@ -440,20 +424,14 @@ else
     end )
 
     net.receive( "LKL_CarCam_DefineLocalPoss", function()
-        if net.readEntity() ~= chip() then return end
-
         localPoss = net.readTable() or {}
     end )
 
     net.receive( "LKL_CarCam_DefineCamDists", function()
-        if net.readEntity() ~= chip() then return end
-
         camDists = net.readTable() or {}
     end )
 
     net.receive( "LKL_CarCam_DefineCamInd", function()
-        if net.readEntity() ~= chip() then return end
-
         camInd = net.readInt( 10 ) or 0
 
         local oldUsingCam = usingCam
@@ -461,7 +439,6 @@ else
 
         if usingCam ~= oldUsingCam and driving then
             net.start( "LKL_CarCam_UseCam" )
-            net.writeEntity( chip() )
             net.writeBool( usingCam and permissionSatisfied )
             net.writeEntity( player() )
             net.send()
@@ -469,8 +446,6 @@ else
     end )
 
     net.receive( "LKL_CarCam_DriverUpdate", function()
-        if net.readEntity() ~= chip() then return end
-
         driving = net.readBool()
     end )
 end

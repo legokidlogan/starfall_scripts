@@ -24,7 +24,6 @@ hook.add( "inputPressed", "LKL_PropRecorder_ToggleRecording", function( key )
     if key ~= toggleButton then return end
 
     net.start( "LKL_PropRecorder_ToggleRecording" )
-    net.writeEntity( chip() )
     net.send()
 end )
 
@@ -248,7 +247,6 @@ end )
 
 net.receive( "LKL_PropRecorder_ToggleRecording", function( _, ply )
     if ply ~= owner() then return end
-    if net.readEntity() ~= chip() then return end
 
     if recording then
         propRecorder.stopRecording()
