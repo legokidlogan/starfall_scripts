@@ -5,6 +5,10 @@
 
 if hookRunRemoteFixed then return end -- Don't run twice
 
+
+hookRunRemotePrintFailures = hookRunRemotePrintFailures or false -- Whether or not to print failures when a chip couldn't be sent to
+
+
 c_white = c_white or Color( 255, 255, 255, 255 )
 c_alert_red = c_alert_red or Color( 150, 0, 0, 255 )
 c_yellow = c_yellow or Color( 255, 255, 0, 255 )
@@ -84,7 +88,7 @@ function hookRunRemoteFixed( targets, hookName, ... )
             if success then
                 result.Chip = target
                 tableInsert( results, result )
-            else
+            elseif hookRunRemotePrintFailures then
                 local chipStr = printName or ( projectNameID and ( "[" .. projectNameID .. "]" ) )
                 local chipColor = chipStr and c_white or c_yellow
                 chipStr = chipStr or tostring( chip() )
