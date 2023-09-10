@@ -2,7 +2,7 @@
 --@author legokidlogan
 --@shared
 --@include lkl/gcolors.txt
---@include lkl/hook_remote_fix.txt
+--@include lkl/grouped_global_data_manager.txt
 
 if glist and glist.filterPlayer then return end -- Don't run twice
 
@@ -16,66 +16,88 @@ projectNameID = projectNameID or ( "GList|" .. chip():getChipName() )
 printName = printName or ( "[" .. projectNameID .. "]" )
 
 require( "lkl/gcolors.txt" )
-require( "lkl/hook_remote_fix.txt" )
+require( "lkl/grouped_global_data_manager.txt" )
 
 
-local whitelist = {}
-local blacklist = {}
-local whitelistEnabled = true
-local blacklistEnabled = true
-local startupSyncComplete = false
 local whitelistHasEntries = false
 local blacklistHasEntries = false
+
+local startupSyncComplete = false
 local groupNameCached = glist.groupName
 local myRemoteGroupName = "GList." .. groupNameCached
 
 
+local function validateGlobalData()
+    if GGDM.OwnerData.GList then return end
+
+    GGDM.OwnerData.GList = {
+        Whitelist = {},
+        Blacklist = {},
+        WhitelistEnabled = true,
+        BlacklistEnabled = true,
+    }
+
+    GGDM.pushOwnerData()
+end
+
+local function getList( choice )
+    if not startupSyncComplete then error( "Startup sync is not complete!" ) end
+
+    validateGlobalData()
+
+    if choice then return GGDM.OwnerData.GList.Whitelist end
+
+    return GGDM.OwnerData.GList.Blacklist
+end
+
+local function getWhitelist()
+    return getList( true )
+end
+
+local function getBlacklist()
+    return getList( false )
+end
+
 local function validateList( choice )
-    local chosenList = choice and whitelist or blacklist
+    local chosenList = getList( choice )
+    local hasChanged = false
 
     for ply in pairs( chosenList ) do
         if not isValid( ply ) then
             chosenList[ply] = nil
+            hasChanged = true
         end
+    end
+
+    if hasChanged then
+        GGDM.pushOwnerData()
     end
 end
 
-local function modifyList( choice, ply, state, isDirect )
-    if not startupSyncComplete then error( "Startup sync is not complete!" ) end
+local function modifyList( choice, ply, state )
     if not isValid( ply ) then return end
     if not ply.isPlayer or not ply:isPlayer() then return end
 
-    local chosenList = choice and whitelist or blacklist
+    local chosenList = getList( choice )
     local chosenListStr = choice and "Whitelist" or "Blacklist"
-    local listHasEntries
 
     if state == nil then -- Toggle
         local currentState = chosenList[ply] or false
 
-        return modifyList( choice, ply, not currentState, isDirect )
+        return modifyList( choice, ply, not currentState )
     end
 
     validateList( choice )
 
     if state then
         chosenList[ply] = true
-        listHasEntries = true
     else
-        whitelist[ply] = nil
-        listHasEntries = table.count( chosenList ) > 0
+        chosenList[ply] = nil
     end
 
-    if choice then
-        whitelistHasEntries = listHasEntries
-    else
-        blacklistHasEntries = listHasEntries
-    end
+    GGDM.pushOwnerData()
 
-    if not isDirect then
-        hookRunRemoteMyOwnersGroup( "LKL_GList_Modify" .. chosenListStr, ply, state )
-    end
-
-    if SERVER then
+    if SERVER and GGDM.isOwnerMainResponder() then
         net.start( "LKL_GList_Modify" .. chosenListStr )
         net.writeEntity( ply )
         net.writeBool( state )
@@ -83,40 +105,40 @@ local function modifyList( choice, ply, state, isDirect )
     end
 end
 
-local function modifyWhitelist( ply, state, isDirect )
-    modifyList( true, ply, state, isDirect )
+local function modifyWhitelist( ply, state )
+    modifyList( true, ply, state )
 end
 
-local function modifyBlacklist( ply, state, isDirect )
-    modifyList( false, ply, state, isDirect )
+local function modifyBlacklist( ply, state )
+    modifyList( false, ply, state )
 end
 
-local function setListState( choice, state, isDirect )
+local function setListState( choice, state )
     local chosenListStr = choice and "Whitelist" or "Blacklist"
 
+    validateGlobalData()
+
     if choice then
-        whitelistEnabled = state
+        GGDM.OwnerData.GList.WhitelistEnabled = state
     else
-        blacklistEnabled = state
+        GGDM.OwnerData.GList.BlacklistEnabled = state
     end
 
-    if not isDirect then
-        hookRunRemoteMyOwnersGroup( "LKL_GList_Set" .. chosenListStr .. "State", state )
-    end
+    GGDM.pushOwnerData()
 
-    if SERVER then
+    if SERVER and GGDM.isOwnerMainResponder() then
         net.start( "LKL_GList_Set" .. chosenListStr .. "State" )
         net.writeBool( state )
         net.send()
     end
 end
 
-local function setWhitelistState( state, isDirect )
-    setListState( true, state and true or false, isDirect )
+local function setWhitelistState( state )
+    setListState( true, state and true or false )
 end
 
-local function setBlacklistState( state, isDirect )
-    setListState( false, state and true or false, isDirect )
+local function setBlacklistState( state )
+    setListState( false, state and true or false )
 end
 
 
@@ -193,7 +215,9 @@ end
 
 -- Returns whether or not the whitelist is enabled.
 function glist.getWhitelistState()
-    return whitelistEnabled
+    validateGlobalData()
+
+    return GGDM.OwnerData.GList.WhitelistEnabled
 end
 
 -- Enables/disables the blacklist.
@@ -203,7 +227,9 @@ end
 
 -- Returns whether or not the blacklist is enabled.
 function glist.getBlacklistState()
-    return blacklistEnabled
+    validateGlobalData()
+
+    return GGDM.OwnerData.GList.BlacklistEnabled
 end
 
 --[[
@@ -224,15 +250,15 @@ function glist.filterPlayer( ent )
     if not isValid( ent ) then return false end
     if not ent.isPlayer or not ent:isPlayer() then return false end
 
-    local useWhitelist = whitelistEnabled and whitelistHasEntries
-    local useBlacklist = blacklistEnabled and blacklistHasEntries
+    local useWhitelist = glist.getWhitelistState() and whitelistHasEntries
+    local useBlacklist = glist.getBlacklistState() and blacklistHasEntries
 
     if useWhitelist then
-        return not ( useBlacklist and blacklist[ent] ) and whitelist[ent] or false
+        return not ( useBlacklist and getBlacklist()[ent] ) and getWhitelist()[ent] or false
     end
 
     if useBlacklist then
-        return not ( blacklist[ent] or false )
+        return not ( getBlacklist()[ent] or false )
     end
 
     return false
@@ -303,13 +329,13 @@ end
 -- Returns true/false based on whether the player is in the whitelist.
 -- This is not the same as them being fully allowed.
 function glist.isWhitelisted( ply )
-    return whitelist[ply or false] or false
+    return getWhitelist()[ply or false] or false
 end
 
 -- Returns true/false based on whether the player is in the blacklist.
 -- This is not the same as them being fully disallowed.
 function glist.isBlacklisted( ply )
-    return blacklist[ply or false] or false
+    return getBlacklist()[ply or false] or false
 end
 
 -- Returns the whitelist as a sequential table.
@@ -317,7 +343,7 @@ function glist.getWhitelist()
     local out = {}
     local count = 0
 
-    for ply in pairs( whitelist ) do
+    for ply in pairs( getWhitelist() ) do
         count = count + 1
         out[count] = ply
     end
@@ -329,7 +355,7 @@ end
 function glist.getWhitelistLookup()
     local out = {}
 
-    for ply in pairs( whitelist ) do
+    for ply in pairs( getWhitelist() ) do
         out[ply] = true
     end
 
@@ -341,7 +367,7 @@ function glist.getBlacklist()
     local out = {}
     local count = 0
 
-    for ply in pairs( blacklist ) do
+    for ply in pairs( getBlacklist() ) do
         count = count + 1
         out[count] = ply
     end
@@ -353,7 +379,7 @@ end
 function glist.getBlacklistLookup()
     local out = {}
 
-    for ply in pairs( blacklist ) do
+    for ply in pairs( getBlacklist() ) do
         out[ply] = true
     end
 
@@ -363,32 +389,11 @@ end
 -- END GLOBAL FUNCTIONS --------------------------------------------------------
 
 
-hook.add( "Remote_LKL_GList_ModifyWhitelist", "LKL_GList_HandleModification", function( callingChip, callingPlayer, ply, state )
-    if callingChip == chip() then return end
-    if callingPlayer ~= owner() then return end
+hook.add( "LKL_GGDM_OwnerDataChanged", "LKL_GList_UpdateEmptyListFlags", function()
+    if not startupSyncComplete then return end
 
-    modifyWhitelist( ply, state, true )
-end )
-
-hook.add( "Remote_LKL_GList_ModifyBlacklist", "LKL_GList_HandleModification", function( callingChip, callingPlayer, ply, state )
-    if callingChip == chip() then return end
-    if callingPlayer ~= owner() then return end
-
-    modifyBlacklist( ply, state, true )
-end )
-
-hook.add( "Remote_LKL_GList_SetWhitelistState", "LKL_GList_HandleModification", function( callingChip, callingPlayer, state )
-    if callingChip == chip() then return end
-    if callingPlayer ~= owner() then return end
-
-    setWhitelistState( state, true )
-end )
-
-hook.add( "Remote_LKL_GList_SetBlacklistState", "LKL_GList_HandleModification", function( callingChip, callingPlayer, state )
-    if callingChip == chip() then return end
-    if callingPlayer ~= owner() then return end
-
-    setBlacklistState( state, true )
+    whitelistHasEntries = table.count( getWhitelist() ) > 0
+    blacklistHasEntries = table.count( getBlacklist() ) > 0
 end )
 
 
@@ -419,30 +424,6 @@ if CLIENT then
         setBlacklistState( state )
     end )
 else
-    local isMainResponder = false
-    local isRemoving = false
-
-
-    local function becomeMainResponder()
-        if isMainResponder then return end
-        if isRemoving then return end
-
-        isMainResponder = true
-    end
-
-    local function checkForMainResponder()
-        if isMainResponder then return end
-        if isRemoving then return end
-
-        local results = hookRunRemoteMyOwnersGroup( "LKL_GList_CheckMainResponder" )
-
-        for _, result in pairs( results ) do
-            if result[1] == "IAmMainResponder" then return end
-        end
-
-        becomeMainResponder()
-    end
-
     local function commandHelp()
         print(
             c_white, printName .. " Help:",
@@ -471,7 +452,7 @@ else
 
     local function commandWBList( choice, ... )
         local argsAsStr = table.concat( { ... }, " " )
-        local chosenList = choice and whitelist or blacklist
+        local chosenList = getList( choice )
         local chosenListStr = choice and "whitelist" or "blacklist"
 
         if argsAsStr == "" then
@@ -482,7 +463,7 @@ else
 
             validateList( choice )
 
-            for ply in pairs( choice and whitelist or blacklist ) do
+            for ply in pairs( chosenList ) do
                 table.insert( printTbl, team.getColor( ply:getTeam() ) )
                 table.insert( printTbl, ply:getName() )
                 table.insert( printTbl, c_white )
@@ -579,9 +560,7 @@ else
         local args = string.split( msg, " " )
         local prefix = table.remove( args, 1 )
         if prefix ~= "/glist" then return end
-
-        checkForMainResponder()
-        if not isMainResponder then return end
+        if not GGDM.isOwnerMainResponder() then return end
 
         local groupName = table.remove( args, 1 ) or ""
 
@@ -631,13 +610,6 @@ else
         modifyWhitelist( ply, false )
         modifyBlacklist( ply, false )
     end )
-
-    hook.add( "Remote_LKL_GList_CheckMainResponder", "LKL_GList_ReportMainResponder", function( callingChip, callingPlayer )
-        if callingChip == chip() then return end
-        if callingPlayer ~= owner() then return end
-
-        if isMainResponder then return "IAmMainResponder" end
-    end )
 end
 
 
@@ -645,6 +617,9 @@ end
 
 local function completeStartupSync()
     startupSyncComplete = true
+
+    whitelistHasEntries = table.count( getWhitelist() ) > 0
+    blacklistHasEntries = table.count( getBlacklist() ) > 0
 
     hook.run( "LKL_GList_StartupSync_Complete" )
 
@@ -666,59 +641,7 @@ hook.add( "Remote_RemoteGroupChanged", "LKL_GList_StartupSync", function( callin
     if callingChip ~= chip() then return end
     if callingPlayer ~= owner() then return end
 
-    --local results = hookRunRemoteGroup( myRemoteGroupName, owner(), "StartupSync_RequestData" )
-    local results = hookRunRemoteMyOwnersGroup( "LKL_GList_StartupSync_RequestData" )
-    local resultWhitelist
-    local resultBlacklist
-    local resultWhitelistEnabled
-    local resultBlacklistEnabled
-
-    for _, result in ipairs( results ) do
-        if result[1] == "Success" then
-            resultWhitelist = result[2]
-            resultBlacklist = result[3]
-            resultWhitelistEnabled = result[4]
-            resultBlacklistEnabled = result[5]
-
-            break
-        end
-    end
-
-    if not resultWhitelist then
-        completeStartupSync()
-
-        return
-    end
-
-    table.empty( whitelist )
-    table.empty( blacklist )
-
-    if resultWhitelist then
-        for _, ply in ipairs( resultWhitelist ) do
-            whitelist[ply] = true
-        end
-    end
-
-    if resultBlacklist then
-        for _, ply in ipairs( resultBlacklist ) do
-            blacklist[ply] = true
-        end
-    end
-
-    whitelistEnabled = resultWhitelistEnabled
-    blacklistEnabled = resultBlacklistEnabled
-    whitelistHasEntries = #resultWhitelist > 0
-    blacklistHasEntries = #resultBlacklist > 0
-
-    completeStartupSync()
-end )
-
-hook.add( "Remote_LKL_GList_StartupSync_RequestData", "LKL_GList_StartupSync_Respond", function( callingChip, callingPlayer )
-    if not startupSyncComplete then return end
-    if callingChip == chip() then return end
-    if callingPlayer ~= owner() then return end
-
-    return "Success", glist.getWhitelist(), glist.getBlacklist(), whitelistEnabled, blacklistEnabled
+    timer.simple( 0, completeStartupSync )
 end )
 
 -- END Startup Sync ------------------------------------------------------------
