@@ -245,6 +245,8 @@ end
     SERVER ONLY
     Sets the group name for this chip and notifies all others of its change.
 
+    Both SERVER and CLIENT will receive the RemoteGroupChanged remote hook with the new group name when this is called.
+
     groupName: (nil or string)
         NIL: Clears the group name, same as providing "".
         STRING: The group name to use.
@@ -429,7 +431,10 @@ end
     Handled automatically by setRemoteGroupName, though you can call it manually to force an update.
 --]]
 function notifyRemoteGroups()
-    hookRunRemoteFixed( find.byClass( "starfall_processor" ), "RemoteGroupChanged", myGroupName )
+    local chips = find.byClass( "starfall_processor" )
+
+    hookRunRemoteFixed( chips, "__RemoteGroupChanged", myGroupName ) -- Ensure all chips get updated group info before other listeners start running.
+    hookRunRemoteFixed( chips, "RemoteGroupChanged", myGroupName )
 end
 
 -- END OF GLOBAL FUNCTIONS
@@ -447,7 +452,7 @@ hook.add( "Remote_RemoteGroupQuery", "!!!LKL_HookRemoteFix_RemoteGroupQuery", fu
     return getRemoteGroupName()
 end )
 
-hook.add( "Remote_RemoteGroupChanged", "!!!LKL_HookRemoteFix_RemoteGroupChanged", function( callingChip, callingPlayer, groupName )
+hook.add( "Remote___RemoteGroupChanged", "!!!LKL_HookRemoteFix_RemoteGroupChanged", function( callingChip, callingPlayer, groupName )
     local prevGroupName = chipToGroupName[callingChip]
     if prevGroupName == groupName then return end
 
