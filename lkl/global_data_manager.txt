@@ -1,0 +1,149 @@
+--@name Global Data Manager
+--@author legokidlogan
+--@shared
+--@include lkl/hook_remote_fix.txt
+
+GDM = GDM or {}
+
+--[[
+    - This library creates global tables that can be accessed by other chips.
+    - There are some important caveats to note, however:
+        - Other chips will ONLY have access if they also include and require this library.
+        - Ideally, this library should be require()'d before any other library, to ensure safe access.
+        - Starfall sanitizes tables between chips, so you cannot store functions in the global table.
+            - Additionally, each chip has its own instance of the table, changing it in one chip will NOT change it in the others.
+            - In order to sync your changes, use GDM.pushData() or GDM.pushOwnerData(), depending on what you're changing.
+        - If every chip using this library gets deleted/restarted at the same time, the global table will be lost.
+            - This can be useful for clearing the table and starting from scratch by simply removing all your chips.
+            - However, if you want to constantly have the data, it's recommended to have this in at least two always-present chips.
+    - These are the global tables:
+        GDM.Data
+            - This table is shared across all chips.
+            - After making a change, use GDM.pushData() to sync the other chips.
+        GDM.OwnerData
+            - This table is shared only with chips owned by you.
+            - After making a change, use GDM.pushOwnerData() to sync the other chips.
+    - Again, the global tables are stored by value, not by reference. Always access the data directly, and don't localize them or sub-tables.
+--]]
+
+
+if GDM.pushData then return end -- Don't run twice
+
+require( "lkl/hook_remote_fix.txt" )
+
+local getAllChipsButThis
+local getAllOwnerChipsButThis
+
+
+function GDM.pushData()
+    if not GDM.Data then return end
+
+    hookRunRemoteFixed( getAllChipsButThis(), "LKL_GDM_DefineData", GDM.Data )
+    hook.run( "LKL_GDM_DataChanged", chip() )
+end
+
+function GDM.pushOwnerData()
+    if not GDM.OwnerData then return end
+
+    hookRunRemoteFixed( getAllOwnerChipsButThis(), "LKL_GDM_DefineOwnerData", GDM.OwnerData )
+    hook.run( "LKL_GDM_OwnerDataChanged", chip() )
+end
+
+
+getAllChipsButThis = function()
+    local chips = find.byClass( "starfall_processor" )
+
+    for i = #chips, 1, -1 do
+        if chips[i] == chip() then
+            table.remove( chips, i )
+
+            break
+        end
+    end
+
+    return chips
+end
+
+getAllOwnerChipsButThis = function()
+    local chips = {}
+
+    for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
+        if chipEnt ~= chip() and chipEnt:getOwner() == owner() then
+            table.insert( chips, chipEnt )
+        end
+    end
+
+    return chips
+end
+
+local function requestData()
+    local results = hookRunRemoteFixed( getAllChipsButThis(), "LKL_GDM_RequestData" )
+
+    for _, resultArgs in ipairs( results ) do
+        if resultArgs[1] == "SUCCESS" then
+            GDM.Data = resultArgs[2]
+
+            hook.run( "LKL_GDM_DataChanged", resultArgs.Chip )
+
+            return
+        end
+    end
+
+    -- No chip has made GDM.Data yet
+    GDM.Data = {}
+    GDM.pushData()
+end
+
+local function requestOwnerData()
+    local results = hookRunRemoteFixed( getAllOwnerChipsButThis(), "LKL_GDM_RequestOwnerData" )
+
+    for _, resultArgs in ipairs( results ) do
+        if resultArgs[1] == "SUCCESS" then
+            GDM.OwnerData = resultArgs[2]
+
+            hook.run( "LKL_GDM_OwnerDataChanged", resultArgs.Chip )
+
+            return
+        end
+    end
+
+    -- No chip has made GDM.Data yet
+    GDM.OwnerData = {}
+    GDM.pushOwnerData()
+end
+
+
+hook.add( "Remote_LKL_GDM_RequestData", "LKL_GDM_ProvideData", function()
+    if not GDM.Data then return end
+
+    return "SUCCESS", GDM.Data
+end )
+
+hook.add( "Remote_LKL_GDM_DefineData", "LKL_GDM_StoreData", function( callingChip, _, tbl )
+    if callingChip ~= chip() then
+        GDM.Data = tbl
+    end
+
+    hook.run( "LKL_GDM_DataChanged", callingChip )
+end )
+
+hook.add( "Remote_LKL_GDM_RequestOwnerData", "LKL_GDM_ProvideOwnerData", function( _, callingPly )
+    if callingPly ~= owner() then return end
+    if not GDM.OwnerData then return end
+
+    return "SUCCESS", GDM.OwnerData
+end )
+
+hook.add( "Remote_LKL_GDM_DefineOwnerData", "LKL_GDM_StoreOwnerData", function( callingChip, callingPly, tbl )
+    if callingPly ~= owner() then return end
+
+    if callingChip ~= chip() then
+        GDM.OwnerData = tbl
+    end
+
+    hook.run( "LKL_GDM_OwnerDataChanged", callingChip )
+end )
+
+
+requestData()
+requestOwnerData()

@@ -1,0 +1,246 @@
+--@name Grouped Global Data Manager
+--@author legokidlogan
+--@shared
+--@include lkl/hook_remote_fix.txt
+
+
+GGDM = GGDM or {}
+
+--[[
+    - This library is similar to Global Data Manager, but with the scope limited to remote groups instead of all chips.
+    - The remote group can be set using setRemoteGroupName() on server. See Hook Remote Fix for more info.
+    - Additionally, this library keeps track of a 'main responder' for the current group.
+        - This makes it easy to prevent overlap in chat commands, prints, rendering, etc.
+        - Simply check GGDM.isMainResponder() or GGDM.isOwnerMainResponder(), depending on what you're doing.
+    - Everything from GDM is here, but now prefixed with GGDM instead.
+
+    - These are the global tables:
+        GGDM.Data
+            - This table is shared across all chips in the remote group.
+            - After making a change, use GGDM.pushData() to sync the other chips.
+        GGDM.OwnerData
+            - This table is shared only with chips owned by you in the remote group.
+            - After making a change, use GGDM.pushOwnerData() to sync the other chips.
+    - Reminder: the global tables are stored by value, not by reference. Always access the data directly, and don't localize them or sub-tables.
+--]]
+
+
+if GGDM.pushData then return end -- Don't run twice
+
+require( "lkl/hook_remote_fix.txt" )
+
+local mainResponder = nil
+local ownerMainResponder = nil
+local getAllChipsButThis
+local getAllOwnerChipsButThis
+local validateMainResponder
+local validateOwnerMainResponder
+
+
+function GGDM.pushData()
+    if not GGDM.Data then return end
+
+    hookRunRemoteFixed( getAllChipsButThis(), "LKL_GGDM_DefineData", GGDM.Data )
+    hook.run( "LKL_GGDM_DataChanged", chip() )
+end
+
+function GGDM.pushOwnerData()
+    if not GGDM.OwnerData then return end
+
+    hookRunRemoteFixed( getAllOwnerChipsButThis(), "LKL_GGDM_DefineOwnerData", GGDM.OwnerData )
+    hook.run( "LKL_GGDM_OwnerDataChanged", chip() )
+end
+
+function GGDM.tryBecomeMainResponder()
+    validateMainResponder()
+    if isValid( mainResponder ) then return end
+
+    mainResponder = chip()
+
+    hookRunRemoteFixed( getAllChipsButThis(), "LKL_GGDM_DefineMainResponder", mainResponder )
+end
+
+function GGDM.tryBecomeOwnerMainResponder()
+    validateOwnerMainResponder()
+    if isValid( ownerMainResponder ) then return end
+
+    ownerMainResponder = chip()
+
+    hookRunRemoteFixed( getAllOwnerChipsButThis(), "LKL_GGDM_DefineOwnerMainResponder", ownerMainResponder )
+end
+
+function GGDM.getMainResponder()
+    GGDM.tryBecomeMainResponder()
+
+    return mainResponder
+end
+
+function GGDM.getOwnerMainResponder()
+    GGDM.tryBecomeOwnerMainResponder()
+
+    return ownerMainResponder
+end
+
+function GGDM.isMainResponder()
+    return GGDM.getMainResponder() == chip()
+end
+
+function GGDM.isOwnerMainResponder()
+    return GGDM.getOwnerMainResponder() == chip()
+end
+
+
+getAllChipsButThis = function()
+    local chips = findMyRemoteGroup()
+
+    for i = #chips, 1, -1 do
+        if chips[i] == chip() then
+            table.remove( chips, i )
+
+            break
+        end
+    end
+
+    return chips
+end
+
+getAllOwnerChipsButThis = function()
+    local chips = findMyOwnersRemoteGroup()
+
+    for i = #chips, 1, -1 do
+        if chips[i] == chip() then
+            table.remove( chips, i )
+
+            break
+        end
+    end
+
+    return chips
+end
+
+validateMainResponder = function()
+    if isValid( mainResponder ) then return end
+
+    local validChips = validateRemoteChips( { mainResponder } )
+
+    if #validChips == 0 then
+        mainResponder = nil
+    else
+        mainResponder = validChips[1]
+    end
+end
+
+validateOwnerMainResponder = function()
+    if isValid( ownerMainResponder ) then return end
+
+    local validChips = validateRemoteChips( { ownerMainResponder } )
+
+    if #validChips == 0 then
+        ownerMainResponder = nil
+    else
+        ownerMainResponder = validChips[1]
+    end
+end
+
+local function requestData()
+    local results = hookRunRemoteFixed( getAllChipsButThis(), "LKL_GGDM_RequestData" )
+
+    for _, resultArgs in ipairs( results ) do
+        if resultArgs[1] == "SUCCESS" then
+            GGDM.Data = resultArgs[2]
+            mainResponder = resultArgs[3]
+
+            hook.run( "LKL_GGDM_DataChanged", resultArgs.Chip )
+
+            return
+        end
+    end
+
+    -- No chip has made GGDM.Data yet
+    GGDM.tryBecomeMainResponder()
+    GGDM.Data = {}
+    GGDM.pushData()
+end
+
+local function requestOwnerData()
+    local results = hookRunRemoteFixed( getAllOwnerChipsButThis(), "LKL_GGDM_RequestOwnerData" )
+
+    for _, resultArgs in ipairs( results ) do
+        if resultArgs[1] == "SUCCESS" then
+            GGDM.OwnerData = resultArgs[2]
+            ownerMainResponder = resultArgs[3]
+
+            hook.run( "LKL_GGDM_OwnerDataChanged", resultArgs.Chip )
+
+            return
+        end
+    end
+
+    -- No chip has made GGDM.Data yet
+    GGDM.tryBecomeOwnerMainResponder()
+    GGDM.OwnerData = {}
+    GGDM.pushOwnerData()
+end
+
+
+hook.add( "Remote_LKL_GGDM_RequestData", "LKL_GGDM_ProvideData", function( callingChip )
+    if not GGDM.Data then return end
+    if getRemoteGroupName( callingChip ) ~= getRemoteGroupName() then return end
+
+    return "SUCCESS", GGDM.Data, mainResponder
+end )
+
+hook.add( "Remote_LKL_GGDM_DefineData", "LKL_GGDM_StoreData", function( callingChip, _, tbl )
+    if callingChip ~= chip() then
+        GGDM.Data = tbl
+    end
+
+    hook.run( "LKL_GGDM_DataChanged", callingChip )
+end )
+
+hook.add( "Remote_LKL_GGDM_DefineMainResponder", "LKL_GGDM_StoreMainResponder", function( callingChip, _, newMainResponder )
+    if callingChip == chip() then return end
+
+    mainResponder = newMainResponder
+end )
+
+hook.add( "Remote_LKL_GGDM_RequestOwnerData", "LKL_GGDM_ProvideOwnerData", function( callingChip, callingPly )
+    if callingPly ~= owner() then return end
+    if not GGDM.OwnerData then return end
+    if getRemoteGroupName( callingChip ) ~= getRemoteGroupName() then return end
+
+    return "SUCCESS", GGDM.OwnerData, ownerMainResponder
+end )
+
+hook.add( "Remote_LKL_GGDM_DefineOwnerData", "LKL_GGDM_StoreOwnerData", function( callingChip, callingPly, tbl )
+    if callingPly ~= owner() then return end
+
+    if callingChip ~= chip() then
+        GGDM.OwnerData = tbl
+    end
+
+    hook.run( "LKL_GGDM_OwnerDataChanged", callingChip )
+end )
+
+hook.add( "Remote_LKL_GGDM_DefineOwnerMainResponder", "LKL_GGDM_StoreOwnerMainResponder", function( callingChip, callingPly, newOwnerMainResponder )
+    if callingChip == chip() then return end
+    if callingPly ~= owner() then return end
+
+    ownerMainResponder = newOwnerMainResponder
+end )
+
+hook.add( "Remote_RemoteGroupChanged", "LKL_GGDM_RequestDataFromNewGroup", function( callingChip )
+    if callingChip ~= chip() then return end
+
+    GGDM.Data = nil
+    GGDM.OwnerData = nil
+    mainResponder = nil
+    ownerMainResponder = nil
+
+    requestData()
+    requestOwnerData()
+end )
+
+
+requestData()
+requestOwnerData()
