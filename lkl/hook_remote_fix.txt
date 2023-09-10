@@ -288,15 +288,7 @@ function getRemoteGroupName( chipEnt )
         error( "Invalid chip provided" )
     end
 
-    for groupName, group in pairs( allRemoteGroups ) do
-        for _, groupChip in pairs( group ) do
-            if groupChip == chipEnt then
-                return groupName
-            end
-        end
-    end
-
-    return ""
+    return chipToGroupName[chipEnt] or ""
 end
 
 --[[
