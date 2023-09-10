@@ -435,7 +435,7 @@ end
 -- END OF GLOBAL FUNCTIONS
 
 
-hook.add( "remote", "LKL_HookRemoteFix_ConvertRemoteHooks", function( callingChip, callingPly, hookName, ... )
+hook.add( "remote", "!!!LKL_HookRemoteFix_ConvertRemoteHooks", function( callingChip, callingPly, hookName, ... )
     if type( hookName ) ~= "string" then return end
 
     local args = { ... }
@@ -443,11 +443,11 @@ hook.add( "remote", "LKL_HookRemoteFix_ConvertRemoteHooks", function( callingChi
     return hook.run( "Remote_" .. hookName, callingChip, callingPly, unpack( args ) )
 end )
 
-hook.add( "Remote_RemoteGroupQuery", "LKL_HookRemoteFix_RemoteGroupQuery", function()
+hook.add( "Remote_RemoteGroupQuery", "!!!LKL_HookRemoteFix_RemoteGroupQuery", function()
     return getRemoteGroupName()
 end )
 
-hook.add( "Remote_RemoteGroupChanged", "LKL_HookRemoteFix_RemoteGroupChanged", function( callingChip, callingPlayer, groupName )
+hook.add( "Remote_RemoteGroupChanged", "!!!LKL_HookRemoteFix_RemoteGroupChanged", function( callingChip, callingPlayer, groupName )
     local prevGroupName = chipToGroupName[callingChip]
     if prevGroupName == groupName then return end
 
@@ -472,7 +472,7 @@ hook.add( "Remote_RemoteGroupChanged", "LKL_HookRemoteFix_RemoteGroupChanged", f
     chipToGroupName[callingChip] = groupName
 end )
 
-hook.add( "EntityRemoved", "LKL_HookRemoteFix_TrackRemovedChips", function( ent )
+hook.add( "EntityRemoved", "!!!LKL_HookRemoteFix_TrackRemovedChips", function( ent )
     if not isValid( ent ) then return end
     if ent:getClass() ~= "starfall_processor" then return end
 
