@@ -386,7 +386,7 @@ function queryRemoteGroups()
     local responses = hookRunRemoteFixed( allChips, "RemoteGroupQuery" )
     local responsesEff = {}
 
-    -- Since base hook.runRemote doersn't include chips that never had a listener, we need to add them manually
+    -- Since base hook.runRemote doesn't include chips that never had a listener, we need to add them manually
     for _, chipEnt in ipairs( allChips ) do
         responsesEff[chipEnt] = ""
     end
@@ -443,8 +443,8 @@ hook.add( "remote", "LKL_HookRemoteFix_ConvertRemoteHooks", function( callingChi
     return hook.run( "Remote_" .. hookName, callingChip, callingPly, unpack( args ) )
 end )
 
-hook.add( "Remote_RemoteGroupQuery", "LKL_HookRemoteFix_RemoteGroupQuery", function( callingChip )
-    return getRemoteGroupName( callingChip )
+hook.add( "Remote_RemoteGroupQuery", "LKL_HookRemoteFix_RemoteGroupQuery", function()
+    return getRemoteGroupName()
 end )
 
 hook.add( "Remote_RemoteGroupChanged", "LKL_HookRemoteFix_RemoteGroupChanged", function( callingChip, callingPlayer, groupName )
@@ -452,7 +452,7 @@ hook.add( "Remote_RemoteGroupChanged", "LKL_HookRemoteFix_RemoteGroupChanged", f
     if prevGroupName == groupName then return end
 
     if prevGroupName then
-        local group = ( allRemoteGroups[prevGroupName] or {} )[callingPlayer]
+        local group = ( allRemoteGroups[prevGroupName] or {} )[callingPlayer] or {}
         tableRemoveByValue( group, callingChip )
     end
 
