@@ -1,12 +1,15 @@
 --@name Placeable
 --@author legokidlogan
 --@shared
+--@include lkl/destroyable.txt
 
 --[[
     - TODO
 --]]
 
 if Placeable then return end
+
+require( "lkl/destroyable.txt" )
 
 
 Placeable = class( "Placeable", Destroyable )
