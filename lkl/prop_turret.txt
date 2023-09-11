@@ -1,6 +1,7 @@
 --@name Prop Turret
 --@author legokidlogan
 --@shared
+--@include lkl/placeable.txt
 --@include lkl/global_whitelist.txt
 --@include lkl/prop_buffer.txt
 
@@ -14,6 +15,7 @@ glist = glist or {}
 glist.groupName = glist.groupName or "turret"
 glist.startupSyncDelay = glist.startupSyncDelay or 2
 
+require( "lkl/placeable.txt" )
 require( "lkl/global_whitelist.txt" )
 
 if SERVER then
@@ -25,12 +27,11 @@ end
 
 
 
-PropTurret = class( "PropTurret", Destroyable )
+PropTurret = class( "PropTurret", Placeable )
 
 -- These static vars can be overridden by subclasses.
 PropTurret.static.BULLET_MODEL = "models/hunter/plates/plate.mdl"
 PropTurret.static.BULLET_BUFFER_SIZE = 10
-PropTurret.static.NET_ENABLED = false -- Set to false if you don't want the turret to do any networking. Useful if networking is unused and you don't want to waste bandwidth or sf net limits.
 PropTurret.static.AUTO_TARGET_INTERVAL = 0.5 -- How often the turret should auto target.
 PropTurret.static.AUTO_TARGET_CONE = 2 -- 0-1 fraction, corresponds to 0-180 degrees, i.e. a hemisphere at 1 cone. Set to 2 to force a full sphere.
 PropTurret.static.AUTO_TARGET_RANGE = 1000 -- How far the turret can see for auto targeting.
@@ -50,29 +51,15 @@ PropTurret.static.SHOOT_COOLDOWN = 0.5
 
 
 local startupSyncComplete = false
-local allPropTurrets = {}
 local turretsByClass = {}
-local turretsByID = {}
-local turretIncrement = 0
 local bulletModelLookup = {}
 local turretClasses = {}
 local turretClassLookup = {}
-local turretParents = {}
-local turretParentLookup = {}
-local checkForPosAngChanges
 local registerTurretClass
 local getRootParent
 
 
 ----- STATIC FUNCTIONS -----
-
-function PropTurret.static:getAll()
-    return allPropTurrets
-end
-
-function PropTurret.static:getByID( id )
-    return turretsByID[id]
-end
 
 -- Gets the head position of a player, or the center of the bounding box if it's not a player.
 function PropTurret.static:getEntHeadPos( ent )
@@ -97,7 +84,7 @@ end
 
 if SERVER then
     function PropTurret:initialize( pos, ang, headPos, headAng )
-        table.insert( allPropTurrets, self )
+        PropTurret.super.initialize( self, pos, ang )
 
         if not turretClassLookup[self.class] then
             registerTurretClass( self.class )
@@ -107,25 +94,14 @@ if SERVER then
         propBuffer.registerModel( bulletModel, self.class.BULLET_BUFFER_SIZE )
         bulletModelLookup[bulletModel] = true
 
-        turretIncrement = turretIncrement + 1
-        turretsByID[turretIncrement] = self
         table.insert( turretsByClass[self.class], self )
-        self._id = turretIncrement
         self._isOnShotCooldown = false
 
         self._registeredProps = {}
         self._registeredPropLookup = {}
         self._activeBullets = {}
 
-        if self:isNetEnabled() then
-            net.start( "LKL_PropTurret_Create" )
-            net.writeUInt( turretIncrement, 16 )
-            net.send()
-        end
-
         self:setHeadAngleLimits( -89.9, 89.9, -180, 180 )
-        self:setPos( pos )
-        self:setAngles( ang )
         self:setHeadPos( headPos )
         self:setHeadAngles( headAng )
         self:setShootPos( Vector() )
@@ -133,21 +109,10 @@ if SERVER then
         self:setAutoShoot( true )
         self:setTargetNPCs( false )
     end
-else
-    -- PropTurrets should not be created manually on client, this is only for networking.
-    function PropTurret:initialize( id )
-        self._id = id
-        turretsByID[id] = self
-        table.insert( allPropTurrets, self )
-    end
 end
 
 
 ----- INSTANCE FUNCTIONS -----
-
-function PropTurret:getID()
-    return self._id
-end
 
 function PropTurret:doesAutoTarget()
     return self._autoTarget
@@ -155,36 +120,6 @@ end
 
 function PropTurret:getTarget()
     return self._target
-end
-
-function PropTurret:getPos()
-    local parent = self:getParent()
-    if isValid( parent ) then return parent:localToWorld( self._localPos ) end
-
-    return self._pos
-end
-
-function PropTurret:getLocalPos()
-    if not isValid( self:getParent() ) then return self._pos end
-
-    return self._localPos
-end
-
-function PropTurret:getAngles()
-    local parent = self:getParent()
-    if isValid( parent ) then return parent:localToWorldAngles( self._localAng ) end
-
-    return self._ang
-end
-
-function PropTurret:getLocalAngles()
-    if not isValid( self:getParent() ) then return self._ang end
-
-    return self._localAng
-end
-
-function PropTurret:getParent()
-    return self._parent
 end
 
 function PropTurret:getHeadPos()
@@ -218,78 +153,8 @@ function PropTurret:getShootWorldPos()
     return pos
 end
 
-function PropTurret:localToWorld( pos )
-    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
-
-    local worldPos = localToWorld( pos, Angle(), self:getPos(), self:getAngles() )
-
-    return worldPos
-end
-
-function PropTurret:localToWorldAngles( ang )
-    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
-
-    local _, localAng = localToWorld( Vector(), ang, Vector(), self:getAngles() )
-
-    return localAng
-end
-
-function PropTurret:localToWorldPosAng( pos, ang )
-    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
-    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
-
-    return localToWorld( pos, ang, self:getPos(), self:getAngles() )
-end
-
-function PropTurret:worldToLocal( pos )
-    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
-
-    local localPos = worldToLocal( pos, Angle(), self:getPos(), self:getAngles() )
-
-    return localPos
-end
-
-function PropTurret:worldToLocalAngles( ang )
-    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
-
-    local _, localAng = worldToLocal( Vector(), ang, Vector(), self:getAngles() )
-
-    return localAng
-end
-
-function PropTurret:worldToLocalPosAng( pos, ang )
-    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
-    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
-
-    return worldToLocal( pos, ang, self:getPos(), self:getAngles() )
-end
-
-
-function PropTurret:getTimerName( timerName )
-    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
-
-    return timerName .. "_" .. self:getID()
-end
 
 if SERVER then
-    function PropTurret:destroy()
-        table.removeByValue( allPropTurrets, self )
-        table.removeByValue( turretsByClass[self.class], self )
-        timer.remove( self:getTimerName( "LKL_PropTurret_CooldownFinished" ) )
-
-        if self:isNetEnabled() then
-            net.start( "LKL_PropTurret_Destroy" )
-            net.writeUInt( self:getID(), 16 )
-            net.send()
-        end
-
-        PropTurret.super.destroy( self )
-    end
-
-    function PropTurret:isNetEnabled()
-        return self.class.NET_ENABLED
-    end
-
     function PropTurret:setAutoTarget( enabled )
         if type( enabled ) ~= "boolean" then error( "Expected enabled to be a boolean" ) end
         if self._autoTarget == enabled then return end
@@ -528,112 +393,6 @@ if SERVER then
 
         self._registeredPropLookup[ent] = nil
         table.removeByValue( self._registeredProps, ent )
-    end
-
-    -- Sets the position of the PropTurret.
-    function PropTurret:setPos( pos )
-        if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
-
-        local prevPos = self:getPos()
-        if prevPos == pos then return end
-
-        local parent = self:getParent()
-
-        if isValid( parent ) then
-            self._localPos = parent:worldToLocal( pos )
-        end
-
-        self._pos = pos
-        self:onSetPos( prevPos )
-        self:onPosAngChanged( prevPos, self:getAngles() )
-
-        if self:isNetEnabled() then
-            net.start( "LKL_PropTurret_SetPos" )
-            net.writeUInt( self:getID(), 16 )
-            net.writeVector( pos )
-            net.send()
-        end
-    end
-
-    -- Sets the angles of the PropTurret.
-    function PropTurret:setAngles( ang )
-        if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
-
-        local prevAng = self:getAngles()
-        if prevAng == ang then return end
-
-        local parent = self:getParent()
-
-        if isValid( parent ) then
-            self._localAng = parent:worldToLocalAngles( ang )
-        end
-
-        self._ang = ang
-        self:onSetAngles( prevAng )
-        self:onPosAngChanged( self:getPos(), prevAng )
-
-        if self:isNetEnabled() then
-            net.start( "LKL_PropTurret_SetAngles" )
-            net.writeUInt( self:getID(), 16 )
-            net.writeAngle( ang )
-            net.send()
-        end
-    end
-
-    --[[
-        - Sets/unsets the parent of the PropTurret.
-        - To track changes in the PropTurret's effective location due to the parent moving, see :onPosAngChanged().
-    --]]
-    function PropTurret:setParent( ent )
-        if ent ~= nil and not isValid( ent ) then error( "Expected ent to be valid or nil" ) end
-
-        local prevParent = self:getParent()
-        if prevParent == ent then return end
-
-        local worldPos = self:getPos()
-        local worldAng = self:getAngles()
-        local localPos = ent and ent:worldToLocal( worldPos )
-        local localAng = ent and ent:worldToLocalAngles( worldAng )
-
-        self._parent = ent
-        self._localPos = localPos
-        self._localAng = localAng
-        self._parentPrevPos = ent and ent:getPos()
-        self._parentPrevAng = ent and ent:getAngles()
-
-        if ent == nil then
-            self._pos = worldPos
-            self._ang = worldAng
-
-            if isValid( prevParent ) then
-                table.removeByValue( prevParent._propTurret_Children, self )
-                table.removeByValue( turretParents, prevParent )
-                turretParentLookup[prevParent] = nil
-            end
-        else
-            local children = ent._propTurret_Children
-
-            if not children then
-                children = {}
-                ent._propTurret_Children = children
-            end
-
-            table.insert( children, self )
-            table.insert( turretParents, ent )
-            turretParentLookup[ent] = true
-        end
-
-        self:onSetParent( prevParent )
-        self:onPosAngChanged( worldPos, worldAng )
-
-        if self:isNetEnabled() then
-            net.start( "LKL_PropTurret_SetParent" )
-            net.writeUInt( self:getID(), 16 )
-            net.writeEntity( ent or game.getWorld() )
-            net.writeVector( localPos or Vector() )
-            net.writeAngle( localAng or Angle() )
-            net.send()
-        end
     end
 
     --[[
@@ -1051,29 +810,17 @@ end
 
 ----- IMPLEMENTED FUNCTIONS -----
 
-function PropTurret:tostringInner()
-    return "ID " .. self:getID()
+if SERVER then
+    function PropTurret:onDestroyed()
+        table.removeByValue( turretsByClass[self.class], self )
+        timer.remove( self:getTimerName( "LKL_PropTurret_CooldownFinished" ) )
+
+        PropTurret.super.destroy( self )
+    end
 end
 
 
 ----- PRIVATE FUNCTIONS -----
-
-checkForPosAngChanges = function( turret )
-    local parent = turret:getParent()
-    if not isValid( parent ) then return end
-
-    local parentPrevPos = turret._parentPrevPos
-    local parentPrevAng = turret._parentPrevAng
-    local parentPos = parent:getPos()
-    local parentAng = parent:getAngles()
-    if parentPrevPos == parentPos and parentPrevAng == parentAng then return end
-
-    local prevPos, prevAng = localToWorld( turret:getLocalPos(), turret:getLocalAngles(), parentPrevPos, parentPrevAng )
-
-    turret._parentPrevPos = parentPos
-    turret._parentPrevAng = parentAng
-    turret:onPosAngChanged( prevPos, prevAng )
-end
 
 if SERVER then
     registerTurretClass = function( classObj )
@@ -1151,10 +898,7 @@ end )
 hook.add( "think", "LKL_PropTurret_Think", function()
     if not startupSyncComplete then return end
 
-    for _, turret in ipairs( allPropTurrets ) do
-        checkForPosAngChanges( turret )
-        turret:think()
-
+    for _, turret in ipairs( PropTurret:getAll() ) do
         if turret:doesAutoShoot() and isValid( turret:getTarget() ) then
             turret:shoot()
         end
@@ -1174,7 +918,7 @@ if SERVER then
             end
         end
 
-        for _, turret in ipairs( allPropTurrets ) do
+        for _, turret in ipairs( PropTurret:getAll() ) do
             if turret:getBulletModel() == model then
                 for _, prop in ipairs( turret:getProps() ) do
                     constraint.nocollide( ent, prop )
@@ -1182,39 +926,7 @@ if SERVER then
             end
         end
     end )
-
-    hook.add( "EntityRemoved", "LKL_PropTurret_DestroyChildrenTurrets", function( ent )
-        if not turretParentLookup[ent] then return end
-
-        local children = ent._propTurret_Children
-
-        for _, turret in ipairs( children ) do
-            if isValid( turret ) then
-                turret:destroy()
-            end
-        end
-
-        table.removeByValue( turretParents, ent )
-        turretParentLookup[ent] = nil
-    end )
 else
-    function PropTurret:destroy()
-        error( ":destroy() cannot be used on a PropTurret in the client realm." )
-    end
-
-
-    net.receive( "LKL_PropTurret_Create", function()
-        PropTurret:new( net.readUInt( 16 ) )
-    end )
-
-    net.receive( "LKL_PropTurret_Destroy", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :destroy() an invalid PropTurret id " .. id ) return end
-
-        PropTurret.super.destroy( turret )
-    end )
-
     net.receive( "LKL_PropTurret_SetAutoTarget", function()
         local id = net.readUInt( 16 )
         local turret = PropTurret:getByID( id )
@@ -1241,56 +953,6 @@ else
         end
 
         turret:onSetTarget( prevTarget )
-    end )
-
-    net.receive( "LKL_PropTurret_SetPos", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :setPos() on an invalid PropTurret id " .. id ) return end
-
-        local prevPos = turret:getPos()
-
-        turret._pos = net.readVector()
-        turret:onSetPos( prevPos )
-        turret:onPosAngChanged( prevPos, turret:getAngles() )
-    end )
-
-    net.receive( "LKL_PropTurret_SetAngles", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :setAngles() on an invalid PropTurret id " .. id ) return end
-
-        local prevAng = turret:getAngles()
-
-        turret._ang = net.readAngle()
-        turret:onSetAngles( prevAng )
-        turret:onPosAngChanged( turret:getPos(), prevAng )
-    end )
-
-    net.receive( "LKL_PropTurret_SetParent", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :setParent() on an invalid PropTurret id " .. id ) return end
-
-        local prevParent = turret._parent
-        local prevPos = turret:getPos()
-        local prevAng = turret:getAngles()
-        local parent = net.readEntity()
-        parent = isValid( parent ) and parent or nil
-
-        turret._parent = parent
-        turret._localPos = net.readVector()
-        turret._localAng = net.readAngle()
-        turret._parentPrevPos = parent and parent:getPos()
-        turret._parentPrevAng = parent and parent:getAngles()
-
-        if parent == nil then
-            turret._pos = prevPos
-            turret._ang = prevAng
-        end
-
-        turret:onSetParent( prevParent )
-        turret:onPosAngChanged( prevPos, prevAng )
     end )
 
     net.receive( "LKL_PropTurret_SetHeadPos", function()

@@ -1,0 +1,497 @@
+--@name Placeable
+--@author legokidlogan
+--@shared
+
+--[[
+    - TODO
+--]]
+
+if Placeable then return end
+
+
+Placeable = class( "Placeable", Destroyable )
+
+-- These static vars can be overridden by subclasses, but not by instances.
+Placeable.static.NET_ENABLED = false -- Whether or not to network the Placeable.
+
+
+local allPlaceables = {}
+local placeablesByID = {}
+local placeableIncrement = 0
+local placeableParents = {}
+local placeableParentLookup = {}
+local checkForPosAngChanges
+local getRootParent
+
+
+----- STATIC FUNCTIONS -----
+
+function Placeable.static:getAll()
+    return allPlaceables
+end
+
+function Placeable.static:getByID( id )
+    return placeablesByID[id]
+end
+
+
+if SERVER then
+    function Placeable:initialize( pos, ang )
+        table.insert( allPlaceables, self )
+
+        placeableIncrement = placeableIncrement + 1
+        placeablesByID[placeableIncrement] = self
+        self._id = placeableIncrement
+
+        if self:isNetEnabled() then
+            net.start( "LKL_Placeable_Create" )
+            net.writeUInt( placeableIncrement, 16 )
+            net.send()
+        end
+
+        self:setPos( pos )
+        self:setAngles( ang )
+    end
+else
+    -- Placeables can be made manually on client, but they will not be synced with or exist on the server.
+    function Placeable:initialize()
+        self._id = -1
+        table.insert( allPlaceables, self )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Placeable:getID()
+    return self._id
+end
+
+function Placeable:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+function Placeable:getPos()
+    local parent = self:getParent()
+    if isValid( parent ) then return parent:localToWorld( self._localPos ) end
+
+    return self._pos
+end
+
+function Placeable:getLocalPos()
+    if not isValid( self:getParent() ) then return self._pos end
+
+    return self._localPos
+end
+
+function Placeable:getAngles()
+    local parent = self:getParent()
+    if isValid( parent ) then return parent:localToWorldAngles( self._localAng ) end
+
+    return self._ang
+end
+
+function Placeable:getLocalAngles()
+    if not isValid( self:getParent() ) then return self._ang end
+
+    return self._localAng
+end
+
+function Placeable:getParent()
+    return self._parent
+end
+
+function Placeable:localToWorld( pos )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+
+    local worldPos = localToWorld( pos, Angle(), self:getPos(), self:getAngles() )
+
+    return worldPos
+end
+
+function Placeable:localToWorldAngles( ang )
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    local _, localAng = localToWorld( Vector(), ang, Vector(), self:getAngles() )
+
+    return localAng
+end
+
+function Placeable:localToWorldPosAng( pos, ang )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    return localToWorld( pos, ang, self:getPos(), self:getAngles() )
+end
+
+function Placeable:worldToLocal( pos )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+
+    local localPos = worldToLocal( pos, Angle(), self:getPos(), self:getAngles() )
+
+    return localPos
+end
+
+function Placeable:worldToLocalAngles( ang )
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    local _, localAng = worldToLocal( Vector(), ang, Vector(), self:getAngles() )
+
+    return localAng
+end
+
+function Placeable:worldToLocalPosAng( pos, ang )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    return worldToLocal( pos, ang, self:getPos(), self:getAngles() )
+end
+
+-- Sets the position of the Placeable.
+function Placeable:setPos( pos )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+
+    local prevPos = self:getPos()
+    if prevPos == pos then return end
+
+    local parent = self:getParent()
+
+    if isValid( parent ) then
+        self._localPos = parent:worldToLocal( pos )
+    end
+
+    self._pos = pos
+    self:onSetPos( prevPos )
+    self:onPosAngChanged( prevPos, self:getAngles() )
+
+    if SERVER and self:isNetEnabled() then
+        net.start( "LKL_Placeable_SetPos" )
+        net.writeUInt( self:getID(), 16 )
+        net.writeVector( pos )
+        net.send()
+    end
+end
+
+-- Sets the angles of the Placeable.
+function Placeable:setAngles( ang )
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    local prevAng = self:getAngles()
+    if prevAng == ang then return end
+
+    local parent = self:getParent()
+
+    if isValid( parent ) then
+        self._localAng = parent:worldToLocalAngles( ang )
+    end
+
+    self._ang = ang
+    self:onSetAngles( prevAng )
+    self:onPosAngChanged( self:getPos(), prevAng )
+
+    if SERVER and self:isNetEnabled() then
+        net.start( "LKL_Placeable_SetAngles" )
+        net.writeUInt( self:getID(), 16 )
+        net.writeAngle( ang )
+        net.send()
+    end
+end
+
+--[[
+    - Sets/unsets the parent of the Placeable.
+    - To track changes in the Placeable's effective location due to the parent moving, see :onPosAngChanged().
+--]]
+function Placeable:setParent( ent )
+    if ent ~= nil and not isValid( ent ) then error( "Expected ent to be valid or nil" ) end
+
+    local prevParent = self:getParent()
+    if prevParent == ent then return end
+
+    local worldPos = self:getPos()
+    local worldAng = self:getAngles()
+    local localPos = ent and ent:worldToLocal( worldPos )
+    local localAng = ent and ent:worldToLocalAngles( worldAng )
+
+    self._parent = ent
+    self._localPos = localPos
+    self._localAng = localAng
+    self._parentPrevPos = ent and ent:getPos()
+    self._parentPrevAng = ent and ent:getAngles()
+
+    if ent == nil then
+        self._pos = worldPos
+        self._ang = worldAng
+
+        if isValid( prevParent ) then
+            table.removeByValue( prevParent._placeable_Children, self )
+            table.removeByValue( placeableParents, prevParent )
+            placeableParentLookup[prevParent] = nil
+        end
+    else
+        local children = ent._placeable_Children
+
+        if not children then
+            children = {}
+            ent._placeable_Children = children
+        end
+
+        table.insert( children, self )
+        table.insert( placeableParents, ent )
+        placeableParentLookup[ent] = true
+    end
+
+    self:onSetParent( prevParent )
+    self:onPosAngChanged( worldPos, worldAng )
+
+    if SERVER and self:isNetEnabled() then
+        net.start( "LKL_Placeable_SetParent" )
+        net.writeUInt( self:getID(), 16 )
+        net.writeEntity( ent or game.getWorld() )
+        net.writeVector( localPos or Vector() )
+        net.writeAngle( localAng or Angle() )
+        net.send()
+    end
+end
+
+
+if SERVER then
+    function Placeable:destroy()
+        table.removeByValue( allPlaceables, self )
+
+        if self:isNetEnabled() then
+            net.start( "LKL_Placeable_Destroy" )
+            net.writeUInt( self:getID(), 16 )
+            net.send()
+        end
+
+        Placeable.super.destroy( self )
+    end
+
+    function Placeable:isNetEnabled()
+        return self.class.NET_ENABLED
+    end
+else
+    function Placeable:destroy()
+        if self:getID() ~= -1 then error( "Synced Placeables cannot be destroyed manually in the client realm" ) end
+
+        table.removeByValue( allPlaceables, self )
+        Placeable.super.destroy( self )
+    end
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+-- Called every tick.
+function Placeable:think()
+
+end
+
+--[[
+    - Callback for when the Placeable is destroyed.
+    - Used for cleaning up props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function Placeable:onDestroyed()
+
+end
+
+--[[
+    - Callback for when the effective position and/or angles of the Placeable has changed for any reason.
+    - Caused by :setPos(), :setAngles(), :setParent(), or the parent Entity moving.
+    -- Can safely be made different between server and client.
+--]]
+function Placeable:onPosAngChanged( prevPos, prevAng )
+
+end
+
+--[[
+    - Callback for when the position of the Placeable is changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+    - Note that prevPos will always be nil on the first call.
+--]]
+function Placeable:onSetPos( prevPos )
+
+end
+
+--[[
+    - Callback for when the angles of the Placeable are changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+    - Note that prevAng will always be nil on the first call.
+--]]
+function Placeable:onSetAngles( prevAng )
+
+end
+
+--[[
+    - Callback for when the parent of the Placeable is changed.
+    - Used for updating props, holograms, etc.
+    - Can safely be made different between server and client.
+--]]
+function Placeable:onSetParent( prevParent )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Placeable:tostringInner()
+    return "ID " .. self:getID()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+checkForPosAngChanges = function( placeable )
+    local parent = placeable:getParent()
+    if not isValid( parent ) then return end
+
+    local parentPrevPos = placeable._parentPrevPos
+    local parentPrevAng = placeable._parentPrevAng
+    local parentPos = parent:getPos()
+    local parentAng = parent:getAngles()
+    if parentPrevPos == parentPos and parentPrevAng == parentAng then return end
+
+    local prevPos, prevAng = localToWorld( placeable:getLocalPos(), placeable:getLocalAngles(), parentPrevPos, parentPrevAng )
+
+    placeable._parentPrevPos = parentPos
+    placeable._parentPrevAng = parentAng
+    placeable:onPosAngChanged( prevPos, prevAng )
+end
+
+if SERVER then
+    getRootParent = function( ent )
+        local parent = ent:getParent()
+        if not isValid( parent ) then return ent end
+
+        return getRootParent( parent )
+    end
+
+    function Placeable:_getShootDir()
+        local target = self:getTarget()
+        local velAccount = self:getTargetVelAccount()
+
+        if isValid( target ) then
+            local shootPos = self:getShootWorldPos()
+            local targetPos = target:obbCenterW()
+
+            if velAccount ~= 0 then
+                local targetVel = target:getVelocity()
+
+                if target.inVehicle and target:inVehicle() then
+                    targetVel = getRootParent( target:getVehicle() ):getVelocity()
+                end
+
+                local dist = shootPos:getDistance( targetPos )
+                targetPos = targetPos + targetVel * velAccount * dist / self:getBulletSpeed()
+            end
+
+            return ( targetPos - shootPos ):getNormalized()
+        end
+
+        local headAng = self:getHeadWorldAngles()
+
+        return headAng:getForward()
+    end
+
+    function Placeable:_spreadDir( dir )
+        local spread = self:getBulletSpread()
+        if spread == 0 then return dir end
+
+        local spreadYaw = math.rand( -spread, spread ) * 180
+        local spreadPitch = math.rand( -spread, spread ) * 180
+
+        dir = dir:rotateAroundAxis( dir:getAngle():getUp(), spreadYaw )
+        dir = dir:rotateAroundAxis( dir:getAngle():getRight(), spreadPitch )
+
+        return dir
+    end
+end
+
+
+----- SETUP -----
+
+hook.add( "think", "LKL_Placeable_Think", function()
+    for _, placeable in ipairs( allPlaceables ) do
+        checkForPosAngChanges( placeable )
+        placeable:think()
+    end
+end )
+
+if SERVER then
+    hook.add( "EntityRemoved", "LKL_Placeable_DestroyChildrenTurrets", function( ent )
+        if not placeableParentLookup[ent] then return end
+
+        local children = ent._placeable_Children
+
+        for _, placeable in ipairs( children ) do
+            if isValid( placeable ) then
+                placeable:destroy()
+            end
+        end
+
+        table.removeByValue( placeableParents, ent )
+        placeableParentLookup[ent] = nil
+    end )
+else
+    net.receive( "LKL_Placeable_Create", function()
+        local id = net.readUInt( 16 )
+        local placeable = Placeable:new()
+
+        placeable._id = id
+        placeablesByID[id] = placeable
+    end )
+
+    net.receive( "LKL_Placeable_Destroy", function()
+        local id = net.readUInt( 16 )
+        local placeable = Placeable:getByID( id )
+        if not placeable then print( "Tried to :destroy() an invalid Placeable id " .. id ) return end
+
+        Placeable.super.destroy( placeable )
+    end )
+
+    net.receive( "LKL_Placeable_SetPos", function()
+        local id = net.readUInt( 16 )
+        local placeable = Placeable:getByID( id )
+        if not placeable then print( "Tried to :setPos() on an invalid Placeable id " .. id ) return end
+
+        placeable:setPos( net.readVector() )
+    end )
+
+    net.receive( "LKL_Placeable_SetAngles", function()
+        local id = net.readUInt( 16 )
+        local placeable = Placeable:getByID( id )
+        if not placeable then print( "Tried to :setAngles() on an invalid Placeable id " .. id ) return end
+
+        placeable:setAngles( net.readAngle() )
+    end )
+
+    net.receive( "LKL_Placeable_SetParent", function()
+        local id = net.readUInt( 16 )
+        local placeable = Placeable:getByID( id )
+        if not placeable then print( "Tried to :setParent() on an invalid Placeable id " .. id ) return end
+
+        local parent = net.readEntity()
+        parent = isValid( parent ) and parent or nil
+
+        if not parent then
+            placeable:setParent( nil )
+
+            return
+        end
+
+        local localPos = net.readVector()
+        local localAng = net.readAngle()
+
+        placeable._parent = nil
+        placeable._pos = localPos
+        placeable._ang = localAng
+
+        placeable:setParent( parent )
+    end )
+end
+
