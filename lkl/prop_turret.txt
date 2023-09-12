@@ -343,6 +343,7 @@ if SERVER then
         local filter = {}
         table.add( filter, self:getProps() )
         table.add( filter, propBuffer.getProps( self:getBulletModel() ) )
+        table.add( filter, self:getExtraTraceFilterEnts() )
 
         -- Trace for the player's vehicle if they're in one.
         if ent.isPlayer and ent:isPlayer() and ent:inVehicle() then
@@ -772,6 +773,14 @@ function PropTurret:targetFilter( ent )
     if vehiclePref == 1 and not isInVehicle then return false end
 
     return true
+end
+
+--[[
+    - Return a sequential table of additional entities which should not block line of sight.
+    - Bullets and registered props are already filtered out.
+--]]
+function PropTurret:getExtraTraceFilterEnts()
+    return {}
 end
 
 if SERVER then
