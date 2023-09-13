@@ -51,6 +51,7 @@ PropTurret.static.SHOOT_COOLDOWN = 0.5
 
 
 local startupSyncComplete = false
+local allTurrets = {}
 local turretsByClass = {}
 local bulletModelLookup = {}
 local turretClasses = {}
@@ -82,6 +83,10 @@ function PropTurret.static:getEntHeadPos( ent )
     return ent:getEyePos()
 end
 
+function PropTurret.static:getAll()
+    return allTurrets
+end
+
 if SERVER then
     function PropTurret:initialize( pos, ang, headPos, headAng )
         PropTurret.super.initialize( self, pos, ang )
@@ -94,6 +99,7 @@ if SERVER then
         propBuffer.registerModel( bulletModel, self.class.BULLET_BUFFER_SIZE )
         bulletModelLookup[bulletModel] = true
 
+        table.insert( allTurrets, self )
         table.insert( turretsByClass[self.class], self )
         self._isOnShotCooldown = false
 
@@ -108,6 +114,10 @@ if SERVER then
         self:setAutoTarget( true )
         self:setAutoShoot( true )
         self:setTargetNPCs( false )
+    end
+else
+    function PropTurret:initialize()
+        table.insert( allTurrets, self )
     end
 end
 
@@ -821,6 +831,7 @@ end
 
 if SERVER then
     function PropTurret:onDestroyed()
+        table.removeByValue( allTurrets, self )
         table.removeByValue( turretsByClass[self.class], self )
         timer.remove( self:getTimerName( "LKL_PropTurret_CooldownFinished" ) )
 

@@ -49,6 +49,7 @@ if SERVER then
         if self:isNetEnabled() then
             net.start( "LKL_Placeable_Create" )
             net.writeUInt( placeableIncrement, 16 )
+            net.writeString( self.class.name )
             net.send()
         end
 
@@ -443,7 +444,8 @@ if SERVER then
 else
     net.receive( "LKL_Placeable_Create", function()
         local id = net.readUInt( 16 )
-        local placeable = Placeable:new()
+        local classObj = _G[net.readString()]
+        local placeable = classObj:new()
 
         placeable._id = id
         placeablesByID[id] = placeable
