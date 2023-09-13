@@ -915,7 +915,7 @@ hook.add( "LKL_GList_StartupSync_Complete", "LKL_PropTurret_StartThinking", func
     startupSyncComplete = true
 end )
 
-hook.add( "think", "LKL_PropTurret_Think", function()
+hook.add( "think", "LKL_PropTurret_AutoShoot", function()
     if not startupSyncComplete then return end
 
     for _, turret in ipairs( PropTurret:getAll() ) do
