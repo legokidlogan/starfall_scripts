@@ -835,7 +835,7 @@ if SERVER then
         table.removeByValue( turretsByClass[self.class], self )
         timer.remove( self:getTimerName( "LKL_PropTurret_CooldownFinished" ) )
 
-        PropTurret.super.destroy( self )
+        PropTurret.super.onDestroyed( self )
     end
 end
 
