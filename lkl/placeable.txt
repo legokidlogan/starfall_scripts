@@ -16,6 +16,7 @@ Placeable = class( "Placeable", Destroyable )
 
 -- These static vars can be overridden by subclasses, but not by instances.
 Placeable.static.NET_ENABLED = false -- Whether or not to network the Placeable.
+Placeable.static.THINK_PERF_LIMIT = 0.9 -- :think() calls will be skipped when the chip's fractional quota exceeds this amount.
 
 
 local allPlaceables = {}
@@ -23,7 +24,9 @@ local placeablesByID = {}
 local placeableIncrement = 0
 local placeableParents = {}
 local placeableParentLookup = {}
+local quotaMax = chip():getQuotaMax()
 local checkForPosAngChanges
+local perfCheck
 local getRootParent
 
 
@@ -367,6 +370,10 @@ checkForPosAngChanges = function( placeable )
     placeable:onPosAngChanged( prevPos, prevAng )
 end
 
+perfCheck = function( frac )
+    return chip():getQuotaAverage() < quotaMax * frac
+end
+
 if SERVER then
     getRootParent = function( ent )
         local parent = ent:getParent()
@@ -421,6 +428,8 @@ end
 
 hook.add( "think", "LKL_Placeable_Think", function()
     for _, placeable in ipairs( allPlaceables ) do
+        if not perfCheck( placeable.class.THINK_PERF_LIMIT ) then break end
+
         checkForPosAngChanges( placeable )
         placeable:think()
     end
