@@ -1,0 +1,19 @@
+--@name Box Selector Tester
+--@author legokidlogan
+--@server
+--@include lkl/box_selector.txt
+
+require( "lkl/box_selector.txt" )
+
+-- Confirm key is right click by default.
+
+
+boxSelector.startSelecting( function( success, pointOne, pointTwo, minBounds, maxBounds )
+    print(
+        tostring( success ) .. "\n" ..
+        tostring( pointOne ) .. "\n" ..
+        tostring( pointTwo ) .. "\n" ..
+        tostring( minBounds ) .. "\n" ..
+        tostring( maxBounds )
+    )
+end )

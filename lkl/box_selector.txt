@@ -1,0 +1,240 @@
+--@name Box Selector
+--@author legokidlogan
+--@server
+
+boxSelector = boxSelector or {}
+boxSelector.boxColor = boxSelector.boxColor or Color( 180, 180, 255, 100 )
+boxSelector.lineColor = boxSelector.lineColor or Color( 255, 255, 255, 100 )
+boxSelector.confirmKey = boxSelector.confirmKey or IN_KEY.ATTACK2
+boxSelector.planeHeight = boxSelector.planeHeight or 4
+boxSelector.lineWidth = boxSelector.lineWidth or 10
+
+
+if boxSelector.startSelecting then return end
+
+
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local selecting = false
+local finishCallback = nil
+local curPoint = nil
+local pointOneHorizontal = nil
+local pointOne = nil
+local pointTwoHorizontal = nil
+local boxHolo = nil
+local boxHolo2 = nil
+local lineHolo = nil
+local vecAbs
+local makeBoxHolo
+local getHorizontalPoint
+local getVerticalPoint
+local calcCurPoint
+local moveBoxHolos
+
+
+--[[
+    callback: function( success, pointOne, pointTwo, minBounds, maxBounds )
+        success = boolean
+        pointOne = nil or Vector
+        pointTwo = nil or Vector
+        minBounds = nil or Vector
+        maxBounds = nil or Vector
+    end
+--]]
+function boxSelector.startSelecting( callback )
+    if selecting then error( "Already selecting" ) end
+    if type( callback ) ~= "function" then error( "Expected callback to be a function" ) end
+
+    selecting = true
+    finishCallback = callback
+    pointOneHorizontal = nil
+    pointOne = nil
+    pointTwoHorizontal = nil
+
+    lineHolo:setPos( Vector() )
+
+    lineHolo:setColor( boxSelector.lineColor )
+end
+
+function boxSelector.stopSelecting()
+    if not selecting then return end
+
+    if finishCallback then
+        finishCallback( false )
+    end
+
+    selecting = false
+    finishCallback = nil
+    pointOneHorizontal = nil
+    pointOne = nil
+    pointTwoHorizontal = nil
+
+    boxHolo:setPos( Vector() )
+    boxHolo2:setPos( Vector() )
+    lineHolo:setPos( Vector() )
+
+    boxHolo:setColor( COLOR_EMPTY )
+    boxHolo2:setColor( COLOR_EMPTY )
+    lineHolo:setColor( COLOR_EMPTY )
+end
+
+function boxSelector.isSelecting()
+    return selecting
+end
+
+
+vecAbs = function( vec )
+    return Vector( math.abs( vec[1] ), math.abs( vec[2] ), math.abs( vec[3] ) )
+end
+
+makeBoxHolo = function()
+    local holo = hologram.create( Vector(), Angle(), "models/hunter/blocks/cube4x4x4.mdl" )
+    holo:setMaterial( "models/debug/debugwhite" )
+    holo:setColor( COLOR_EMPTY )
+
+    return holo
+end
+
+getHorizontalPoint = function( tr )
+    return tr.HitPos
+end
+
+getVerticalPoint = function( tr, aimDir, horizontalPoint )
+    local rayStart = tr.StartPos
+    local rayDelta = aimDir * 10000
+    local planeIntersectOne = trace.intersectRayWithPlane( rayStart, rayDelta, horizontalPoint, Vector( 1, 0, 0 ) )
+    local planeIntersectTwo = trace.intersectRayWithPlane( rayStart, rayDelta, horizontalPoint, Vector( 0, 1, 0 ) )
+    local planeIntersect
+
+    if planeIntersectOne then
+        if planeIntersectTwo then
+            if rayStart:getDistanceSqr( planeIntersectOne ) < rayStart:getDistanceSqr( planeIntersectTwo ) then
+                planeIntersect = planeIntersectOne
+            else
+                planeIntersect = planeIntersectTwo
+            end
+        else
+            planeIntersect = planeIntersectOne
+        end
+    elseif planeIntersectTwo then
+        planeIntersect = planeIntersectTwo
+    end
+
+    local z
+
+    if planeIntersect then
+        z = planeIntersect[3]
+    else
+        z = tr.HitPos[3]
+    end
+
+    return Vector( horizontalPoint[1], horizontalPoint[2], z )
+end
+
+calcCurPoint = function()
+    local aimDir = owner():getEyeAngles():getForward()
+    local tr = owner():getEyeTrace()
+
+    if pointOneHorizontal == nil then
+        curPoint = getHorizontalPoint( tr )
+    elseif pointOne == nil then
+        curPoint = getVerticalPoint( tr, aimDir, pointOneHorizontal )
+    elseif pointTwoHorizontal == nil then
+        curPoint = getHorizontalPoint( tr )
+    else
+        curPoint = getVerticalPoint( tr, aimDir, pointTwoHorizontal )
+    end
+end
+
+moveBoxHolos = function()
+    if pointOneHorizontal == nil then
+        lineHolo:setPos( curPoint )
+    elseif pointOne == nil then
+        boxHolo:setPos( curPoint )
+        boxHolo2:setPos( curPoint )
+    elseif pointTwoHorizontal == nil then
+        local radius = boxSelector.planeHeight
+
+        lineHolo:setPos( curPoint )
+
+        local p1 = Vector( pointOne[1], pointOne[2], pointOne[3] )
+        local p2 = Vector( curPoint[1], curPoint[2], pointOne[3] )
+
+        local midPoint = ( p1 + p2 ) / 2
+        local size = vecAbs( p1 - p2 )
+        size[3] = radius
+
+        local midPointX = midPoint[1]
+        local midPointY = midPoint[2]
+
+        boxHolo:setPos( Vector( midPointX, midPointY, pointOne[3] ) )
+        boxHolo2:setPos( Vector( midPointX, midPointY, curPoint[3] ) )
+
+        boxHolo:setSize( size )
+        boxHolo2:setSize( size )
+    else
+        local p1 = pointOne
+        local p2 = curPoint
+
+        local midPoint = ( p1 + p2 ) / 2
+        local size = vecAbs( p1 - p2 )
+
+        boxHolo:setPos( midPoint )
+        boxHolo2:setPos( midPoint )
+
+        boxHolo:setSize( size )
+        boxHolo2:setSize( -size )
+    end
+end
+
+
+hook.add( "think", "LKL_BoxSelector_UpdatePoint", function()
+    if not selecting then return end
+
+    calcCurPoint()
+    moveBoxHolos()
+end )
+
+hook.add( "KeyPress", "LKL_BoxSelector_KeyPress", function( ply, key )
+    if ply ~= owner() then return end
+    if not selecting then return end
+    if key ~= boxSelector.confirmKey then return end
+    if not curPoint then return end
+
+    if not pointOneHorizontal then
+        pointOneHorizontal = curPoint
+
+        local boxDotSize = Vector( boxSelector.lineWidth * 2 )
+
+        lineHolo:setPos( curPoint )
+
+        boxHolo:setColor( boxSelector.boxColor )
+        boxHolo2:setColor( boxSelector.boxColor )
+
+        boxHolo:setSize( boxDotSize )
+        boxHolo2:setSize( -boxDotSize )
+    elseif not pointOne then
+        pointOne = curPoint
+    elseif not pointTwoHorizontal then
+        pointTwoHorizontal = curPoint
+
+        lineHolo:setPos( curPoint )
+    else
+        local p1 = pointOne
+        local p2 = curPoint
+        local minBounds = Vector( math.min( p1[1], p2[1] ), math.min( p1[2], p2[2] ), math.min( p1[3], p2[3] ) )
+        local maxBounds = Vector( math.max( p1[1], p2[1] ), math.max( p1[2], p2[2] ), math.max( p1[3], p2[3] ) )
+
+        finishCallback( true, pointOne, curPoint, minBounds, maxBounds )
+        finishCallback = nil
+
+        boxSelector.stopSelecting()
+    end
+end )
+
+
+boxHolo = makeBoxHolo()
+boxHolo2 = makeBoxHolo()
+
+lineHolo = makeBoxHolo()
+lineHolo:setSize( Vector( boxSelector.lineWidth, boxSelector.lineWidth, 10000 ) )
