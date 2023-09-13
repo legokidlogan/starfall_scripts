@@ -5,7 +5,7 @@
 boxSelector = boxSelector or {}
 boxSelector.boxColor = boxSelector.boxColor or Color( 180, 180, 255, 100 )
 boxSelector.lineColor = boxSelector.lineColor or Color( 255, 255, 255, 100 )
-boxSelector.confirmKey = boxSelector.confirmKey or IN_KEY.ATTACK2
+boxSelector.advanceSelectionKey = boxSelector.advanceSelectionKey or IN_KEY.ATTACK2
 boxSelector.planeHeight = boxSelector.planeHeight or 4
 boxSelector.lineWidth = boxSelector.lineWidth or 10
 
@@ -198,7 +198,7 @@ end )
 hook.add( "KeyPress", "LKL_BoxSelector_KeyPress", function( ply, key )
     if ply ~= owner() then return end
     if not selecting then return end
-    if key ~= boxSelector.confirmKey then return end
+    if key ~= boxSelector.advanceSelectionKey then return end
     if not curPoint then return end
 
     if not pointOneHorizontal then
