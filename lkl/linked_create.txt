@@ -1,0 +1,166 @@
+--@name Linked Create
+--@author legokidlogan
+--@shared
+
+--[[
+    - For when you are creating multiple related entities that cannot exist without one another, and the success of each is unreliable.
+    - This library has modified versions of various entity creation functions (such as holograms and props).
+        - For each, provide paramaters as you normally would to the original function, plus one more at the end.
+        - The extra linkedEnts parameter is for a table of previous linked entities that have already succeeded in being created.
+        - If the creation of the entity fails, all entities in the linkedEnts table are removed.
+        - If the creation of the entity succeeds, it is added to the linkedEnts table.
+        - The function will return the created entity if it succeeds, or nil if it fails.
+        - The spawning process is also wrapped in a pcall, preventing errors from crashing the chip.
+    - A generalized linkedCreate.any() function also exists at the bottom of this library, for extending this functionality to more niche situations.
+
+    - In short, this library simplifies pcall'ing entity creation, and entity removal if the batch cannot be completed in full.
+
+    - Example usage 1:
+        function SomeClass:initialize()
+            SomeClass.super.initialize( self )
+
+            local linkedEnts = {}
+
+            local bodyHolo = linkedCreate.holo( bodyHoloPos, bodyHoloAng, cubeModel, nil, linkedEnts )
+            if not bodyHolo then error( "Failed to initialize " .. tostring( self ) ) end
+            self._bodyHolo = bodyHolo
+            bodyHolo:setColor( blah )
+            ...
+
+            local headHolo = linkedCreate.holo( headHoloPos, headHoloAng, cubeModel, nil, linkedEnts )
+            if not headHolo then error( "Failed to initialize " .. tostring( self ) ) end
+            self._headHolo = headHolo
+            headHolo:setColor( blah )
+            ...
+
+            local hitbox = linkedCreate.prop( hitboxPos, hitboxAng, cubeModel, nil, linkedEnts )
+            if not hitbox then error( "Failed to initialize " .. tostring( self ) ) end
+            self._hitbox = hitbox
+            hitbox:setColor( blah )
+        end
+
+    - Example usage 2:
+        local spawnQueue = Queue:new(
+            function( _, data )
+                local prop = linkedCreate.prop( data.pos, data.ang, data.model, true )
+                if not prop then return true end -- Retry later
+
+                local holo = linkedCreate.holo( data.pos, data.ang, data.model, nil, { prop } )
+                if not holo then return true end -- Retry later
+
+                ...
+            end,
+            ...
+        )
+--]]
+
+linkedCreate = linkedCreate or {}
+
+if linkedCreate.holo then return end
+
+
+function linkedCreate.holo( pos, ang, model, scale, linkedEnts )
+    if not linkedEnts and type( scale ) == "table" then
+        linkedEnts = scale
+        scale = nil
+    end
+
+    return linkedCreate.any( hologram.create, { pos, ang, model, scale }, linkedEnts )
+end
+
+
+if SERVER then
+    function linkedCreate.prop( pos, ang, model, frozen, linkedEnts )
+        if not linkedEnts and type( frozen ) == "table" then
+            linkedEnts = frozen
+            frozen = nil
+        end
+
+        return linkedCreate.any( prop.create, { pos, ang, model, frozen }, linkedEnts )
+    end
+
+    function linkedCreate.component( pos, ang, class, model, frozen, linkedEnts )
+        if not linkedEnts and type( frozen ) == "table" then
+            linkedEnts = frozen
+            frozen = nil
+        end
+
+        return linkedCreate.any( prop.createComponent, { pos, ang, class, model, frozen }, linkedEnts )
+    end
+
+    function linkedCreate.custom( pos, ang, vertices, frozen, linkedEnts )
+        if not linkedEnts and type( frozen ) == "table" then
+            linkedEnts = frozen
+            frozen = nil
+        end
+
+        return linkedCreate.any( prop.createCustom, { pos, ang, vertices, frozen }, linkedEnts )
+    end
+
+    function linkedCreate.ragdoll( model, frozen, linkedEnts )
+        if not linkedEnts and type( frozen ) == "table" then
+            linkedEnts = frozen
+            frozen = nil
+        end
+
+        return linkedCreate.any( prop.createRagdoll, { model, frozen }, linkedEnts )
+    end
+
+    function linkedCreate.seat( pos, ang, model, frozen, linkedEnts )
+        if not linkedEnts and type( frozen ) == "table" then
+            linkedEnts = frozen
+            frozen = nil
+        end
+
+        return linkedCreate.any( prop.createSeat, { pos, ang, model, frozen }, linkedEnts )
+    end
+
+    function linkedCreate.sent( pos, ang, class, frozen, data, linkedEnts )
+        if not linkedEnts and type( data ) == "table" and #data == table.count( data ) then
+            linkedEnts = data
+            data = nil
+        end
+
+        return linkedCreate.any( prop.createSent, { pos, ang, class, frozen, data }, linkedEnts )
+    end
+end
+
+
+--[[
+    - pcalls func with params and returns the resulting object it creates, or nil if it fails.
+    - If the call fails, all entries in linkedEnts are removed/destroyed.
+        - If removeMethod is nil, the entities are removed with :remove()
+        - If removeMethod is a string, the entities are removed with :[removeMethod]()
+        - If removeMethod is a function, the entities are removed with removeMethod( ent )
+--]]
+function linkedCreate.any( func, params, linkedEnts, removeMethod )
+    if type( func ) ~= "function" then error( "Expected func to be a function" ) end
+    if type( params ) ~= "table" then error( "Expected params to be a table" ) end
+    if linkedEnts ~= nil and type( linkedEnts ) ~= "table" then error( "Expected linkedEnts to be nil or a table" ) end
+    if removeMethod ~= nil and type( removeMethod ) ~= "string" and type( removeMethod ) ~= "function" then error( "Expected removeMethod to be nil, a string, or a function" ) end
+
+    linkedEnts = linkedEnts or {}
+    local result
+
+    pcall( function()
+        result = func( unpack( params ) )
+    end )
+
+    if isValid( result ) then
+        table.insert( linkedEnts, result )
+    else
+        for _, linkedEnt in ipairs( linkedEnts ) do
+            if isValid( linkedEnt ) then
+                if not removeMethod then
+                    linkedEnt:remove()
+                elseif type( removeMethod ) == "string" then
+                    linkedEnt[removeMethod]( linkedEnt )
+                else -- function
+                    removeMethod( linkedEnt )
+                end
+            end
+        end
+    end
+
+    return result
+end
