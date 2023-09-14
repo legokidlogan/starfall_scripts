@@ -36,6 +36,13 @@ local spawnQueue
     callback: (optional) (function)
         - A function of the form  function( holograms ) end
         - Called when the holograms are done being created.
+
+
+    RETURNS: groupID
+        groupID (number):
+            - The ID of the group of holograms.
+            - Used to cancel the group from spawning, if needed.
+            - Will be nil if the group cannot be spawned, such as if the request is too large for the current hologram limit.
 --]]
 function pthSpawner.spawn( pos, ang, dataStr, callback )
     if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
@@ -48,12 +55,6 @@ function pthSpawner.spawn( pos, ang, dataStr, callback )
 
     if type( callback ) ~= "function" then error( "Expected callback to be a function or nil" ) end
 
-    holoGroupIncrement = holoGroupIncrement + 1
-    holoGroups[holoGroupIncrement] = {}
-    holoGroupCallbacks[holoGroupIncrement] = callback
-    holoGroupOrigins[holoGroupIncrement] = pos
-    holoGroupOriginAngles[holoGroupIncrement] = ang
-
     local data = json.decode( dataStr )
     local dataCount = #data
 
@@ -63,6 +64,12 @@ function pthSpawner.spawn( pos, ang, dataStr, callback )
         return
     end
 
+    holoGroupIncrement = holoGroupIncrement + 1
+    holoGroups[holoGroupIncrement] = {}
+    holoGroupCallbacks[holoGroupIncrement] = callback
+    holoGroupOrigins[holoGroupIncrement] = pos
+    holoGroupOriginAngles[holoGroupIncrement] = ang
+
     for _, entry in ipairs( data ) do
         entry.GroupID = holoGroupIncrement
     end
@@ -70,12 +77,47 @@ function pthSpawner.spawn( pos, ang, dataStr, callback )
     data[dataCount].IsLast = true
 
     spawnQueue:addEntriesAndStart( data )
+
+    return holoGroupIncrement
+end
+
+--[[
+    - Cancel an in-progress hologram group.
+    - Does nothing if the group has already finished spawning.
+    - If you call this from the EntityRemoved hook, be sure to do  holo._isRemoving = true  beforehand to prevent an infinite loop.
+
+    groupID: (number)
+        - The ID of the group to cancel.
+        - Received from pthSpawner.spawn().
+--]]
+function pthSpawner.cancel( groupID )
+    if type( groupID ) ~= "number" then error( "Expected groupID to be a number" ) end
+    if not holoGroups[groupID] then return end
+
+    local holoGroup = holoGroups[groupID]
+    local entries = spawnQueue:getEntries()
+
+    for _, holo in ipairs( holoGroup ) do
+        if not holo._isRemoving and isValid( holo ) then
+            holo:remove()
+        end
+    end
+
+    for i = #entries, 1, -1 do
+        if entries[i].GroupID == groupID then
+            spawnQueue:removeEntry( i )
+        end
+    end
+
+    holoGroups[groupID] = nil
+    holoGroupCallbacks[groupID] = nil
+    holoGroupOrigins[groupID] = nil
 end
 
 
 spawnQueue = Queue:new(
     function( _, entry )
-        if not hologram.canSpawn() then return true end
+        if not hologram.canSpawn() then return true end -- Retry later
 
         local groupID = entry.GroupID
         local origin = holoGroupOrigins[groupID]
