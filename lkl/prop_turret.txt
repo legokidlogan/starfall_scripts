@@ -275,6 +275,8 @@ if SERVER then
                 table.removeByValue( activeBullets, bullet )
 
                 if isValid( bullet ) then
+                    self:onStoreBullet( bullet )
+
                     pcall( function()
                         bullet:removeCollisionListener()
                     end )
@@ -799,6 +801,14 @@ if SERVER then
         - If the bullet is an explosive prop going at high speed, it will likely explode first and not reach this callback.
     --]]
     function PropTurret:onBulletImpact( bullet, colData )
+
+    end
+
+    --[[
+        - For each bullet that gets shot, this is called when it's stored (despawned).
+        - This is called after the bullet has been removed from the active list.
+    --]]
+    function PropTurret:onStoreBullet( bullet )
 
     end
 
