@@ -254,7 +254,7 @@ if SERVER then
             bullet:enableGravity( bulletHasGravity )
 
             bullet:addCollisionListener( function( colData )
-                if not isValid( colData ) then return end -- Starfall callback is late, so explosive props might become invalid at this point.
+                if not isValid( bullet ) then return end -- Starfall callback is late, so explosive props might become invalid at this point.
                 if bullet._propTurret_HasCollided then return end -- Collision listener sometimes calls twice before it can be removed.
 
                 bullet._propTurret_HasCollided = true
