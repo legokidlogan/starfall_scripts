@@ -275,6 +275,7 @@ if SERVER then
                 table.removeByValue( activeBullets, bullet )
 
                 if isValid( bullet ) then
+                    bullet._propTurret_HasCollided = nil
                     self:onStoreBullet( bullet )
 
                     pcall( function()
