@@ -93,13 +93,15 @@ end
     bufferSize: (number)
         - The number of props to keep in existence at all times.
         - Re-registering a model will set the buffer size to the maximum of the old and new sizes.
+        - If given as zero, the registration will be ignored.
 --]]
 function propBuffer.registerModel( model, bufferSize )
+    if bufferSize == 0 then return end
     if type( model ) ~= "string" then error( "Expected model to be a string" ) end
     model = model:lower() -- Spawnmenu sometimes gives models with uppercase letters, while props always yield lowercase models.
     if type( bufferSize ) ~= "number" then error( "Expected bufferSize to be a number" ) end
     if math.floor( bufferSize ) ~= bufferSize then error( "Expected bufferSize to be an integer" ) end
-    if bufferSize < 1 then error( "Expected bufferSize to be at least 1" ) end
+    if bufferSize < 0 then error( "Expected bufferSize to be zero or more" ) end
 
     local oldSize = bufferSizesByModel[model]
     if not oldSize then
