@@ -276,7 +276,10 @@ if SERVER then
 
                 if isValid( bullet ) then
                     bullet._propTurret_HasCollided = nil
-                    self:onStoreBullet( bullet )
+
+                    if isValid( self ) then
+                        self:onStoreBullet( bullet )
+                    end
 
                     pcall( function()
                         bullet:removeCollisionListener()
