@@ -276,6 +276,8 @@ end )
 
 spawnQueue = Queue:new(
     function( _, model )
+        if not prop.canSpawn() then return true end
+
         local ent
         local success = pcall( function()
             ent = prop.create( Vector(), Angle(), model, true )
