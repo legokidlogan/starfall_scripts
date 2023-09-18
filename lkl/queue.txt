@@ -4,12 +4,14 @@
 --@include lkl/middleclass_extras.txt
 --@include lkl/destroyable.txt
 --@include lkl/table_clone_deep.txt
+--@include lkl/perf_check.txt
 
 if Queue then return end
 
 require( "lkl/middleclass_extras.txt" )
 require( "lkl/destroyable.txt" )
 require( "lkl/table_clone_deep.txt" )
+require( "lkl/perf_check.txt" )
 
 
 Queue = class( "Queue", Destroyable )
@@ -21,11 +23,6 @@ local tableInsert = table.insert
 local tableRemove = table.remove
 local tableRemoveByValue = table.removeByValue
 local tableAdd = table.add
-
-
-local function perf( frac )
-    return quotaAverage() < quotaMax() * frac
-end
 
 
 ----- STATIC FUNCTIONS -----
@@ -398,7 +395,7 @@ function Queue:processBatch( batchSize )
     self._nextBatchTime = now + self:getInterval()
 
     for _ = 1, batchSize do
-        if not perf( perfLimit ) then return end
+        if not perfCheck( perfLimit ) then return end
 
         local entry = self:getEntries()[1] -- Don't localize for in case :setEntries() or :Destroy() are called.
 

@@ -4,6 +4,7 @@
 --@include lkl/simple_file_handler.txt
 --@include lkl/simple_ratelimit.txt
 --@include lkl/key_globalizer.txt
+--@include lkl/perf_check.txt
 
 if CLIENT and player() ~= owner() then return end
 
@@ -70,11 +71,8 @@ wire.adjustInputs( inputNames, inputTypes )
 wire.adjustOutputs( outputNames, outputTypes )
 
 require( "lkl/simple_ratelimit.txt" )
+require( "lkl/perf_check.txt" )
 
-
-local function perf( frac )
-    return quotaAverage() < quotaMax() * frac
-end
 
 local function getInputID( name )
     if type( name ) ~= "string" then return end
@@ -263,7 +261,7 @@ timer.create( "LKL_PropRecorder_RecordStep", recordInterval, 0, function()
     recordedData[#recordedData + 1] = recordedDataStep
 
     for i = 1, #currentRecordingEnts do
-        if not perf( perfLimit ) then
+        if not perfCheck( perfLimit ) then
             simpleRatelimit(
                 function()
                     print( "Perf exceeded during recording! Inaccuracies may occur." )

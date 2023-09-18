@@ -2,6 +2,7 @@
 --@author legokidlogan
 --@shared
 --@include lkl/destroyable.txt
+--@include lkl/perf_check.txt
 
 --[[
     - TODO
@@ -10,6 +11,7 @@
 if Placeable then return end
 
 require( "lkl/destroyable.txt" )
+require( "lkl/perf_check.txt" )
 
 
 Placeable = class( "Placeable", Destroyable )
@@ -24,9 +26,7 @@ local placeablesByID = {}
 local placeableIncrement = 0
 local placeableParents = {}
 local placeableParentLookup = {}
-local quotaMax = chip():getQuotaMax()
 local checkForPosAngChanges
-local perfCheck
 local getRootParent
 
 
@@ -368,10 +368,6 @@ checkForPosAngChanges = function( placeable )
     placeable._parentPrevPos = parentPos
     placeable._parentPrevAng = parentAng
     placeable:onPosAngChanged( prevPos, prevAng )
-end
-
-perfCheck = function( frac )
-    return chip():getQuotaAverage() < quotaMax * frac
 end
 
 if SERVER then

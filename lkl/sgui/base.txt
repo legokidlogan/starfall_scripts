@@ -20,8 +20,7 @@ setupPermissionRequestSafe( permissions, "Use SGUI", true )
 checkPermissions()
 
 
-local quotaMax = chip():getQuotaMax()
-local chipEnt = chip()
+local quotaMax = cpuMax()
 local isChatOpen = false
 
 local mathFloor = math.floor
@@ -210,7 +209,7 @@ function SGUI.perfCheck( frac )
     frac = frac or SGUI.PERF_LIMIT
     local limit = quotaMax * frac
 
-    return chipEnt:getQuotaAverage() < limit and chipEnt:getQuotaUsed() < limit
+    return cpuTotalUsed() < limit
 end
 
 function SGUI.expectValidDock( dock, argNum, argName )
