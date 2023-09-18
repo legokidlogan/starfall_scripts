@@ -1,0 +1,340 @@
+--@name Sound Emitter
+--@author legokidlogan
+--@shared
+--@include lkl/destroyable.txt
+--@include lkl/extra_timers.txt
+
+if SoundEmitter then return end
+
+require( "lkl/destroyable.txt" )
+require( "lkl/extra_timers.txt" )
+
+
+--[[
+    - A middleclass object that plays/stops categorized sounds on entities.
+    - Sounds can be modified per-class and per-instance.
+        - Per-class sounds are defined in class.static.SOUNDS.
+        - Per-instance sounds are defined via :setSoundReplacements().
+
+    - You can make a SoundEmitter (sub)class inherit from another by using YourSoundEmitterClass:inheritSounds( OtherSoundEmitterClass ).
+        - This should be done before modifying your class's SOUNDS table, otherwise you risk modifying the parent class's table.
+        - Example:
+
+        MySoundEmitterClass = class( "MySoundEmitterClass", SoundEmitter )
+        MySoundEmitterClass:inheritSounds( SoundEmitter )
+
+        MySoundEmitterClass.SOUNDS.SOME_NEW_SOUND = {
+            PATH = "blah/some_new_sound.wav",
+            PITCH = 1,
+            DURATION = 0,
+            VOLUME = 1,
+            LEVEL = 75,
+            DELAY = 0,
+        }
+
+        MySoundEmitterClass.SOUNDS.SOME_OTHER_NEW_SOUND = {
+            ...
+        }
+--]]
+
+SoundEmitter = class( "SoundEmitter", Destroyable )
+SoundEmitter.static.USE_EXTRA_TIMERS = false -- Should lkl/extra_timers be used? This avoids counting towards the sf timer limit, but may increase CPU usage.
+
+SoundEmitter.static.SOUNDS = {
+    TEMPLATE = {
+        PATH = false,   -- String or false or  function( ent, soundName )               return path end
+        PITCH = 1,      -- Number or nil or    function( ent, soundName, path )         return pitch end
+        DURATION = 0,   -- Number or nil or    function( ent, soundName, path, pitch )  return duration end
+        VOLUME = 1,     -- Number or nil or    function( ent, soundName, path, pitch )  return volume end
+        LEVEL = 75,     -- Number or nil or    function( ent, soundName, path, pitch )  return level end
+        DELAY = 0,      -- Number or nil or    function( ent, soundName, path, pitch )  return delay end
+    },
+}
+
+
+local allSoundEmitters = {}
+local soundEmittersByID = {}
+local soundEmitterIncrement = 0
+local timerCreate
+local timerRemove
+
+
+----- STATIC FUNCTIONS -----
+
+function SoundEmitter:initialize( soundReplacements )
+    SoundEmitter.super.initialize( self )
+
+    table.insert( allSoundEmitters, self )
+    soundEmitterIncrement = soundEmitterIncrement + 1
+    soundEmittersByID[soundEmitterIncrement] = self
+    self._id = soundEmitterIncrement
+
+    self._soundIncrement = 0
+    self._activeSoundsByName = {}
+    self._soundReplacements = {}
+
+    self:setSoundReplacements( soundReplacements )
+end
+
+function SoundEmitter.static:inheritSounds( classObj )
+    self.class.static.SOUNDS = table.copy( classObj.SOUNDS )
+end
+
+function SoundEmitter.static:getAll()
+    return allSoundEmitters
+end
+
+function SoundEmitter.static:getByID( id )
+    return soundEmittersByID[id]
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Plays a categorized sound.
+
+    ent: (Entity)
+        - The Entity to play the sound on.
+    soundName: (string)
+        - The name of the sound to play.
+        - Should be defined in class.static.SOUNDS or via :setSoundReplacements().
+    overrides: (optional) (table)
+        - A lookup table of values to override the sound's paramaters.
+        - These values can also be functions, the same as in class.static.SOUNDS.
+        - e.g. { PITCH = 0.5, VOLUME = 0.5 } will play the sound at half pitch and half volume, while leaving other values untouched.
+--]]
+function SoundEmitter:startSound( ent, soundName, overrides )
+    if not ent or not ent.entIndex or not isValid( ent ) then error( "Expected ent to be a valid Entity" ) end
+    if type( soundName ) ~= "string" then error( "Expected soundName to be a string" ) end
+    if overrides ~= nil and type( overrides ) ~= "table" then error( "Expected overrides to be a table or nil" ) end
+
+    local path, pitch, level, volume, delay, duration = self:getSoundParams( soundName, overrides )
+    if not path then return end
+
+    local selfObj = self
+    local soundID = self._soundIncrement + 1
+    local activeSounds = self._activeSoundsByName[soundName]
+
+    if not activeSounds then
+        activeSounds = {}
+        self._activeSoundsByName[soundName] = activeSounds
+    end
+
+    self._soundIncrement = soundID
+    activeSounds[soundID] = {
+        Ent = ent,
+        Path = path,
+    }
+
+    local function startSound()
+        if not isValid( ent ) then return end
+        if not isValid( selfObj ) then return end
+
+        ent:emitSound( path, level, pitch * 100, volume )
+
+        if duration > 0 then
+            timerCreate( self, "LKL_SoundEmitter_EndSound_" .. soundID, duration, 1, function()
+                if not isValid( selfObj ) then return end
+
+                activeSounds[soundID] = nil
+
+                if isValid( ent ) then return end
+
+                ent:stopSound( path )
+            end )
+        end
+    end
+
+    if delay > 0 then
+        timerCreate( self, "LKL_SoundEmitter_StartSound_" .. soundID, delay, 1, startSound )
+    else
+        startSound()
+    end
+end
+
+--[[
+    - Stops a categorized sound from playing, including those that are still waiting on their delay.
+    - Only stops sounds that were created by this SoundEmitter.
+        - Due to gmod limitations, however, if two SoundEmitters play the exact same sound file path on one entity, this will stop both.
+
+    ent: (Entity or nil)
+        - If an Entity, will stop all sounds of the given soundName on that Entity.
+        - If nil, will stop all sounds of the given soundName for all entities.
+    soundName: (String)
+        - The name of the sound to stop.
+        - Should be defined in class.static.SOUNDS or via :setSoundReplacements().
+--]]
+function SoundEmitter:stopSound( ent, soundName )
+    if type( soundName ) ~= "string" then error( "Expected soundName to be a string" ) end
+
+    local activeSounds = self._activeSoundsByName[soundName]
+    if not activeSounds then return end
+
+    for soundID, snd in pairs( activeSounds ) do
+        local sndEnt = snd.Ent
+        if ent and sndEnt ~= ent then continue end
+
+        timerRemove( self, "LKL_SoundEmitter_StartSound_" .. soundID )
+        timerRemove( self, "LKL_SoundEmitter_EndSound_" .. soundID )
+
+        if isValid( sndEnt ) then
+            sndEnt:stopSound( snd.Path )
+        end
+
+        if ent then
+            activeSounds[soundID] = nil
+        end
+    end
+
+    if not ent then
+        table.empty( activeSounds )
+    end
+end
+
+function SoundEmitter:stopAllSounds()
+    for soundName in pairs( self._activeSoundsByName ) do
+        self:stopSound( nil, soundName )
+    end
+end
+
+--[[
+    - Sets replacement params for a specific sound for this SoundEmitter.
+    - Can be used both to override sounds from the class, and to add new sounds.
+
+    soundName: (string)
+        - The name of the sound to set the replacement for.
+    replacement: (table or nil)
+        - If a table, sets the sound replacement to a copy of it. Format is the same as the entries in class.static.SOUNDS.
+        - If nil, removes the sound replacement.
+--]]
+function SoundEmitter:setSoundReplacement( soundName, replacement )
+    if type( soundName ) ~= "string" then error( "Expected soundName to be a string" ) end
+    if replacement ~= nil and type( replacement ) ~= "table" then error( "Expected replacement to be a table or nil" ) end
+
+    self._soundReplacements[soundName] = table.copy( replacement )
+end
+
+-- Gets a sound replacement, returning either a table or nil.
+function SoundEmitter:getSoundReplacement( soundName )
+    if type( soundName ) ~= "string" then error( "Expected soundName to be a string" ) end
+
+    return self._soundReplacements[soundName]
+end
+
+--[[
+    - Sets all sound replacements for this SoundEmitter.
+
+    replacements: (table or nil)
+        - If a table, sets the sound replacements to a copy of its entries. Format is the same as class.static.SOUNDS.
+        - If nil, removes all sound replacements.
+--]]
+function SoundEmitter:setSoundReplacements( replacements )
+    if replacements ~= nil and type( replacements ) ~= "table" then error( "Expected replacements to be a table or nil" ) end
+
+    table.empty( self._soundReplacements )
+
+    if not replacements then return end
+
+    for soundName, replacement in pairs( replacements ) do
+        self:setSoundReplacement( soundName, replacement )
+    end
+end
+
+-- Get all sound entries for this SoundEmitter.
+function SoundEmitter:getSoundReplacements()
+    return self._soundReplacements
+end
+
+-- Returns path, pitch, level, volume, delay, duration for a given sound.
+function SoundEmitter:getSoundParams( soundName, overrides )
+    if type( soundName ) ~= "string" then error( "Expected soundName to be a string" ) end
+
+    local snd =  self:getSoundReplacement( soundName ) or self.class.SOUNDS[soundName]
+    if not snd then error( "Sound " .. soundName .. " does not exist" ) end
+
+    overrides = overrides or {}
+
+    local path = overrides.PATH or snd.PATH
+    local pitch = overrides.PITCH or snd.PITCH
+    local level = overrides.LEVEL or snd.LEVEL
+    local volume = overrides.VOLUME or snd.VOLUME
+    local duration = overrides.DURATION or snd.DURATION
+    local delay = overrides.DELAY or snd.DELAY
+
+    if type( path ) == "function" then
+        path = path( ent, soundName )
+    end
+
+    path = path or ""
+
+    if type( pitch ) == "function" then
+        pitch = pitch( ent, soundName, path )
+    end
+
+    if type( level ) == "function" then
+        level = level( ent, soundName, path, pitch )
+    end
+
+    if type( volume ) == "function" then
+        volume = volume( ent, soundName, path, pitch )
+    end
+
+    if type( delay ) == "function" then
+        delay = delay( ent, soundName, path, pitch )
+    end
+
+    if type( duration ) == "function" then
+        duration = duration( ent, soundName, path, pitch )
+    end
+
+    pitch = pitch or 1
+    level = level or 75
+    volume = volume or 1
+    delay = delay or 0
+    duration = duration or 0
+
+    return path, pitch, level, volume, delay, duration
+end
+
+function SoundEmitter:getID()
+    return self._id
+end
+
+function SoundEmitter:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function SoundEmitter:onDestroyed()
+    self:stopAllSounds()
+
+    SoundEmitter.super.onDestroyed( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+timerCreate = function( soundEmitter, timerName, delay, repetitions, func )
+    timerName = soundEmitter:getTimerName( timerName )
+
+    if soundEmitter.class.USE_EXTRA_TIMERS then
+        return timer.createExtra( timerName, delay, repetitions, func )
+    end
+
+    return timer.create( timerName, delay, repetitions, func )
+end
+
+timerRemove = function( soundEmitter, timerName )
+    timerName = soundEmitter:getTimerName( timerName )
+
+    if soundEmitter.class.USE_EXTRA_TIMERS then
+        return timer.removeExtra( timerName )
+    end
+
+    return timer.remove( timerName )
+end
