@@ -4,7 +4,7 @@
 
 extraTimerPrecision = math.max( math.floor( extraTimerPrecision or 1 ), 1 )
 
-local realtime = timer.realtime
+local curtime = timer.curtime
 local tableKeyFromValue = table.keyFromValue
 local tableRemove = table.remove
 local mMax = math.max
@@ -29,7 +29,7 @@ function timer.simpleExtra( gap, func )
 
     timerCountSimple = timerCountSimple + 1
     timersSimple[timerCountSimple] = {
-        Trigger = realtime() + gap,
+        Trigger = curtime() + gap,
         Func = func,
     }
 end
@@ -50,7 +50,7 @@ function timer.createExtra( name, gap, numRepeats, func )
     timers[ind] = {
         Name = name,
         Gap = gap,
-        NextTrigger = realtime() + gap,
+        NextTrigger = curtime() + gap,
         RemainingCalls = numRepeats,
         Func = func,
     }
@@ -75,12 +75,12 @@ hook.add( "think", "LKL_ExtraTimers_ProcessTimers", function()
         if precisionState ~= 0 then return end
     end
 
-    local curTime = realtime()
+    local now = curtime()
 
     for i = 1, timerCountSimple do
         local timerData = timersSimple[i]
 
-        if timerData and curTime >= timerData.Trigger then
+        if timerData and now >= timerData.Trigger then
             timerData.Func()
 
             timerCountSimple = mMax( timerCountSimple - 1, 0 )
@@ -91,7 +91,7 @@ hook.add( "think", "LKL_ExtraTimers_ProcessTimers", function()
     for i = 1, timerCount do
         local timerData = timers[i]
 
-        if timerData and curTime >= timerData.NextTrigger then
+        if timerData and now >= timerData.NextTrigger then
             local remCalls = timerData.RemainingCalls
             local canRepeat
 
@@ -109,7 +109,7 @@ hook.add( "think", "LKL_ExtraTimers_ProcessTimers", function()
             timerData.Func()
 
             if canRepeat then
-                timerData.NextTrigger = curTime + timerData.Gap
+                timerData.NextTrigger = now + timerData.Gap
             else
                 timerCount = mMax( timerCount - 1, 0 )
                 timerExistances[timerData.Name] = nil
