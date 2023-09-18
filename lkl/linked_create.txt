@@ -65,7 +65,14 @@ function linkedCreate.holo( pos, ang, model, scale, linkedEnts )
         scale = nil
     end
 
-    return linkedCreate.any( hologram.create, { pos, ang, model, scale }, linkedEnts )
+    -- Due to how Starfall burst limits work, attempting to spawn without checking first will cause downtime to be discarded, thus creating livelocks.
+    local function checkThenSpawn( ... )
+        if not hologram.canSpawn() then error( "Ratelimited" ) end
+
+        return hologram.create( ... )
+    end
+
+    return linkedCreate.any( checkThenSpawn, { pos, ang, model, scale }, linkedEnts )
 end
 
 
@@ -76,7 +83,14 @@ if SERVER then
             frozen = nil
         end
 
-        return linkedCreate.any( prop.create, { pos, ang, model, frozen }, linkedEnts )
+        -- Due to how Starfall burst limits work, attempting to spawn without checking first will cause downtime to be discarded, thus creating livelocks.
+        local function checkThenSpawn( ... )
+            if not prop.canSpawn() then error( "Ratelimited" ) end
+
+            return prop.create( ... )
+        end
+
+        return linkedCreate.any( checkThenSpawn, { pos, ang, model, frozen }, linkedEnts )
     end
 
     function linkedCreate.component( pos, ang, class, model, frozen, linkedEnts )
