@@ -5,6 +5,9 @@
 -- Set to an integer x > 1 to make extra timers only evaluate on every x'th tick.
 extraTimerPrecision = math.max( math.floor( extraTimerPrecision or 1 ), 1 )
 
+
+if timer.existsExtra then return end -- Don't run twice
+
 local curtime = timer.curtime
 local tableKeyFromValue = table.keyFromValue
 local tableRemove = table.remove
