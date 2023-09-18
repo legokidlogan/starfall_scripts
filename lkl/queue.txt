@@ -80,6 +80,8 @@ function Queue:initialize( entryFunc, onComplete, entries, interval, batchSize, 
     self:setName( name )
     self._running = false
 
+    self:setPerfCooldown( 0.5 )
+
     tableInsert( allQueues, self )
 end
 
@@ -222,6 +224,27 @@ end
 
 function Queue:getPerfLimit()
     return self._perfLimit
+end
+
+--[[
+    - If the queue breaks the perf limit, it will pause for this many seconds.
+    - If zero, the queue will not pause.
+    - Default duration is 0.5 seconds.
+--]]
+function Queue:setPerfCooldown( cooldown )
+    if type( cooldown ) ~= "number" then
+        error( "cooldown must be a number." )
+    end
+
+    if cooldown < 0 then
+        error( "cooldown must be greater than or equal to 0." )
+    end
+
+    self._perfCooldown = cooldown
+end
+
+function Queue:getPerfCooldown()
+    return self._perfCooldown
 end
 
 function Queue:setName( name )
@@ -395,7 +418,11 @@ function Queue:processBatch( batchSize )
     self._nextBatchTime = now + self:getInterval()
 
     for _ = 1, batchSize do
-        if not perfCheck( perfLimit ) then return end
+        if not perfCheck( perfLimit ) then
+            self:pause( self:getPerfCooldown() )
+
+            return
+        end
 
         local entry = self:getEntries()[1] -- Don't localize for in case :setEntries() or :Destroy() are called.
 
