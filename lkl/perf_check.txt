@@ -1,0 +1,16 @@
+--@name Perf Check
+--@author legokidlogan
+--@shared
+
+local quotaMax = cpuMax()
+
+
+--[[
+    - Returns true if the total CPU usage of your chips is below the quota limit.
+    - frac is a number between 0 and 1.
+--]]
+function perfCheck( frac )
+    local limit = frac * quotaMax
+
+    return cpuAverage() < limit and cpuTotalAverage() < limit
+end
