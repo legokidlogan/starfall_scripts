@@ -321,9 +321,11 @@ if SERVER then
     --]]
     function PropTurret:getTargetsInCone()
         local cone = self:getAutoTargetCone()
+        if cone == 2 then return self:getTargetsInSphere() end
+
+        local coneRadius = math.cos( math.rad( math.max( cone * 180, 360 ) ) )
         local pos = self:getHeadWorldPos()
         local range = self:getAutoTargetRange()
-        local targets
         local filter = self.targetFilter
         local selfObj = self
 
@@ -331,12 +333,36 @@ if SERVER then
             return filter( selfObj, ent )
         end
 
-        if cone == 2 then
-            targets = find.inSphere( pos, range, filterFunc )
-        else
-            local coneRadius = math.cos( math.rad( cone * 180 ) )
+        local targets = find.inCone( pos, self:getHeadWorldAngles():getForward(), range, coneRadius, filterFunc )
+        targets = find.sortByClosest( targets, pos )
 
-            targets = find.inCone( pos, self:getHeadWorldAngles():getForward(), range, coneRadius, filterFunc )
+        return targets
+    end
+
+    --[[
+        - Returns a sorted list of valid targets in a sphere from the PropTurret's head depending on its settings.
+        - Ignores the AUTO_TARGET_CONE setting.
+        - Line of sight is not checked.
+    --]]
+    function PropTurret:getTargetsInSphere()
+        local pos = self:getHeadWorldPos()
+        local rangeSqr = self:getAutoTargetRange() ^ 2
+        local filter = self.targetFilter
+        local selfObj = self
+
+        local function filterFunc( ent )
+            if not ent.getPos or ent:getPos():getDistanceSqr( pos ) > rangeSqr then return false end
+
+            return filter( selfObj, ent )
+        end
+
+        local targets
+
+        -- Use find.allPlayers() and find.all() instead of find.inSphere() due to its internal 512 ent limit prior to getting the lua filter.
+        if self:getVehicleTargetMode() == 0 then
+            targets = find.allPlayers( filterFunc )
+        else
+            targets = find.all( filterFunc )
         end
 
         targets = find.sortByClosest( targets, pos )
