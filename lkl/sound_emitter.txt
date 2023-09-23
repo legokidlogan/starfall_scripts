@@ -139,7 +139,7 @@ function SoundEmitter:startSound( ent, soundName, overrides )
 
                 activeSounds[soundID] = nil
 
-                if isValid( ent ) then return end
+                if not isValid( ent ) then return end
 
                 ent:stopSound( path )
             end )
