@@ -1,0 +1,297 @@
+--@name Holo Trace
+--@author legokidlogan
+--@shared
+--@include lkl/math/vector_math.txt
+--@include lkl/perf_check.txt
+
+holoTrace = holoTrace or {}
+holoTrace.perfLimit = holoTrace.perfLimit or 0.8
+
+--[[
+    - A library for making traces with starfall holograms.
+    - DISCLAIMER: Due to internal limitations with ents.GetAll(), clientside-created holograms cannot be detected by this library.
+        - Server-created holograms can still be detected from both realms.
+--]]
+
+
+if holoTrace.traceLine then return end
+
+require( "lkl/math/vector_math.txt" )
+require( "lkl/perf_check.txt" )
+
+
+local VECTOR_ZERO = Vector()
+
+local tableRemove = table.remove
+local traceIntersectRayWithOBB = trace.intersectRayWithOBB
+
+local makeFailedTraceResults
+local getTraceableHolos
+local traceZeroLength
+local getNearbyHolos
+
+
+--[[
+    - Performs a trace line which only detects starfall holograms.
+
+    startPos: (Vector)
+        - The starting position for the trace line.
+    endPos: (Vector)
+        - The ending position for the trace line.
+    filter: (optional) (Hologram or table or function)
+        - Identical to filter in trace.line(), but only sf holos are involved.
+
+    RETURNS: traceResults
+        traceResults: (table)
+            - Similar to a standard TraceResult struct, but missing info that doesn't apply to holograms.
+            {
+                Entity = (Hologram or nil)
+                    - The hologram that was hit, if applicable.
+                Fraction = (number)
+                    - The fraction of the trace line that was completed before the first collision.
+                Hit = (boolean)
+                    - Whether or not the trace line hit anything.
+                HitNormal = (Vector)
+                    - The normal of the surface that was hit.
+                HitPos = (Vector)
+                    - The position of the first collision, or endPos if nothing was hit.
+                Length = (number)
+                    - The length of the trace line.
+                    - This does not normally exist in a TraceResult struct, but is included here for convenience.
+                Normal = (Vector)
+                    - The direction (length 1) of the trace line.
+                PerfFailed = (boolean)
+                    - If true, then the perf limit was exceeded before the trace line could be completed.
+                StartPos = (Vector)
+                    - The starting position of the trace line.
+            }
+--]]
+function holoTrace.traceLine( startPos, endPos, filter )
+    local holos = getTraceableHolos( filter )
+    local startToEnd = endPos - startPos
+    if startToEnd == VECTOR_ZERO then return traceZeroLength( startPos, holos ) end
+
+    local traceDir, traceLength = vectorMath.getDirectionAndLength( startToEnd )
+    local perfLimit = holoTrace.perfLimit
+    if not perfCheck( perfLimit ) then return makeFailedTraceResults( startPos, traceDir, traceLength, 0 ) end
+
+    holos = getNearbyHolos( holos, startPos, endPos, traceDir, traceLength )
+    if not perfCheck( perfLimit ) then return makeFailedTraceResults( startPos, traceDir, traceLength, 0 ) end
+
+    local hitHolo
+    local hitPos
+    local hitNormal
+    local hitFraction = 2
+
+    for _, holo in ipairs( holos ) do
+        if not perfCheck( perfLimit ) then return makeFailedTraceResults( startPos, traceDir, traceLength, hitHolo and hitFraction or 0 ) end
+
+        local _hitPos, _hitNormal, _hitFraction = traceIntersectRayWithOBB( startPos, startToEnd, holo:obbCenterW(), holo:getAngles(), holo:obbMins(), holo:obbMaxs() )
+
+        if _hitPos and _hitFraction < hitFraction then
+            hitHolo = holo
+            hitPos = _hitPos
+            hitNormal = _hitNormal
+            hitFraction = _hitFraction
+        end
+    end
+
+    return {
+        Entity = hitHolo,
+        Fraction = hitHolo and hitFraction or 1,
+        Hit = hitHolo ~= nil,
+        HitNormal = hitNormal or Vector(),
+        HitPos = hitPos or endPos:clone(),
+        Length = traceLength,
+        Normal = traceDir,
+        PerfFailed = false,
+        StartPos = startPos:clone(),
+    }
+end
+
+--[[
+    - Performs a trace line which only detects starfall holograms, but can be blocked early by hitting entities (including the world).
+    - If an entity is hit before a holo could be hit, then results are similar to a holoTrace.traceLine() call where it hits nothing.
+
+    startPos: (Vector)
+        - The starting position for the trace line.
+    endPos: (Vector)
+        - The ending position for the trace line.
+    holoFilter: (optional) (Hologram or table or function)
+        - Identical to filter in trace.line(), but only sf holos are involved.
+    entFilter: (optional) (Entity or table or function)
+        - Identical to filter in trace.line().
+        - Used for filtering out entities that are able to block the holo trace.
+    entMask: (optional) (number)
+        - Identical to mask in trace.line().
+    entColGroup: (optional) (number)
+        - Identical to collisiongroup in trace.line().
+    entIgnoreWorld: (optional) (boolean)
+        - Identical to ignworld in trace.line().
+
+    RETURNS: traceResults
+        traceResults: (table)
+            - Identical to the traceResults returned by holoTrace.traceLine().
+            - Note that
+--]]
+function holoTrace.traceLineBlockedByEnts( startPos, endPos, holoFilter, entFilter, entMask, entColGroup, entIgnoreWorld )
+    local trEnt = trace.line( startPos, endPos, entFilter, entMask, entColGroup, entIgnoreWorld )
+    local newEndPos = trEnt.HitPos
+    local trHolo = holoTrace.traceLine( startPos, newEndPos, holoFilter )
+    local startToNewEnd = newEndPos - startPos
+
+    if startToNewEnd == VECTOR_ZERO then
+        local dir = vectorMath.getDirectionAndLength( endPos - startPos )
+
+        trHolo.Normal = dir
+    end
+
+    return trHolo
+end
+
+--[[
+    - Performs a trace line which includes both starfall holograms and regular entities.
+    - If an entity is hit first, then results are similar to trace.line(),
+    - If a holo is hit first, then results are similar to holoTrace.traceLine().
+
+    startPos: (Vector)
+        - The starting position for the trace line.
+    endPos: (Vector)
+        - The ending position for the trace line.
+    holoFilter: (optional) (Hologram or table or function)
+        - Identical to filter in trace.line(), but only sf holos are involved.
+    entFilter: (optional) (Entity or table or function)
+        - Identical to filter in trace.line(), focused on non-holo entities.
+    entMask: (optional) (number)
+        - Identical to mask in trace.line().
+    entColGroup: (optional) (number)
+        - Identical to collisiongroup in trace.line().
+    entIgnoreWorld: (optional) (boolean)
+        - Identical to ignworld in trace.line().
+
+    RETURNS: traceResults
+        traceResults: (table)
+            - Identical to results from either holoTrace.traceLine() or trace.line(), depending on what was hit first.
+            - Both will receive the Length value that is normally not present in the TraceResult struct.
+--]]
+function holoTrace.traceLineIncludeEnts( startPos, endPos, holoFilter, entFilter, entMask, entColGroup, entIgnoreWorld )
+    local trEnt = trace.line( startPos, endPos, entFilter, entMask, entColGroup, entIgnoreWorld )
+    local trHolo = holoTrace.traceLine( startPos, endPos, holoFilter )
+    local neitherHit = not ( trEnt.Hit or trHolo.Hit )
+
+    if neitherHit or ( trEnt.Hit and startPos:getDistanceSqr( trEnt.HitPos ) <= startPos:getDistanceSqr( trHolo.HitPos ) ) then
+        trEnt.Length = startPos:getDistance( endPos )
+
+        return trEnt
+    end
+
+    return trHolo
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+makeFailedTraceResults = function( startPos, dir, length, fraction )
+    return {
+        Entity = nil,
+        Fraction = fraction,
+        Hit = false,
+        HitNormal = Vector(),
+        HitPos = startPos + dir * length * fraction,
+        Length = length,
+        Normal = dir,
+        PerfFailed = true,
+        StartPos = startPos:clone(),
+    }
+end
+
+getTraceableHolos = function( filter )
+    filterType = type( filter )
+
+    if filterType == "function" then
+        return find.byClass( "starfall_hologram", filter )
+    end
+
+    local holos = find.byClass( "starfall_hologram" )
+    local holosToRemove
+
+    if filterType == "table" then
+        holosToRemove = filter
+    else
+        holosToRemove = { filter }
+    end
+
+    local holosToRemoveLookup = {}
+
+    for _, holo in ipairs( holosToRemove ) do
+        holosToRemoveLookup[holo] = true
+    end
+
+    for i = #holos, 1, -1 do
+        if holosToRemoveLookup[holos[i]] then
+            tableRemove( holos, i )
+        end
+    end
+
+    return holos
+end
+
+traceZeroLength = function( startPos, holos )
+    local holosInsideOf = {}
+    local holosInsideOfCount = 0
+
+    for _, holo in ipairs( holos ) do
+        if startPos:withinAABox( holo:worldSpaceAABB() ) then
+            holosInsideOfCount = holosInsideOfCount + 1
+            holosInsideOf[holosInsideOfCount] = holo
+        end
+    end
+
+    local closestHolo
+    local closestDist = math.huge
+
+    for _, holo in ipairs( holosInsideOf ) do
+        local dist = startPos:getDistanceSqr( holo:obbCenterW() )
+
+        if dist < closestDist then
+            closestHolo = holo
+            closestDist = dist
+        end
+    end
+
+    return {
+        Entity = closestHolo,
+        Fraction = 1,
+        Hit = closestHolo ~= nil,
+        HitNormal = Vector(),
+        HitPos = startPos:clone(),
+        Length = 0,
+        Normal = Vector(),
+        PerfFailed = false,
+        StartPos = startPos:clone(),
+    }
+end
+
+getNearbyHolos = function( holos, startPos, endPos, traceDir, traceLength )
+    local nearbyHolos = {}
+    local nearbyHoloCount = 0
+    local traceMidPoint = ( startPos + endPos ) / 2
+    local traceLengthHalf = traceLength / 2
+
+    for _, holo in ipairs( holos ) do
+        local holoCenter = holo:obbCenterW()
+        local holoRadius = holo:getBoundingRadius()
+        local closestPoint = vectorMath.closestPointOnLine( holoCenter, startPos, traceDir )
+
+        local canAdd =
+            closestPoint:getDistanceSqr( holoCenter ) <= holoRadius * holoRadius and -- Is the holo close to the line?
+            closestPoint:getDistanceSqr( traceMidPoint ) <= ( traceLengthHalf + holoRadius ) ^ 2 -- Is the holo within the length of the line segment?
+
+        if canAdd then
+            nearbyHoloCount = nearbyHoloCount + 1
+            nearbyHolos[nearbyHoloCount] = holo
+        end
+    end
+
+    return nearbyHolos
+end
