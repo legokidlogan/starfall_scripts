@@ -1,0 +1,1951 @@
+--@name Vector Math
+--@author legokidlogan
+--@shared
+
+vectorMath = vectorMath or {}
+
+--[[
+    - A library of assorted vector-based math functions.
+    - For the sake of efficiency, these functions do not perform manual type checking, so take care with your input types.
+    - (It goes without saying, but) any vector described as a 'direction,' a 'normal,' or being 'normalized' is a unit vector (length 1).
+        - Any functions which has one of these as an argument will NOT check to ensure the correct length, for the sake of efficiency.
+        - As such, be sure you pass a vector of the correct length, or you will get strange results.
+--]]
+
+
+if vectorMath.abs then return end
+
+
+local PI = math.pi
+local PI_HALF = PI / 2
+local PI_DOUBLE = PI * 2
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local PRECISION_TINY = math.pow( 10, -5 )
+
+local mAbs = math.abs
+local mSign = math.sign
+local mSqrt = math.sqrt
+local mMin = math.min
+local mMax = math.max
+local mClamp = math.clamp
+local mCos = math.cos
+local mSin = math.sin
+local mTan = math.tan
+local mACos = math.acos
+local mATan = math.atan
+local mRand = math.rand
+local mRandom = math.random
+local mLerpVector = math.lerpVector
+
+local isXCloseToY
+local getCylinderBottomAndDirEff
+local getConeEndRadius
+
+
+--[[
+    - Performs math.abs() on all components of a vector.
+
+    vec: (Vector)
+        - The vector to perform the operation on.
+--]]
+function vectorMath.abs( vec )
+    return Vector(
+        mAbs( vec[1] ),
+        mAbs( vec[2] ),
+        mAbs( vec[3] )
+    )
+end
+
+--[[
+    - Returns a rounded copy of a vector.
+    - Same as Vector:round() in starfall, but returns instead of self-modifying.
+
+    vec: (Vector)
+        - The vector to round.
+    idp: (optional) (number >= 0)
+        - The number of decimal places to round to.
+        - Default is 0.
+--]]
+function vectorMath.round( vec, idp )
+    vec = vec:clone()
+    vec:round( idp )
+
+    return vec
+end
+
+--[[
+    - Compares two vectors by their lengths and returns the shorter one, its length, and the longer vector's length.
+
+    vec1: (Vector)
+        - The first vector to compare.
+    vec2: (Vector)
+        - The second vector to compare.
+
+    RETURNS: minVec, minVecLength, maxVecLength
+        minVec: (Vector)
+            - The shorter of the two vectors.
+                - If they are the same length, vec1 is returned.
+            - This is passed by reference, not by value!
+                - This means that modifying the returned minVec will alter either vec1 or vec2.
+        minVecLength: (number)
+            - The length of the shorter vector.
+        maxVecLength: (number)
+            - The length of the longer vector.
+--]]
+function vectorMath.minBylength( vec1, vec2 )
+    local length1 = vec1:getLength()
+    local length2 = vec2:getLength()
+
+    if length1 <= length2 then return vec1, length1, length2 end
+
+    return vec2, length2, length1
+end
+
+--[[
+    - Compares two vectors by their lengths and returns the shorter one.
+    - This is the same as vectorMath.minBylength(), but doesn't return any lengths, just the one vector result.
+
+    vec1: (Vector)
+        - The first vector to compare.
+    vec2: (Vector)
+        - The second vector to compare.
+
+    RETURNS: minVec
+        minVec: (Vector)
+            - The shorter of the two vectors.
+                - If they are the same length, vec1 is returned.
+            - This is passed by reference, not by value!
+                - This means that modifying the returned minVec will alter either vec1 or vec2.
+--]]
+function vectorMath.minVectorBylength( vec1, vec2 )
+    local length1 = vec1:getLengthSqr()
+    local length2 = vec2:getLengthSqr()
+
+    if length1 <= length2 then return vec1 end
+
+    return vec2
+end
+
+--[[
+    - Returns a vector consisting of the piecewise (i.e. per-axis) minimum values of two vectors.
+
+    vec1: (Vector)
+        - The first vector to compare.
+    vec2: (Vector)
+        - The second vector to compare.
+--]]
+function vectorMath.minPiecewise( vec1, vec2 )
+    return Vector(
+        mMin( vec1[1], vec2[1] ),
+        mMin( vec1[2], vec2[2] ),
+        mMin( vec1[3], vec2[3] )
+    )
+end
+
+--[[
+    - Compares two vectors by their lengths and returns the longer one, its length, and the shorter vector's length.
+
+    vec1: (Vector)
+        - The first vector to compare.
+    vec2: (Vector)
+        - The second vector to compare.
+
+    RETURNS: maxVec, maxVecLength, minVecLength
+        maxVec: (Vector)
+            - The longer of the two vectors.
+                - If they are the same length, vec1 is returned.
+            - This is passed by reference, not by value!
+                - This means that modifying the returned maxVec will alter either vec1 or vec2.
+        maxVecLength: (number)
+            - The length of the longer vector.
+        minVecLength: (number)
+            - The length of the shorter vector.
+--]]
+function vectorMath.maxByLength( vec1, vec2 )
+    local length1 = vec1:getLength()
+    local length2 = vec2:getLength()
+
+    if length1 >= length2 then return vec1, length1, length2 end
+
+    return vec2, length2, length1
+end
+
+--[[
+    - Compares two vectors by their lengths and returns the longer one.
+    - This is the same as vectorMath.maxBylength(), but doesn't return any lengths, just the one vector result.
+
+    vec1: (Vector)
+        - The first vector to compare.
+    vec2: (Vector)
+        - The second vector to compare.
+
+    RETURNS: maxVec
+        maxVec: (Vector)
+            - The longer of the two vectors.
+                - If they are the same length, vec1 is returned.
+            - This is passed by reference, not by value!
+                - This means that modifying the returned maxVec will alter either vec1 or vec2.
+--]]
+function vectorMath.maxVectorByLength( vec1, vec2 )
+    local length1 = vec1:getLengthSqr()
+    local length2 = vec2:getLengthSqr()
+
+    if length1 >= length2 then return vec1 end
+
+    return vec2
+end
+
+--[[
+    - Returns a vector consisting of the piecewise (i.e. per-axis) maximum values of two vectors.
+
+    vec1: (Vector)
+        - The first vector to compare.
+    vec2: (Vector)
+        - The second vector to compare.
+--]]
+function vectorMath.maxPiecewise( vec1, vec2 )
+    return Vector(
+        mMax( vec1[1], vec2[1] ),
+        mMax( vec1[2], vec2[2] ),
+        mMax( vec1[3], vec2[3] )
+    )
+end
+
+--[[
+    - Scales a vector so that its length is clamped between a min and max.
+
+    vec: (Vector)
+        - The vector to be clamped.
+        - If its length is zero, it will be returned as-is, since scaling would do nothing.
+    minLength: (number)
+        - The minimum length of the output vector.
+        - Behavior is poorly defined if this value is negative.
+    maxLength: (number)
+        - The maximum length of the output vector.
+        - Behavior is poorly defined if this value is negative.
+--]]
+function vectorMath.clampByLength( vec, minLength, maxLength )
+    local dir, length = vectorMath.getDirectionAndLength( vec )
+    if length == 0 then return Vector( 0, 0, 0 ) end
+
+    length = mClamp( length, minLength, maxLength )
+
+    return dir * length
+end
+
+--[[
+    - Returns a vector with each component clamped between a separate min and max value.
+
+    vec: (Vector)
+        - The vector to be clamped.
+    minVec: (Vector)
+        - The minimum values for each component of the output vector.
+    maxVec: (Vector)
+        - The maximum values for each component of the output vector.
+--]]
+function vectorMath.clampPiecewise( vec, minVec, maxVec )
+    return Vector(
+        mClamp( vec[1], minVec[1], maxVec[1] ),
+        mClamp( vec[2], minVec[2], maxVec[2] ),
+        mClamp( vec[3], minVec[3], maxVec[3] )
+    )
+end
+
+--[[
+    - Takes a vector and splits it into its unit direction and length.
+    - Best used for cases where the length might be zero and needs to be safely accounted for.
+
+    vec: (Vector)
+        - The vector to split apart.
+
+    RETURNS: dir, length
+        dir: (Vector)
+            - A normalized (length 1) version of the input vector.
+        length: (number)
+            - The length of the input vector.
+--]]
+function vectorMath.getDirectionAndLength( vec )
+    if vec == VECTOR_ZERO then return Vector( 0, 0, 0 ), 0 end -- Doesn't return vec itself to prevent reference sharing.
+
+    local length = vec:getLength()
+
+    return vec / length, length
+end
+
+--[[
+    - Retuns the minimal distance between a point and an infinite line.
+
+    point: (Vector)
+        - The point to measure the distance from.
+    lineOrigin: (Vector)
+        - A point on the line.
+    lineDir: (Vector)
+        - The direction of the line.
+--]]
+function vectorMath.pointDistanceFromLine( point, lineOrigin, lineDir )
+    -- Taken from steps 1-3 of https://mathworld.wolfram.com/Point-LineDistance3-Dimensional.html and optimized for dir being a unit vector.
+    local pointToOrigin = lineOrigin - point
+    local projLength = pointToOrigin:dot( lineDir )
+
+    return ( pointToOrigin - lineDir * projLength ):getLength()
+end
+
+--[[
+    - Retuns the minimal distance between a point and a line segment.
+
+    point: (Vector)
+        - The point to measure the distance from.
+    segmentStart: (Vector)
+        - The start of the line segment.
+    segmentEnd: (Vector)
+        - The end of the line segment.
+--]]
+function vectorMath.pointDistanceFromLineSegment( point, segmentStart, segmentEnd )
+    local segmentDir, segmentLength = vectorMath.getDirectionAndLength( segmentEnd - segmentStart )
+    if segmentLength == 0 then return ( point - segmentStart ):getLength() end
+
+    local pointToStart = segmentStart - point
+    local pointToEnd = segmentEnd - point
+    local toStartProj = pointToStart:dot( segmentDir )
+    local toEndProj = pointToEnd:dot( segmentDir )
+
+    if toStartProj <= 0 and toEndProj >= 0 then
+        -- The point is inside an infinite-radius cylinder made by the segment.
+        -- Therefore, treat it the same as a regular point-line distance problem.
+        return ( pointToStart - segmentDir * toStartProj ):getLength()
+    end
+
+    -- Point is closer to the start, get distance from it.
+    if mAbs( toStartProj ) < mAbs( toEndProj ) then
+        return segmentStart:getDistance( point )
+    end
+
+    -- Point is closer to the end, get distance from it.
+    return segmentEnd:getDistance( point )
+end
+
+--[[
+    - Retuns the minimal distance between a point an infinite plane.
+
+    point: (Vector)
+        - The point to measure the distance from.
+    planeOrigin: (Vector)
+        - A point on the plane.
+    planeNormal: (Vector)
+        - The normal of the plane.
+--]]
+function vectorMath.pointDistanceFromPlane( point, planeOrigin, planeNormal )
+    -- Taken from https://mathinsight.org/distance_point_plane
+    local originToPoint = point - planeOrigin
+
+    return mAbs( originToPoint:dot( planeNormal ) )
+end
+
+--[[
+    - Returns the closest point on an infinite line to a given point.
+
+    point: (Vector)
+        - The point to find the closest point to.
+    lineOrigin: (Vector)
+        - A point on the line.
+    lineDir: (Vector)
+        - The direction of the line.
+--]]
+function vectorMath.closestPointOnLine( point, lineOrigin, lineDir )
+    local pointToOrigin = lineOrigin - point
+    local projLength = pointToOrigin:dot( lineDir )
+
+    return lineOrigin - lineDir * projLength
+end
+
+--[[
+    - Returns the closest point on a line segment to a given point.
+
+    point: (Vector)
+        - The point to find the closest point to.
+    segmentStart: (Vector)
+        - The start of the line segment.
+    segmentEnd: (Vector)
+        - The end of the line segment.
+--]]
+function vectorMath.closestPointOnLineSegment( point, segmentStart, segmentEnd )
+    local segmentDir, segmentLength = vectorMath.getDirectionAndLength( segmentEnd - segmentStart )
+    if segmentLength == 0 then return segmentStart:clone() end
+
+    local pointToStart = segmentStart - point
+    local pointToEnd = segmentEnd - point
+    local toStartProj = pointToStart:dot( segmentDir )
+    local toEndProj = pointToEnd:dot( segmentDir )
+
+    if toStartProj == 0 or toEndProj == 0 or ( mSign( toStartProj ) == -1 and mSign( toEndProj ) == 1 ) then
+        -- The point is inside an infinite-radius cylinder made by the segment.
+        -- Therefore, treat it the same as a regular point-line problem.
+        return segmentStart - segmentDir * toStartProj
+    end
+
+    -- Point is closer to the start.
+    if mAbs( toStartProj ) < mAbs( toEndProj ) then
+        return segmentStart:clone()
+    end
+
+    -- Point is closer to the end.
+    return segmentEnd:clone()
+end
+
+--[[
+    - Returns the closest point on a plane to a given point.
+
+    point: (Vector)
+        - The point to find the closest point to.
+    planeOrigin: (Vector)
+        - The center of the plane.
+    planeNormal: (Vector)
+        - The normal of the plane.
+    planeWidth: (optional) (number)
+        - The width of the plane.
+        - If nil, will be an infinite plane.
+    planeHeight: (optional) (number)
+        - The height of the plane.
+        - Defaults to the value of planeWidth.
+--]]
+function vectorMath.closestPointOnPlane( point, planeOrigin, planeNormal, planeWidth, planeHeight )
+    local originToPoint = point - planeOrigin
+    local closestPoint = point - planeNormal * originToPoint:dot( planeNormal )
+    if not planeWidth then return closestPoint end
+
+    planeHeight = planeHeight or planeWidth
+    local planeWidthHalf = planeWidth / 2
+    local planeHeightHalf = planeHeight / 2
+
+    local planeNormalAng = planeNormal:getAngle()
+    local planeRight = planeNormalAng:getRight()
+    local planeUp = planeNormalAng:getUp()
+    local closestPointToOrigin = closestPoint - planeOrigin
+
+    local rightLength = mClamp( closestPointToOrigin:dot( planeRight ), -planeWidthHalf, planeWidthHalf )
+    local upLength = mClamp( closestPointToOrigin:dot( planeUp ), -planeHeightHalf, planeHeightHalf )
+
+    return planeOrigin + planeRight * rightLength + planeUp * upLength
+end
+
+--[[
+    - Gets the intersection point between two infinite lines.
+
+    lineOrigin1: (Vector)
+        - A point on the first line.
+    lineDir1: (Vector)
+        - The direction of the first line.
+    lineOrigin2: (Vector)
+        - A point on the second line.
+    lineDir2: (Vector)
+        - The direction of the second line.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the lines for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+
+    RETURNS: intersectionPoint
+        intersectionPoint: (Vector or nil)
+            - The point where the two lines intersect, or nil if they don't.
+--]]
+function vectorMath.lineIntersectionWithLine( lineOrigin1, lineDir1, lineOrigin2, lineDir2, precision )
+    precision = precision or PRECISION_TINY
+
+    if vectorMath.isPointOnPoint( lineDir1, lineDir2, PRECISION_TINY ) then
+        local intersectionPoint = ( lineOrigin1 + lineOrigin2 ) / 2
+
+        if vectorMath.isPointOnLine( intersectionPoint, lineOrigin1, lineDir1, precision ) then
+            return intersectionPoint
+        end
+
+        return
+    end
+
+    local dir1X = lineDir1[1]
+    local dir1Y = lineDir1[2]
+    local dir1Z = lineDir1[3]
+    local dir2X = lineDir2[1]
+    local dir2Y = lineDir2[2]
+    local dir2Z = lineDir2[3]
+    local t1
+    local t2
+
+    if dir1X == 0 then
+        if dir1Y == 0 then
+            if dir1Z == 0 then
+                if vectorMath.isPointOnPoint( lineOrigin1, lineOrigin2, precision ) then
+                    return ( lineOrigin1 + lineOrigin2 ) / 2
+                end
+
+                return
+            end
+
+            if dir2X == 0 and dir2Y == 0 then
+                if vectorMath.isPointOnPoint( Vector( lineOrigin1[1], lineOrigin1[2], 0 ), Vector( lineOrigin2[1], lineOrigin2[2], 0 ), precision ) then
+                    return ( lineOrigin1 + lineOrigin2 ) / 2
+                end
+            else
+                return vectorMath.lineIntersectionWithLine( lineOrigin2, lineDir2, lineOrigin1, lineDir1, precision )
+            end
+        end
+    elseif not isXCloseToY( dir1Y / dir1X, dir2Y / dir2X, PRECISION_TINY ) then
+        local div = dir2Y - dir2X * dir1Y / dir1X
+
+        if div ~= 0 then
+            local originDiffX = lineOrigin2[1] - lineOrigin1[1]
+
+            t2 = ( lineOrigin1[2] - lineOrigin2[2] + dir1Y * originDiffX / dir1X ) / div
+            t1 = ( originDiffX + dir2X * t2 ) / dir1X
+        end
+    end
+
+    if not t1 then
+        if dir1Y == 0 then return end
+
+        local div = dir2Z - dir2Y * dir1Z / dir1Y
+        if div == 0 then return end
+
+        local originDiffY = lineOrigin2[2] - lineOrigin1[2]
+
+        t2 = ( lineOrigin1[3] - lineOrigin2[3] + dir1Z * originDiffY / dir1Y ) / div
+        t1 = ( originDiffY + dir2Y * t2 ) / dir1Y
+    end
+
+    local point1 = lineOrigin1 + lineDir1 * t1
+    local point2 = lineOrigin2 + lineDir2 * t2
+
+    if point1 == point2 then return point1 end
+
+    if vectorMath.isPointOnPoint( point1, point2, precision ) then
+        return ( point1 + point2 ) / 2
+    end
+end
+
+--[[
+    - Returns the intersection point between two line segments.
+
+    segmentStart1: (Vector)
+        - The start of the first line segment.
+    segmentEnd1: (Vector)
+        - The end of the first line segment.
+    segmentStart2: (Vector)
+        - The start of the second line segment.
+    segmentEnd2: (Vector)
+        - The end of the second line segment.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the line segments for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+
+    RETURNS: intersectionPoint
+        intersectionPoint: (Vector or nil)
+            - The intersection point of the two line segments, or nil if they don't intersect.
+--]]
+function vectorMath.lineSegmentIntersectionWithLineSegment( segmentStart1, segmentEnd1, segmentStart2, segmentEnd2, precision )
+    precision = precision or PRECISION_TINY
+
+    local segmentDir1, segmentLength1 = vectorMath.getDirectionAndLength( segmentEnd1 - segmentStart1 )
+    local segmentDir2, segmentLength2 = vectorMath.getDirectionAndLength( segmentEnd2 - segmentStart2 )
+    local segmentMiddle1 = segmentStart1 + segmentDir1 * segmentLength1 / 2
+    local segmentMiddle2 = segmentStart2 + segmentDir2 * segmentLength2 / 2
+
+    local intersectionPoint = vectorMath.lineIntersectionWithLine( segmentMiddle1, segmentDir1, segmentMiddle2, segmentDir2, precision )
+    if not intersectionPoint then return end
+
+    if not vectorMath.isPointOnLineSegment( intersectionPoint, segmentStart1, segmentEnd1, precision ) then return end
+    if not vectorMath.isPointOnLineSegment( intersectionPoint, segmentStart2, segmentEnd2, precision ) then return end
+
+    return intersectionPoint
+end
+
+--[[
+    - Returns the intersection between an infinite line and a plane.
+
+    lineOrigin: (Vector)
+        - A point on the line.
+    lineDir: (Vector)
+        - The direction of the line.
+    planeOrigin: (Vector)
+        - The center of the plane.
+    planeNormal: (Vector)
+        - The normal of the plane.
+    planeWidth: (optional) (number)
+        - The width of the plane.
+        - If nil, will be an infinite plane.
+    planeHeight: (optional) (number)
+        - The height of the plane.
+        - Defaults to the value of planeWidth.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the line and the plane for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+
+    RETURNS: intersectionPoint
+        intersectionPoint: (Vector or nil)
+            - The intersection point of the line and the plane, or nil if they don't intersect.
+--]]
+function vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
+    precision = precision or PRECISION_TINY
+    local dot = lineDir:dot( planeNormal )
+
+    if dot == 0 then
+        if not vectorMath.isPointOnPlane( lineOrigin, planeOrigin, planeNormal, planeWidth, planeHeight, precision ) then return end
+
+        return lineOrigin:clone()
+    end
+
+    local adjacent = vectorMath.pointDistanceFromPlane( lineOrigin, planeOrigin, planeNormal )
+    if adjacent == 0 then return lineOrigin:clone() end
+
+    local swapLineDir = true
+
+    if dot < 0 then
+        dot = -dot
+        swapLineDir = not swapLineDir
+    end
+
+    if vectorMath.isPointBelowPlane( lineOrigin, planeOrigin, planeNormal ) then
+        swapLineDir = not swapLineDir
+    end
+
+    if swapLineDir then
+        lineDir = -lineDir
+    end
+
+    local hypotenuse = adjacent / dot -- Recall that dot product on unit vectors gives cos(), and that cos() = a / h
+    local intersectionPoint = lineOrigin + lineDir * hypotenuse
+
+    if not vectorMath.isPointOnPlane( intersectionPoint, planeOrigin, planeNormal, planeWidth, planeHeight, precision ) then return end
+
+    return intersectionPoint
+end
+
+--[[
+    - Returns the intersection point between a line segment and a plane.
+
+    segmentStart: (Vector)
+        - The start of the line segment.
+    segmentEnd: (Vector)
+        - The end of the line segment.
+    planeOrigin: (Vector)
+        - The center of the plane.
+    planeNormal: (Vector)
+        - The normal of the plane.
+    planeWidth: (optional) (number)
+        - The width of the plane.
+        - If nil, will be an infinite plane.
+    planeHeight: (optional) (number)
+        - The height of the plane.
+        - Defaults to the value of planeWidth.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the line segment and the plane for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 0.
+
+    RETURNS: intersectionPoint
+        intersectionPoint: (Vector or nil)
+            - The intersection point of the line segment and the plane, or nil if they don't intersect.
+--]]
+function vectorMath.lineSegmentIntersectionWithPlane( segmentStart, segmentEnd, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
+    local intersectionPoint = vectorMath.lineIntersectionWithPlane( segmentStart, segmentEnd - segmentStart, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
+    if not intersectionPoint then return end
+    if not vectorMath.isPointOnLineSegment( intersectionPoint, segmentStart, segmentEnd, precision ) then return end
+
+    return intersectionPoint
+end
+
+--[[
+    - Returns whether or not two vectors are equal, within a given precision.
+
+    vec1: (Vector)
+        - The first vector to compare.
+    vec2: (Vector)
+        - The second vector to compare.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the vectors for them to be considered equal.
+        - Smaller values are more precise.
+        - Default is 0.
+--]]
+function vectorMath.isPointOnPoint( point1, point2, precision )
+    if precision then
+        return point1:getDistanceSqr( point2 ) <= precision * precision
+    end
+
+    return point1 == point2
+end
+
+--[[
+    - Returns whether or not a point is on an infinite line.
+
+    point: (Vector)
+        - The point to check.
+    lineOrigin: (Vector)
+        - A point on the line.
+    lineDir: (Vector)
+        - The direction of the line.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the point and the line for it to be considered on the line.
+        - Smaller values are more precise.
+        - Default is 0.
+--]]
+function vectorMath.isPointOnLine( point, lineOrigin, lineDir, precision )
+    return vectorMath.pointDistanceFromLine( point, lineOrigin, lineDir ) <= ( precision or 0 )
+end
+
+--[[
+    - Returns whether or not a point is on a line segment.
+
+    point: (Vector)
+        - The point to check.
+    segmentStart: (Vector)
+        - The start of the line segment.
+    segmentEnd: (Vector)
+        - The end of the line segment.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the point and the line segment for it to be considered on the line segment.
+        - Smaller values are more precise.
+        - Default is 0.
+--]]
+function vectorMath.isPointOnLineSegment( point, segmentStart, segmentEnd, precision )
+    return vectorMath.pointDistanceFromLineSegment( point, segmentStart, segmentEnd ) <= ( precision or 0 )
+end
+
+--[[
+    - Returns whether or not a point is on a plane.
+
+    point: (Vector)
+        - The point to check.
+    planeOrigin: (Vector)
+        - The center of the plane.
+    planeNormal: (Vector)
+        - The normal of the plane.
+    planeWidth: (optional) (number)
+        - The width of the plane.
+        - If nil, will be an infinite plane.
+    planeHeight: (optional) (number)
+        - The height of the plane.
+        - Defaults to the value of planeWidth.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the point and the plane for it to be considered on the plane.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+--]]
+function vectorMath.isPointOnPlane( point, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
+    precision = precision or PRECISION_TINY
+
+    if not planeWidth and not planeHeight then
+        return vectorMath.pointDistanceFromPlane( point, planeOrigin, planeNormal ) <= precision
+    end
+
+    local closestPoint = vectorMath.closestPointOnPlane( point, planeOrigin, planeNormal, planeWidth, planeHeight )
+
+    return vectorMath.isPointOnPoint( point, closestPoint, precision )
+end
+
+--[[
+    - Returns whether or not a point is above an infinite plane's normal.
+
+    point: (Vector)
+        - The point to check.
+    planeOrigin: (Vector)
+        - A point on the plane.
+    planeNormal: (Vector)
+        - The normal of the plane.
+--]]
+function vectorMath.isPointAbovePlane( point, planeOrigin, planeNormal )
+    return ( point - planeOrigin ):dot( planeNormal ) > 0
+end
+
+--[[
+    - Returns whether or not a point is below an infinite plane's normal.
+
+    point: (Vector)
+        - The point to check.
+    planeOrigin: (Vector)
+        - A point on the plane.
+    planeNormal: (Vector)
+        - The normal of the plane.
+--]]
+function vectorMath.isPointBelowPlane( point, planeOrigin, planeNormal )
+    return ( point - planeOrigin ):dot( planeNormal ) < 0
+end
+
+--[[
+    - Returns whether or not two infinite lines intersect.
+
+    lineOrigin1: (Vector)
+        - A point on the first line.
+    lineDir1: (Vector)
+        - The direction of the first line.
+    lineOrigin2: (Vector)
+        - A point on the second line.
+    lineDir2: (Vector)
+        - The direction of the second line.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the lines for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+--]]
+function vectorMath.doesLineIntersectWithLine( lineOrigin1, lineDir1, lineOrigin2, lineDir2, precision )
+    return vectorMath.lineIntersectionWithLine( lineOrigin1, lineDir1, lineOrigin2, lineDir2, precision ) ~= nil
+end
+
+--[[
+    - Returns whether or not two line segments intersect.
+
+    segmentStart1: (Vector)
+        - The start of the first line segment.
+    segmentEnd1: (Vector)
+        - The end of the first line segment.
+    segmentStart2: (Vector)
+        - The start of the second line segment.
+    segmentEnd2: (Vector)
+        - The end of the second line segment.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the line segments for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 0.
+--]]
+function vectorMath.doesLineSegmentIntersectWithLineSegment( segmentStart1, segmentEnd1, segmentStart2, segmentEnd2, precision )
+    local segmentDir1, segmentLength1 = vectorMath.getDirectionAndLength( segmentEnd1 - segmentStart1 )
+    if segmentLength1 == 0 then return vectorMath.isPointOnLineSegment( segmentStart1, segmentStart2, segmentEnd2, precision ) end
+
+    local segmentDir2, segmentLength2 = vectorMath.getDirectionAndLength( segmentEnd2 - segmentStart2 )
+    if segmentLength2 == 0 then return vectorMath.isPointOnLineSegment( segmentStart2, segmentStart1, segmentEnd1, precision ) end
+
+    -- Get infinite line intersection, then check if it's on both line segments
+    local intersectionPoint = vectorMath.lineIntersectionWithLine( segmentStart1, segmentDir1, segmentStart2, segmentDir2, precision )
+    if not intersectionPoint then return false end
+
+    if not vectorMath.isPointOnLineSegment( intersectionPoint, segmentStart1, segmentEnd1, precision ) then return false end
+    if not vectorMath.isPointOnLineSegment( intersectionPoint, segmentStart2, segmentEnd2, precision ) then return false end
+
+    return true
+end
+
+--[[
+    - Returns whether or not an infinite line intersects an infinite plane.
+
+    lineOrigin: (Vector)
+        - A point on the line.
+    lineDir: (Vector)
+        - The direction of the line.
+    planeOrigin: (Vector)
+        - The center of the plane.
+    planeNormal: (Vector)
+        - The normal of the plane.
+    planeWidth: (optional) (number)
+        - The width of the plane.
+        - If nil, will be an infinite plane.
+    planeHeight: (optional) (number)
+        - The height of the plane.
+        - Defaults to the value of planeWidth.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the line and the plane for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 0.
+--]]
+function vectorMath.doesLineIntersectWithPlane( lineOrigin, lineDir, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
+    return vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin, planeNormal, planeWidth, planeHeight, precision ) ~= nil
+end
+
+--[[
+    - Returns whether or not two infinite planes intersect.
+
+    planeOrigin1: (Vector)
+        - A point on the first plane.
+    planeNormal1: (Vector)
+        - The normal of the first plane.
+    planeOrigin2: (Vector)
+        - A point on the second plane.
+    planeNormal2: (Vector)
+        - The normal of the second plane.
+    precision: (optional) (number >= 0)
+        - The maximum distance between the planes for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 0.
+--]]
+function vectorMath.doesPlaneIntersectWithPlane( planeOrigin1, planeNormal1, planeOrigin2, planeNormal2, precision )
+    if planeNormal1 ~= planeNormal2 and planeNormal1 ~= -planeNormal2 then return true end
+
+    return vectorMath.isPointOnPlane( planeOrigin1, planeOrigin2, planeNormal2, nil, nil, precision )
+end
+
+--[[
+    - Returns a random point along a line.
+
+    dir: (Vector)
+        - The direction of the line.
+    maxLength: (optional) (number)
+        - The maximum total length of the line, which extends in both directions from the origin.
+        - Default is 50000.
+--]]
+function vectorMath.randomAlongLine( dir, maxLength )
+    local radius = ( maxLength or 50000 ) / 2
+
+    return vectorMath.randomAlongLineSegment( dir * -radius, dir * radius )
+end
+
+--[[
+    - Returns a random point along a line segment.
+
+    segmentStart: (Vector)
+        - The start of the line segment.
+    segmentEnd: (Vector)
+        - The end of the line segment.
+--]]
+function vectorMath.randomAlongLineSegment( segmentStart, segmentEnd )
+    return mLerpVector( mRand( 0, 1 ), segmentStart, segmentEnd )
+end
+
+--[[
+    - Returns a random point along the circumference of a circle.
+
+    radius: (number)
+        - The radius of the circle.
+    circleNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the circle.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a circle on the XY plane.
+--]]
+function vectorMath.randomAlongCircle( radius, circleNormal )
+    local theta = mRand( 0, PI_DOUBLE )
+    local x = mCos( theta ) * radius
+    local y = mSin( theta ) * radius
+
+    if not circleNormal then return Vector( x, y, 0 ) end
+
+    if type( circleNormal ) == "Vector" then
+        circleNormal = circleNormal:getAngle()
+    end
+
+    return circleNormal:getUp() * x + circleNormal:getRight() * y
+end
+
+--[[
+    - Returns a random point inside the area a circle.
+
+    radius: (number)
+        - The radius of the circle.
+    circleNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the circle.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a circle on the XY plane.
+--]]
+function vectorMath.randomInsideCircle( radius, circleNormal )
+    return vectorMath.randomAlongCircle( radius * mRand( 0, 1 ), circleNormal )
+end
+
+--[[
+    - Returns a random point inside the area between two circles with the same center.
+
+    minRadius: (number)
+        - The minimum radius of the circle.
+    maxRadius: (number)
+        - The maximum radius of the circle.
+    circleNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the circle.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a circle on the XY plane.
+--]]
+function vectorMath.randomInsideBoundedCircle( minRadius, maxRadius, circleNormal )
+    return vectorMath.randomAlongCircle( mRand( minRadius, maxRadius ), circleNormal )
+end
+
+--[[
+    - Returns whether or not an x, y point is within the area of a circle.
+    - This is purely 2D, hence the lack of a z parameter or any vectors.
+
+    x: (number)
+        - The x position of the point.
+    y: (number)
+        - The y position of the point.
+    circleX: (number)
+        - The x position of the circle's center.
+    circleY: (number)
+        - The y position of the circle's center.
+    radius: (number)
+        - The radius of the circle.
+--]]
+function vectorMath.isXYWithinCircle( x, y, circleX, circleY, radius )
+    x = x - circleX
+    y = y - circleY
+
+    return x * x + y * y <= radius * radius
+end
+
+--[[
+    - Returns a random point along the surface area of a sphere.
+
+    radius: (number)
+        - The radius of the sphere.
+--]]
+function vectorMath.randomAlongSphere( radius )
+    local theta = mRand( 0, PI_DOUBLE )
+    local phi = mRand( 0, PI_DOUBLE )
+
+    local sinPhi = mSin( phi )
+
+    local x = mCos( theta ) * sinPhi * radius
+    local y = mSin( theta ) * sinPhi * radius
+    local z = mCos( phi ) * radius
+
+    return Vector( x, y, z )
+end
+
+--[[
+    - Returns a random point inside the volume of a sphere.
+
+    radius: (number)
+        - The radius of the sphere.
+--]]
+function vectorMath.randomInsideSphere( radius )
+    return vectorMath.randomAlongSphere( radius * mRand( 0, 1 ) )
+end
+
+--[[
+    - Returns a random point inside the volume of two spheres with the same center.
+
+    minRadius: (number)
+        - The minimum radius of the sphere.
+    maxRadius: (number)
+        - The maximum radius of the sphere.
+--]]
+function vectorMath.randomInsideBoundedSphere( minRadius, maxRadius )
+    return vectorMath.randomAlongSphere( mRand( minRadius, maxRadius ) )
+end
+
+--[[
+    - Returns whether or not a point is inside a sphere.
+
+    point: (Vector)
+        - The position of the point.
+    spherePos: (Vector)
+        - The position of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+--]]
+function vectorMath.isPointWithinSphere( point, spherePos, radius )
+    local diff = point - spherePos
+
+    return diff:getLengthSqr() <= radius * radius
+end
+
+--[[
+    - Returns whether or not a point is inside a sphere with radius r = sqrt( radiusSqr ).
+    - Slightly more efficient than vectorMath.isPointWithinSphere() when radiusSqr is pre-calculated.
+
+    point: (Vector)
+        - The position of the point.
+    spherePos: (Vector)
+        - The position of the sphere.
+    radiusSqr: (number)
+        - The square of the radius of the sphere.
+--]]
+function vectorMath.isPointWithinSphereSqr( point, spherePos, radiusSqr )
+    local diff = point - spherePos
+
+    return diff:getLengthSqr() <= radiusSqr
+end
+
+--[[
+    - Clamps a point to be along the surface area of a sphere.
+
+    point: (Vector)
+        - The point to clamp.
+    spherePos: (Vector)
+        - The position of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+    fallbackPoint: (optional) (Vector)
+        - A fallback return value for if a reasonable result couldn't be determined.
+        - This occurs when point == spherePos.
+--]]
+function vectorMath.clampAlongSphere( point, spherePos, radius, fallbackPoint )
+    local originToPoint = point - spherePos
+    local distSqr = originToPoint:getLengthSqr()
+    if distSqr == 0 then return fallbackPoint or ( spherePos + vectorMath.randomAlongSphere( radius ) ) end
+
+    local dist = mSqrt( distSqr )
+    local originToPointDir = originToPoint / dist
+
+    return spherePos + originToPointDir * radius
+end
+
+--[[
+    - Clamps a point to be inside the volume of a sphere.
+
+    point: (Vector)
+        - The point to clamp.
+    spherePos: (Vector)
+        - The position of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+--]]
+function vectorMath.clampInsideSphere( point, spherePos, radius )
+    local originToPoint = point - spherePos
+    local distSqr = originToPoint:getLengthSqr()
+    if distSqr == 0 then return point:clone() end
+    if distSqr < radius * radius then return point:clone() end
+
+    local dist = mSqrt( distSqr )
+    local originToPointDir = originToPoint / dist
+
+    return spherePos + originToPointDir * radius
+end
+
+--[[
+    - Clamps a point to be outside the volume of a sphere.
+
+    point: (Vector)
+        - The point to clamp.
+    spherePos: (Vector)
+        - The position of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+    fallbackPoint: (optional) (Vector)
+        - A fallback return value for if a reasonable result couldn't be determined.
+        - This occurs when point == spherePos.
+--]]
+function vectorMath.clampOutsideSphere( point, spherePos, radius, fallbackPoint )
+    local originToPoint = point - spherePos
+    local distSqr = originToPoint:getLengthSqr()
+    if distSqr == 0 then return fallbackPoint or ( spherePos + vectorMath.randomAlongSphere( radius ) ) end
+    if distSqr > radius * radius then return point:clone() end
+
+    local dist = mSqrt( distSqr )
+    local originToPointDir = originToPoint / dist
+
+    return spherePos + originToPointDir * radius
+end
+
+--[[
+    - Returns a random point along the surface area of a tube (a cylinder with no end caps).
+
+    radius: (number)
+        - The radius of the tube.
+    length: (number)
+        - The length of the tube.
+    dir: (optional) (Vector or Angle)
+        - The direction of the tube's length.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a tube along the Z axis.
+    originIsBottom: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the bottom of the tube, rather than its center.
+        - Default is false.
+--]]
+function vectorMath.randomAlongTube( radius, length, dir, originIsBottom )
+    local theta = mRand( 0, PI_DOUBLE )
+    local x = mCos( theta ) * radius
+    local y = mSin( theta ) * radius
+    local lengthEff
+
+    if originIsBottom then
+        lengthEff = length * mRand( 0, 1 )
+    else
+        lengthEff = length * mRand( -0.5, 0.5 )
+    end
+
+    if not dir then return Vector( x, y, lengthEff ) end
+
+    if type( dir ) == "Vector" then
+        dir = dir:getAngle()
+    end
+
+    return dir:getUp() * x + dir:getRight() * y + dir:getForward() * lengthEff
+end
+
+--[[
+    - Returns a random point along the surface area of a cylinder, including its end caps.
+
+    radius: (number)
+        - The radius of the cylinder.
+    length: (number)
+        - The length of the cylinder.
+    dir: (optional) (Vector or Angle)
+        - The direction of the cylinder's length.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a cylinder along the Z axis.
+    originIsBottom: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the bottom of the cylinder, rather than its center.
+        - Default is false.
+--]]
+function vectorMath.randomAlongCylinder( radius, length, dir, originIsBottom )
+    if radius == 0 or length == 0 then return Vector( 0, 0, 0 ) end
+
+    -- Adjust chance based on surface area so every point has equal chance.
+    local circumference = PI_DOUBLE * radius
+    local combinedCircleArea = PI_DOUBLE * radius * radius
+    local tubeArea = circumference * length
+    local totalArea = combinedCircleArea + tubeArea
+
+    -- Random point on the tube
+    if mRand( 0, 1 ) <= tubeArea / totalArea then
+        return vectorMath.randomAlongTube( radius, length, dir, originIsBottom )
+    end
+
+    -- Random point on an end cap
+    local useTop = mRandom( 1, 2 ) == 1
+    local cylinderBottom, dirEff = getCylinderBottomAndDirEff( length, dir, originIsBottom )
+    local circlePos = cylinderBottom
+
+    if useTop then
+        circlePos = circlePos + dirEff * length
+    end
+
+    return circlePos + vectorMath.randomInsideCircle( radius, dir )
+end
+
+--[[
+    - Returns a random point along the edges (i.e. top and bottom circle circumferences) of a cylinder.
+
+    radius: (number)
+        - The radius of the cylinder.
+    length: (number)
+        - The length of the cylinder.
+    dir: (optional) (Vector or Angle)
+        - The direction of the cylinder's length.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a cylinder along the Z axis.
+    originIsBottom: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the bottom of the cylinder, rather than its center.
+        - Default is false.
+--]]
+function vectorMath.randomAlongCylinderEdges( radius, length, dir, originIsBottom )
+    local cylinderBottom, dirEff = getCylinderBottomAndDirEff( length, dir, originIsBottom )
+    local useBottom = mRandom( 1, 2 ) == 1
+    local circlePos = useBottom and cylinderBottom or cylinderBottom + dirEff * length
+
+    return circlePos + vectorMath.randomAlongCircle( radius, dir )
+end
+
+--[[
+    - Returns a random point inside the volume of a cylinder.
+
+    radius: (number)
+        - The radius of the cylinder.
+    length: (number)
+        - The length of the cylinder.
+    dir: (optional) (Vector or Angle)
+        - The direction of the cylinder's length.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a cylinder along the Z axis.
+    originIsBottom: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the bottom of the cylinder, rather than its center.
+        - Default is false.
+--]]
+function vectorMath.randomInsideCylinder( radius, length, dir, originIsBottom )
+    local cylinderBottom, dirEff = getCylinderBottomAndDirEff( length, dir, originIsBottom )
+    local circlePos = cylinderBottom + dirEff * mRand( 0, length )
+
+    return circlePos + vectorMath.randomInsideCircle( radius, dir )
+end
+
+--[[
+    - Returns a random point inside the volume of two cylinders with the same center/bottom (depending on originIsBottom).
+
+    minRadius: (number)
+        - The minimum radius of the cylinder.
+    maxRadius: (number)
+        - The maximum radius of the cylinder.
+    minLength: (number)
+        - The minimum length of the cylinder.
+    maxLength: (number)
+        - The maximum length of the cylinder.
+    dir: (optional) (Vector or Angle)
+        - The direction of the cylinder's length.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a cylinder along the Z axis.
+    originIsBottom: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the bottom of the cylinder, rather than its center.
+        - Default is false.
+        - Note that, if this is true, the entire min/max length range will consist of cylinders with their bottom at (0,0,0).
+            - i.e. the cylinders will scale by the bottom, and not by their centers, unlike with other 'randomInside____' functions.
+--]]
+function vectorMath.randomInsideBoundedCylinder( minRadius, maxRadius, minLength, maxLength, dir, originIsBottom )
+    return vectorMath.randomAlongTube( mRand( minRadius, maxRadius ), mRand( minLength, maxLength ), dir, originIsBottom )
+end
+
+--[[
+    - Returns whether or not a point is inside a cylinder.
+
+    point: (Vector)
+        - The position of the point.
+    cylinderPos: (Vector)
+        - The position of the cylinder.
+        - This is either the center (false) or the bottom (true) of the cylinder, depending on the value of originIsBottom.
+    radius: (number)
+        - The radius of the cylinder.
+    length: (number)
+        - The length of the cylinder.
+    dir: (optional) (Vector or Angle)
+        - The direction of the cylinder's length.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a cylinder along the Z axis.
+    originIsBottom: (optional) (boolean)
+        - Whether cylinderPos is considered to be the bottom of the cylinder, rather than its center.
+        - Default is false.
+--]]
+function vectorMath.isPointWithinCylinder( point, cylinderPos, radius, length, dir, originIsBottom )
+    local cylinderBottom, dirEff = getCylinderBottomAndDirEff( length, dir, originIsBottom )
+    cylinderBottom = cylinderBottom + cylinderPos
+
+    if not dir then
+        local zDiff = point[3] - cylinderBottom[3]
+        if zDiff < 0 or zDiff > length then return false end
+
+        return vectorMath.isXYWithinCircle( point[1], point[2], cylinderBottom[1], cylinderBottom[2], radius )
+    end
+
+    local pointToBottom = cylinderBottom - point
+    if pointToBottom:dot( dirEff ) > 0 then return false end
+
+    local pointToTop = pointToBottom + dirEff * length
+    if pointToTop:dot( dirEff ) < 0 then return false end
+
+    return vectorMath.isPointOnLine( point, cylinderBottom, dirEff, radius )
+end
+
+--[[
+    - Returns a random point along the surface area of a cone, excluding its base.
+
+    tip: (Vector)
+        - The narrow end of the cone.
+    dir: (Vector)
+        - The direction of the cone's length.
+        - This points from the tip to the base.
+    length: (number)
+        - The length of the cone.
+    endRadius: (number or nil)
+        - The radius of the base of the cone.
+        - If nil, you must specify theta.
+    theta: ( 0 <= number < PI / 2 or nil)
+        - The angle between the tip, base center, and base rim of the circle, measured in radians.
+        - If nil, you must specify endRadius.
+--]]
+function vectorMath.randomAlongConeWithoutBase( tip, dir, length, endRadius, theta )
+    endRadius = getConeEndRadius( length, endRadius, theta )
+
+    local frac = mRand( 0, 1 )
+
+    return tip + dir * length * frac + vectorMath.randomAlongCircle( endRadius * frac, dir )
+end
+
+--[[
+    - Returns a random point along the surface area of a cone.
+
+    tip: (Vector)
+        - The narrow end of the cone.
+    dir: (Vector)
+        - The direction of the cone's length.
+        - This points from the tip to the base.
+    length: (number)
+        - The length of the cone.
+    endRadius: (number or nil)
+        - The radius of the base of the cone.
+        - If nil, you must specify theta.
+    theta: ( 0 <= number < PI / 2 or nil)
+        - The angle between the tip, base center, and base rim of the circle, measured in radians.
+        - If nil, you must specify endRadius.
+--]]
+function vectorMath.randomAlongCone( tip, dir, length, endRadius, theta )
+    endRadius = getConeEndRadius( length, endRadius, theta )
+
+    local endRadiusSqr = endRadius * endRadius
+    local slantLength = mSqrt( length * length + endRadiusSqr )
+
+    local circleArea = PI * endRadiusSqr
+    local slantArea = PI * endRadius * slantLength
+    local totalArea = circleArea + slantArea
+
+    -- Random point on base
+    if mRand( 0, 1 ) <= circleArea / totalArea then
+        return tip + dir * length + vectorMath.randomInsideCircle( endRadius, dir )
+    end
+
+    -- Random point on slant
+    local frac = mRand( 0, 1 )
+
+    return tip + dir * length * frac + vectorMath.randomAlongCircle( endRadius * frac, dir )
+end
+
+--[[
+    - Returns a random point inside the volume of a cone.
+
+    tip: (Vector)
+        - The narrow end of the cone.
+    dir: (Vector)
+        - The direction of the cone's length.
+        - This points from the tip to the base.
+    length: (number)
+        - The length of the cone.
+    endRadius: (number or nil)
+        - The radius of the base of the cone.
+        - If nil, you must specify theta.
+    theta: ( 0 <= number < PI / 2 or nil)
+        - The angle between the tip, base center, and base rim of the circle, measured in radians.
+        - If nil, you must specify endRadius.
+--]]
+function vectorMath.randomInsideCone( tip, dir, length, endRadius, theta )
+    endRadius = getConeEndRadius( length, endRadius, theta )
+
+    local frac = mRand( 0, 1 )
+
+    return tip + dir * length * frac + vectorMath.randomInsideCircle( endRadius * frac, dir )
+end
+
+--[[
+    - Returns a random point inside the volume of two cones with the same tip.
+
+    tip: (Vector)
+        - The narrow end of the cone.
+    dir: (Vector)
+        - The direction of the cone's length.
+        - This points from the tip to the base.
+    minLength: (number)
+        - The minimum length of the cone.
+    maxLength: (number)
+        - The maximum length of the cone.
+    minEndRadius: (number or nil)
+        - The minimum radius of the base of the cone.
+        - If nil, you must specify minTheta and maxTheta.
+    maxEndRadius: (number or nil)
+        - The maximum radius of the base of the cone.
+        - If nil, you must specify minTheta and maxTheta.
+    minTheta: ( 0 <= number < PI / 2 or nil)
+        - The minimum angle between the tip, base center, and base rim of the circle, measured in radians.
+        - If nil, you must specify minEndRadius and maxEndRadius.
+    maxTheta: ( 0 <= number < PI / 2 or nil)
+        - The maximum angle between the tip, base center, and base rim of the circle, measured in radians.
+        - If nil, you must specify minEndRadius and maxEndRadius.
+--]]
+function vectorMath.randomInsideBoundedCone( tip, dir, minLength, maxLength, minEndRadius, maxEndRadius, minTheta, maxTheta )
+    local length = mRand( minLength, maxLength )
+    local endRadius = minEndRadius and maxEndRadius and mRand( minEndRadius, maxEndRadius )
+    local theta = minTheta and maxTheta and mRand( minTheta, maxTheta )
+
+    return vectorMath.randomInsideCone( tip, dir, length, endRadius, theta )
+end
+
+function vectorMath.isPointWithinCone( point, coneTip, dir, length, endRadius, theta )
+    local tipToPoint = point - coneTip
+    local tipToPointDir, tipToPointLength = vectorMath.getDirectionAndLength( tipToPoint )
+    if tipToPointLength == 0 then return true end
+
+    local dot = tipToPointDir:dot( dir )
+    if dot <= 0 then return false end
+    if tipToPointLength * dot > length then return false end -- Account for flat end of cone by getting projected length of point onto dir.
+
+    endRadius = getConeEndRadius( length, endRadius, theta )
+    theta = mATan( endRadius / length )
+
+    local pointAng = mACos( dot )
+    if pointAng > theta then return false end
+
+    return pointAng <= theta
+end
+
+function vectorMath.isPointWithinRoundedCone( point, coneTip, dir, length, endRadius, theta )
+    local tipToPoint = point - coneTip
+    local tipToPointDir, tipToPointLength = vectorMath.getDirectionAndLength( tipToPoint )
+    if tipToPointLength == 0 then return true end
+    if tipToPointLength > length then return false end
+
+    local dot = tipToPointDir:dot( dir )
+    if dot <= 0 then return false end
+
+    endRadius = getConeEndRadius( length, endRadius, theta )
+    theta = mATan( endRadius / length )
+
+    local pointAng = mACos( dot )
+
+    return pointAng <= theta
+end
+
+--[[
+    - Returns a random point along the perimeter of a rectangle.
+
+    width: (number)
+        - The width of the rectangle.
+    height: (number)
+        - The height of the rectangle.
+    rectNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the rectangle.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.randomAlongRectangle( width, height, rectNormal, originIsTopLeft )
+    local x
+    local y
+
+    if mRandom( 1, 2 ) == 1 then
+        x = mRand( 0, width )
+        y = mRandom( 1, 2 ) == 1 and 0 or height
+    else
+        x = mRandom( 1, 2 ) == 1 and 0 or width
+        y = mRand( 0, height )
+    end
+
+    if not originIsTopLeft then
+        x = x - width * 0.5
+        y = y - height * 0.5
+    end
+
+    if not rectNormal then return Vector( x, y, 0 ) end
+
+    if type( rectNormal ) == "Vector" then
+        rectNormal = rectNormal:getAngle()
+    end
+
+    return rectNormal:getUp() * x + rectNormal:getRight() * y
+end
+
+--[[
+    - Returns a random point on the corners of a rectangle.
+
+    width: (number)
+        - The width of the rectangle.
+    height: (number)
+        - The height of the rectangle.
+    rectNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the rectangle.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.randomAlongRectangleCorners( width, height, rectNormal, originIsTopLeft )
+    local x = mRandom( 1, 2 ) == 1 and 0 or width
+    local y = mRandom( 1, 2 ) == 1 and 0 or height
+
+    if not originIsTopLeft then
+        x = x - width * 0.5
+        y = y - height * 0.5
+    end
+
+    if not rectNormal then return Vector( x, y, 0 ) end
+
+    if type( rectNormal ) == "Vector" then
+        rectNormal = rectNormal:getAngle()
+    end
+
+    return rectNormal:getUp() * x + rectNormal:getRight() * y
+end
+
+--[[
+    - Returns a random point inside the area of a rectangle.
+
+    width: (number)
+        - The width of the rectangle.
+    height: (number)
+        - The height of the rectangle.
+    rectNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the rectangle.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.randomInsideRectangle( width, height, rectNormal, originIsTopLeft )
+    local x = mRand( 0, width )
+    local y = mRand( 0, height )
+
+    if not originIsTopLeft then
+        x = x - width * 0.5
+        y = y - height * 0.5
+    end
+
+    if not rectNormal then return Vector( x, y, 0 ) end
+
+    if type( rectNormal ) == "Vector" then
+        rectNormal = rectNormal:getAngle()
+    end
+
+    return rectNormal:getUp() * x + rectNormal:getRight() * y
+end
+
+--[[
+    - Returns a random point inside the area between two rectangles with the same center/top left (depenging on originIsTopLeft).
+
+    minWidth: (number)
+        - The minimum width of the rectangle.
+    maxWidth: (number)
+        - The maximum width of the rectangle.
+    minHeight: (number)
+        - The minimum height of the rectangle.
+    maxHeight: (number)
+        - The maximum height of the rectangle.
+    rectNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the rectangle.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.randomInsideBoundedRectangle( minWidth, maxWidth, minHeight, maxHeight, rectNormal, originIsTopLeft )
+    return vectorMath.randomAlongRectangle( mRand( minWidth, maxWidth ), mRand( minHeight, maxHeight ), rectNormal, originIsTopLeft )
+end
+
+--[[
+    - Returns whether or not an x, y point is within the area of a rectangle.
+    - This is purely 2D, hence the lack of a z parameter or any vectors.
+
+    x: (number)
+        - The x position of the point.
+    y: (number)
+        - The y position of the point.
+    rectX: (number)
+        - The x position of the rectangle.
+    rectY: (number)
+        - The y position of the rectangle.
+    width: (number)
+        - The width of the rectangle.
+    height: (number)
+        - The height of the rectangle.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.isXYWithinRectangle( x, y, rectX, rectY, width, height, originIsTopLeft )
+    if originIsTopLeft then
+        return x >= rectX and x <= rectX + width and y >= rectY and y <= rectY + height
+    end
+
+    local halfWidth = width * 0.5
+    local halfHeight = height * 0.5
+
+    return x >= rectX - halfWidth and x <= rectX + halfWidth and y >= rectY - halfHeight and y <= rectY + halfHeight
+end
+
+--[[
+    - Returns a random point along the perimeter of a square.
+
+    size: (number)
+        - The size of the square.
+    squareNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the square.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a square on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the square, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.randomAlongSquare( size, squareNormal, originIsTopLeft )
+    return vectorMath.randomAlongRectangle( size, size, squareNormal, originIsTopLeft )
+end
+
+--[[
+    - Returns a random point on the corners of a square.
+
+    size: (number)
+        - The size of the square.
+    squareNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the square.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a square on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the square, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.randomAlongSquareCorners( size, squareNormal, originIsTopLeft )
+    return vectorMath.randomAlongRectangleCorners( size, size, squareNormal, originIsTopLeft )
+end
+
+--[[
+    - Returns a random point inside the area of a square.
+
+    size: (number)
+        - The size of the square.
+    squareNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the square.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a square on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the square, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.randomInsideSquare( size, squareNormal, originIsTopLeft )
+    return vectorMath.randomInsideRectangle( size, size, squareNormal, originIsTopLeft )
+end
+
+--[[
+    - Returns a random point inside the area between two squares with the same center/top left (depenging on originIsTopLeft).
+
+    minSize: (number)
+        - The minimum size of the square.
+    maxSize: (number)
+        - The maximum size of the square.
+    squareNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the square.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a square on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the square, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.randomInsideBoundedSquare( minSize, maxSize, squareNormal, originIsTopLeft )
+    return vectorMath.randomInsideBoundedRectangle( minSize, maxSize, minSize, maxSize, squareNormal, originIsTopLeft )
+end
+
+--[[
+    - Returns whether or not an x, y point is within the area of a square.
+    - This is purely 2D, hence the lack of a z parameter or any vectors.
+
+    x: (number)
+        - The x position of the point.
+    y: (number)
+        - The y position of the point.
+    squareX: (number)
+        - The x position of the square.
+    squareY: (number)
+        - The y position of the square.
+    size: (number)
+        - The size of the square.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0) is considered to be the top-left of the square, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.isXYWithinSquare( x, y, squareX, squareY, size, originIsTopLeft )
+    return vectorMath.isXYWithinRectangle( x, y, squareX, squareY, size, size, originIsTopLeft )
+end
+
+--[[
+    - Returns a random point along the surface area of a box.
+
+    minBounds: (Vector)
+        - The minimum point of the box.
+    maxBounds: (Vector)
+        - The maximum point of the box.
+--]]
+function vectorMath.randomAlongBox( minBounds, maxBounds )
+    local restrictedAxis = mRandom( 1, 3 )
+    local x
+    local y
+    local z
+
+    if restrictedAxis == 1 then
+        x = mRandom( 1, 2 ) == 1 and minBounds[1] or maxBounds[1]
+        y = mRand( minBounds[2], maxBounds[2] )
+        z = mRand( minBounds[3], maxBounds[3] )
+    elseif restrictedAxis == 2 then
+        x = mRand( minBounds[1], maxBounds[1] )
+        y = mRandom( 1, 2 ) == 1 and minBounds[2] or maxBounds[2]
+        z = mRand( minBounds[3], maxBounds[3] )
+    else -- restrictedAxis == 3
+        x = mRand( minBounds[1], maxBounds[1] )
+        y = mRand( minBounds[2], maxBounds[2] )
+        z = mRandom( 1, 2 ) == 1 and minBounds[3] or maxBounds[3]
+    end
+
+    return Vector( x, y, z )
+end
+
+--[[
+    - Returns a random point along the edges of a box.
+
+    minBounds: (Vector)
+        - The minimum point of the box.
+    maxBounds: (Vector)
+        - The maximum point of the box.
+--]]
+function vectorMath.randomAlongBoxEdges( minBounds, maxBounds )
+    local freeAxis = mRandom( 1, 3 )
+    local x
+    local y
+    local z
+
+    if freeAxis == 1 then
+        x = mRand( minBounds[1], maxBounds[1] )
+        y = mRandom( 1, 2 ) == 1 and minBounds[2] or maxBounds[2]
+        z = mRandom( 1, 2 ) == 1 and minBounds[3] or maxBounds[3]
+    elseif freeAxis == 2 then
+        x = mRandom( 1, 2 ) == 1 and minBounds[1] or maxBounds[1]
+        y = mRand( minBounds[2], maxBounds[2] )
+        z = mRandom( 1, 2 ) == 1 and minBounds[3] or maxBounds[3]
+    else -- freeAxis == 3
+        x = mRandom( 1, 2 ) == 1 and minBounds[1] or maxBounds[1]
+        y = mRandom( 1, 2 ) == 1 and minBounds[2] or maxBounds[2]
+        z = mRand( minBounds[3], maxBounds[3] )
+    end
+
+    return Vector( x, y, z )
+end
+
+--[[
+    - Returns a random point on one of the vertices of a box.
+
+    minBounds: (Vector)
+        - The minimum point of the box.
+    maxBounds: (Vector)
+        - The maximum point of the box.
+--]]
+function vectorMath.randomAlongBoxVertices( minBounds, maxBounds )
+    local x = mRandom( 1, 2 ) == 1 and minBounds[1] or maxBounds[1]
+    local y = mRandom( 1, 2 ) == 1 and minBounds[2] or maxBounds[2]
+    local z = mRandom( 1, 2 ) == 1 and minBounds[3] or maxBounds[3]
+
+    return Vector( x, y, z )
+end
+
+--[[
+    - Returns a random point inside the volume of a box.
+
+    minBounds: (Vector)
+        - The minimum point of the box.
+    maxBounds: (Vector)
+        - The maximum point of the box.
+--]]
+function vectorMath.randomInsideBox( minBounds, maxBounds )
+    local x = mRand( minBounds[1], maxBounds[1] )
+    local y = mRand( minBounds[2], maxBounds[2] )
+    local z = mRand( minBounds[3], maxBounds[3] )
+
+    return Vector( x, y, z )
+end
+
+--[[
+    - Returns a random point inside the volume between two boxes.
+
+    innerMinBounds: (Vector)
+        - The minimum point of the inner box.
+    innerMaxBounds: (Vector)
+        - The maximum point of the inner box.
+    outerMinBounds: (Vector)
+        - The minimum point of the outer box.
+    outerMaxBounds: (Vector)
+        - The maximum point of the outer box.
+--]]
+function vectorMath.randomInsideBoundedBox( innerMinBounds, innerMaxBounds, outerMinBounds, outerMaxBounds )
+    local frac = mRand( 0, 1 )
+    local minBounds = mLerpVector( frac, innerMinBounds, outerMinBounds )
+    local maxBounds = mLerpVector( frac, innerMaxBounds, outerMaxBounds )
+
+    return vectorMath.randomAlongBox( minBounds, maxBounds )
+end
+
+--[[
+    - Returns whether or not a point is inside a box.
+    - This is only here for the sake of completeness/consistency, as starfall already has Vector:withinAABox().
+
+    point: (Vector)
+        - The position of the point.
+    minBounds: (Vector)
+        - The minimum point of the box.
+    maxBounds: (Vector)
+        - The maximum point of the box.
+--]]
+function vectorMath.isPointWithinBox( point, minBounds, maxBounds )
+    return point:withinAABox( minBounds, maxBounds )
+end
+
+--[[
+    - Returns the min and max points of a cube with the given side length.
+
+    sideLength: (number)
+        - The length of each side of the cube.
+--]]
+function vectorMath.getCubeBounds( sideLength )
+    local sideLengthHalf = sideLength * 0.5
+    local minusSideLengthHalf = -sideLengthHalf
+    local minBounds = Vector( minusSideLengthHalf, minusSideLengthHalf, minusSideLengthHalf )
+    local maxBounds = Vector( sideLengthHalf, sideLengthHalf, sideLengthHalf )
+
+    return minBounds, maxBounds
+end
+
+--[[
+    - Returns a random point along the surface area of a cube.
+
+    sideLength: (number)
+        - The length of each side of the cube.
+--]]
+function vectorMath.randomAlongCube( sideLength )
+    return vectorMath.randomAlongBox( vectorMath.getCubeBounds( sideLength ) )
+end
+
+--[[
+    - Returns a random point along the edges of a cube.
+
+    sideLength: (number)
+        - The length of each side of the cube.
+--]]
+function vectorMath.randomAlongCubeEdges( sideLength )
+    return vectorMath.randomAlongBoxEdges( vectorMath.getCubeBounds( sideLength ) )
+end
+
+--[[
+    - Returns a random point on one of the vertices of a cube.
+
+    sideLength: (number)
+        - The length of each side of the cube.
+--]]
+function vectorMath.randomAlongCubeVertices( sideLength )
+    return vectorMath.randomAlongBoxVertices( vectorMath.getCubeBounds( sideLength ) )
+end
+
+--[[
+    - Returns a random point inside the volume of a cube.
+
+    sideLength: (number)
+        - The length of each side of the cube.
+--]]
+function vectorMath.randomInsideCube( sideLength )
+    return vectorMath.randomInsideBox( vectorMath.getCubeBounds( sideLength ) )
+end
+
+--[[
+    - Returns a random point inside the volume of two cubes with the same center.
+--]]
+function vectorMath.randomInsideBoundedCube( minSideLength, maxSideLength )
+    return vectorMath.randomAlongCube( mRand( minSideLength, maxSideLength ) )
+end
+
+--[[
+    - Returns whether or not a point is inside a cube.
+
+    point: (Vector)
+        - The position of the point.
+    cubePos: (Vector)
+        - The position of the cube's center.
+    sideLength: (number)
+        - The length of each side of the cube.
+--]]
+function vectorMath.isPointWithinCube( point, cubePos, sideLength )
+    local minBounds, maxBounds = vectorMath.getCubeBounds( sideLength )
+
+    minBounds = minBounds + cubePos
+    maxBounds = maxBounds + cubePos
+
+    return point:withinAABox( minBounds, maxBounds )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+isXCloseToY = function( x, y, precision )
+    if not precision then return x == y end
+
+    return mAbs( x - y ) <= precision
+end
+
+getCylinderBottomAndDirEff = function( length, dir, originIsBottom )
+    local dirEff = dir
+
+    if not dir then
+        dirEff = Vector( 0, 0, 1 )
+    elseif type( dir ) == "Angle" then
+        dirEff = dir:getForward()
+    end
+
+    if originIsBottom then return Vector( 0, 0, 0 ), dirEff end
+
+    return dirEff * length * ( -0.5 ), dirEff
+end
+
+getConeEndRadius = function( length, endRadius, theta )
+    if endRadius then return endRadius end
+
+    if not theta then error( "Expected at least one of (endRadius, theta) to be provided." ) end
+    if theta < 0 or theta >= PI_HALF then error( "Expected theta to be in the range [0, PI / 2)." ) end
+
+    return length * mTan( theta )
+end
