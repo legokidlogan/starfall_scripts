@@ -132,7 +132,6 @@ end
     RETURNS: traceResults
         traceResults: (table)
             - Identical to the traceResults returned by holoTrace.traceLine().
-            - Note that
 --]]
 function holoTrace.traceLineBlockedByEnts( startPos, endPos, holoFilter, entFilter, entMask, entColGroup, entIgnoreWorld )
     local trEnt = trace.line( startPos, endPos, entFilter, entMask, entColGroup, entIgnoreWorld )
