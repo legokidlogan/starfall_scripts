@@ -1,0 +1,51 @@
+--@name Music Player Songs
+--@author legokidlogan
+--@shared
+
+--[[
+    - There cannot be duplicate song/playlist names.
+    - All song and playlist names cannot have any whitespace characters.
+    - All song and playlist names cannot consist entirely of numbers.
+        - e.g. "TestSong1" is valid, but "Test Song 1" and "123" are not.
+    - All song and playlist names are case insensitive.
+        - e.g. "TestSong1" and "testsong1" are the same.
+    - Playlist names cannot be one of the following keywords:
+        none, nothing, off, deselect
+--]]
+
+
+local SONGS = {
+    {
+        Name = "TestSong1",
+        URL = "https://cdn.discordapp.com/attachments/303869552503291904/1157435715085410365/sc.mp3",
+    },
+    {
+        Name = "TestSong2",
+        URL = "https://cdn.discordapp.com/attachments/303869552503291904/1157359616989077574/how.mp3",
+    },
+    {
+        Name = "TestSong3",
+        URL = "https://cdn.discordapp.com/attachments/303869552503291904/1157360497025363978/grocery_store_music_1975.mp3",
+    },
+}
+
+local PLAYLISTS = {
+    {
+        Name = "TestPlaylist1",
+        Songs = {
+            "TestSong1",
+            "TestSong3",
+        }
+    },
+    {
+        Name = "TestPlaylist2",
+        Songs = {
+            "TestSong1",
+            "TestSong2",
+            "TestSong3",
+        }
+    },
+}
+
+
+return { SONGS, PLAYLISTS }

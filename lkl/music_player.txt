@@ -1,0 +1,753 @@
+--@name Music Player
+--@author legokidlogan
+--@shared
+--@include lkl/music_player_songs.txt
+--@include lkl/easy_bass.txt
+--@include lkl/chat_cmds.txt
+
+--[[
+    - Songs and playlists are defined in lkl/music_player_songs.txt
+    - Chat commands are prefixed with /music
+        - Commands: play, stop, skip, restart, playlist, volume, loop, shuffle
+--]]
+
+-- CONFIG:
+local VOLUME_DEFAULT = 0.5 -- Default volume setting.
+local LOOP_DEFAULT = true -- Default loop setting.
+local SHUFFLE_DEFAULT = true -- Default shuffle setting.
+local PLAYLIST_DEFAULT = nil -- Playlist to automatically select on startup. Set to nil to disable.
+local SONG_DEFAULT = "TestSong1" -- Song to automatically play on startup. Can be the name of a defined song, or a custom URL. Set to nil to disable.
+local FADE_START = 700
+local FADE_END = 1500
+local PLAY_ON_CHIP = false -- false: play sound on the owner, true: play sound on the chip.
+local USE_CHAT_COMMANDS = true -- false: only wire inputs can change settings, true: chat commands and wire inputs can both change settings.
+-- END CONFIG
+
+
+projectNameID = "MusicPlayer"
+ccmdPrefix = "/music"
+
+require( "lkl/chat_cmds.txt" )
+
+
+local loopEnabled = LOOP_DEFAULT
+local curVolume = VOLUME_DEFAULT
+local curSongURL = nil
+
+
+if CLIENT then
+    require( "lkl/easy_bass.txt" )
+
+    local curSongBass = nil
+    local startSong
+
+
+    local function destroyCurSong()
+        hook.remove( "think", "LKL_MusicPlayer_TrackSongDeath" )
+
+        if isValid( curSongBass ) then
+            curSongBass:pause()
+            curSongBass:stop()
+        end
+
+        curSongBass = nil
+    end
+
+    local function notifySongEnd()
+        if player() ~= owner() then return end
+
+        net.start( "LKL_MusicPlayer_SongEnded" )
+        net.send()
+    end
+
+    local function trackSongDeath()
+        if player() ~= owner() then return end
+
+        hook.add( "think", "LKL_MusicPlayer_TrackSongDeath", function()
+            if isValid( curSongBass ) then return end
+
+            if loopEnabled then
+                startSong()
+            else
+                destroyCurSong()
+                notifySongEnd()
+            end
+        end )
+    end
+
+    startSong = function( url )
+        destroyCurSong()
+
+        curSongURL = url or curSongURL
+
+        easyBass.loadURL(
+            curSongURL,
+            {
+                Flags = "3d stereo noblock noplay",
+                Volume = curVolume,
+                Pitch = 1,
+                FadeStart = FADE_START,
+                FadeEnd = FADE_END,
+                FadeIn = 0,
+                FadeOut = 0,
+                Duration = nil,
+                Target = PLAY_ON_CHIP and chip() or owner(),
+                Loop = loopEnabled,
+                DestroyWhenDone = true,
+                StaleThreshold = 30,
+            },
+            function( bassObj )
+                curSongBass = bassObj
+
+                trackSongDeath()
+            end
+        )
+    end
+
+
+    net.receive( "LKL_MusicPlayer_StartSong", function()
+        local url = net.readString()
+        --local isCustom = net.readBool()
+
+        startSong( url )
+    end )
+
+    net.receive( "LKL_MusicPlayer_StopSong", function()
+        destroyCurSong()
+    end )
+
+    net.receive( "LKL_MusicPlayer_SetVolume", function()
+        curVolume = net.readFloat()
+
+        if isValid( curSongBass ) then
+            curSongBass:setVolume( curVolume )
+        end
+    end )
+
+    net.receive( "LKL_MusicPlayer_SetLoop", function()
+        loopEnabled = net.readBool()
+
+        if isValid( curSongBass ) then
+            curSongBass:setLooping( loopEnabled )
+        end
+    end )
+
+    return
+end
+
+
+local SONGS, PLAYLISTS = unpack( require( "lkl/music_player_songs.txt" ) )
+local SONG_COUNT = #SONGS
+local shuffleEnabled = SHUFFLE_DEFAULT
+local curSongIsCustom = false
+local curSongInd = 1
+local curPlaylistInd = 0
+local curPlaylistSubInd = 1
+local songsAreStopped = true
+local chipLink = chip():getWirelink()
+local songLookup = {}
+local playlistLookup = {}
+local deselectWords = {
+    none = true,
+    nothing = true,
+    off = true,
+    deselect = true,
+}
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+table.insert( inputNames, "PlaySongIndex" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( inputNames, "PlaySongNameOrURL" )
+table.insert( inputTypes, "STRING" )
+
+table.insert( inputNames, "SkipSong" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( inputNames, "SkipSong" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( inputNames, "RestartSong" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( inputNames, "SelectPlaylistIndex" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( inputNames, "SelectPlaylistName" )
+table.insert( inputTypes, "STRING" )
+
+table.insert( inputNames, "SetVolume" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( inputNames, "SetLoop" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( inputNames, "SetShuffle" )
+table.insert( inputTypes, "NUMBER" )
+
+wire.adjustInputs( inputNames, inputTypes )
+
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+table.insert( outputNames, "IsPlaying" )
+table.insert( outputTypes, "NUMBER" )
+
+table.insert( outputNames, "SongIndex" )
+table.insert( outputTypes, "NUMBER" )
+
+table.insert( outputNames, "SongName" )
+table.insert( outputTypes, "STRING" )
+
+table.insert( outputNames, "PlaylistIndex" )
+table.insert( outputTypes, "NUMBER" )
+
+table.insert( outputNames, "PlaylistName" )
+table.insert( outputTypes, "STRING" )
+
+wire.adjustOutputs( outputNames, outputTypes )
+
+
+local function getSongName( songInd )
+    if not songInd then return "" end
+
+    return SONGS[songInd].Name or ""
+end
+
+local function getSongIndex( songName )
+    if not songName then return 0 end
+
+    return songLookup[songName:lower()] or 0
+end
+
+local function getPlaylistIndex( playlistName )
+    if not playlistName then return 0 end
+
+    return playlistLookup[playlistName:lower()] or 0
+end
+
+local function getPlaylistSubIndex( songInd )
+    if curPlaylistInd == 0 then return 1 end
+
+    local playlist = PLAYLISTS[curPlaylistInd]
+
+    return table.keyFromValue( playlist.Songs, getSongName( songInd ) ) or 1
+end
+
+local function getCurPlaylistName()
+    if curPlaylistInd == 0 then return "" end
+
+    return PLAYLISTS[curPlaylistInd].Name
+end
+
+local function getRandomIndex( cur, count )
+    if count == 1 then return 1 end
+
+    local ind = cur
+    local attempts = 0
+
+    while ind == cur do
+        if attempts >= 5 then
+            return ( cur % count ) + 1
+        end
+
+        ind = math.random( 1, count )
+        attempts = attempts + 1
+    end
+
+    return ind
+end
+
+local function getNextSongIndex()
+    if curPlaylistInd == 0 then
+        if shuffleEnabled then return getRandomIndex( curSongInd, SONG_COUNT ) end
+
+        return ( curSongInd % SONG_COUNT ) + 1
+    end
+
+    local playlist = PLAYLISTS[curPlaylistInd]
+    local songNames = playlist.Songs
+    local playlistSongCount = #songNames
+    local subInd
+
+    if shuffleEnabled then
+        subInd = getRandomIndex( curPlaylistSubInd, playlistSongCount )
+    else
+        subInd = ( curPlaylistSubInd % playlistSongCount ) + 1
+    end
+
+    return getSongIndex( songNames[subInd] )
+end
+
+local function getSongIndexOrURL( indexOrNameOrURL )
+    local ind = tonumber( indexOrNameOrURL )
+    if ind == 0 then return 0 end
+
+    ind = ind or getSongIndex( indexOrNameOrURL )
+    if ind == 0 then return indexOrNameOrURL end -- Custom URL
+
+    return ind
+end
+
+local function isSongValid( indexOrURL )
+    if type( indexOrURL ) == "string" then return true end
+
+    return SONGS[indexOrURL] ~= nil
+end
+
+local function playSong( indexOrNameOrURL )
+    songsAreStopped = false
+
+    local printTbl = easyPrint.chipNamePrefix( ccmdScheme )
+    local indexOrURL = getSongIndexOrURL( indexOrNameOrURL or curSongInd )
+    local ind = type( indexOrURL ) == "number" and indexOrURL
+    local url
+
+    if ind then
+        local song = SONGS[ind]
+        local songName = song.Name
+
+        url = song.URL
+        curSongInd = ind
+        curPlaylistSubInd = getPlaylistSubIndex( ind )
+        curSongIsCustom = false
+        wire.ports.SongIndex = ind
+        wire.ports.SongName = songName
+
+        table.add( printTbl, {
+            ccmdScheme:getColor( "Text" ), "Now playing ",
+            ccmdScheme:getColor( "Highlight" ), songName,
+            ccmdScheme:getColor( "Text" ), ".",
+        } )
+    else
+        url = indexOrURL
+        curSongIsCustom = true
+        wire.ports.SongIndex = 0
+        wire.ports.SongName = ""
+
+        table.add( printTbl, {
+            ccmdScheme:getColor( "Text" ), "Now playing custom URL ",
+            ccmdScheme:getColor( "HighlightWeak" ), url,
+        } )
+    end
+
+    print( unpack( printTbl ) )
+
+    curSongURL = url
+    wire.ports.IsPlaying = 1
+
+    net.start( "LKL_MusicPlayer_StartSong" )
+    net.writeString( url )
+    --net.writeBool( curSongIsCustom )
+    net.send()
+end
+
+local function restartSong()
+    if curSongIsCustom then
+        playSong( curSongURL )
+    else
+        playSong( curSongInd )
+    end
+end
+
+local function stopSongs()
+    local printTbl = easyPrint.chipNamePrefix( ccmdScheme )
+
+    table.add( printTbl, {
+        ccmdScheme:getColor( "Text" ), "Song playback has been ",
+        ccmdScheme:getColor( "false" ), "stopped",
+        ccmdScheme:getColor( "Text" ), ".",
+    } )
+
+    print( unpack( printTbl ) )
+
+    songsAreStopped = true
+    wire.ports.IsPlaying = 0
+
+    net.start( "LKL_MusicPlayer_StopSong" )
+    net.send()
+end
+
+local function isPlaylistValid( indexOrName )
+    if type( indexOrName ) == "string" then return isPlaylistValid( getPlaylistIndex( indexOrName ) ) end
+
+    return PLAYLISTS[indexOrName] ~= nil
+end
+
+local function selectPlaylist( indexOrName )
+    local printTbl = easyPrint.chipNamePrefix( ccmdScheme )
+    local ind = tonumber( indexOrName ) or getPlaylistIndex( indexOrName )
+
+    curPlaylistInd = ind
+    wire.ports.PlaylistIndex = curPlaylistInd
+
+    if curPlaylistInd == 0 then
+        curPlaylistSubInd = 1
+        wire.ports.PlaylistName = ""
+
+        table.add( printTbl, {
+            ccmdScheme:getColor( "Text" ), "The current playlist has been ",
+            ccmdScheme:getColor( "false" ), "deselected",
+            ccmdScheme:getColor( "Text" ), ".",
+        } )
+    else
+        local playlist = PLAYLISTS[ind]
+        local playlistName = playlist.Name
+
+        curPlaylistSubInd = getPlaylistSubIndex( curSongInd )
+        wire.ports.PlaylistName = playlistName
+
+        table.add( printTbl, {
+            ccmdScheme:getColor( "Text" ), "Selected playlist ",
+            ccmdScheme:getColor( "true" ), playlistName,
+            ccmdScheme:getColor( "Text" ), ".",
+        } )
+    end
+
+    print( unpack( printTbl ) )
+end
+
+local function setVolume( vol )
+    curVolume = math.clamp( vol, 0, 1 )
+
+    net.start( "LKL_MusicPlayer_SetVolume" )
+    net.writeFloat( curVolume )
+    net.send()
+end
+
+local function setLoop( state )
+    loopEnabled = state
+
+    net.start( "LKL_MusicPlayer_SetLoop" )
+    net.writeBool( loopEnabled )
+    net.send()
+end
+
+local function setShuffle( state )
+    shuffleEnabled = state
+end
+
+
+local function wireInput( name, value )
+    if not chipLink:isWired( name ) then return end
+
+    if name == "PlaySongIndex" then
+        if value == 0 then
+            stopSongs()
+        end
+
+        if not isSongValid( value ) then return end
+
+        playSong( value )
+    elseif name == "PlaySongNameOrURL" then
+        if value == "" then
+            stopSongs()
+        end
+
+        local indexOrURL = getSongIndexOrURL( value )
+
+        if not isSongValid( indexOrURL ) then return end
+
+        playSong( indexOrURL )
+    elseif name == "SkipSong" then
+        playSong( getNextSongIndex() )
+    elseif name == "RestartSong" then
+        restartSong()
+    elseif name == "SelectPlaylistIndex" then
+        if value == 0 then
+            selectPlaylist( 0 )
+        end
+
+        if not isPlaylistValid( value ) then return end
+
+        selectPlaylist( value )
+    elseif name == "SelectPlaylistName" then
+        if value == "" then
+            selectPlaylist( 0 )
+        end
+
+        if deselectWords[value] then
+            selectPlaylist( 0 )
+        else
+            selectPlaylist( value )
+        end
+    elseif name == "SetVolume" then
+        setVolume( value )
+    elseif name == "SetLoop" then
+        setLoop( value ~= 0 )
+    elseif name == "SetShuffle" then
+        setShuffle( value ~= 0 )
+    end
+end
+
+
+hook.add( "input", "LKL_MusicPlayer_WireInput", wireInput )
+
+
+net.receive( "LKL_MusicPlayer_SongEnded", function( _, ply )
+    if ply ~= owner() then return end
+    if songsAreStopped then return end
+
+    playSong( getNextSongIndex() )
+end )
+
+
+do
+    for i, song in ipairs( SONGS ) do
+        local name = song.Name
+
+        if not name or name == "" then
+            error( "Song " .. i .. " has no name" )
+        end
+
+        if tonumber( name ) then
+            error( "Song " .. name .. " has an invalid name" )
+        end
+
+        if string.find( name, "%s" ) then
+            error( "Song \"" .. name .. "\" has whitespace in its name" )
+        end
+
+        if type( song.URL ) ~= "string" then
+            error( "Song " .. name .. " has no URL" )
+        end
+
+        name = string.lower( name )
+
+        if songLookup[name] then
+            error( "Duplicate song name: " .. name )
+        end
+
+        songLookup[name] = i
+    end
+
+    for i, playlist in ipairs( PLAYLISTS ) do
+        local name = playlist.Name
+
+        if not name or name == "" then
+            error( "Playlist " .. i .. " has no name" )
+        end
+
+        if tonumber( name ) then
+            error( "Playlist " .. name .. " has an invalid name" )
+        end
+
+        if string.find( name, "%s" ) then
+            error( "Playlist \"" .. name .. "\" has whitespace in its name" )
+        end
+
+        local nameOriginal = name
+        name = string.lower( name )
+
+        if playlistLookup[name] then
+            error( "Duplicate playlist name: " .. name )
+        end
+
+        if deselectWords[name] then
+            error( "Playlist name " .. name .. " is a reserved word" )
+        end
+
+        playlistLookup[name] = i
+
+        local songNames = playlist.Songs
+
+        if type( songNames ) ~= "table" then
+            error( "Playlist " .. nameOriginal .. " has no songs" )
+        end
+
+        for _, songName in ipairs( songNames ) do
+            if not songLookup[songName:lower()] then
+                error( "Playlist " .. nameOriginal .. " contains an undefined song name: " .. songName )
+            end
+        end
+    end
+
+    curPlaylistInd = getPlaylistIndex( PLAYLIST_DEFAULT )
+
+    if SONG_DEFAULT then
+        timer.simple( 1, function()
+            playSong( SONG_DEFAULT )
+        end )
+    end
+
+    timer.simple( 1.1, function()
+        for _, inputName in ipairs( inputNames ) do
+            wireInput( inputName, wire.ports[inputName] )
+        end
+    end )
+end
+
+
+if not USE_CHAT_COMMANDS then return end
+
+ccmdCreateCommand(
+    "play",
+    function( _, _, _, songNameOrURL )
+        playSong( songNameOrURL )
+    end,
+    function( _, _, _, songNameOrURL )
+        local indexOrURL = getSongIndexOrURL( songNameOrURL )
+
+        if not isSongValid( indexOrURL ) then
+            return "Invalid song name or URL.", 1
+        end
+    end,
+    {
+        ReqCount = 1,
+        OptCount = 0,
+        [1] = {
+            Name = "songNameOrURL",
+            Description = "The name of a pre-defined song, or a custom URL.",
+        },
+    },
+    "Plays a song.",
+    owner(),
+    false
+)
+
+ccmdCreateCommand(
+    "stop",
+    function()
+        stopSongs()
+    end,
+    nil,
+    nil,
+    "Stops songs from playing.",
+    owner(),
+    false
+)
+
+ccmdCreateCommand(
+    "skip",
+    function()
+        playSong( getNextSongIndex() )
+    end,
+    nil,
+    nil,
+    "Skips to the next song.",
+    owner(),
+    false
+)
+
+ccmdCreateCommand(
+    "restart",
+    function()
+        restartSong()
+    end,
+    nil,
+    nil,
+    "Restarts the current song.",
+    owner(),
+    false
+)
+
+ccmdCreateCommand(
+    "playlist",
+    function( _, _, _, playlistName )
+        if not playlistName or playlistName == "" then
+            local curPlaylistName = getCurPlaylistName()
+
+            if curPlaylistName == "" then
+                return "No playlist has been selected."
+            end
+
+            return {
+                ccmdScheme:getColor( "Text" ), "The current playlist is ",
+                ccmdScheme:getColor( "Highlight" ), curPlaylistName,
+                ccmdScheme:getColor( "Text" ), ".",
+            }
+        end
+
+        if deselectWords[playlistName] then
+            selectPlaylist( 0 )
+        else
+            selectPlaylist( playlistName )
+        end
+    end,
+    function( _, _, _, playlistName )
+        if not playlistName or playlistName == "" then return end
+        if deselectWords[playlistName] then return end
+
+        local ind = getPlaylistIndex( playlistName )
+
+        if not isPlaylistValid( ind ) then
+            return "Invalid playlist name.", 1
+        end
+    end,
+    {
+        ReqCount = 0,
+        OptCount = 1,
+        [1] = {
+            Name = "playlistName",
+            Description = "The name of playlist, or a deselection keyword.",
+        },
+    },
+    {
+        "(De)selects a playlist.",
+        table.add(
+            {
+                ccmdScheme:getColor( "Text" ), "These will deselect the playlist: ",
+            },
+            easyPrint.simpleList( ccmdScheme, table.getKeys( deselectWords ), ccmdScheme:getColor( "Highlight" ) )
+        ),
+        "Provide no arguments to show the current playlist.",
+    },
+    owner(),
+    false
+)
+
+ccmdCreateCommand(
+    "volume",
+    function( _, _, _, volume )
+        setVolume( tonumber( volume ) )
+
+        return {
+            ccmdScheme:getColor( "Text" ), "Volume set to ",
+            ccmdScheme:getColor( "Highlight" ), tostring( curVolume ),
+            ccmdScheme:getColor( "Text" ), ".",
+        }
+    end,
+    function( _, _, _, volume )
+        if not tonumber( volume ) then
+            return "Expected volume to be a number.", 1
+        end
+    end,
+    {
+        ReqCount = 1,
+        OptCount = 0,
+        [1] = {
+            Name = "volume",
+            Description = "The volume to set, from 0 to 1.",
+        },
+    },
+    "Changes the volume of the music player.",
+    owner(),
+    false
+)
+
+ccmdCreateToggleCommand(
+    "loop",
+    function( _, newState )
+        setLoop( newState )
+    end,
+    "Song looping",
+    "song looping",
+    LOOP_DEFAULT,
+    owner(),
+    false
+)
+
+ccmdCreateToggleCommand(
+    "shuffle",
+    function( _, newState )
+        setShuffle( newState )
+    end,
+    "Song shuffling",
+    "song shuffling",
+    SHUFFLE_DEFAULT,
+    owner(),
+    false
+)
