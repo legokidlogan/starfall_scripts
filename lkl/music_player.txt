@@ -607,6 +607,7 @@ ccmdCreateCommand(
     owner(),
     false
 )
+ccmdCreateCommand( "p", "play" )
 
 ccmdCreateCommand(
     "stop",
@@ -643,6 +644,7 @@ ccmdCreateCommand(
     owner(),
     false
 )
+ccmdCreateCommand( "r", "restart" )
 
 ccmdCreateCommand(
     "playlist",
@@ -698,6 +700,7 @@ ccmdCreateCommand(
     owner(),
     false
 )
+ccmdCreateCommand( "pl", "playlist" )
 
 ccmdCreateCommand(
     "volume",
@@ -727,6 +730,8 @@ ccmdCreateCommand(
     owner(),
     false
 )
+ccmdCreateCommand( "vol", "volume" )
+ccmdCreateCommand( "v", "volume" )
 
 ccmdCreateToggleCommand(
     "loop",
@@ -739,6 +744,7 @@ ccmdCreateToggleCommand(
     owner(),
     false
 )
+ccmdCreateCommand( "l", "loop" )
 
 ccmdCreateToggleCommand(
     "shuffle",
@@ -751,3 +757,4 @@ ccmdCreateToggleCommand(
     owner(),
     false
 )
+ccmdCreateCommand( "sh", "shuffle" )
