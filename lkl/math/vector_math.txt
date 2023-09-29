@@ -143,6 +143,42 @@ function vectorMath.minPiecewise( vec1, vec2 )
 end
 
 --[[
+    - Returns a vector consisting of the piecewise (i.e. per-axis) minimum values of an arbitrary number of vectors.
+    - The vectors can either be given as individual arguments or one single sequential table of vectors.
+--]]
+function vectorMath.minPiecewiseMulti( ... )
+    local args = { ... }
+    local argCount = #args
+
+    if argCount == 1 then
+        local arg1 = args[1]
+
+        if type( arg1 ) == "table" then
+            args = arg1
+            argCount = #args
+
+            if argCount == 1 then return args[1] end
+        else
+            return arg1
+        end
+    end
+
+    if argCount == 0 then return end
+
+    local minVec = args[1]
+
+    for i = 2, argCount do
+        local vec = args[i]
+
+        minVec[1] = mMin( minVec[1], vec[1] )
+        minVec[2] = mMin( minVec[2], vec[2] )
+        minVec[3] = mMin( minVec[3], vec[3] )
+    end
+
+    return minVec
+end
+
+--[[
     - Compares two vectors by their lengths and returns the longer one, its length, and the shorter vector's length.
 
     vec1: (Vector)
@@ -209,6 +245,40 @@ function vectorMath.maxPiecewise( vec1, vec2 )
         mMax( vec1[2], vec2[2] ),
         mMax( vec1[3], vec2[3] )
     )
+end
+
+--[[
+    - Returns a vector consisting of the piecewise (i.e. per-axis) maximum values of an arbitrary number of vectors.
+    - The vectors can either be given as individual arguments or one single sequential table of vectors.
+--]]
+function vectorMath.maxPiecewiseMulti( ... )
+    local args = { ... }
+    local argCount = #args
+
+    if argCount == 1 then
+        if type( arg ) == "table" then
+            args = arg
+            argCount = #args
+
+            if argCount == 1 then return args[1] end
+        else
+            return arg
+        end
+    end
+
+    if argCount == 0 then return end
+
+    local maxVec = args[1]
+
+    for i = 2, argCount do
+        local vec = args[i]
+
+        maxVec[1] = mMax( maxVec[1], vec[1] )
+        maxVec[2] = mMax( maxVec[2], vec[2] )
+        maxVec[3] = mMax( maxVec[3], vec[3] )
+    end
+
+    return maxVec
 end
 
 --[[
