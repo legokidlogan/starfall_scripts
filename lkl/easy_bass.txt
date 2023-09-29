@@ -94,7 +94,11 @@ local function startTrackingVolumeForDestruction( bassObj, soundID )
         if not bassObj:isPlaying() then return end
 
         local volL, volR = bassObj:getLevels() -- :getLevels() is unaffected by :setVolume(), so additional checks aren't needed.
-        if volL ~= 0 or volR ~= 0 then return end
+        if volL ~= 0 or volR ~= 0 then
+            bassObj._staleStacks = 0
+
+            return
+        end
 
         local staleStacks = ( bassObj._staleStacks or 0 ) + 1
         bassObj._staleStacks = staleStacks
