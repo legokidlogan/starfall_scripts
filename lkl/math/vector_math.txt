@@ -165,7 +165,7 @@ function vectorMath.minPiecewiseMulti( ... )
 
     if argCount == 0 then return end
 
-    local minVec = args[1]
+    local minVec = args[1]:clone()
 
     for i = 2, argCount do
         local vec = args[i]
@@ -270,7 +270,7 @@ function vectorMath.maxPiecewiseMulti( ... )
 
     if argCount == 0 then return end
 
-    local maxVec = args[1]
+    local maxVec = args[1]:clone()
 
     for i = 2, argCount do
         local vec = args[i]
