@@ -20,6 +20,7 @@ local PI = math.pi
 local PI_HALF = PI / 2
 local PI_DOUBLE = PI * 2
 local VECTOR_ZERO = Vector( 0, 0, 0 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
 local PRECISION_TINY = math.pow( 10, -5 )
 
 local mAbs = math.abs
@@ -342,6 +343,60 @@ function vectorMath.getDirectionAndLength( vec )
     local length = vec:getLength()
 
     return vec / length, length
+end
+
+--[[
+    - Calculates the axis-alligned, position-local bounding box for local min/max corners at a given scale and rotation.
+    - 'Position-local' means the aabb has been adjusted to account for the object's angles, but not its position.
+        - To make the aabb be in true world coordinates, just add your object's position (not center) to the returned mins and maxs.
+
+    obbMins: (Vector)
+        - The local minimum corner of the OBB.
+    obbMaxs: (Vector)
+        - The local maximum corner of the OBB.
+    ang: (optional) (Angle)
+        - The rotation of the OBB.
+        - Default is Angle( 0, 0, 0 ).
+    scale: (optional) (Vector)
+        - The scale of the OBB.
+        - Default is Vector( 1, 1, 1 ).
+
+    RETURNS: aabbMins, aabbMaxs
+        aabbMins: (Vector)
+            - The position-local minimum corner of the AABB.
+        aabbMaxs: (Vector)
+            - The position-local maximum corner of the AABB.
+--]]
+function vectorMath.getAABB( obbMins, obbMaxs, ang, scale )
+    if scale then
+        obbMins = obbMins * scale
+        obbMaxs = obbMaxs * scale
+    end
+
+    if not ang or ang == ANGLE_ZERO then return obbMins:clone(), obbMaxs:clone() end
+
+    local minX = obbMins[1]
+    local minY = obbMins[2]
+    local minZ = obbMins[3]
+    local maxX = obbMaxs[1]
+    local maxY = obbMaxs[2]
+    local maxZ = obbMaxs[3]
+
+    local corners = {
+        obbMins:getRotated( ang ),
+        Vector( minX, maxY, minZ ):getRotated( ang ),
+        Vector( maxX, minY, minZ ):getRotated( ang ),
+        Vector( maxX, maxY, minZ ):getRotated( ang ),
+        obbMaxs:getRotated( ang ),
+        Vector( maxX, minY, maxZ ):getRotated( ang ),
+        Vector( minX, maxY, maxZ ):getRotated( ang ),
+        Vector( minX, minY, maxZ ):getRotated( ang ),
+    }
+
+    local aabbMins = vectorMath.minPiecewiseMulti( corners )
+    local aabbMaxs = vectorMath.maxPiecewiseMulti( corners )
+
+    return aabbMins, aabbMaxs
 end
 
 --[[
