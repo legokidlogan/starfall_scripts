@@ -348,7 +348,7 @@ end
 --[[
     - Calculates the axis-alligned, position-local bounding box for local min/max corners at a given scale and rotation.
     - 'Position-local' means the aabb has been adjusted to account for the object's angles, but not its position.
-        - To make the aabb be in true world coordinates, just add your object's position (not center) to the returned mins and maxs.
+        - To make the aabb be in true world coordinates, just add your object's position to the returned mins and maxs.
 
     obbMins: (Vector)
         - The local minimum corner of the OBB.
@@ -397,6 +397,36 @@ function vectorMath.getAABB( obbMins, obbMaxs, ang, scale )
     local aabbMaxs = vectorMath.maxPiecewiseMulti( corners )
 
     return aabbMins, aabbMaxs
+end
+
+--[[
+    - Calculates the position-local center of an OBB at a given scale and rotation.
+    - 'Position-local' means the center has been adjusted to account for the object's angles, but not its position.
+        - To make the center be in true world coordinates, just add your object's position to the returned center.
+
+    obbMins: (Vector)
+        - The local minimum corner of the OBB.
+    obbMaxs: (Vector)
+        - The local maximum corner of the OBB.
+    ang: (optional) (Angle)
+        - The rotation of the OBB.
+        - Default is Angle( 0, 0, 0 ).
+    scale: (optional) (Vector)
+        - The scale of the OBB.
+        - Default is Vector( 1, 1, 1 ).
+--]]
+function vectorMath.getOBBCenter( obbMins, obbMaxs, ang, scale )
+    local center = ( obbMins + obbMaxs ) / 2
+
+    if scale then
+        center = center * scale
+    end
+
+    if ang and ang ~= ANGLE_ZERO then
+        center:rotate( ang )
+    end
+
+    return center
 end
 
 --[[
