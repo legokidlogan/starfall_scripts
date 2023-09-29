@@ -1,0 +1,54 @@
+--@name Holo Trace Tester
+--@author
+--@server
+--@include lkl/math/holo_trace.txt
+
+require( "lkl/math/holo_trace.txt" )
+
+
+local hitHolo = hologram.create( Vector(), Angle(), "models/hunter/blocks/cube025x025x025.mdl", Vector( 0.1 ) )
+hitHolo:setMaterial( "models/debug/debugwhite" )
+
+local minHolo = hologram.create( Vector(), Angle(), "models/hunter/blocks/cube025x025x025.mdl", Vector( 0.1 ) )
+minHolo:setMaterial( "models/debug/debugwhite" )
+minHolo:setColor( Color( 255, 0, 0, 150 ) )
+
+local maxHolo = hologram.create( Vector(), Angle(), "models/hunter/blocks/cube025x025x025.mdl", Vector( 0.1 ) )
+maxHolo:setMaterial( "models/debug/debugwhite" )
+maxHolo:setColor( Color( 0, 255, 0, 150 ) )
+
+local myHolo = hologram.create( chip():getPos() + Vector( 0, 0, 30 ), Angle(0,0,0), "models/hunter/blocks/cube025x025x025.mdl", Vector( 3, 1, 2 ) )
+
+
+local function holoFilter( holo )
+    if holo == hitHolo then return end
+
+    return true
+end
+
+
+hook.add( "KeyPress", "test", function( ply, key )
+    if ply ~= owner() then return end
+    if key ~= IN_KEY.USE then return end
+
+    local traceStart = ply:getShootPos()
+    local traceDir = ply:getEyeAngles():getForward()
+
+    local trHolo = holoTrace.traceLine( traceStart, traceStart + traceDir * 1000, holoFilter )
+
+    if trHolo.Hit then
+        hitHolo:setPos( trHolo.HitPos )
+    end
+end )
+
+hook.add( "think", "test", function()
+    local dt = timer.frametime()
+
+    myHolo:setAngles( myHolo:getAngles() + Angle( 5, 10, 0 ) * dt )
+
+    local aabbMins, aabbMaxs = vectorMath.getAABB( myHolo:obbMins(), myHolo:obbMaxs(), myHolo:getAngles(), myHolo:getScale() )
+    local aabbOffset = myHolo:getPos()
+
+    minHolo:setPos( aabbMins + aabbOffset )
+    maxHolo:setPos( aabbMaxs + aabbOffset )
+end )
