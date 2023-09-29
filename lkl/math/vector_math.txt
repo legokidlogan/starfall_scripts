@@ -256,13 +256,15 @@ function vectorMath.maxPiecewiseMulti( ... )
     local argCount = #args
 
     if argCount == 1 then
-        if type( arg ) == "table" then
-            args = arg
+        local arg1 = args[1]
+
+        if type( arg1 ) == "table" then
+            args = arg1
             argCount = #args
 
             if argCount == 1 then return args[1] end
         else
-            return arg
+            return arg1
         end
     end
 
