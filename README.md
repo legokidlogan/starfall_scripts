@@ -117,6 +117,11 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
     - Also provides tools to easily rotate an unfrozen entity to align with a specific angle using stable torque.
 
 ### Non-Library Tools
+- [music_player.txt](/lkl/music_player.txt)
+    - Customizable songs and playlists, edited in [music_player_songs.txt](/lkl/music_player_songs.txt)
+    - Able to be controlled by both chat commands and wire inputs.
+    - Can be played from either the owner or the chip.
+    - Has wire outputs for if you want to make a fancy radio which adjusts visuals per song.
 - [enhanced_first_person.txt](/lkl/enhanced_first_person.txt)
     - Lets you see yourself in first person, well and truly.
     - Uses calcview so your playermodel actually gets rendered, no janky fake models or duplicate rendering required.
