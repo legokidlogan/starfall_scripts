@@ -138,6 +138,7 @@ spawnQueue = Queue:new(
         holo:setMaterial( entry.Material )
         holo:setColor( entry.Color or COLOR_DEFAULT )
         holo:setRenderMode( entry.RenderMode or RENDER_MODE_DEFAULT )
+        holo:setSkin( entry.Skin or 0 )
         table.insert( holoGroup, holo )
 
         if scale then

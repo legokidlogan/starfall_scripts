@@ -97,6 +97,7 @@ else
                 Material = prop:getMaterial(),
                 Color = color,
                 RenderMode = renderMode,
+                Skin = prop:getSkin(),
                 --Scale = nil, -- Scale can't be set on props, and currently we can't get the scale from E2/SF holos from a different serverside chip from the creating one.
             }
         end
