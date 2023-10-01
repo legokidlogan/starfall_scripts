@@ -205,8 +205,6 @@ table.insert( inputTypes, "NUMBER" )
 table.insert( inputNames, "SetShuffle" )
 table.insert( inputTypes, "NUMBER" )
 
-wire.adjustInputs( inputNames, inputTypes )
-
 
 outputNames = outputNames or {}
 outputTypes = outputTypes or {}
@@ -225,8 +223,6 @@ table.insert( outputTypes, "NUMBER" )
 
 table.insert( outputNames, "PlaylistName" )
 table.insert( outputTypes, "STRING" )
-
-wire.adjustOutputs( outputNames, outputTypes )
 
 
 local function getSongName( songInd )
@@ -584,6 +580,11 @@ do
     end
 
     curPlaylistInd = getPlaylistIndex( musicPlayer.PLAYLIST_DEFAULT )
+
+    timer.simple( 0, function()
+        wire.adjustInputs( inputNames, inputTypes )
+        wire.adjustOutputs( outputNames, outputTypes )
+    end )
 
     if musicPlayer.SONG_DEFAULT then
         timer.simple( 2, function()
