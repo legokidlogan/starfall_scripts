@@ -125,7 +125,6 @@ if CLIENT then
 
     net.receive( "LKL_MusicPlayer_StartSong", function()
         local url = net.readString()
-        --local isCustom = net.readBool()
 
         startSong( url )
     end )
@@ -352,7 +351,6 @@ local function playSong( indexOrNameOrURL )
 
     net.start( "LKL_MusicPlayer_StartSong" )
     net.writeString( url )
-    --net.writeBool( curSongIsCustom )
     net.send()
 end
 
