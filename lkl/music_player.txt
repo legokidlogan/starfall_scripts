@@ -184,9 +184,6 @@ table.insert( inputTypes, "STRING" )
 table.insert( inputNames, "SkipSong" )
 table.insert( inputTypes, "NUMBER" )
 
-table.insert( inputNames, "SkipSong" )
-table.insert( inputTypes, "NUMBER" )
-
 table.insert( inputNames, "RestartSong" )
 table.insert( inputTypes, "NUMBER" )
 
