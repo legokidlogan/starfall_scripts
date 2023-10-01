@@ -1,0 +1,90 @@
+--@name Submaterial
+--@author legokidlogan
+--@shared
+
+submaterial = submaterial or {}
+
+if submaterial.getSubMaterials then return end
+
+
+--[[
+    - Returns a list of an entity's current sub-materials, or nil if it has none.
+    - The table will be indexed starting from 0, matching with the actual sub-material indices unlike with starfall's :getMaterials() function.
+    - Sub-materials that are still on their default value will be given as "".
+
+    ent: (Entity)
+        - The entity to get the sub-materials of.
+--]]
+function submaterial.getSubMaterials( ent )
+    local matCount = #ent:getMaterials()
+    if matCount == 1 then return end
+
+    local subMats = {}
+
+    for i = 0, matCount - 1 do
+        subMats[i] = ent:getSubMaterial( i )
+    end
+
+    return subMats
+end
+
+--[[
+    - Returns a list of an entity's original sub-materials, or nil if it has none.
+    - The table will be indexed starting from 0, matching with the actual sub-material indices unlike with starfall's :getMaterials() function.
+    - Returns the sub-material paths associated with the entity's model, regardless of any changes made to the entity.
+
+    ent: (Entity)
+        - The entity to get the original sub-materials of.
+--]]
+function submaterial.getOriginalSubMaterials( ent )
+    local mats = ent:getMaterials()
+    local matCount = #mats
+    if matCount == 1 then return end
+
+    local subMats = {}
+
+    for i = 0, matCount - 1 do
+        subMats[i] = mats[i + 1]
+    end
+
+    return subMats
+end
+
+--[[
+    - Sets the sub-materials of an entity.
+
+    ent: (Entity)
+        - The entity to set the sub-materials of.
+        - If the entity has no sub-materials, this function will do nothing.
+    subMats: (nil, false, or table)
+        - If nil, this function will do nothing.
+            - Acts as a shortcut when pulling data originally acquired from submaterial.getSubMaterials(), without needing to nil-check yourself.
+        - If false, all sub-materials will be reset to their defaults.
+        - If a table, then each sub-material will be set according to its index in the table.
+            - Out-of-range indices will be ignored.
+            - Missing indices will receive no change from their current sub-material.
+--]]
+function submaterial.setSubMaterials( ent, subMats )
+    if subMats == nil then return end
+
+    local matCount = #ent:getMaterials()
+    if matCount == 1 then return end
+
+    if subMats == false then
+        for i = 0, matCount - 1 do
+            ent:setSubMaterial( i, "" )
+        end
+
+        return
+    end
+
+    if type( subMats ) ~= "table" then error( "Expected subMats to be nil, false, or a table" ) end
+
+    for i = 0, matCount - 1 do
+        local subMat = subMats[i]
+
+        if subMat then
+            ent:setSubMaterial( i, subMat )
+        end
+    end
+end
