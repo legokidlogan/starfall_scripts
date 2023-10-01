@@ -442,6 +442,63 @@ local function setShuffle( state )
 end
 
 
+function musicPlayer.getSongName( songInd )
+    return getSongName( songInd )
+end
+
+function musicPlayer.getSongIndex( songName )
+    return getSongIndex( songName )
+end
+
+function musicPlayer.getPlaylistIndex( playlistName )
+    return getPlaylistIndex( playlistName )
+end
+
+function musicPlayer.getCurPlaylistName()
+    return getCurPlaylistName()
+end
+
+function musicPlayer.isSongValid( indexOrURL )
+    return isSongValid( indexOrURL )
+end
+
+function musicPlayer.isPlaylistValid( indexOrName )
+    return isPlaylistValid( indexOrName )
+end
+
+function musicPlayer.playSong( indexOrNameOrURL )
+    playSong( indexOrNameOrURL )
+end
+
+function musicPlayer.stopSongs()
+    stopSongs()
+end
+
+function musicPlayer.restartSong()
+    restartSong()
+end
+
+function musicPlayer.skipSong()
+    playSong( getNextSongIndex() )
+end
+
+function musicPlayer.selectPlaylist( indexOrName )
+    selectPlaylist( indexOrName )
+end
+
+function musicPlayer.setVolume( vol )
+    setVolume( vol )
+end
+
+function musicPlayer.setLoop( state )
+    setLoop( state )
+end
+
+function musicPlayer.setShuffle( state )
+    setShuffle( state )
+end
+
+
 local function wireInput( name, value )
     if not chipLink:isWired( name ) then return end
 
