@@ -2,6 +2,7 @@
 --@author legokidlogan
 --@shared
 --@include lkl/simple_file_handler.txt
+--@include lkl/submaterial.txt
 
 if CLIENT and player() ~= owner() then return end
 
@@ -36,6 +37,9 @@ if CLIENT then
 
     -- TODO
 else
+    require( "lkl/submaterial.txt" )
+
+
     local COLOR_DEFAULT = Color( 255, 255, 255, 255 )
     local RENDER_MODE_DEFAULT = 0
 
@@ -95,6 +99,7 @@ else
                 Pos = prop:getPos() - origin,
                 Ang = prop:getAngles(),
                 Material = prop:getMaterial(),
+                SubMaterials = submaterial.getSubMaterials( prop ),
                 Color = color,
                 RenderMode = renderMode,
                 Skin = prop:getSkin(),

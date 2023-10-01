@@ -2,10 +2,12 @@
 --@author legokidlogan
 --@shared
 --@include lkl/queue.txt
+--@include lkl/submaterial.txt
 
 if pthSpawner and pthSpawner.spawn then return end
 
 require( "lkl/queue.txt" )
+require( "lkl/submaterial.txt" )
 
 
 pthSpawner = pthSpawner or {}
@@ -136,6 +138,7 @@ spawnQueue = Queue:new(
         local scale = entry.Scale
 
         holo:setMaterial( entry.Material )
+        submaterial.setSubMaterials( holo, entry.SubMaterials )
         holo:setColor( entry.Color or COLOR_DEFAULT )
         holo:setRenderMode( entry.RenderMode or RENDER_MODE_DEFAULT )
         holo:setSkin( entry.Skin or 0 )
