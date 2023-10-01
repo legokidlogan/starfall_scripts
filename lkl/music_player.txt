@@ -15,6 +15,7 @@
         - Before running require():
             - Be sure to do  musicPlayer = musicPlayer or {}
             - You can override each config setting by doing  musicPlayer.SettingName = value
+            - You can change projectNameID and ccmdPrefix if you want to use different print names and chat command prefixes.
         - Most of the basic functions are exposed in the musicPlayer table, shown later in this file.
             - They aren't thoroughly documented due to their simplicty, just follow the variable names.
             - These functions are server-only.
