@@ -69,7 +69,21 @@ if CLIENT then
     require( "lkl/easy_bass.txt" )
 
     local curSongBass = nil
+    local songIsPlaying = false
     local startSong
+
+
+    function musicPlayer.getSongBassObject()
+        return curSongBass
+    end
+
+    function musicPlayer.isSongPlaying()
+        return songIsPlaying
+    end
+
+    function musicPlayer.getVolume()
+        return curVolume
+    end
 
 
     local function destroyCurSong()
@@ -81,6 +95,9 @@ if CLIENT then
         end
 
         curSongBass = nil
+        songIsPlaying = false
+
+        hook.run( "LKL_MusicPlayer_SongBassObjectChanged", nil )
     end
 
     local function notifySongEnd()
@@ -128,8 +145,11 @@ if CLIENT then
             },
             function( bassObj )
                 curSongBass = bassObj
+                songIsPlaying = true
 
                 trackSongDeath()
+
+                hook.run( "LKL_MusicPlayer_SongBassObjectChanged", bassObj )
             end
         )
     end
@@ -151,6 +171,8 @@ if CLIENT then
         if isValid( curSongBass ) then
             curSongBass:setVolume( curVolume )
         end
+
+        hook.run( "LKL_MusicPlayer_VolumeChanged", curVolume )
     end )
 
     net.receive( "LKL_MusicPlayer_SetLoop", function()
