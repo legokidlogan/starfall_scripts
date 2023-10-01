@@ -149,6 +149,11 @@ if CLIENT then
         end
     end )
 
+    if player() == owner() then
+        net.start( "LKL_MusicPlayer_ClientInit" )
+        net.send()
+    end
+
     return
 end
 
@@ -560,6 +565,25 @@ net.receive( "LKL_MusicPlayer_SongEnded", function( _, ply )
     playSong( getNextSongIndex() )
 end )
 
+net.receive( "LKL_MusicPlayer_ClientInit", function( _, ply )
+    if ply ~= owner() then return end
+
+    -- Still use a timer in case clients other than the owner need a bit more time.
+    if musicPlayer.SONG_DEFAULT then
+        timer.simple( 1, function()
+            playSong( musicPlayer.SONG_DEFAULT )
+        end )
+    end
+
+    timer.simple( 1.1, function()
+        for _, inputName in ipairs( inputNames ) do
+            wireInput( inputName, wire.ports[inputName] )
+        end
+
+        hook.run( "LKL_MusicPlayer_Initialized" )
+    end )
+end )
+
 
 do
     for i, song in ipairs( SONGS ) do
@@ -636,18 +660,6 @@ do
     timer.simple( 0, function()
         wire.adjustInputs( inputNames, inputTypes )
         wire.adjustOutputs( outputNames, outputTypes )
-    end )
-
-    if musicPlayer.SONG_DEFAULT then
-        timer.simple( 2, function()
-            playSong( musicPlayer.SONG_DEFAULT )
-        end )
-    end
-
-    timer.simple( 2.1, function()
-        for _, inputName in ipairs( inputNames ) do
-            wireInput( inputName, wire.ports[inputName] )
-        end
     end )
 end
 
