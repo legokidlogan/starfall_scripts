@@ -23,6 +23,7 @@ musicPlayer.DEFAULTS = {
     SONG_DEFAULT = "TestSong1", -- Song to automatically play on startup. Can be the name of a defined song, or a custom URL. Set to false to disable.
     FADE_START = 700,
     FADE_END = 1500,
+    STALE_THRESHOLD = 100, -- Amount of ticks before a song is considered stale and is destroyed. May cause problems for songs with long periods of silence.
     PLAY_ON_CHIP = false, -- false: play sound on the owner, true: play sound on the chip.
     USE_CHAT_COMMANDS = true, -- false: only wire inputs can change settings, true: chat commands and wire inputs can both change settings.
 }
@@ -111,7 +112,7 @@ if CLIENT then
                 Target = musicPlayer.PLAY_ON_CHIP and chip() or owner(),
                 Loop = loopEnabled,
                 DestroyWhenDone = true,
-                StaleThreshold = 30,
+                StaleThreshold = musicPlayer.STALE_THRESHOLD,
             },
             function( bassObj )
                 curSongBass = bassObj
