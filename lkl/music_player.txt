@@ -11,27 +11,44 @@
         - Commands: play, stop, skip, restart, playlist, volume, loop, shuffle
 --]]
 
+musicPlayer = musicPlayer or {}
+
+
 -- CONFIG:
-local VOLUME_DEFAULT = 0.5 -- Default volume setting.
-local LOOP_DEFAULT = true -- Default loop setting.
-local SHUFFLE_DEFAULT = true -- Default shuffle setting.
-local PLAYLIST_DEFAULT = nil -- Playlist to automatically select on startup. Set to nil to disable.
-local SONG_DEFAULT = "TestSong1" -- Song to automatically play on startup. Can be the name of a defined song, or a custom URL. Set to nil to disable.
-local FADE_START = 700
-local FADE_END = 1500
-local PLAY_ON_CHIP = false -- false: play sound on the owner, true: play sound on the chip.
-local USE_CHAT_COMMANDS = true -- false: only wire inputs can change settings, true: chat commands and wire inputs can both change settings.
+musicPlayer.DEFAULTS = {
+    VOLUME_DEFAULT = 0.5, -- Default volume setting.
+    LOOP_DEFAULT = true, -- Default loop setting.
+    SHUFFLE_DEFAULT = true, -- Default shuffle setting.
+    PLAYLIST_DEFAULT = false, -- Playlist to automatically select on startup. Set to false to disable.
+    SONG_DEFAULT = "TestSong1", -- Song to automatically play on startup. Can be the name of a defined song, or a custom URL. Set to false to disable.
+    FADE_START = 700,
+    FADE_END = 1500,
+    PLAY_ON_CHIP = false, -- false: play sound on the owner, true: play sound on the chip.
+    USE_CHAT_COMMANDS = true, -- false: only wire inputs can change settings, true: chat commands and wire inputs can both change settings.
+}
 -- END CONFIG
 
 
-projectNameID = "MusicPlayer"
-ccmdPrefix = "/music"
+do
+    for setting, value in pairs( musicPlayer.DEFAULTS ) do
+        local curValue = musicPlayer[setting]
+
+        if curValue == nil then
+            musicPlayer[setting] = value
+        else
+            musicPlayer[setting] = curValue
+        end
+    end
+end
+
+projectNameID = projectNameID or "MusicPlayer"
+ccmdPrefix = ccmdPrefix or "/music"
 
 require( "lkl/chat_cmds.txt" )
 
 
-local loopEnabled = LOOP_DEFAULT
-local curVolume = VOLUME_DEFAULT
+local loopEnabled = musicPlayer.LOOP_DEFAULT
+local curVolume = musicPlayer.VOLUME_DEFAULT
 local curSongURL = nil
 
 
@@ -86,12 +103,12 @@ if CLIENT then
                 Flags = "3d stereo noblock noplay",
                 Volume = curVolume,
                 Pitch = 1,
-                FadeStart = FADE_START,
-                FadeEnd = FADE_END,
+                FadeStart = musicPlayer.FADE_START,
+                FadeEnd = musicPlayer.FADE_END,
                 FadeIn = 0,
                 FadeOut = 0,
                 Duration = nil,
-                Target = PLAY_ON_CHIP and chip() or owner(),
+                Target = musicPlayer.PLAY_ON_CHIP and chip() or owner(),
                 Loop = loopEnabled,
                 DestroyWhenDone = true,
                 StaleThreshold = 30,
@@ -565,15 +582,15 @@ do
         end
     end
 
-    curPlaylistInd = getPlaylistIndex( PLAYLIST_DEFAULT )
+    curPlaylistInd = getPlaylistIndex( musicPlayer.PLAYLIST_DEFAULT )
 
-    if SONG_DEFAULT then
-        timer.simple( 1, function()
-            playSong( SONG_DEFAULT )
+    if musicPlayer.SONG_DEFAULT then
+        timer.simple( 2, function()
+            playSong( musicPlayer.SONG_DEFAULT )
         end )
     end
 
-    timer.simple( 1.1, function()
+    timer.simple( 2.1, function()
         for _, inputName in ipairs( inputNames ) do
             wireInput( inputName, wire.ports[inputName] )
         end
@@ -581,7 +598,7 @@ do
 end
 
 
-if not USE_CHAT_COMMANDS then return end
+if not musicPlayer.USE_CHAT_COMMANDS then return end
 
 ccmdCreateCommand(
     "play",
