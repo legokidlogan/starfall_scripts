@@ -9,6 +9,17 @@
     - Songs and playlists are defined in lkl/music_player_songs.txt
     - Chat commands are prefixed with /music
         - Commands: play, stop, skip, restart, playlist, volume, loop, shuffle
+    - Wire inputs can also be used to control the music player.
+
+    - If this is being require()'d in another script:
+        - Before running require():
+            - Be sure to do  musicPlayer = musicPlayer or {}
+            - You can override each config setting by doing  musicPlayer.SettingName = value
+        - Most of the basic functions are exposed in the musicPlayer table, shown later in this file.
+            - They aren't thoroughly documented due to their simplicty, just follow the variable names.
+            - These functions are server-only.
+        - A short delay after the client realm is ready, wire inputs will update and server will  hook.run( "LKL_MusicPlayer_Initialized" )
+            - After this point, you can be assured that both relams are synced up and ready to go.
 --]]
 
 musicPlayer = musicPlayer or {}
