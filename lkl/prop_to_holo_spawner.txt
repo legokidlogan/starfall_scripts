@@ -1,6 +1,6 @@
 --@name Prop to Holo Spawner
 --@author legokidlogan
---@server
+--@shared
 --@include lkl/queue.txt
 
 if pthSpawner and pthSpawner.spawn then return end
