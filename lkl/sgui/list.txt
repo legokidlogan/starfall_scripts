@@ -47,6 +47,11 @@ function List:initialize( parent, listDirection, listAlign )
     self:setListAlign( listAlign or LIST_ALIGN_TOP_LEFT )
     self:setMinSize( self:getSize() )
     self:setSpacing( 1 )
+    self:setInvalidateWhenChildResizes( true )
+
+    function self:setInvalidateWhenChildResizes()
+        error( "This function does not exist" )
+    end
 end
 
 

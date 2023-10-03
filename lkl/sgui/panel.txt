@@ -150,6 +150,7 @@ function Panel:initialize( parent )
     self:setParent( parent )
     self:setVisible( true )
     self:allowDragParenting( true )
+    self:setInvalidateWhenChildResizes( false )
 
     tableInsert( allPanels, self )
 
@@ -1342,6 +1343,18 @@ function Panel:doesAllowDragParenting()
 end
 
 --[[
+    - Sets whether or not this Panel should have its layout invalidated when a child's size changes.
+    - False by default.
+--]]
+function Panel:setInvalidateWhenChildResizes( state )
+    self._invalidateWhenChildResizes = state and true or false
+end
+
+function Panel:doesInvalidateWhenChildResizes()
+    return self._invalidateWhenChildResizes
+end
+
+--[[
     - Sets the draw order for the extra draw calls of the Panel.
     - See :handleOrderedDraw() and :handleOrderedDrawBackground() for more information.
     - This does NOT affect :handleDraw() or :handleDrawBackground().
@@ -1822,7 +1835,7 @@ end
     - When somePanel is about to call somePanel:setParent( thisPanel ), it will call thisPanel:rerouteChild( somePanel ).
     - This is used to place the child on a different panel as the parent.
     - You should return the Panel that the child should be placed on.
-    - Returning nil will leav the child unparented.
+    - Returning nil will leave the child unparented.
 --]]
 function Panel:rerouteChild( child )
     return self
@@ -2220,10 +2233,10 @@ invalidateParentLayoutOnResize = function( panel )
         return
     end
 
-    local doesAutoAdjust = panel:isDocked() or panel:doesExpand() or panel:isAnchored()
-    local parentIsList = parent:isInstanceOf( SGUI.List )
+    local doesAutoAdjust = parent:doesInvalidateWhenChildResizes() or
+        panel:isDocked() or panel:doesExpand() or panel:isAnchored()
 
-    if doesAutoAdjust or parentIsList then
+    if doesAutoAdjust then
         parent:invalidateLayout()
     end
 end
