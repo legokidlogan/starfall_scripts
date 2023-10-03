@@ -1837,7 +1837,7 @@ end
     - You should return the Panel that the child should be placed on.
     - Returning nil will leave the child unparented.
 --]]
-function Panel:rerouteChild( child )
+function Panel:rerouteChild( _child )
     return self
 end
 

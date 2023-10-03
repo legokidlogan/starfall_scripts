@@ -320,7 +320,7 @@ end
 
 ----- OVERRIDABLE FUNCTIONS -----
 
-function ComboBox:onSelectionChanged( oldIndex, newIndex )
+function ComboBox:onSelectionChanged( _oldIndex, _newIndex )
 
 end
 

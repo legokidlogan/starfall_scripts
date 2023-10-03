@@ -251,15 +251,15 @@ end
 
 ----- OVERRIDABLE FUNCTIONS -----
 
-function LabeledSlider:onValueChanged( oldValue, newValue )
+function LabeledSlider:onValueChanged( _oldValue, _newValue )
 
 end
 
-function LabeledSlider:onMinValueChanged( oldValue, newValue )
+function LabeledSlider:onMinValueChanged( _oldValue, _newValue )
 
 end
 
-function LabeledSlider:onMaxValueChanged( oldValue, newValue )
+function LabeledSlider:onMaxValueChanged( _oldValue, _newValue )
 
 end
 

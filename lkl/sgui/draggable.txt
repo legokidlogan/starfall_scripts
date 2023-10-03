@@ -166,7 +166,7 @@ end
     - When releasing, if the result is false, dragTarget will go back to its original parent and position.
     - This is called before :onDragEnded().
 --]]
-function Draggable:canParentTo( dragTarget, panel )
+function Draggable:canParentTo( _dragTarget, _panel )
     return true
 end
 

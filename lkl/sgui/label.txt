@@ -155,11 +155,11 @@ end
 
 ----- OVERRIDABLE FUNCTIONS -----
 
-function Label:onTextChanged( oldText, newText )
+function Label:onTextChanged( _oldText, _newText )
 
 end
 
-function Label:onRenderedTextSizeChanged( oldWidth, oldHeight, newWidth, newHeight )
+function Label:onRenderedTextSizeChanged( _oldWidth, _oldHeight, _newWidth, _newHeight )
 
 end
 

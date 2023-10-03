@@ -194,7 +194,7 @@ end
 
 ----- OVERRIDABLE FUNCTIONS -----
 
-function Resizable:onResized( resizeTarget, x, y, width, height, dir, expandDirX, expandDirY )
+function Resizable:onResized( resizeTarget, x, y, width, height, _dir, _expandDirX, _expandDirY )
     resizeTarget:setPos( x, y )
     resizeTarget:setSize( width, height )
 end

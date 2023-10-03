@@ -224,7 +224,7 @@ function Collapsible:onUncollapsed()
 
 end
 
-function Collapsible:onCollapseChanged( state )
+function Collapsible:onCollapseChanged( _state )
 
 end
 

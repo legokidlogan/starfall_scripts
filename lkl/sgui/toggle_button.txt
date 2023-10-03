@@ -84,7 +84,7 @@ function ToggleButton:onToggledOff()
 end
 
 -- A combination of onToggledOn() and onToggledOff()
-function ToggleButton:onToggleChanged( state )
+function ToggleButton:onToggleChanged( _state )
 
 end
 

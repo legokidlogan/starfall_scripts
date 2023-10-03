@@ -244,15 +244,15 @@ end
 
 ----- OVERRIDABLE FUNCTIONS -----
 
-function Slider:onValueChanged( oldValue, newValue )
+function Slider:onValueChanged( _oldValue, _newValue )
 
 end
 
-function Slider:onMinValueChanged( oldValue, newValue )
+function Slider:onMinValueChanged( _oldValue, _newValue )
 
 end
 
-function Slider:onMaxValueChanged( oldValue, newValue )
+function Slider:onMaxValueChanged( _oldValue, _newValue )
 
 end
 

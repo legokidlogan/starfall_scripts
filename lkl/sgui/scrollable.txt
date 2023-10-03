@@ -349,7 +349,7 @@ end
     scrollDirection: (SCROLL_VERTICAL or SCROLL_HORIZONTAL)
         - The direction of the ScrollBar.
 --]]
-function Scrollable:onScrollBarCreated( scrollBar, scrollDirection )
+function Scrollable:onScrollBarCreated( _scrollBar, _scrollDirection )
 
 end
 
@@ -359,7 +359,7 @@ end
     scrollDirection: (SCROLL_VERTICAL or SCROLL_HORIZONTAL)
         - The direction of the ScrollBar that was removed.
 --]]
-function Scrollable:onScrollBarDestroyed( scrollDirection )
+function Scrollable:onScrollBarDestroyed( _scrollDirection )
 
 end
 
