@@ -1,0 +1,364 @@
+--@name Measuring Stick
+--@author legokidlogan
+--@client
+
+if player() ~= owner() then return end
+
+
+-- CONFIG:
+local activationWeapon = "remotecontroller"
+local selectPointkey = MOUSE.LEFT
+local selectSnapPointKey = MOUSE.RIGHT
+local clearPointKey = KEY.R
+
+local snapDivisions = 4
+local decimalPlaces = 3 -- How many decimal places to round to when displaying measurements.
+local pointModel = "models/sprops/geometry/sphere_3.mdl"
+local pointDoFullbright = false
+local pointSizeMin = 0.5
+local pointSizeMax = 4
+local pointSizeMult = 0.025 -- Multiplies against the size of the face you're looking at to get the size of the point holograms, clamped by min and max.
+local selectedPointSizeMin = 0.75
+local selectedPointSizeMax = 4.5
+local selectedPointSizeMult = 0.0375 -- Same as pointSizeMult, but for the holo marking the first point after it is selected.
+
+local aimPointColor = Color( 255, 255, 255 )
+local selectedPointColor = Color( 0, 255, 0 )
+local snapPointColor = Color( 0, 0, 255 )
+local snapMiddlePointColor = Color( 0, 255, 255 )
+local snapClosestPointColor = Color( 255, 0, 0 )
+-- END CONFIG
+
+
+local VECTOR_ZERO = Vector()
+local ANGLE_ZERO = Angle()
+
+local DIR_NUM_FORWARD = 1
+local DIR_NUM_RIGHT = 2
+--local DIR_NUM_UP = 3
+
+snapDivisions = math.floor( math.clamp( snapDivisions, 2, math.sqrt( hologram.hologramsLeft() - 2 ) - 1 ) )
+
+local snapsExist = false
+local holdingWep = false
+local selectedPointPos = nil
+local nearestSnapPointHolo = nil
+local aimPos = nil
+local aimEnt = nil
+local aimEntPos = nil
+local aimNormal = nil
+local aimPointHolo = nil
+local selectedPointHolo = nil
+local snapHoloCount = ( snapDivisions + 1 ) ^ 2
+local snapHolos = {}
+local snapXMults = {}
+local snapYMults = {}
+local snapPoints = {}
+
+local mAbs = math.abs
+
+
+local function makeHolo( mainColor )
+    local holo = hologram.create( VECTOR_ZERO, ANGLE_ZERO, pointModel )
+    holo._mainColor = mainColor
+    holo:setColor( mainColor )
+    holo:setMaterial( "models/debug/debugwhite" )
+    holo:suppressEngineLighting( pointDoFullbright )
+
+    return holo
+end
+
+local function hideHolo( holo )
+    holo:setPos( VECTOR_ZERO )
+end
+
+local function restoreHoloMainColor( holo )
+    holo:setColor( holo._mainColor )
+end
+
+local function resizeHolos( faceSize )
+    local pointSize = Vector( math.clamp( pointSizeMult * faceSize, pointSizeMin, pointSizeMax ) )
+    local selectedPointSize = Vector( math.clamp( selectedPointSizeMult * faceSize, selectedPointSizeMin, selectedPointSizeMax ) )
+
+    aimPointHolo:setSize( pointSize )
+    selectedPointHolo:setSize( selectedPointSize )
+
+    for i = 1, snapHoloCount do
+        snapHolos[i]:setSize( pointSize )
+    end
+end
+
+local function hideSnapPoints()
+    for i = 1, snapHoloCount do
+        hideHolo( snapHolos[i] )
+    end
+
+    snapsExist = false
+end
+
+-- Returns dirNum, nearestDir, otherDir1, otherDir2
+local function getNearestDirection()
+    local forward = aimEnt:getForward()
+    local right = aimEnt:getRight()
+    local up = aimEnt:getUp()
+
+    local dotForward = aimNormal:dot( forward )
+    local dotRight = aimNormal:dot( right )
+    local dotUp = aimNormal:dot( up )
+
+    local dots = { dotForward, dotRight, dotUp, -dotForward, -dotRight, -dotUp }
+    local bestDot = -2
+    local bestDotInd = 0
+
+    for i = 1, 6 do
+        local dot = dots[i]
+
+        if dot > bestDot then
+            bestDot = dot
+            bestDotInd = i
+        end
+    end
+
+    local isOpposite = bestDotInd > 3
+    bestDotInd = isOpposite and ( bestDotInd - 3 ) or bestDotInd
+
+    local nearestDir
+    local otherDir1
+    local otherDir2
+
+    if bestDotInd == DIR_NUM_FORWARD then
+        nearestDir = forward
+        otherDir1 = right
+        otherDir2 = up
+    elseif bestDotInd == DIR_NUM_RIGHT then
+        nearestDir = right
+        otherDir1 = forward
+        otherDir2 = up
+    else -- DIR_NUM_UP
+        nearestDir = up
+        otherDir1 = forward
+        otherDir2 = right
+    end
+
+    if isOpposite then
+        nearestDir = -nearestDir
+    end
+
+    return bestDotInd, nearestDir, otherDir1, otherDir2
+end
+
+-- Returns depth, width, height
+local function getFaceDimensions( dirNum )
+    local obbSize = aimEnt:obbSize()
+
+    if dirNum == DIR_NUM_FORWARD then
+        return obbSize[1], obbSize[2], obbSize[3]
+    elseif dirNum == DIR_NUM_RIGHT then
+        return obbSize[2], obbSize[1], obbSize[3]
+    else -- DIR_NUM_UP
+        return obbSize[3], obbSize[1], obbSize[2]
+    end
+end
+
+-- Because PlayerSwitchWeapon doesn't cover all cases.
+local function updateWeapon()
+    local holdingWepPrev = holdingWep
+    local wep = player():getActiveWeapon()
+    local wepClass = isValid( wep ) and wep:getClass()
+
+    holdingWep = wepClass == activationWeapon
+
+    if holdingWepPrev == holdingWep then return end
+
+    if holdingWep then
+        if selectedPointPos then
+            selectedPointHolo:setPos( selectedPointPos )
+        end
+    else
+        aimEnt = nil
+        snapsExist = false
+
+        hideHolo( aimPointHolo )
+        hideHolo( selectedPointHolo )
+        hideSnapPoints()
+    end
+end
+
+local function updateAimPoint()
+    aimPos = player():getEyeTrace().HitPos
+    aimPointHolo:setPos( aimPos )
+end
+
+local function updateSnapPoints()
+    local aimEntPrev = aimEnt
+    local aimEntPosPrev = aimEntPos
+    local aimNormalPrev = aimNormal
+
+    local tr = player():getEyeTrace()
+
+    aimEnt = tr.Entity
+    aimEnt = isValid( aimEnt ) and aimEnt
+    aimEntPos = aimEnt and aimEnt:getPos()
+    aimNormal = tr.HitNormal
+
+    if aimEntPrev == aimEnt and aimEntPosPrev == aimEntPos and aimNormalPrev == aimNormal then return end
+
+    if not aimEnt or aimNormal == VECTOR_ZERO then
+        hideSnapPoints()
+
+        return
+    end
+
+    snapsExist = true
+
+    local dirNum, nearestDir, otherDir1, otherDir2 = getNearestDirection()
+    local depth, width, height = getFaceDimensions( dirNum )
+    local centerPos = aimEnt:obbCenterW()
+
+    --resizeHolos( ( width + height ) / 2 )
+    resizeHolos( math.min( width, height ) )
+
+    local faceCenter = centerPos + nearestDir * ( depth / 2 )
+    local faceXVec = otherDir1 * width
+    local faceYVec = otherDir2 * height
+
+    for i = 1, snapHoloCount do
+        local holo = snapHolos[i]
+        local xMult = snapXMults[i]
+        local yMult = snapYMults[i]
+
+        local pointPos = faceCenter + faceXVec * xMult + faceYVec * yMult
+
+        holo:setPos( pointPos )
+        snapPoints[i] = pointPos
+    end
+end
+
+local function updateClosestSnapPoint()
+    if not snapsExist then return end
+
+    local nearestSnapPointHoloPrev = nearestSnapPointHolo
+    local nearestDist = math.huge
+    local nearestInd = 1
+
+    for i = 1, snapHoloCount do
+        local pointPos = snapPoints[i]
+        local dist = pointPos:getDistanceSqr( aimPos )
+
+        if dist < nearestDist then
+            nearestDist = dist
+            nearestInd = i
+        end
+    end
+
+    nearestSnapPointHolo = snapHolos[nearestInd]
+
+    if nearestSnapPointHoloPrev then
+        restoreHoloMainColor( nearestSnapPointHoloPrev )
+    end
+
+    nearestSnapPointHolo:setColor( snapClosestPointColor )
+end
+
+local function selectPoint( pos )
+    pos = pos or aimPos
+    if not pos then return end
+
+    if not selectedPointPos then
+        selectedPointPos = pos
+        selectedPointHolo:setPos( selectedPointPos )
+
+        return
+    end
+
+    local delta = pos - selectedPointPos
+    local dist = math.round( delta:getLength(), decimalPlaces )
+    delta:round( decimalPlaces )
+
+    print(
+        "[MeasuringStick] Results:\n" ..
+        "  Distance: " .. dist .. "\n" ..
+        "  Delta: " .. tostring( delta )
+    )
+
+    selectedPointPos = nil
+    hideHolo( selectedPointHolo )
+end
+
+local function selectSnapPoint()
+    if not snapsExist then return end
+
+    selectPoint( nearestSnapPointHolo:getPos() )
+end
+
+local function clearSelectedPoint()
+    selectedPointPos = nil
+    hideHolo( selectedPointHolo )
+end
+
+
+hook.add( "think", "LKL_MeasuringStick_UpdatePoints", function()
+    updateWeapon()
+
+    if not holdingWep then return end
+
+    updateAimPoint()
+    updateSnapPoints()
+    updateClosestSnapPoint()
+end )
+
+hook.add( "inputPressed", "LKL_MeasuringStick_SelectPoint", function( key )
+    if not holdingWep then return end
+
+    timer.simple( 0, function() -- Don't trigger if the player is clicking to change their weapons
+        if not holdingWep then return end
+
+        if key == selectPointkey then
+            selectPoint()
+        elseif key == selectSnapPointKey then
+            selectSnapPoint()
+        elseif key == clearPointKey then
+            clearSelectedPoint()
+        end
+    end )
+end )
+
+
+do
+    aimPointHolo = makeHolo( aimPointColor )
+    selectedPointHolo = makeHolo( selectedPointColor )
+
+    local xInd = 0
+    local yInd = 0
+
+    local function isMidPoint( xMult, yMult )
+        if mAbs( xMult ) ~= 0.5 and xMult ~= 0 then return false end
+        if mAbs( yMult ) ~= 0.5 and yMult ~= 0 then return false end
+
+        return true
+    end
+
+    for i = 1, snapHoloCount do
+        local minusHalfToHalfX = xInd / snapDivisions - 0.5
+        local minusHalfToHalfY = yInd / snapDivisions - 0.5
+        local isMid = isMidPoint( minusHalfToHalfX, minusHalfToHalfY )
+
+        local color = isMid and snapMiddlePointColor or snapPointColor
+        local holo = makeHolo( color )
+
+        snapHolos[i] = holo
+        snapXMults[i] = minusHalfToHalfX
+        snapYMults[i] = minusHalfToHalfY
+
+        if isMid then
+            holo._isMidPoint = true
+        end
+
+        if xInd == snapDivisions then
+            xInd = 0
+            yInd = yInd + 1
+        else
+            xInd = xInd + 1
+        end
+    end
+end
