@@ -857,7 +857,7 @@ ccmdCreateToggleCommand(
     end,
     "Song looping",
     "song looping",
-    LOOP_DEFAULT,
+    loopEnabled,
     owner(),
     false
 )
@@ -870,7 +870,7 @@ ccmdCreateToggleCommand(
     end,
     "Song shuffling",
     "song shuffling",
-    SHUFFLE_DEFAULT,
+    shuffleEnabled,
     owner(),
     false
 )
