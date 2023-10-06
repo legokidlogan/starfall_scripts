@@ -58,15 +58,15 @@
     - For shorter code snippets, it's reccommended to do  local ep = easyPrint  after your require() statement.
 --]]
 
-if easyPrint then return end -- Don't run twice
+easyPrint = easyPrint or {}
+
+if easyPrint.printInScheme then return end -- Don't run twice
 
 require( "lkl/color_scheme.txt" )
 
 
 projectNameID = projectNameID or ( "EasyPrint|" .. chip():getChipName() )
 printName = printName or ( "[" .. projectNameID .. "]" )
-
-easyPrint = easyPrint or {}
 
 
 local ep = easyPrint
