@@ -194,7 +194,7 @@ end
 
 local SONGS, PLAYLISTS = unpack( require( "lkl/music_player_songs.txt" ) )
 local SONG_COUNT = #SONGS
-local shuffleEnabled = SHUFFLE_DEFAULT
+local shuffleEnabled = musicPlayer.SHUFFLE_DEFAULT
 local curSongIsCustom = false
 local curSongInd = 1
 local curPlaylistInd = 0
