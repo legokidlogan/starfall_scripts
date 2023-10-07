@@ -1,0 +1,836 @@
+--@name Snappable
+--@author legokidlogan
+--@server
+--@include lkl/destroyable.txt
+
+if Snappable then return end
+
+require( "lkl/destroyable.txt" )
+
+
+Snappable = class( "Snappable", Destroyable )
+
+Snappable.static.AUTO_SNAP_DISTANCE = 2 -- Maximum distance between snap points to search for automatic snaps. Can be overridden by Snappable:setAutoSnapDistance().
+
+Snappable.static.SNAP_USE_WELDS = true -- Snapped entities will be welded together. If false, they will use parenting instead, which may behave strangely with complex snap chains.
+Snappable.static.SNAP_USE_NOCOLLIDES = true -- Snapped entities will be nocollided together. Ignored if SNAP_USE_WELDS is false.
+Snappable.static.SNAP_FACING_LIMIT = 0.15 -- Limits how far away snap points can face from each other and still snap. 0 is facing each other exactly, 1 is perpendicular.
+Snappable.static.SNAP_GAP = 0 -- The gap between snap points once snapped. 0 to snap exactly together.
+
+Snappable.static.SNAP_HOLO_ENABLED = true
+Snappable.static.SNAP_HOLO_FULLBRIGHT_ENABLED = true
+Snappable.static.SNAP_HOLO_RENDER_MODE = RENDERMODE.NORMAL
+Snappable.static.SNAP_HOLO_MODEL = "models/hunter/blocks/cube025x025x025.mdl"
+Snappable.static.SNAP_HOLO_MATERIAL = "models/debug/debugwhite"
+Snappable.static.SNAP_HOLO_COLOR = Color( 255, 255, 255, 255 )
+Snappable.static.SNAP_HOLO_SCALE = Vector( 0.1 )
+Snappable.static.SNAP_HOLO_ANGLE_OFFSET = Angle( 0, 0, 0 )
+
+-- Not overridable on a per-instance basis:
+Snappable.static.AUTO_SNAP_INTERVAL = 0.25 -- Gap between automatic snap checks. 0 to run on think, negative to never auto-update. Value is finalized one tick after this class is loaded.
+
+
+local allSnappables = {}
+local snappablesByID = {}
+local snappableIncrement = 0
+local getAutoSnapIndices
+local canSnapTo
+local createSnapPointHolos
+
+
+----- STATIC FUNCTIONS -----
+
+function Snappable:initialize( ent, snapPoints, snapNormals )
+    Snappable.super.initialize( self )
+
+    if not isValid( ent ) or type( ent ) ~= "Entity" then error( "Expected ent to be a valid Entity" ) end
+    if ent._snappable_SnappableObject then error( "There is already a Snappable associated with ent" ) end
+
+    snappableIncrement = snappableIncrement + 1
+    snappablesByID[snappableIncrement] = self
+    table.insert( allSnappables, self )
+
+    self._id = snappableIncrement
+    self._ent = ent
+    self._snapPoints = {}
+    self._snapNormals = {}
+    self._snapPartnersByIndex = {}
+    self._snapPartnersLookup = {}
+    self._snapConstraints = {}
+    self._snapPointHolos = {}
+    ent._snappable_SnappableObject = self
+
+    self:setSnapPoints( snapPoints, snapNormals )
+    self:setSnapEnabled( true )
+end
+
+function Snappable.static:getAll()
+    return allSnapables
+end
+
+function Snappable.static:getByID( id )
+    return snappablesByID[id]
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Snappable:getID()
+    return self._id
+end
+
+function Snappable:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+--[[
+    - Sets the snap points for this Snappable.
+
+    snapPoints: (optional) (table)
+        - If nil, will remove all snap points.
+        - If table, must be a sequential table of Vectors.
+            - Each Vector is a snap point, i.e. a position local to the Snappable's entity.
+            - There cannot be duplicate snap points.
+            - If a snap point is removed, its corresponding snap partner will be dropped.
+            - If one of the previous snap points exists in the new table, its snap partner will be kept.
+                - The corresponding snap index may change based on the new table, however.
+                - Points are considered the same if they have equal vector values.
+    snapNormals: (optional) (table)
+        - The outwards-facing directions for each snap point.
+        - If nil or a value is missing, it will auto-calculate based on direction from the entity center to the snap point.
+--]]
+function Snappable:setSnapPoints( snapPoints, snapNormals )
+    if not snapPoints then return self:setSnapPoints( {} ) end
+    if type( snapPoints ) ~= "table" then error( "Expected snapPoints to be a table or nil" ) end
+
+    snapNormals = snapNormals or {}
+    if type( snapNormals ) ~= "table" then error( "Expected snapNormals to be a table or nil" ) end
+
+    local oldPoints = self:getSnapPoints()
+    local oldPointLookup = {}
+    local newPoints = {}
+    local newPointLookup = {}
+    local newNormals = {}
+    local retainedPartnersByOldInd = {}
+    local retainedPartnersLookup = {}
+
+    local snapPartnersByIndex = self._snapPartnersByIndex
+    local snapPartnersLookup = self._snapPartnersLookup
+
+    for i, point in ipairs( oldPoints ) do
+        oldPointLookup[tostring( point )] = i
+    end
+
+    for i, point in ipairs( snapPoints ) do
+        local pointStr = tostring( point )
+        if newPointLookup[pointStr] then error( "Duplicate snap point: " .. pointStr ) end
+
+        local oldSnapInd = oldPointLookup[pointStr]
+
+        newPointLookup[pointStr] = i
+        newPoints[i] = point
+
+        if oldSnapInd then
+            local partner = snapPartnersByIndex[oldSnapInd]
+
+            retainedPartnersLookup[partner] = i
+            retainedPartnersByOldInd[oldSnapInd] = partner
+        end
+
+        local norm = snapNormals[i]
+
+        if norm then
+            norm = Vector( norm[1], norm[2], norm[3] )
+        else
+            norm = ( -point ):getNormalized()
+        end
+
+        newNormals[i] = norm
+    end
+
+    for i in pairs( table.copy( snapPartnersByIndex ) ) do
+        if not retainedPartnersByOldInd[i] then
+            self:unSnap( i )
+        end
+    end
+
+    for oldInd, partner in pairs( retainedPartnersByOldInd ) do
+        local newInd = retainedPartnersLookup[partner]
+
+        if newInd ~= oldInd then
+            snapPartnersByIndex[oldInd] = nil
+            snapPartnersByIndex[newInd] = partner
+            snapPartnersLookup[partner] = newInd
+        end
+    end
+
+    self._snapPoints = newPoints
+    self._snapNormals = newNormals
+    self._snapPointsWorldLastCalc = false
+
+    createSnapPointHolos( self )
+end
+
+-- For the sake of efficiency, this returns by reference. Do not modify the returned table.
+function Snappable:getSnapPoints()
+    return self._snapPoints
+end
+
+-- For the sake of efficiency, this returns by reference. Do not modify the returned Vector.
+function Snappable:getSnapPoint( snapIndex )
+    return self._snapPoints[snapIndex]
+end
+
+-- For the sake of efficiency, this returns by reference. Do not modify the returned table.
+function Snappable:getSnapNormals()
+    return self._snapNormals
+end
+
+-- For the sake of efficiency, this returns by reference. Do not modify the returned Vector.
+function Snappable:getSnapNormal( snapIndex )
+    return self._snapNormals[snapIndex]
+end
+
+-- For the sake of efficiency, this returns by reference. Do not modify the returned table.
+function Snappable:getSnapPointsWorld()
+    local thisTick = game.getTickCount()
+    if self._snapPointsWorldLastCalc == thisTick then return self._snapPointsWorld end
+
+    local snapPointsWorld = {}
+    local ent = self:getEntity()
+
+    for i, point in ipairs( self:getSnapPoints() ) do
+        snapPointsWorld[i] = ent:localToWorld( point )
+    end
+
+    self._snapPointsWorld = snapPointsWorld
+    self._snapPointsWorldLastCalc = thisTick
+
+    return snapPointsWorld
+end
+
+function Snappable:isSnapPointOccupied( snapIndex )
+    return self:getSnapPartner( snapIndex ) ~= nil
+end
+
+function Snappable:isSnapPointEmpty( snapIndex )
+    return self:getSnapPartner( snapIndex ) == nil
+end
+
+function Snappable:setSnapEnabled( state )
+    self._snapEnabled = state
+end
+
+function Snappable:canSnap()
+    return self._snapEnabled
+end
+
+--[[
+    - Returns whether this Snappable can snap to another Snappable.
+
+    otherSnappable: (Snappable)
+        - The Snappable that this Snappable is trying to snap to.
+    snapIndex: (optional) (number)
+        - The snap index on this Snappable that is about to be used.
+        - If nil, will find the nearest usable snap index.
+    otherSnapIndex: (optional) (number)
+        - The snap index on the other Snappable that is about to be used.
+        - If nil, will find the nearest usable snap index.
+--]]
+function Snappable:canSnapTo( otherSnappable, snapIndex, otherSnapIndex )
+    if not isValid( otherSnappable ) then return false end
+    if otherSnappable == self then return false end
+    if not self:canSnap() then return false end
+    if not otherSnappable:canSnap() then return false end
+
+    if not snapIndex or not otherSnapIndex then
+        snapIndex, otherSnapIndex = getAutoSnapIndices( self, otherSnappable, snapIndex, otherSnapIndex )
+        if not snapIndex or not otherSnapIndex then return false end
+    end
+
+    if not canSnapTo( self, otherSnappable, snapIndex, otherSnapIndex ) then return false end
+    if not canSnapTo( otherSnappable, self, otherSnapIndex, snapIndex ) then return false end
+
+    local facingLimit = math.min( self:getSnapFacingLimit(), otherSnappable:getSnapFacingLimit() )
+
+    if facingLimit < 1 then
+        local norm1 = self:getSnapNormals()[snapIndex]
+        local norm2 = otherSnappable:getSnapNormals()[otherSnapIndex]
+
+        norm1 = self:getEntity():localToWorldVector( norm1 )
+        norm2 = otherSnappable:getEntity():localToWorldVector( norm2 )
+
+        if 1 + norm1:dot( norm2 ) > facingLimit then return false end
+    end
+
+    local result = hook.run( "LKL_Snappable_CanSnapTo", self, otherSnappable, snapIndex, otherSnapIndex )
+    if result == nil then return true end
+
+    return result
+end
+
+--[[
+    - Tries to snap to another Snappable.
+    - Arguments are the same as Snappable:canSnapTo(), and it returns the same value.
+--]]
+function Snappable:snapTo( otherSnappable, snapIndex, otherSnapIndex )
+    if not snapIndex or not otherSnapIndex then
+        snapIndex, otherSnapIndex = getAutoSnapIndices( self, otherSnappable, snapIndex, otherSnapIndex )
+        if not snapIndex or not otherSnapIndex then return false end
+    end
+
+    if not self:canSnapTo( otherSnappable, snapIndex, otherSnapIndex ) then return false end
+
+    local myEnt = self:getEntity()
+    local otherEnt = otherSnappable:getEntity()
+    local mySnapPoint = self:getSnapPoint( snapIndex )
+    local otherSnapPos = otherEnt:localToWorld( otherSnappable:getSnapPoint( otherSnapIndex ) )
+    local mySnapNormal = self:getSnapNormal( snapIndex )
+    local otherSnapNormal = otherSnappable:getSnapNormal( otherSnapIndex )
+    local otherSnapNormalWorld = otherEnt:localToWorldVector( otherSnapNormal )
+    local snapGap = self:getSnapGap() + otherSnappable:getSnapGap()
+
+    if snapGap ~= 0 then
+        otherSnapPos = otherSnapPos - otherEnt:localToWorldVector( otherSnapNormal ) * snapGap
+    end
+
+    local myEntPos = myEnt:getPos()
+    local myEntAng = myEnt:getAngles()
+    local mySnapNormalTargetAng = ( -otherSnapNormalWorld ):getAngleEx( otherEnt:getUp() )
+    local mySnapPos, mySnapNormalAngWorld = localToWorld( mySnapPoint, mySnapNormal:getAngleEx( myEntAng:getUp() ), myEntPos, myEntAng )
+    local myEntPosLocalToSnapPoint, myEntAngLocalToNorm = worldToLocal( myEntPos, myEntAng, mySnapPos, mySnapNormalAngWorld )
+    local myEntTargetPos, myEntTargetAng = localToWorld( myEntPosLocalToSnapPoint, myEntAngLocalToNorm, otherSnapPos, mySnapNormalTargetAng )
+
+    myEnt:setPos( myEntTargetPos )
+    myEnt:setAngles( myEntTargetAng )
+
+    if self:getSnapUseWelds() then
+        local useNocollide = self:getSnapUseNocollides() or otherSnappable:getSnapUseNocollides()
+        local constr = constraint.weld( myEnt, otherEnt, nil, nil, nil, useNocollide )
+
+        self._snapConstraints[snapIndex] = constr
+    else
+        myEnt:setParent( otherEnt )
+    end
+
+    self._snapPartnersByIndex[snapIndex] = otherSnappable
+    self._snapPartnersLookup[otherSnappable] = snapIndex
+    otherSnappable._snapPartnersByIndex[otherSnapIndex] = self
+    otherSnappable._snapPartnersLookup[self] = otherSnapIndex
+
+    return true
+end
+
+--[[
+    - Unsnaps from a partner Snappable.
+
+    snapIndexOrPartner: (optional) (number or Snappable)
+        - If nil, will unsnap from all partners.
+        - If number, will unsnap from the partner at that snap index.
+        - If Snappable, will unsnap from that Snappable.
+--]]
+function Snappable:unSnap( snapIndexOrPartner )
+    if not snapIndexOrPartner then
+        for i in pairs( table.copy( self._snapPartnersByIndex ) ) do
+            self:unSnap( i )
+        end
+
+        return
+    end
+
+    if type( snapIndexOrPartner ) ~= "number" then
+        snapIndexOrPartner = self:getSnapIndex( snapIndexOrPartner )
+        if not snapIndexOrPartner then return end
+    end
+
+    local snapIndex = snapIndexOrPartner
+    local partner = self:getSnapPartner( snapIndex )
+    if not partner then return end
+
+    local partnerSnapIndex = partner:getSnapIndex( self )
+    local constr = self._snapConstraints[snapIndex] or partner._snapConstraints[partnerSnapIndex]
+
+    if isValid( constr ) then
+        constr:remove()
+        self._snapConstraints[snapIndex] = nil
+        partner._snapConstraints[partnerSnapIndex] = nil
+    else
+        local myEnt = self:getEntity()
+        local otherEnt = partner:getEntity()
+
+        if myEnt:getParent() == otherEnt then
+            myEnt:setParent( nil )
+        elseif otherEnt:getParent() == myEnt then
+            otherEnt:setParent( nil )
+        end
+    end
+
+    self._snapPartnersByIndex[snapIndex] = nil
+    self._snapPartnersLookup[partner] = nil
+    partner._snapPartnersByIndex[partnerSnapIndex] = nil
+    partner._snapPartnersLookup[self] = nil
+end
+
+--[[
+    - Tries to automatically snap to nearby Snappables.
+
+    snapDist: (optional) (number)
+        - The maximum distance to search for snap partners.
+        - If nil, will use the default snap distance.
+--]]
+function Snappable:autoSnap( snapDist )
+    snapDist = snapDist or self:getAutoSnapDistance()
+
+    local bestSnapInd = nil
+    local bestOtherSnapInd = nil
+    local bestPartner = nil
+    local bestDistSqr = snapDist * 2
+
+    for _, otherSnappable in ipairs( allSnappables ) do
+        if otherSnappable == self then continue end
+
+        local snapInd, otherSnapInd, distSqr = getAutoSnapIndices( self, otherSnappable )
+        if not distSqr or distSqr > bestDistSqr then continue end
+        if not self:canSnapTo( otherSnappable, snapInd, otherSnapInd ) then continue end
+
+        bestSnapInd = snapInd
+        bestOtherSnapInd = otherSnapInd
+        bestPartner = otherSnappable
+        bestDistSqr = distSqr
+    end
+
+    if not bestPartner then return end
+
+    self:snapTo( bestPartner, bestSnapInd, bestOtherSnapInd )
+end
+
+function Snappable:setAutoSnapDistance( snapDist )
+    self._autoSnapDist = snapDist
+end
+
+function Snappable:getAutoSnapDistance()
+    return self._autoSnapDist or self.class.AUTO_SNAP_DISTANCE
+end
+
+function Snappable:isSnapped()
+    return table.isEmpty( self._snapPartnersByIndex )
+end
+
+-- Returns a sequential list of all current snap partners.
+function Snappable:getSnapPartners()
+    local snapPartnersByIndex = self:getSnapPartnersByIndex()
+
+    local snapPartners = {}
+
+    for _, partner in pairs( snapPartnersByIndex ) do
+        table.insert( snapPartners, partner )
+    end
+
+    return snapPartners
+end
+
+-- For the sake of efficiency, this returns by reference. Do not modify the returned table.
+function Snappable:getSnapPartnersByIndex()
+    return self._snapPartnersByIndex
+end
+
+--[[
+    - Returns the snap partner at the given snap index.
+
+    snapIndex: (number)
+        - The snap index to get the partner of.
+
+    RETURNS: snapPartner
+        snapPartner: (Snappable or nil)
+            - The partner Snappable at the given snap index, or nil if there is none.
+--]]
+function Snappable:getSnapPartner( snapIndex )
+    return self._snapPartnersByIndex[snapIndex]
+end
+
+--[[
+    - Returns the snap index of the given snap partner.
+
+    snapPartner: (Snappable)
+        - The Snappable to get the snap index of.
+
+    RETURNS: snapIndex
+        snapIndex: (number or nil)
+            - The snap index of the given snap partner, or nil if it is not a partner.
+--]]
+function Snappable:getSnapIndex( snapPartner )
+    return self._snapPartnersLookup[snapPartner]
+end
+
+--[[
+    - Returns whether the given Snappable is a snap partner.
+
+    otherSnappable: (Snappable)
+        - The Snappable to check.
+
+    RETURNS: isSnappedTo
+        isSnappedTo: (boolean)
+            - Whether or not the given Snappable is a snap partner.
+--]]
+function Snappable:isSnappedTo( otherSnappable )
+    return self._snapPartnersLookup[otherSnappable] ~= nil
+end
+
+-- Returns the entity that this Snappable is associated with.
+function Snappable:getEntity()
+    return self._ent
+end
+
+-- This will not update current snap connections, and should only be used when nothing is snapped.
+function Snappable:setSnapUseWelds( state )
+    self._snapUseWelds = state
+end
+
+function Snappable:getSnapUseWelds()
+    local state = self._snapUseWelds
+    if state == nil then return self.class.SNAP_USE_WELDS end
+
+    return state
+end
+
+-- This will not update current snap connections, and should only be used when nothing is snapped.
+function Snappable:setSnapUseNocollides( state )
+    self._snapUseNocollides = state
+end
+
+function Snappable:getSnapUseNocollides()
+    local state = self._snapUseNocollides
+    if state == nil then return self.class.SNAP_USE_NOCOLLIDES end
+
+    return state
+end
+
+-- This will not update current snap connections, and should only be used when nothing is snapped.
+function Snappable:setSnapFacingLimit( limit )
+    self._snapFacingLimit = limit
+end
+
+function Snappable:getSnapFacingLimit()
+    return self._snapFacingLimit or self.class.SNAP_FACING_LIMIT
+end
+
+-- This will not update current snap connections, and should only be used when nothing is snapped.
+function Snappable:setSnapGap( gap )
+    self._snapGap = gap
+end
+
+function Snappable:getSnapGap()
+    return self._snapGap or self.class.SNAP_GAP
+end
+
+function Snappable:setSnapHoloEnabled( state )
+    self._snapHoloEnabled = state
+
+    createSnapPointHolos( self )
+end
+
+function Snappable:getSnapHoloEnabled()
+    local state = self._snapHoloEnabled
+    if state == nil then return self.class.SNAP_HOLO_ENABLED end
+
+    return state
+end
+
+function Snappable:setSnapHoloFullbrightEnabled( state )
+    self._snapHoloFullbrightEnabled = state
+
+    createSnapPointHolos( self )
+end
+
+function Snappable:getSnapHoloFullbrightEnabled()
+    local state = self._snapHoloFullbrightEnabled
+    if state == nil then return self.class.SNAP_HOLO_FULLBRIGHT_ENABLED end
+
+    return state
+end
+
+function Snappable:setSnapHoloRenderMode( renderMode )
+    self._snapHoloRenderMode = renderMode
+
+    createSnapPointHolos( self )
+end
+
+function Snappable:getSnapHoloRenderMode()
+    local renderMode = self._snapHoloRenderMode or self.class.SNAP_HOLO_RENDER_MODE
+
+    if renderMode == RENDERMODE.NORMAL and self:getSnapHoloColor().a < 255 then
+        return RENDERMODE.TRANSCOLOR
+    end
+
+    return renderMode
+end
+
+function Snappable:setSnapHoloModel( model )
+    self._snapHoloModel = model
+
+    createSnapPointHolos( self )
+end
+
+function Snappable:getSnapHoloModel()
+    return self._snapHoloModel or self.class.SNAP_HOLO_MODEL
+end
+
+function Snappable:setSnapHoloMaterial( material )
+    self._snapHoloMaterial = material
+
+    createSnapPointHolos( self )
+end
+
+function Snappable:getSnapHoloMaterial()
+    return self._snapHoloMaterial or self.class.SNAP_HOLO_MATERIAL
+end
+
+function Snappable:setSnapHoloColor( color )
+    self._snapHoloColor = color
+
+    createSnapPointHolos( self )
+end
+
+function Snappable:getSnapHoloColor()
+    return self._snapHoloColor or self.class.SNAP_HOLO_COLOR
+end
+
+function Snappable:setSnapHoloScale( scale )
+    self._snapHoloScale = scale
+
+    createSnapPointHolos( self )
+end
+
+function Snappable:getSnapHoloScale()
+    return self._snapHoloScale or self.class.SNAP_HOLO_SCALE
+end
+
+function Snappable:setSnapHoloAngleOffset( angle )
+    self._snapHoloAngleOffset = angle
+
+    createSnapPointHolos( self )
+end
+
+function Snappable:getSnapHoloAngleOffset()
+    return self._snapHoloAngleOffset or self.class.SNAP_HOLO_ANGLE_OFFSET
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+--[[
+    - Allows for additional checks for blocking snap attempts.
+
+    otherSnappable: (Snappable)
+        - The Snappable that this Snappable is trying to snap to.
+    snapIndex: (number)
+        - The snap index on this Snappable that is about to be used.
+    otherSnapIndex: (number)
+        - The snap index on the other Snappable that is about to be used.
+
+    RETURNS: canSnap
+        canSnap: (boolean)
+            - Whether or not the snap attempt should be allowed.
+
+    - You can also use the LKL_Snappable_CanSnapTo hook, which is called after this function.
+        - It receives snappable, otherSnappable, snapIndex, and otherSnapIndex as arguments.
+        - Returning false will block the snap attempt.
+        - Returning nil will allow the snap attempt.
+--]]
+function Snappable:canSnapToExtra( _otherSnappable, _snapIndex, _otherSnapIndex )
+    return true
+end
+
+-- Runs when this Snappable snaps to another Snappable.
+function Snappable:onSnapped( _otherSnappable, _snapIndex, _otherSnapIndex )
+
+end
+
+-- Runs when this Snappable unsnaps from another Snappable.
+function Snappable:onUnSnapped( _otherSnappable, _snapIndex, _otherSnapIndex )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Snappable:tostringInner()
+    return "ID " .. self:getID()
+end
+
+function Snappable:destroy()
+    self:unSnap()
+
+    local ent = self:getEntity()
+    local holos = self._snapPointHolos
+
+    if isValid( ent ) then
+        ent._snappable_SnappableObject = nil
+    end
+
+    for _, holo in ipairs( holos ) do
+        if isValid( holo ) then
+            holo:destroy()
+        end
+    end
+
+    timer.remove( self:getTimerName( "LKL_Snappable_CreateSnapHolos" ) )
+    table.removeByValue( allSnappables, self )
+    allSnappables[self:getID()] = nil
+
+    Snappable.super.destroy( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+getAutoSnapIndices = function( snappable, otherSnappable, snapIndex, otherSnapIndex )
+    if snapIndex and otherSnapIndex then return snapIndex, otherSnapIndex end
+
+    local bestDistSqr = math.huge
+
+    if snapIndex then
+        otherSnapIndex, bestDistSqr = getAutoSnapOtherIndex( otherSnappable, snappable, snapIndex )
+
+        return snapIndex, otherSnapIndex, bestDistSqr
+    elseif otherSnapIndex then
+        snapIndex, bestDistSqr = getAutoSnapOtherIndex( snappable, otherSnappable, otherSnapIndex )
+
+        return snapIndex, otherSnapIndex, bestDistSqr
+    end
+
+    local bestSnapInd = nil
+    local bestOtherSnapInd = nil
+
+    for i, point in ipairs( snappable:getSnapPointsWorld() ) do
+        for i2, otherPoint in ipairs( otherSnappable:getSnapPointsWorld() ) do
+            local distSqr = point:getDistanceSqr( otherPoint )
+
+            if distSqr < bestDistSqr then
+                bestSnapInd = i
+                bestOtherSnapInd = i2
+                bestDistSqr = distSqr
+            end
+        end
+    end
+
+    return bestSnapInd, bestOtherSnapInd, bestDistSqr
+end
+
+getAutoSnapOtherIndex = function( snappable, otherSnappable, snapIndex )
+    local mySnapPoint = snappable:getSnapPoint( snapIndex )
+    if not mySnapPoint then return end
+
+    local mySnapPos = snappable:getEntity():localToWorld( mySnapPoint )
+    local otherSnapPoss = otherSnappable:getSnapPointsWorld()
+
+    local bestOtherSnapInd = nil
+    local bestDistSqr = math.huge
+
+    for i, otherSnapPos in ipairs( otherSnapPoss ) do
+        local distSqr = mySnapPos:getDistanceSqr( otherSnapPos )
+
+        if distSqr < bestDist then
+            bestOtherSnapInd = i
+            bestDistSqr = distSqr
+        end
+    end
+
+    if bestDistSqr > snappable:getAutoSnapDistance() ^ 2 then return end
+    if bestDistSqr > otherSnappable:getAutoSnapDistance() ^ 2 then return end
+
+    return bestOtherSnapInd, bestDistSqr
+end
+
+canSnapTo = function( snappable, otherSnappable, snapIndex, otherSnapIndex )
+    if not snappable._snapPoints[snapIndex] then return false end
+    if snappable:isSnapPointOccupied( snapIndex ) then return false end
+    if snappable:isSnappedTo( otherSnappable ) then return false end
+
+    return snappable:canSnapToExtra( otherSnappable, snapIndex, otherSnapIndex )
+end
+
+createSnapPointHolos = function( snappable )
+    local holos = snappable._snapPointHolos
+
+    for i = #holos, 1, -1 do
+        local holo = holos[i]
+
+        if isValid( holo ) then
+            holo:destroy()
+        end
+
+        holos[i] = nil
+    end
+
+    if not snappable:getSnapHoloEnabled() then return end
+    if not hologram.canSpawn() then return end
+
+    local fullbrightEnabled = snappable:getSnapHoloFullbrightEnabled()
+    local renderMode = snappable:getSnapHoloRenderMode()
+    local model = snappable:getSnapHoloModel()
+    local material = snappable:getSnapHoloMaterial()
+    local color = snappable:getSnapHoloColor()
+    local scale = snappable:getSnapHoloScale()
+    local angleOffset = snappable:getSnapHoloAngleOffset()
+
+    local snapPointsWorld = snappable:getSnapPointsWorld()
+    local ent = snappable:getEntity()
+    local ang = ent:localToWorldAngles( angleOffset )
+
+    for i, pos in ipairs( snapPointsWorld ) do
+        local holo
+
+        pcall( function()
+            if not hologram.canSpawn() then return end
+
+            holo = hologram.create( pos, ang, model, scale )
+        end )
+
+        if not holo then
+            timer.create( snappable:getTimerName( "LKL_Snappable_CreateSnapHolos" ), 0.5, 1, function()
+                createSnapPointHolos( snappable )
+            end )
+
+            return
+        end
+
+        holo:setMaterial( material )
+        holo:setColor( color )
+        holo:setRenderMode( renderMode )
+        holo:suppressEngineLighting( fullbrightEnabled )
+        holo:setParent( ent )
+
+        holos[i] = holo
+    end
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_Snappable_DestroySnappable", function( ent )
+    local snappable = ent._snappable_SnappableObject
+    if not snappable then return end
+
+    snappable:destroy()
+end )
+
+
+timer.simple( 0, function()
+    local autoSnapInterval = Snappable.AUTO_SNAP_INTERVAL
+    if autoSnapInterval < 0 then return end
+
+    local function autoSnapAll()
+        for _, snappable in ipairs( allSnappables ) do
+            snappable:autoSnap()
+        end
+    end
+
+    if autoSnapInterval == 0 then
+        hook.add( "think", "LKL_Snappable_AutoSnapAll", autoSnapAll )
+    else
+        timer.create( "LKL_Snappable_AutoSnapAll", autoSnapInterval, 0, autoSnapAll )
+    end
+end )
