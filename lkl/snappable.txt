@@ -2,10 +2,12 @@
 --@author legokidlogan
 --@server
 --@include lkl/destroyable.txt
+--@include lkl/table_make_lookup.txt
 
 if Snappable then return end
 
 require( "lkl/destroyable.txt" )
+require( "lkl/table_make_lookup.txt" )
 
 
 Snappable = class( "Snappable", Destroyable )
@@ -16,6 +18,8 @@ Snappable.static.SNAP_USE_WELDS = true -- Snapped entities will be welded togeth
 Snappable.static.SNAP_USE_NOCOLLIDES = true -- Snapped entities will be nocollided together. Ignored if SNAP_USE_WELDS is false.
 Snappable.static.SNAP_FACING_LIMIT = 0.15 -- Limits how far away snap points can face from each other and still snap. 0 is facing each other exactly, 1 is perpendicular.
 Snappable.static.SNAP_GAP = 0 -- The gap between snap points once snapped. 0 to snap exactly together.
+Snappable.static.SNAP_CLASS_WHITELIST_CHECKS_SUB_CLASSES = true
+Snappable.static.SNAP_CLASS_BLACKLIST_CHECKS_SUB_CLASSES = true
 
 Snappable.static.SNAP_HOLO_ENABLED = true
 Snappable.static.SNAP_HOLO_FULLBRIGHT_ENABLED = true
@@ -62,6 +66,8 @@ function Snappable:initialize( ent, snapPoints, snapNormals )
 
     self:setSnapPoints( snapPoints, snapNormals )
     self:setSnapEnabled( true )
+    self:setSnapClassWhitelist( {} )
+    self:setSnapClassBlacklist( {} )
 end
 
 function Snappable.static:getAll()
@@ -483,6 +489,157 @@ function Snappable:getEntity()
     return self._ent
 end
 
+--[[
+    - Sets the whitelist of classes this Snappable can snap to.
+
+    whitelist: (nil or table)
+        - If nil or an empty table, will allow all classes.
+        - If a table, it should be either a sequential or lookup table of Snappable subclasses.
+--]]
+function Snappable:setSnapClassWhitelist( whitelist )
+    if not whitelist then return self:setSnapClassWhitelist( {} ) end
+    if type( whitelist ) ~= "table" then error( "Expected whitelist to be a table or nil" ) end
+
+    if table.isEmpty( whitelist ) then
+        self._snapClassWhitelist = {}
+        self._snapClassWhitelistEmpty = true
+    else
+        self._snapClassWhitelist = table.makeLookup( whitelist )
+        self._snapClassWhitelistEmpty = false
+    end
+end
+
+--[[
+    - Adds a class to the whitelist of what this Snappable can snap to.
+
+    classObj: (table)
+        - The Snappable subclass to add to the whitelist.
+--]]
+function Snappable:addToSnapClassWhitelist( classObj )
+    if not classObj then return end
+
+    self._snapClassWhitelist[classObj] = true
+    self._snapClassWhitelistEmpty = false
+end
+
+--[[
+    - Removes a class from the whitelist of what this Snappable can snap to.
+
+    classObj: (table)
+        - The Snappable subclass to remove from the whitelist.
+--]]
+function Snappable:removeFromSnapClassWhitelist( classObj )
+    if not classObj then return end
+
+    local whitelist = self._snapClassWhitelist
+
+    whitelist[classObj] = nil
+    self._snapClassWhitelistEmpty = table.isEmpty( whitelist )
+end
+
+function Snappable:getSnapClassWhitelist()
+    return table.copy( self._snapClassWhitelist )
+end
+
+--[[
+    - Returns whether the given Snappable is in the whitelist of what this Snappable can snap to.
+    - If the whitelist is empty, this will always return true.
+    - This does not check the blacklist at all, so remember to check both.
+
+    otherSnappable: (Snappable)
+        - The Snappable to check.
+--]]
+function Snappable:isInSnapClassWhitelist( otherSnappable )
+    if self._snapClassWhitelistEmpty then return true end
+
+    local whitelist = self._snapClassWhitelist
+    local otherClass = otherSnappable.class
+    if not self:doesSnapClassWhitelistCheckSubClasses() then return whitelist[otherClass] or false end
+
+    while otherClass do
+        if whitelist[otherClass] then return true end
+
+        otherClass = otherClass.super
+    end
+
+    return false
+end
+
+--[[
+    - Sets the blacklist of classes this Snappable cannot snap to.
+
+    blacklist: (nil or table)
+        - If nil or an empty table, will allow all classes.
+        - If a table, it should be either a sequential or lookup table of Snappable subclasses.
+--]]
+function Snappable:setSnapClassBlacklist( blacklist )
+    if not blacklist then return self:setSnapClassBlacklist( {} ) end
+    if type( blacklist ) ~= "table" then error( "Expected blacklist to be a table or nil" ) end
+
+    if table.isEmpty( blacklist ) then
+        self._snapClassBlacklist = {}
+        self._snapClassBlacklistEmpty = true
+    else
+        self._snapClassBlacklist = table.makeLookup( blacklist )
+        self._snapClassBlacklistEmpty = false
+    end
+end
+
+--[[
+    - Adds a class to the blacklist of what this Snappable cannot snap to.
+
+    classObj: (table)
+        - The Snappable subclass to add to the blacklist.
+--]]
+function Snappable:addToSnapClassBlacklist( classObj )
+    if not classObj then return end
+
+    self._snapClassBlacklist[classObj] = true
+    self._snapClassBlacklistEmpty = false
+end
+
+--[[
+    - Removes a class from the blacklist of what this Snappable cannot snap to.
+
+    classObj: (table)
+        - The Snappable subclass to remove from the blacklist.
+--]]
+function Snappable:removeFromSnapClassBlacklist( classObj )
+    if not classObj then return end
+
+    local blacklist = self._snapClassBlacklist
+
+    blacklist[classObj] = nil
+    self._snapClassBlacklistEmpty = table.isEmpty( blacklist )
+end
+
+function Snappable:getSnapClassBlacklist()
+    return table.copy( self._snapClassBlacklist )
+end
+
+--[[
+    - Sets the blacklist of classes this Snappable cannot snap to.
+
+    blacklist: (nil or table)
+        - If nil or an empty table, will allow all classes.
+        - If a table, it should be either a sequential or lookup table of Snappable subclasses.
+--]]
+function Snappable:isInSnapClassBlacklist( otherSnappable )
+    if self._snapClassBlacklistEmpty then return false end
+
+    local blacklist = self._snapClassBlacklist
+    local otherClass = otherSnappable.class
+    if not self:doesSnapClassBlacklistCheckSubClasses() then return blacklist[otherClass] or false end
+
+    while otherClass do
+        if blacklist[otherClass] then return true end
+
+        otherClass = otherClass.super
+    end
+
+    return false
+end
+
 -- This will not update current snap connections, and should only be used when nothing is snapped.
 function Snappable:setSnapUseWelds( state )
     self._snapUseWelds = state
@@ -523,6 +680,28 @@ end
 
 function Snappable:getSnapGap()
     return self._snapGap or self.class.SNAP_GAP
+end
+
+function Snappable:setSnapClassWhitelistChecksSubClasses( state )
+    self._snapClassWhitelistChecksSubClasses = state
+end
+
+function Snappable:doesSnapClassWhitelistCheckSubClasses()
+    local state = self._snapClassWhitelistChecksSubClasses
+    if state == nil then return self.class.SNAP_CLASS_WHITELIST_CHECKS_SUB_CLASSES end
+
+    return state
+end
+
+function Snappable:setSnapClassBlacklistChecksSubClasses( state )
+    self._snapClassBlacklistChecksSubClasses = state
+end
+
+function Snappable:doesSnapClassBlacklistCheckSubClasses()
+    local state = self._snapClassBlacklistChecksSubClasses
+    if state == nil then return self.class.SNAP_CLASS_BLACKLIST_CHECKS_SUB_CLASSES end
+
+    return state
 end
 
 function Snappable:setSnapHoloEnabled( state )
@@ -748,6 +927,8 @@ canSnapTo = function( snappable, otherSnappable, snapIndex, otherSnapIndex )
     if not snappable._snapPoints[snapIndex] then return false end
     if snappable:isSnapPointOccupied( snapIndex ) then return false end
     if snappable:isSnappedTo( otherSnappable ) then return false end
+    if not snappable:isInSnapClassWhitelist( otherSnappable ) then return false end
+    if snappable:isInSnapClassBlacklist( otherSnappable ) then return false end
 
     return snappable:canSnapToExtra( otherSnappable, snapIndex, otherSnapIndex )
 end
