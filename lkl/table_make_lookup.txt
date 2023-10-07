@@ -1,0 +1,33 @@
+--@name Table Make Lookup
+--@author legokidlogan
+--@shared
+
+--[[
+    - Turns anything into a lookup table.
+
+    tbl: (any)
+        - The table or single item to turn into a lookup table.
+        - If a table, it can either be sequential or a lookup table.
+        - If a single item, it will yield { [item] = true }
+        - Nil will yield an empty table.
+--]]
+function table.makeLookup( tbl )
+    if tbl == nil then return {} end
+    if type( tbl ) ~= "table" then return { [tbl] = true } end
+
+    local lookup = {}
+
+    if #tbl == table.count( tbl ) then
+        -- Sequential table
+        for _, v in ipairs( tbl ) do
+            lookup[v] = true
+        end
+    else
+        -- Lookup table
+        for k in pairs( tbl ) do
+            lookup[k] = true
+        end
+    end
+
+    return lookup
+end
