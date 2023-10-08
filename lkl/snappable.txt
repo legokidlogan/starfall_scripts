@@ -40,6 +40,7 @@ local snappableIncrement = 0
 local getAutoSnapIndices
 local canSnapTo
 local createSnapPointHolos
+local tryUnSnapOnGrab
 
 
 ----- STATIC FUNCTIONS -----
@@ -68,6 +69,10 @@ function Snappable:initialize( ent, snapPoints, snapNormals )
     self:setSnapEnabled( true )
     self:setSnapClassWhitelist( {} )
     self:setSnapClassBlacklist( {} )
+    self:setUnSnapOnGrab( false )
+    self:setUnSnapOnGrabPhysgun( true )
+    self:setUnSnapOnGrabGravgun( true )
+    self:setUnSnapOnGrabHands( true )
 end
 
 function Snappable.static:getAll()
@@ -640,6 +645,64 @@ function Snappable:isInSnapClassBlacklist( otherSnappable )
     return false
 end
 
+--[[
+    - Sets whether or not this Snappable will unsnap when grabbed by a player.
+
+    stateOrSnapIndices: (boolean or number or table)
+        - If boolean, sets whether or not all snap indices will be unsnapped upon grabbing.
+        - If number, then only that corresponding snap index will be unsnapped upon grabbing.
+        - If table, must be a sequential table of snap indices.
+            - Upon grabbing, each of these indices will be unsnapped, while the rest will be left alone.
+--]]
+function Snappable:setUnSnapOnGrab( stateOrSnapIndices )
+    if type( stateOrSnapIndices ) == "boolean" then
+        self._unSnapOnGrab = stateOrSnapIndices
+
+        return
+    end
+
+    if type( stateOrSnapIndices ) == "number" then return self:setUnSnapOnGrab( { stateOrSnapIndices } ) end
+    if type( stateOrSnapIndices ) ~= "table" then error( "Expected stateOrSnapIndices to be a boolean, number, or table" ) end
+
+    self._unSnapOnGrab = table.clone( stateOrSnapIndices )
+end
+
+--[[
+    - Returns the snap indices that will be unsnapped upon grabbing.
+        - Will be a boolean or a sequential table.
+    - For the sake of efficiency, this returns by reference. Do not modify the returned table.
+--]]
+function Snappable:getUnSnapOnGrab()
+    return self._unSnapOnGrab
+end
+
+-- If this SNappable unsnaps on grabbing, this determines whether or not Physgun grabs will trigger it.
+function Snappable:setUnSnapOnGrabPhysgun( state )
+    self._unSnapOnGrabPhysgun = state
+end
+
+function Snappable:getUnSnapOnGrabPhysgun()
+    return self._unSnapOnGrabPhysgun
+end
+
+-- If this SNappable unsnaps on grabbing, this determines whether or not Gravgun grabs will trigger it.
+function Snappable:setUnSnapOnGrabGravgun( state )
+    self._unSnapOnGrabGravgun = state
+end
+
+function Snappable:getUnSnapOnGrabGravgun()
+    return self._unSnapOnGrabGravgun
+end
+
+-- If this SNappable unsnaps on grabbing, this determines whether or not hand grabs (+use when unfrozen) will trigger it.
+function Snappable:setUnSnapOnGrabHands( state )
+    self._unSnapOnGrabHands = state
+end
+
+function Snappable:getUnSnapOnGrabHands()
+    return self._unSnapOnGrabHands
+end
+
 -- This will not update current snap connections, and should only be used when nothing is snapped.
 function Snappable:setSnapUseWelds( state )
     self._snapUseWelds = state
@@ -822,6 +885,26 @@ function Snappable:canSnapToExtra( _otherSnappable, _snapIndex, _otherSnapIndex 
     return true
 end
 
+--[[
+    - Return false to block a grab from unsnapping this Snappable.
+
+    ply: (Player)
+        - The player that is trying to grab this Snappable.
+    isPhysgun: (boolean)
+        - Whether or not the grab is from a Physgun.
+    isGravgun: (boolean)
+        - Whether or not the grab is from a Gravgun.
+    isHands: (boolean)
+        - Whether or not the grab is from hands (+use when unfrozen).
+
+    RETURNS: canUnSnapFromGrab
+        canUnSnapFromGrab: (boolean)
+            - Whether or not the grab should be allowed to unsnap this Snappable.
+--]]
+function Snappable:canUnSnapFromGrab( _ply, _isPhysgun, _isGravgun, _isHands )
+    return true
+end
+
 -- Runs when this Snappable snaps to another Snappable.
 function Snappable:onSnapped( _otherSnappable, _snapIndex, _otherSnapIndex )
 
@@ -988,6 +1071,23 @@ createSnapPointHolos = function( snappable )
     end
 end
 
+tryUnSnapOnGrab = function( snappable, ply, isPhysgun, isGravgun, isHands )
+    local unSnapOnGrab = snappable:getUnSnapOnGrab()
+    if not unSnapOnGrab then return end
+
+    local unSnapAll = type( unSnapOnGrab ) == "boolean"
+    local inds
+
+    if not unSnapAll then
+        inds = unSnapOnGrab
+        if table.isEmtpy( inds ) then return end
+    end
+
+    if not snappable:canUnSnapFromGrab( ply, isPhysgun, isGravgun, isHands ) then return end
+
+    snappable:unSnap( inds )
+end
+
 
 ----- SETUP -----
 
@@ -996,6 +1096,30 @@ hook.add( "EntityRemoved", "LKL_Snappable_DestroySnappable", function( ent )
     if not snappable then return end
 
     snappable:destroy()
+end )
+
+hook.add( "OnPhysgunPickup", "LKL_Snappable_UnSnapOnGrab", function( ply, ent )
+    local snappable = ent._snappable_SnappableObject
+    if not snappable then return end
+    if not snappable:getUnSnapOnGrabPhysgun() then return end
+
+    tryUnSnapOnGrab( snappable, ply, true, false, false )
+end )
+
+hook.add( "GravGunOnPickedUp", "LKL_Snappable_UnSnapOnGrab", function( ply, ent )
+    local snappable = ent._snappable_SnappableObject
+    if not snappable then return end
+    if not snappable:getUnSnapOnGrabGravgun() then return end
+
+    tryUnSnapOnGrab( snappable, ply, false, true, false )
+end )
+
+hook.add( "OnPlayerPhysicsPickup", "LKL_Snappable_UnSnapOnGrab", function( ply, ent )
+    local snappable = ent._snappable_SnappableObject
+    if not snappable then return end
+    if not snappable:getUnSnapOnGrabHands() then return end
+
+    tryUnSnapOnGrab( snappable, ply, false, false, true )
 end )
 
 
