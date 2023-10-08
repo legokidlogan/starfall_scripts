@@ -60,6 +60,7 @@ function Snappable:initialize( ent, snapPoints, snapNormals )
     self._snapPoints = {}
     self._snapNormals = {}
     self._snapPartnersByIndex = {}
+    self._snapPartnersPresenceByIndex = {}
     self._snapPartnersLookup = {}
     self._snapConstraints = {}
     self._snapPointHolos = {}
@@ -128,6 +129,7 @@ function Snappable:setSnapPoints( snapPoints, snapNormals )
     local retainedPartnersLookup = {}
 
     local snapPartnersByIndex = self._snapPartnersByIndex
+    local snapPartnersPresenceByIndex = self._snapPartnersPresenceByIndex
     local snapPartnersLookup = self._snapPartnersLookup
 
     for i, point in ipairs( oldPoints ) do
@@ -161,7 +163,7 @@ function Snappable:setSnapPoints( snapPoints, snapNormals )
         newNormals[i] = norm
     end
 
-    for i in pairs( table.copy( snapPartnersByIndex ) ) do
+    for i in pairs( table.copy( snapPartnersPresenceByIndex ) ) do
         if not retainedPartnersByOldInd[i] then
             self:unSnap( i )
         end
@@ -173,6 +175,8 @@ function Snappable:setSnapPoints( snapPoints, snapNormals )
         if newInd ~= oldInd then
             snapPartnersByIndex[oldInd] = nil
             snapPartnersByIndex[newInd] = partner
+            snapPartnersPresenceByIndex[oldInd] = nil
+            snapPartnersPresenceByIndex[newInd] = true
             snapPartnersLookup[partner] = newInd
         end
     end
@@ -327,8 +331,10 @@ function Snappable:snapTo( otherSnappable, snapIndex, otherSnapIndex )
     end
 
     self._snapPartnersByIndex[snapIndex] = otherSnappable
+    self._snapPartnersPresenceByIndex[snapIndex] = true
     self._snapPartnersLookup[otherSnappable] = snapIndex
     otherSnappable._snapPartnersByIndex[otherSnapIndex] = self
+    otherSnappable._snapPartnersPresenceByIndex[otherSnapIndex] = true
     otherSnappable._snapPartnersLookup[self] = otherSnapIndex
 
     return true
@@ -344,7 +350,7 @@ end
 --]]
 function Snappable:unSnap( snapIndexOrPartner )
     if not snapIndexOrPartner then
-        for i in pairs( table.copy( self._snapPartnersByIndex ) ) do
+        for i in pairs( table.copy( self._snapPartnersPresenceByIndex ) ) do
             self:unSnap( i )
         end
 
@@ -379,8 +385,10 @@ function Snappable:unSnap( snapIndexOrPartner )
     end
 
     self._snapPartnersByIndex[snapIndex] = nil
+    self._snapPartnersPresenceByIndex[snapIndex] = nil
     self._snapPartnersLookup[partner] = nil
     partner._snapPartnersByIndex[partnerSnapIndex] = nil
+    partner._snapPartnersPresenceByIndex[partnerSnapIndex] = nil
     partner._snapPartnersLookup[self] = nil
 end
 
@@ -426,7 +434,7 @@ function Snappable:getAutoSnapDistance()
 end
 
 function Snappable:isSnapped()
-    return table.isEmpty( self._snapPartnersByIndex )
+    return table.isEmpty( self._snapPartnersPresenceByIndex )
 end
 
 -- Returns a sequential list of all current snap partners.
@@ -542,8 +550,16 @@ function Snappable:removeFromSnapClassWhitelist( classObj )
     self._snapClassWhitelistEmpty = table.isEmpty( whitelist )
 end
 
+-- Returns a sequential version of this Snappable's whitelist.
 function Snappable:getSnapClassWhitelist()
-    return table.copy( self._snapClassWhitelist )
+    local whitelist = self._snapClassWhitelist
+    local out = {}
+
+    for classObj in pairs( whitelist ) do
+        table.insert( out, classObj )
+    end
+
+    return out
 end
 
 --[[
@@ -618,8 +634,16 @@ function Snappable:removeFromSnapClassBlacklist( classObj )
     self._snapClassBlacklistEmpty = table.isEmpty( blacklist )
 end
 
+-- Returns a sequential version of this Snappable's blacklist.
 function Snappable:getSnapClassBlacklist()
-    return table.copy( self._snapClassBlacklist )
+    local blacklist = self._snapClassBlacklist
+    local out = {}
+
+    for classObj in pairs( blacklist ) do
+        table.insert( out, classObj )
+    end
+
+    return out
 end
 
 --[[
