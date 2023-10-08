@@ -946,7 +946,7 @@ function Snappable:tostringInner()
     return "ID " .. self:getID()
 end
 
-function Snappable:destroy()
+function Snappable:onDestroyed()
     self:unSnap()
 
     local ent = self:getEntity()
@@ -965,8 +965,6 @@ function Snappable:destroy()
     timer.remove( self:getTimerName( "LKL_Snappable_CreateSnapHolos" ) )
     table.removeByValue( allSnappables, self )
     allSnappables[self:getID()] = nil
-
-    Snappable.super.destroy( self )
 end
 
 
