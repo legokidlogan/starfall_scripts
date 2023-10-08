@@ -12,11 +12,11 @@ require( "lkl/table_make_lookup.txt" )
 
 Snappable = class( "Snappable", Destroyable )
 
-Snappable.static.AUTO_SNAP_DISTANCE = 2 -- Maximum distance between snap points to search for automatic snaps. Can be overridden by Snappable:setAutoSnapDistance().
+Snappable.static.AUTO_SNAP_DISTANCE = 4 -- Maximum distance between snap points to search for automatic snaps. Can be overridden by Snappable:setAutoSnapDistance().
 
 Snappable.static.SNAP_USE_WELDS = true -- Snapped entities will be welded together. If false, they will use parenting instead, which may behave strangely with complex snap chains.
 Snappable.static.SNAP_USE_NOCOLLIDES = true -- Snapped entities will be nocollided together. Ignored if SNAP_USE_WELDS is false.
-Snappable.static.SNAP_FACING_LIMIT = 0.15 -- Limits how far away snap points can face from each other and still snap. 0 is facing each other exactly, 1 is perpendicular.
+Snappable.static.SNAP_FACING_LIMIT = 0.25 -- Limits how far away snap points can face from each other and still snap. 0 is facing each other exactly, 1 is perpendicular.
 Snappable.static.SNAP_GAP = 0 -- The gap between snap points once snapped. 0 to snap exactly together.
 Snappable.static.SNAP_CLASS_WHITELIST_CHECKS_SUB_CLASSES = true
 Snappable.static.SNAP_CLASS_BLACKLIST_CHECKS_SUB_CLASSES = true
