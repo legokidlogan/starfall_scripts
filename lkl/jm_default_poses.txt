@@ -1,0 +1,28 @@
+--@name JM Default Poses
+--@author legokidlogan
+--@shared
+
+return { -- Default for jointPoses
+    Right_FlipTheBird = {
+        IsOverride = false,
+
+        Right_Finger_Index_1 = Angle( 50, 0, 0 ),
+        Right_Finger_Index_2 = Angle( 80, 0, 0 ),
+        Right_Finger_Index_3 = Angle( 35, 0, 0 ),
+
+        Right_Finger_Middle_1 = Angle( 10, 0, 0 ),
+        Right_Finger_Middle_2 = Angle( 0, 0, 0 ),
+        Right_Finger_Middle_3 = Angle( 0, 0, 0 ),
+
+        Right_Finger_Ring_1 = Angle( 60, 0, 0 ),
+        Right_Finger_Ring_2 = Angle( 75, 0, 0 ),
+        Right_Finger_Ring_3 = Angle( 30, 0, 0 ),
+
+        Right_Finger_Pinkie_1 = Angle( 65, 0, 0 ),
+        Right_Finger_Pinkie_2 = Angle( 70, 0, 0 ),
+        Right_Finger_Pinkie_3 = Angle( 40, 0, 0 ),
+
+        Right_Finger_Thumb_1 = Angle( 5, -80, 0 ),
+        Right_Finger_Thumb_2 = Angle( 75, 0, 0 ),
+    },
+}

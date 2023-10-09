@@ -2,7 +2,6 @@
 --@author legokidlogan
 --@shared
 --@include lkl/joint_manager.txt
---@include lkl/vector_tester.txt
 --@include lkl/joint_manager_posemirror.txt
 
 --@include lkl/jm_test_joints.txt
@@ -36,10 +35,11 @@ jointHoldableCount = #jointHoldables
 
 extraTimerPrecision = 2
 
-require( "lkl/vector_tester.txt" )
-require( "lkl/joint_manager.txt" )
 
 if CLIENT then return end
+
+require( "lkl/joint_manager.txt" )
+
 
 local vec0 = Vector( 0, 0, 0 )
 local ang0 = Angle( 0, 0, 0 )

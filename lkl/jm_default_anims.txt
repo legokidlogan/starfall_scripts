@@ -1,0 +1,89 @@
+--@name JM Default Anims
+--@author legokidlogan
+--@shared
+
+return { -- Default for jointAnims
+    Test_1 = {
+        { -- KF 1
+            Duration = 3,
+            Poses = {
+                Right_FlipTheBird = {
+                    SmoothTime = 2,
+                    Duration = 3,
+                    FlexScale = 1,
+                    ForceIsOverride = nil,
+                },
+            },
+            Manips = {
+                Right_Wrist = {
+                    Ang = Angle( 30, 0, 0 ),
+                    SmoothTime = 2,
+                    --Duration = 3,
+                    --FlexScale = 1,
+                    IsOverride = false,
+                },
+            },
+            HoldableParams = {
+                [1] = {
+                    JointIdentifier = "Right_Wrist",
+                    EndWithKeyframe = false,
+                    EndWithAnim = true,
+                    PosFunc = function( timeEx, parent )
+                        return Vector( 0, 0, -50 )
+                    end,
+                    AngFunc = function( timeEx, parent )
+                        if not isValid( parent ) then
+                            print( "Parent is not valid for KF-1 1 AngFunc")
+
+                            return false
+                        end
+
+                        return parent:localToWorldAngles( Angle( 0, 90, 0 ) )
+                    end,
+                },
+                [3] = {
+                    JointIdentifier = "Right_Wrist",
+                    EndWithKeyframe = true,
+                    EndWithAnim = true,
+                    PosFunc = function( timeEx, parent )
+                        return Vector( 0, 0, -50 - timeEx * 10 )
+                    end,
+                    AngFunc = function( timeEx, parent )
+                        if not isValid( parent ) then
+                            print( "Parent is not valid for KF-1 3 AngFunc")
+
+                            return false
+                        end
+
+                        return parent:localToWorldAngles( Angle( 0, 90, timeEx * 5 ) )
+                    end,
+                },
+            },
+            Funcs = {
+                function() print( "KF 1") end,
+            },
+        },
+
+        { -- KF 2
+            Duration = 4,
+            Poses = {
+
+            },
+            Manips = {
+                Right_Wrist = {
+                    Ang = Angle( -30, 0, 0 ),
+                    SmoothTime = 2,
+                    --Duration = 3,
+                    --FlexScale = 1,
+                    IsOverride = false,
+                },
+            },
+            HoldableParams = {
+
+            },
+            Funcs = {
+                function() print( "KF 2") end,
+            },
+        },
+    },
+}
