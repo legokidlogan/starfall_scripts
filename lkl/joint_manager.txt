@@ -105,7 +105,6 @@ local mClamp = math.clamp
 local mAbs = math.abs
 local mSign = math.sign
 local mSqrt = math.sqrt
-local mRound = math.round
 local mFloor = math.floor
 
 local tableEmpty = table.empty
@@ -116,7 +115,8 @@ local timerCreateExtra = timer.createExtra
 local timerSimpleExtra = timer.simpleExtra
 local timerRemoveExtra = timer.removeExtra
 
-local quotaAverage = quotaAverage
+local cpuAverage = cpuAverage
+local cpuTotalAverage = cpuTotalAverage
 
 projectNameID = projectNameID or "JointManager." .. chip():entIndex()
 
@@ -143,12 +143,11 @@ local nextIndManip = 1
 local nextIndHoldable = 1
 local prevManipProcessTime = realtime()
 local prevHodableProcessTime = realtime()
-local quotaMaxVal = quotaMax()
 local numBases = jointConfig.NumBases or 1
 local separateInputs = jointConfig.SeparateInputs
 local updateInterval = jointConfig.UpdateInterval or 50
 local updateIntervalHoldables = jointConfig.UpdateIntervalHoldables or 50
-local quotaCheckMult = mClamp( jointConfig.QuotaCheckMult or 1, 0, 1 )
+local quotaMaxVal = cpuMax() * mClamp( jointConfig.QuotaCheckMult or 1, 0, 1 )
 --local jointInfos = jointConfig.Joints
 local jointCount = #jointInfos
 local jointsWithBaseParents = {}
@@ -318,35 +317,28 @@ do
     wire.adjustInputs( inputNames, inputTypes )
 end
 
-local checkQuota
-local function quotaAlert( fraction, msg )
+local function quotaAlert( msg )
     print(
         c_white, printName .. " ",
-        c_alert_red, "Exceeded ",
-        c_yellow, mRound( fraction * 100 ) .. "% ",
-        c_alert_red, "of CPU limit on ",
+        c_alert_red, "Exceeded perf limits on ",
         c_pale_yellow, msg
     )
 end
 
-if quotaCheckMult == 1 then
-    checkQuota = function( fraction, msg )
-        local fractionEff = fraction or 0.9
-        local belowQuota = quotaAverage() < ( quotaMaxVal * fractionEff )
+local function getUsageLimit( frac )
+    frac = frac or 0.9
 
-        if belowQuota or not msg then return belowQuota end
+    local myUsage = cpuAverage()
+    local otherChipsUsage = cpuTotalAverage() - myUsage
 
-        simpleRatelimit( quotaAlert, 1, "QuotaExceeded__" .. msg, fraction, msg )
-    end
-else
-    checkQuota = function( fraction, msg )
-        local fractionEff = ( fraction or 0.9 ) * quotaCheckMult
-        local belowQuota = quotaAverage() < ( quotaMaxVal * fractionEff )
+    return quotaMaxVal * frac - otherChipsUsage
+end
 
-        if belowQuota or not msg then return belowQuota end
+local function checkQuota( usageLimit, msg )
+    local belowQuota = cpuAverage() < usageLimit
+    if belowQuota or not msg then return belowQuota end
 
-        simpleRatelimit( quotaAlert, 1, "QuotaExceeded__" .. msg, fraction, msg )
-    end
+    simpleRatelimit( quotaAlert, 1, "QuotaExceeded__" .. msg, msg )
 end
 
 local function formatPose( poseName ) -- Prepares a pose for faster usage with manipulateJoints(), doing it on the fly for faster startup times (and coroutines are a hassle)
@@ -674,7 +666,7 @@ function jointParentChildren( ent )
 
     if not children then return end
 
-    for i, child in pairs( children ) do -- Will parent regardless of the table using numerical or ent indeces
+    for k, v in pairs( children ) do -- Will parent regardless of the table using numerical or ent indeces
         if type( k ) == "Entity" and isValid( k ) then
             k:setParent( nil )
             k:setParent( ent )
@@ -826,7 +818,7 @@ local function getIKUpAndBend( joint, parent, lineDir, tiltDeg )
     return ikUpDir, bendDir
 end
 
-local function getIKJointAng( joint, parent, targetOriginPos, targetEndPos, ikUpDir )
+local function getIKJointAng( joint, parent, _targetOriginPos, targetEndPos, ikUpDir )
     local parentPos = parent:getPos()
     local hingePosWorld = parent:localToWorld( joint.jointHingePosFromParent )
     local rotAxisWorldPitch = parent:localToWorld( joint.jointRotAxisPitch ) - parentPos
@@ -1637,11 +1629,9 @@ addRemoteFunc( "JointApplyAnim", jointApplyAnim )
 
 local function setJointAng( joint, ang )
     local info = joint.jointInfo
+    --if not info then return end
 
-    if not isValid( joint ) or not info then return end
-
-    local curAng = joint.jointCurAng or Angle( 0, 0, 0 )
-
+    local curAng = joint.jointCurAng or ang0
     if not ang or ang == curAng then return end
 
     local parent = joint.jointParent
@@ -1696,16 +1686,15 @@ end
 
 local function processManipsOnJoint( id, timeMult )
     local joint = jointEnts[id]
-
-    if not isValid( joint ) then return end
+    if not joint or not joint:isValid() then return end
 
     if forceTPose then
-        setJointAng( joint, Angle( 0, 0, 0 ) )
+        setJointAng( joint, ang0 )
 
         return
     end
 
-    local jointAngNew = Angle( 0, 0, 0 )
+    local jointAngNew = ang0
     local manips = jointManips[id]
 
     if not manips then
@@ -1998,7 +1987,7 @@ local function wireInput( name, value )
             end
         end
 
-        for i, joint in pairs( remJoints ) do
+        for _, joint in pairs( remJoints ) do
             if type( joint ) == "Entity" and isValid( joint ) and joint.jointInfo then
                 local parent = joint.jointParent
                 local jointInd = jointLookup[joint]
@@ -2102,7 +2091,7 @@ hook.add( "PlayerSay", "LKL_" .. projectNameID .. "_PlayerSay", function( ply, m
     return ""
 end )
 
-hook.add( "remote", "LKL_" .. projectNameID .. "_Remote", function( caller, callerOwner, hookIn, ... )
+hook.add( "remote", "LKL_" .. projectNameID .. "_Remote", function( _caller, _callerOwner, hookIn, ... )
     if calllerOwner ~= owner() then return end
 
     local func = jointRemoteFuncs[hookIn] or jointRemoteFuncs[jointRemotePrefix .. hookIn]
@@ -2117,9 +2106,10 @@ timerCreateExtra( "LKL_" .. projectNameID .. "_MoveJoints", updateInterval, 0, f
     local quotaExceeded = false
     local curTime = realtime()
     local timeMult = ( curTime - prevManipProcessTime ) / updateInterval
+    local usageLimit = getUsageLimit( 0.9 )
 
     for i = nextIndManip, jointCount do
-        if not checkQuota( 0.9, "TimerLoop__MoveJoints" ) then
+        if not checkQuota( usageLimit, "TimerLoop__MoveJoints" ) then
             nextIndManip = i
             quotaExceeded = true
 
@@ -2139,9 +2129,10 @@ timerCreateExtra( "LKL_" .. projectNameID .. "_MoveHoldables", updateIntervalHol
     local quotaExceeded = false
     local curTime = realtime()
     local timeGap = curTime - prevHodableProcessTime
+    local usageLimit = getUsageLimit( 0.9 )
 
     for i = nextIndHoldable, jointHoldableCount do
-        if not checkQuota( 0.9, "TimerLoop__MoveHoldables" ) then
+        if not checkQuota( usageLimit, "TimerLoop__MoveHoldables" ) then
             nextIndHoldable = i
             quotaExceeded = true
 
