@@ -45,7 +45,7 @@ local tryUnSnapOnGrab
 
 ----- STATIC FUNCTIONS -----
 
-function Snappable:initialize( ent, snapPoints, snapNormals )
+function Snappable:initialize( ent, snapPoints, snapNormals, scaleSnapPoints )
     Snappable.super.initialize( self )
 
     if not isValid( ent ) or type( ent ) ~= "Entity" then error( "Expected ent to be a valid Entity" ) end
@@ -66,7 +66,7 @@ function Snappable:initialize( ent, snapPoints, snapNormals )
     self._snapPointHolos = {}
     ent._snappable_SnappableObject = self
 
-    self:setSnapPoints( snapPoints, snapNormals )
+    self:setSnapPoints( snapPoints, snapNormals, scaleSnapPoints )
     self:setSnapEnabled( true )
     self:setSnapClassWhitelist( {} )
     self:setSnapClassBlacklist( {} )
@@ -111,9 +111,12 @@ end
                 - Points are considered the same if they have equal vector values.
     snapNormals: (optional) (table)
         - The outwards-facing directions for each snap point.
-        - If nil or a value is missing, it will auto-calculate based on direction from the entity center to the snap point.
+        - If nil or a value is missing, it will use a normalized version of the corresponding snap point.
+    scaleSnapPoints: (optional) (boolean)
+        - If true, will scale all snapPoints by ent:obbSize() / 2  (ex: Vector( 0, 0, 1 ) will go to the top of the entity).
+        - This will also make the points be relative to the ent's center instead of its raw origin.
 --]]
-function Snappable:setSnapPoints( snapPoints, snapNormals )
+function Snappable:setSnapPoints( snapPoints, snapNormals, scaleSnapPoints )
     if not snapPoints then return self:setSnapPoints( {} ) end
     if type( snapPoints ) ~= "table" then error( "Expected snapPoints to be a table or nil" ) end
 
@@ -132,11 +135,19 @@ function Snappable:setSnapPoints( snapPoints, snapNormals )
     local snapPartnersPresenceByIndex = self._snapPartnersPresenceByIndex
     local snapPartnersLookup = self._snapPartnersLookup
 
+    local myEnt = self:getEntity()
+    local centerOffset = scaleSnapPoints and myEnt:obbCenter()
+    local obbSize = scaleSnapPoints and myEnt:obbSize() / 2
+
     for i, point in ipairs( oldPoints ) do
         oldPointLookup[tostring( point )] = i
     end
 
     for i, point in ipairs( snapPoints ) do
+        if scaleSnapPoints then
+            point = point * obbSize + centerOffset
+        end
+
         local pointStr = tostring( point )
         if newPointLookup[pointStr] then error( "Duplicate snap point: " .. pointStr ) end
 
@@ -157,7 +168,7 @@ function Snappable:setSnapPoints( snapPoints, snapNormals )
         if norm then
             norm = Vector( norm[1], norm[2], norm[3] )
         else
-            norm = ( -point ):getNormalized()
+            norm = point:getNormalized()
         end
 
         newNormals[i] = norm
