@@ -1192,6 +1192,8 @@ timer.simple( 0, function()
 
     local function autoSnapAll()
         for _, snappable in ipairs( allSnappables ) do
+            if snappable:getUnSnapOnGrab() and snappable:getEntity():isPlayerHolding() then continue end
+
             snappable:autoSnap()
         end
     end
