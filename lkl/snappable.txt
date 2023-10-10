@@ -337,6 +337,9 @@ function Snappable:snapTo( otherSnappable, snapIndex, otherSnapIndex )
     otherSnappable._snapPartnersPresenceByIndex[otherSnapIndex] = true
     otherSnappable._snapPartnersLookup[self] = otherSnapIndex
 
+    self:onSnapped( otherSnappable, snapIndex, otherSnapIndex )
+    otherSnappable:onSnapped( self, otherSnapIndex, snapIndex )
+
     return true
 end
 
@@ -390,6 +393,9 @@ function Snappable:unSnap( snapIndexOrPartner )
     partner._snapPartnersByIndex[partnerSnapIndex] = nil
     partner._snapPartnersPresenceByIndex[partnerSnapIndex] = nil
     partner._snapPartnersLookup[self] = nil
+
+    self:onUnSnapped( partner, snapIndex, partnerSnapIndex )
+    partner:onUnSnapped( self, partnerSnapIndex, snapIndex )
 end
 
 --[[
