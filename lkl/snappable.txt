@@ -462,6 +462,30 @@ function Snappable:getSnapPartnersByIndex()
 end
 
 --[[
+    - Returns a sequential list of all current snap partners and their recursive partners.
+    - This will not include the Snappable this is called on.
+
+    exclusionLookup: (optional) (table)
+        - A lookup table of Snappables to exclude from the recursive search.
+    listToAppend: (optional) (table)
+        - Appends the results to this table instead of creating a new one.
+--]]
+function Snappable:getSnapPartnersRecursive( exclusionLookup, listToAppend )
+    exclusionLookup = exclusionLookup or {}
+    exclusionLookup[self] = true
+    listToAppend = listToAppend or {}
+
+    for _, partner in pairs( self:getSnapPartnersByIndex() ) do
+        if not exclusionLookup[partner] then
+            table.insert( listToAppend, partner )
+            partner:getSnapPartnersRecursive( exclusionLookup, listToAppend )
+        end
+    end
+
+    return listToAppend
+end
+
+--[[
     - Returns the snap partner at the given snap index.
 
     snapIndex: (number)
