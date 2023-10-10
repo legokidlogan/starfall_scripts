@@ -1,0 +1,24 @@
+--@name Conditional Require
+--@author legokidlogan
+--@shared
+
+--[[
+    - Conditionally requires a file.
+
+    path: (string)
+        - The file path to require.
+    condition: (any)
+        - The condition to check before requiring the file.
+        - If a function, it will be called with the varargs passed to this function, and the result will be used as the condition.
+        - Otherwise, the file will be required if the condition is truthy. (anything other than false or nil)
+--]]
+function conditionalRequire( path, condition, ... )
+    if not condition then return end
+
+    if type( condition ) == "function" then
+        condition = condition( ... )
+        if not condition then return end
+    end
+
+    return require( path )
+end
