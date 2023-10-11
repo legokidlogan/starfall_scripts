@@ -1,0 +1,30 @@
+--@name Snappable Tester
+--@author legokidlogan
+--@server
+--@include lkl/snappable.txt
+
+require( "lkl/snappable.txt" )
+
+
+local ents = {}
+local entCount = 4
+local snappables = {}
+
+for i = 1, entCount do
+    local ent = prop.create( chip():getPos() + Vector( math.rand( -50, 50 ), math.rand( -50, 50 ), 50 ), Angle(), "models/hunter/blocks/cube025x025x025.mdl", true )
+    local size = ent:obbSize() / 2
+
+    local snappable = Snappable:new( ent, {
+        Vector( 1, 0, 0 ) * size,
+        Vector( 0, 1, 0 ) * size,
+        Vector( 0, 0, 1 ) * size,
+    } )
+
+    snappables[i] = snappable
+
+    snappable:setUnSnapOnGrab( true )
+end
+
+
+
+
