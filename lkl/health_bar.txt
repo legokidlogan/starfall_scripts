@@ -1,0 +1,986 @@
+--@name Health Bar
+--@author legokidlogan
+--@shared
+--@include lkl/destroyable.txt
+--@include lkl/linked_create.txt
+
+--[[
+    - HealthBar
+    - TODO
+--]]
+
+
+if HealthBar then return end -- Don't run twice
+
+require( "lkl/destroyable.txt" )
+require( "lkl/linked_create.txt" )
+
+
+-- ENUMS
+HEALTH_BAR_STYLE_MIN = 1
+HEALTH_BAR_STYLE_CUSTOM = 1
+HEALTH_BAR_STYLE_PARENT = 2
+HEALTH_BAR_STYLE_OFFSET_POS = 3
+HEALTH_BAR_STYLE_OFFSET_POS_FOLLOW_YAW = 4
+HEALTH_BAR_STYLE_MAX = 4
+
+HEALTH_BAR_CLIENT_STYLE_MIN = 5
+HEALTH_BAR_CLIENT_STYLE_OFFSET_POS_FOLLOW_EYE = 5
+HEALTH_BAR_CLIENT_STYLE_OFFSET_POS_FOLLOW_EYE_YAW = 6
+HEALTH_BAR_CLIENT_STYLE_MAX = 6
+-- END ENUMS
+
+
+HealthBar = class( "HealthBar", Destroyable )
+
+HealthBar.static.STYLE = HEALTH_BAR_STYLE_OFFSET_POS_FOLLOW_YAW
+HealthBar.static.WIDTH = 50
+HealthBar.static.HEIGHT = 5
+HealthBar.static.DEPTH = 1
+HealthBar.static.BORDER_SIZE = 0.5
+HealthBar.static.OFFSET_POS = Vector( 0, 0, 0 )
+HealthBar.static.OFFSET_ANG = Angle( 0, 0, 0 )
+HealthBar.static.BAR_MATERIAL = "model_color"
+HealthBar.static.BORDER_MATERIAL = "model_color"
+HealthBar.static.EMPTY_COLOR = Color( 255, 0, 0 )
+HealthBar.static.FILL_COLOR = Color( 0, 255, 0 )
+HealthBar.static.BORDER_COLOR = Color( 0, 0, 0 )
+
+
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+local MODEL_CUBE = "models/hunter/blocks/cube2x2x2.mdl"
+local INIT_SYNC_DELAY = 1
+local TYPE_TO_NET_LOOKUP = {
+    boolean = net.writeBool,
+    string = net.writeString,
+    Entity = net.writeEntity,
+    Hologram = net.writeEntity,
+    Player = net.writeEntity,
+    table = net.writeTable,
+    Vector = net.writeVector,
+    Angle = net.writeAngle,
+}
+local VEC_TOWARDS_START = Vector( 0, -1, 0 )
+local VEC_TOWARDS_END = Vector( 0, 1, 0 )
+
+local allHealthBars = {}
+local healthBarsByID = {}
+local healthBarIncrement = 0
+local customStyleHealthBars = {}
+local offsetPosStyleHealthBars = {}
+local syncedHoloBuffer = {}
+local syncProperty
+local netWriteArbitrary
+local updateHoloClips
+local updateHoloSizes
+
+
+----- STATIC FUNCTIONS -----
+
+if SERVER then
+    function HealthBar:initialize( ent, doBorder, replicateOnClient )
+        doBorder = doBorder and true or false
+
+        self:_sharedInitialize( ent, doBorder )
+
+        healthBarIncrement = healthBarIncrement + 1
+        healthBarsByID[healthBarIncrement] = self
+        table.insert( allHealthBars, self )
+
+        self._id = healthBarIncrement
+        self._replicateOnClient = replicateOnClient and true or false
+        self._syncedProperties = {}
+        self._syncingProperties = {}
+
+        if self:isReplicatedOnClient() then
+            timer.simple( INIT_SYNC_DELAY, function()
+                if not isValid( self ) then return end
+
+                net.start( "LKL_HealthBar_Create" )
+
+                net.writeUInt( self:getID(), 16 )
+                net.writeEntity( ent )
+                net.writeEntity( self:getEmptyHolo() )
+                net.writeEntity( self:getFillHolo() )
+
+                net.writeBool( doBorder )
+                if doBorder then
+                    net.writeEntity( self:getBorderHolo() )
+                end
+
+                net.send()
+            end )
+        else
+            self._syncedProperties = {
+                Style = true,
+                Width = true,
+                Height = true,
+                Depth = true,
+                BorderSize = true,
+                OffsetPos = true,
+                OffsetAng = true,
+                BarMaterial = true,
+                BorderMaterial = true,
+            }
+        end
+
+        self:setStyle( self.class.STYLE )
+        self:setSize()
+        self:setBorderSize()
+        self:setOffsetPos()
+        self:setOffsetAngles()
+        self:setBarMaterial()
+        self:setBorderMaterial()
+        self:setEmptyColor()
+        self:setFillColor()
+        self:setBorderColor()
+        self:setHealth( 1 )
+    end
+else
+    function HealthBar:initialize( ent, doBorder )
+        doBorder = doBorder and true or false
+
+        self:_sharedInitialize( ent, doBorder )
+
+        healthBarIncrement = healthBarIncrement + 1
+        local id = -healthBarIncrement
+        healthBarsByID[id] = self
+        table.insert( allHealthBars, self )
+
+        self._id = id
+
+        self:setStyle( self.class.STYLE )
+        self:setSize()
+        self:setBorderSize()
+        self:setOffsetPos()
+        self:setOffsetAngles()
+        self:setBarMaterial()
+        self:setBorderMaterial()
+        self:setEmptyColor()
+        self:setFillColor()
+        self:setBorderColor()
+        self:setHealth( 1 )
+    end
+end
+
+function HealthBar.static:getAll()
+    return allHealthBars
+end
+
+function HealthBar.static:getByID( id )
+    return healthBarsByID[id]
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function HealthBar:getID()
+    return self._id
+end
+
+function HealthBar:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+function HealthBar:isReplicatedOnClient()
+    if CLIENT then return false end
+
+    return self._replicateOnClient
+end
+
+function HealthBar:isSyncedCopy()
+    if SERVER then return false end
+
+    return self._id < 0
+end
+
+function HealthBar:hasBorder()
+    return self._doBorder
+end
+
+--[[
+    - Sets the style of the HealthBar.
+
+    style: (integer number)
+        - The style to use.
+        - See the HEALTH_BAR_STYLE enums for valid values.
+        - If on client, or serverside on a synced HealthBar, HEALTH_BAR_CLIENT_STYLE enums are also valid.
+--]]
+function HealthBar:setStyle( style )
+    local oldStyle = self._style
+
+    if style == oldStyle then return end
+    if type( style ) ~= "number" then error( "Expected style to be a number" ) end
+    if math.floor( style ) ~= style then error( "Expected style to be an integer" ) end
+    if style < HEALTH_BAR_STYLE_MIN then error( "style is out of bounds" ) end
+    if style > HEALTH_BAR_CLIENT_STYLE_MAX then error( "style is out of bounds" ) end
+
+    local replicated = self:isReplicatedOnClient()
+    if SERVER and not replicated and style > HEALTH_BAR_STYLE_MAX then error( "Cannot use a client style on non-replicated serverside HealthBars" ) end
+
+    self._style = style
+
+    if oldStyle == HEALTH_BAR_STYLE_CUSTOM then
+        table.removeByValue( customStyleHealthBars, self )
+        self:onCustomStyleEnd()
+    elseif oldStyle == HEALTH_BAR_STYLE_PARENT then
+        if not self:isSyncedCopy() then
+            self:getEmptyHolo():setParent( nil )
+        end
+    else
+        table.removeByValue( offsetPosStyleHealthBars, self )
+    end
+
+    if style == HEALTH_BAR_STYLE_CUSTOM then
+        table.insert( customStyleHealthBars, self )
+        self:onCustomStyleStart()
+    elseif style == HEALTH_BAR_STYLE_PARENT then
+        if not self:isSyncedCopy() then
+            local ent = self:getEntity()
+            local emptyHolo = self:getEmptyHolo()
+            local pos
+            local ang
+
+            if ent:isPlayer() then
+                pos = ent:getPos() + self:getOffsetPos()
+                ang = ent:getAngles() + self:getOffsetAngles()
+            else
+                pos, ang = localToWorld( self:getOffsetPos(), self:getOffsetAngles(), ent:getPos(), ent:getAngles() )
+            end
+
+            emptyHolo:setPos( pos )
+            emptyHolo:setAngles( ang )
+            emptyHolo:setParent( ent )
+        end
+    else
+        table.insert( offsetPosStyleHealthBars, self )
+
+        if style == HEALTH_BAR_STYLE_OFFSET_POS then
+            local ent = self:getEntity()
+            local ang
+
+            if ent:isPlayer() then
+                ang = ent:getAngles() + self:getOffsetAngles()
+            else
+                ang = ent:localToWorldAngles( self:getOffsetAngles() )
+            end
+
+            self:getEmptyHolo():setAngles( ang )
+        end
+    end
+
+    syncProperty( self, "Style", "_style", style, 8 )
+end
+
+function HealthBar:getStyle()
+    return self._style
+end
+
+--[[
+    - Sets the health of the HealthBar.
+    - To avoid networking spam, this value will not be sent to the client's HealthBar copy if it is a synced server HealthBar.
+
+    health: (number)
+        - The health to use.
+        - This should be between 0 and 1, inclusive.
+--]]
+function HealthBar:setHealth( health )
+    local oldHealth = self._health
+
+    if health == oldHealth then return end
+    if type( health ) ~= "number" then error( "Expected health to be a number" ) end
+    if health < 0 or health > 1 then error( "Expected health to be between 0 and 1" ) end
+
+    self._health = health
+
+    updateHoloClips( self )
+    self:onHealthChanged( oldHealth )
+end
+
+function HealthBar:getHealth()
+    return self._health
+end
+
+function HealthBar:setWidth( width )
+    if not width then return self:setWidth( self.class.WIDTH ) end
+    if self._width == width then return end
+    if type( width ) ~= "number" then error( "Expected width to be a number" ) end
+    if width <= 0 then error( "Expected width to be > 0" ) end
+
+    self._width = width
+
+    updateHoloSizes( self )
+    syncProperty( self, "Width", "_width", width, nil, true )
+end
+
+function HealthBar:getWidth()
+    return self._width
+end
+
+function HealthBar:setHeight( height )
+    if not height then return self:setHeight( self.class.HEIGHT ) end
+    if self._height == height then return end
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    if height <= 0 then error( "Expected height to be > 0" ) end
+
+    self._height = height
+
+    updateHoloSizes( self )
+    syncProperty( self, "Height", "_height", height, nil, true )
+end
+
+function HealthBar:getHeight()
+    return self._height
+end
+
+function HealthBar:setDepth( depth )
+    if not depth then return self:setDepth( self.class.DEPTH ) end
+    if self._depth == depth then return end
+    if type( depth ) ~= "number" then error( "Expected depth to be a number" ) end
+    if depth <= 0 then error( "Expected depth to be > 0" ) end
+
+    self._depth = depth
+
+    updateHoloSizes( self )
+    syncProperty( self, "Depth", "_depth", depth, nil, true )
+end
+
+function HealthBar:getDepth()
+    return self._depth
+end
+
+function HealthBar:setSize( size )
+    if not size then
+        self:setWidth()
+        self:setHeight()
+        self:setDepth()
+
+        return
+    end
+
+    if type( size ) ~= "Vector" then error( "Expected size to be a Vector" ) end
+
+    self:setWidth( size[1] )
+    self:setHeight( size[2] )
+    self:setDepth( size[3] )
+end
+
+function HealthBar:getSize()
+    return Vector( self:getWidth(), self:getHeight(), self:getDepth() )
+end
+
+function HealthBar:setBorderSize( borderSize )
+    if not self:hasBorder() then return end
+    if not borderSize then return self:setBorderSize( self.class.BORDER_SIZE ) end
+    if self._borderSize == borderSize then return end
+    if type( borderSize ) ~= "number" then error( "Expected borderSize to be a number" ) end
+    if borderSize <= 0 then error( "Expected borderSize to be > 0" ) end
+
+    local width = self:getWidth()
+    local height = self:getHeight()
+    local depth = self:getDepth()
+
+    self._borderSize = borderSize
+    self:getBorderHolo():setSize( -Vector( depth + borderSize, width + borderSize, height + borderSize ) )
+
+    syncProperty( self, "BorderSize", "_borderSize", borderSize, nil, true )
+end
+
+function HealthBar:getBorderSize()
+    return self._borderSize
+end
+
+--[[
+    - Sets the offset position of the HealthBar, relative to its associated entity.
+
+    pos: (Vector or nil)
+        - If nil, the offset position will be set to the class default.
+        - Otherwise, this is the offset position to use.
+--]]
+function HealthBar:setOffsetPos( pos )
+    if not pos then return self:setOffsetPos( self.class.OFFSET_POS ) end
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+
+    self._offsetPos = pos
+
+    if self:getStyle() == HEALTH_BAR_STYLE_PARENT and not self:isSyncedCopy() then
+        local ent = self:getEntity()
+        local posWorld
+
+        if ent:isPlayer() then
+            posWorld = ent:getPos() + pos
+        else
+            posWorld = ent:localToWorld( pos )
+        end
+
+        self:getEmptyHolo():setPos( posWorld )
+    end
+
+    syncProperty( self, "OffsetPos", "_offsetPos", pos )
+end
+
+function HealthBar:getOffsetPos()
+    return self._offsetPos
+end
+
+--[[
+    - Sets the offset angles of the HealthBar, relative to its associated entity.
+
+    ang: (Angle or nil)
+        - If nil, the offset angles will be set to the class default.
+        - Otherwise, this is the offset angles to use.
+--]]
+function HealthBar:setOffsetAngles( ang )
+    if not ang then return self:setOffsetAngles( self.class.OFFSET_ANG ) end
+    if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
+
+    self._offsetAng = ang
+
+    if not self:isSyncedCopy() then
+        local style = self:getStyle()
+
+        if style == HEALTH_BAR_STYLE_PARENT or style == HEALTH_BAR_STYLE_OFFSET_POS then
+            local ent = self:getEntity()
+            local angWorld
+
+            if ent:isPlayer() then
+                angWorld = ent:getAngles() + ang
+            else
+                angWorld = ent:localToWorldAngles( ang )
+            end
+
+            self:getEmptyHolo():setAngles( angWorld )
+        end
+    end
+
+    syncProperty( self, "OffsetAng", "_offsetAng", ang )
+end
+
+function HealthBar:getOffsetAngles()
+    return self._offsetAng
+end
+
+function HealthBar:setBarMaterial( mat )
+    if not mat then return self:setBarMaterial( self.class.BAR_MATERIAL ) end
+    if self._barMat == mat then return end
+    if type( mat ) ~= "string" then error( "Expected mat to be a string or nil" ) end
+
+    self._barMat = mat
+    self:getEmptyHolo():setMaterial( mat )
+    self:getFillHolo():setMaterial( mat )
+end
+
+function HealthBar:getBarMaterial()
+    return self._barMat
+end
+
+function HealthBar:setBorderMaterial( mat )
+    if not self:hasBorder() then return end
+    if not mat then return self:setBorderMaterial( self.class.BORDER_MATERIAL ) end
+    if self._borderMat == mat then return end
+    if type( mat ) ~= "string" then error( "Expected mat to be a string or nil" ) end
+
+    self._borderMat = mat
+    self:getBorderHolo():setMaterial( mat )
+end
+
+function HealthBar:getBorderMaterial()
+    return self._borderMat
+end
+
+--[[
+    - Sets the color of the empty part of the HealthBar.
+    - If ran serverside on a synced HealthBar, the hologram color will change, but the raw values will NOT be sent to the client's HealthBar copy.
+
+    color: (Color or nil)
+        - If nil, the color will be set to the class default.
+        - Otherwise, this is the color to use.
+--]]
+function HealthBar:setEmptyColor( color )
+    if not color then return self:setEmptyColor( self.class.EMPTY_COLOR ) end
+    if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._emptyColor = color
+    self:getEmptyHolo():setColor( self:getEmptyColor() )
+end
+
+function HealthBar:getEmptyColor()
+    return self._emptyColor
+end
+
+--[[
+    - Sets the color of the fill part of the HealthBar.
+    - If ran serverside on a synced HealthBar, the hologram color will change, but the raw values will NOT be sent to the client's HealthBar copy.
+
+    color: (Color or nil)
+        - If nil, the color will be set to the class default.
+        - Otherwise, this is the color to use.
+--]]
+function HealthBar:setFillColor( color )
+    if not color then return self:setFillColor( self.class.FILL_COLOR ) end
+    if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._fillColor = color
+    self:getFillHolo():setColor( self:getFillColor() )
+end
+
+function HealthBar:getFillColor()
+    return self._fillColor or self.class.FILL_COLOR
+end
+
+--[[
+    - Sets the color of the border part of the HealthBar, if it has one.
+    - If ran serverside on a synced HealthBar, the hologram color will change, but the raw values will NOT be sent to the client's HealthBar copy.
+
+    color: (Color or nil)
+        - If nil, the color will be set to the class default.
+        - Otherwise, this is the color to use.
+--]]
+function HealthBar:setBorderColor( color )
+    if not self:hasBorder() then return end
+    if not color then return self:setBorderColor( self.class.BORDER_COLOR ) end
+    if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._borderColor = color
+    self:getBorderHolo():setColor( self:getBorderColor() )
+end
+
+function HealthBar:getBorderColor()
+    return self._borderColor or self.class.BORDER_COLOR
+end
+
+function HealthBar:getEntity()
+    return self._ent
+end
+
+function HealthBar:getEmptyHolo()
+    return self._emptyHolo
+end
+
+function HealthBar:getFillHolo()
+    return self._fillHolo
+end
+
+function HealthBar:getBorderHolo()
+    return self._borderHolo
+end
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function HealthBar:onHealthChanged( _oldHealth )
+
+end
+
+-- Called when the HealthBar's style is set to HEALTH_BAR_STYLE_CUSTOM.
+function HealthBar:onCustomStyleStart()
+
+end
+
+-- Called when the HealthBar's style was changed off of HEALTH_BAR_STYLE_CUSTOM.
+function HealthBar:onCustomStyleEnd()
+
+end
+
+-- Called on think when the HealthBar's style is HEALTH_BAR_STYLE_CUSTOM.
+function HealthBar:handleCustomStyle()
+
+end
+
+-- Called when a synced serverside HealthBar fails to replicate to a client.
+function HealthBar:onReplicationFailed( _ply, _err )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function HealthBar:tostringInner()
+    return "ID " .. self:getID()
+end
+
+function HealthBar:destroy()
+    if self:isSyncedCopy() then error( "Synced HealthBars cannot be destroyed manually in the client realm" ) end
+
+    local ent = self:getEntity()
+
+    if isValid( ent ) then
+        ent._healthBars = ent._healthBars or {}
+        table.removeByValue( ent._healthBars, self )
+    end
+
+    healthBarsByID[self:getID()] = nil
+    table.removeByValue( allHealthBars, self )
+    table.removeByValue( customStyleHealthBars, self )
+
+    if self:isReplicatedOnClient() then
+        net.start( "LKL_HealthBar_Destroy" )
+        net.writeUInt( self:getID(), 16 )
+        net.send()
+    end
+
+    HealthBar.super.destroy( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+local function makeHolo( healthBar, linkedEnts, syncedServerHolo )
+    if syncedServerHolo ~= nil then
+        if syncedServerHolo.toHologram then
+            syncedServerHolo = syncedServerHolo:toHologram()
+        end
+
+        if isValid( syncedServerHolo ) then return syncedServerHolo end
+
+        error( "Recieved invalid sync holo for " .. healthBar.class.name )
+    end
+
+    local holo = linkedCreate.holo( Vector(), Angle(), MODEL_CUBE, nil, linkedEnts )
+    if not holo then error( "Failed to initialize " .. healthBar.class.name ) end
+
+    return holo
+end
+
+
+syncProperty = function( healthBar, name, internalName, value, bits, expectFloat )
+    if not healthBar:isReplicatedOnClient() then return end
+    if healthBar._syncingProperties[name] then return end
+
+    if healthBar._syncedProperties[name] then
+        net.start( "LKL_HealthBar_Set" .. name )
+        net.writeUInt( healthBar:getID(), 16 )
+        netWriteArbitrary( value, bits, expectFloat )
+        net.send()
+
+        return
+    end
+
+    healthBar._syncingProperties[name] = true
+
+    timer.simple( INIT_SYNC_DELAY, function()
+        if not isValid( healthBar ) then return end
+
+        healthBar._syncingProperties[name] = nil
+        healthBar._syncedProperties[name] = true
+        syncProperty( healthBar, name, internalName, healthBar[internalName], bits, expectFloat )
+    end )
+end
+
+netWriteArbitrary = function( value, bits, expectFloat )
+    local typeStr = type( value )
+
+    if typeStr == "number" then
+        local isInt = math.floor( value ) == value
+
+        if expectFloat then
+            net.writeBool( isInt )
+        end
+
+        if isInt then
+            net.writeInt( value, bits or 32 )
+        else
+            net.writeFloat( value )
+        end
+
+        return
+    end
+
+    local writeFunc = TYPE_TO_NET_LOOKUP[typeStr]
+
+    if writeFunc then
+        writeFunc( value )
+    else
+        error( "Cannot auto-write type " .. typeStr )
+    end
+end
+
+updateHoloClips = function( healthBar )
+    local width = healthBar:getWidth()
+    local clipPos = Vector( 0, width * ( healthBar:getHealth() - 0.5 ), 0 )
+
+    local emptyHolo = healthBar:getEmptyHolo()
+    local fillHolo = healthBar:getFillHolo()
+
+    emptyHolo:setClip( 1, true, clipPos, VEC_TOWARDS_END, emptyHolo )
+    fillHolo:setClip( 1, true, clipPos, VEC_TOWARDS_START, fillHolo )
+end
+
+updateHoloSizes = function( healthBar )
+    local size = Vector( healthBar:getDepth(), healthBar:getWidth(), healthBar:getHeight() )
+    local borderHolo = healthBar:getBorderHolo()
+
+    healthBar:getEmptyHolo():setSize( size )
+    healthBar:getFillHolo():setSize( size )
+    updateHoloClips( healthBar )
+
+    if borderHolo then
+        borderHolo:setSize( -( size + Vector( healthBar:getBorderSize() ) ) )
+    end
+end
+
+
+function HealthBar:_sharedInitialize( ent, doBorder )
+    HealthBar.super.initialize( self )
+
+    if not isValid( ent ) or
+    ( type( ent ) ~= "Entity" and type( ent ) ~= "Hologram" and type( ent ) ~= "Player" ) then
+        error( "Expected ent to be a valid Entity" )
+    end
+
+    local linkedEnts = {}
+
+    self._emptyHolo = makeHolo( self, linkedEnts, syncedHoloBuffer.emptyHolo )
+    self._fillHolo = makeHolo( self, linkedEnts, syncedHoloBuffer.fillHolo )
+
+    if doBorder then
+        self._borderHolo = makeHolo( self, linkedEnts, syncedHoloBuffer.borderHolo )
+    end
+
+    pcall( function()
+        self._fillHolo:setParent( self._emptyHolo )
+
+        if doBorder then
+            self._borderHolo:setParent( self._emptyHolo )
+        end
+    end )
+
+    self._doBorder = doBorder
+    self._ent = ent
+    self._health = -1
+
+    ent._healthBars = ent._healthBars or {}
+    table.insert( ent._healthBars, self )
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_HealthBar_DestroyLinkedHealthBars", function( ent )
+    if not ent then return end
+
+    local healthBars = ent._healthBars
+    if not healthBars then return end
+
+    ent._healthBars = {}
+
+    for _, healthBar in ipairs( healthBars ) do
+        if not healthBar:isSyncedCopy() then
+            healthBar:destroy()
+        end
+    end
+end )
+
+hook.add( "think", "LKL_HealthBar_HandleCustomStyle", function()
+    for _, healthBar in ipairs( customStyleHealthBars ) do
+        healthBar:handleCustomStyle()
+    end
+end )
+
+hook.add( "think", "LKL_HealthBar_HandleOffsetPos", function()
+    for _, healthBar in ipairs( offsetPosStyleHealthBars ) do
+        local style = healthBar:getStyle()
+        local ent = healthBar:getEntity()
+        local emptyHolo = healthBar:getEmptyHolo()
+        local pos
+
+        if ent:isPlayer() then
+            pos = ent:getPos() + healthBar:getOffsetPos()
+        else
+            pos = ent:localToWorld( healthBar:getOffsetPos() )
+        end
+
+        if healthBar:isSyncedCopy() then
+            if not isValid( emptyHolo ) then continue end -- Client holo is cleaned up before net messages can notify that the HealthBar was destroyed
+
+            emptyHolo:setPos( pos )
+        elseif not healthBar:isReplicatedOnClient() then
+            emptyHolo:setPos( pos )
+        end
+
+        if style ~= HEALTH_BAR_STYLE_OFFSET_POS then
+            if style == HEALTH_BAR_STYLE_OFFSET_POS_FOLLOW_YAW then
+                local ang = healthBar:getOffsetAngles()
+                ang = ang:rotateAroundAxis( ang:getUp(), ent:getAngles()[2] )
+
+                emptyHolo:setAngles( ang )
+            elseif CLIENT then
+                local offsetAng = healthBar:getOffsetAngles()
+                local ang = ( render.getEyePos() - pos ):getAngle()
+
+                if style == HEALTH_BAR_CLIENT_STYLE_OFFSET_POS_FOLLOW_EYE_YAW then
+                    ang[1] = 0
+                end
+
+                if offsetAng ~= ANGLE_ZERO then
+                    ang = ang:rotateAroundAxis( ang:getUp(), offsetAng[2] )
+                    ang = ang:rotateAroundAxis( -ang:getRight(), offsetAng[1] )
+                    ang = ang:rotateAroundAxis( ang:getForward(), offsetAng[3] )
+                end
+
+                emptyHolo:setAngles( ang )
+            end
+        end
+    end
+end )
+
+
+if SERVER then
+    net.receive( "LKL_HealthBar_FailedToReplicate", function( _, ply )
+        local id = net.readUInt( 16 )
+        local err = net.readString()
+
+        local healthBar = HealthBar:getByID( id )
+        if not healthBar then return end
+
+        healthBar:onReplicationFailed( ply, err )
+
+        print( "Failed to replicate HealthBar " .. id .. " to " .. tostring( ply ) .. ": " .. err )
+    end )
+
+    return
+end
+
+net.receive( "LKL_HealthBar_Create", function()
+    local id = net.readUInt( 16 )
+    local ent = net.readEntity()
+    local emptyHolo = net.readEntity()
+    local fillHolo = net.readEntity()
+
+    local doBorder = net.readBool()
+    local borderHolo = doBorder and net.readEntity() or nil
+
+    syncedHoloBuffer = {
+        emptyHolo = emptyHolo,
+        fillHolo = fillHolo,
+        borderHolo = borderHolo,
+    }
+
+    local healthBar
+    local success, err = pcall( function()
+        healthBar = HealthBar:new( ent, doBorder )
+    end )
+
+    syncedHoloBuffer = {}
+
+    if not success then
+        err = type( err ) == "table" and tostring( err.message ) or tostring( err )
+
+        net.start( "LKL_HealthBar_FailedToReplicate" )
+        net.writeUInt( id, 16 )
+        net.writeString( err )
+        net.send()
+
+        return
+    end
+
+    healthBarsByID[healthBar._id] = nil
+    healthBarIncrement = healthBarIncrement - 1
+    id = -id
+    healthBarsByID[id] = healthBar
+    healthBar._id = id
+end )
+
+net.receive( "LKL_HealthBar_Destroy", function()
+    local id = -net.readUInt( 16 )
+
+    local healthBar = HealthBar:getByID( id )
+    if not healthBar then return end
+
+    healthBar:destroy()
+end )
+
+net.receive( "LKL_HealthBar_SetStyle", function()
+    local id = -net.readUInt( 16 )
+    local style = net.readInt( 8 )
+
+    local healthBar = HealthBar:getByID( id )
+    if not healthBar then return end
+
+    healthBar:setStyle( style )
+end )
+
+net.receive( "LKL_HealthBar_SetWidth", function()
+    local id = -net.readUInt( 16 )
+    local width
+
+    if net.readBool() then
+        width = net.readInt( 32 )
+    else
+        width = net.readFloat()
+    end
+
+    local healthBar = HealthBar:getByID( id )
+    if not healthBar then return end
+
+    healthBar:setWidth( width )
+end )
+
+net.receive( "LKL_HealthBar_SetHeight", function()
+    local id = -net.readUInt( 16 )
+    local height
+
+    if net.readBool() then
+        height = net.readInt( 32 )
+    else
+        height = net.readFloat()
+    end
+
+    local healthBar = HealthBar:getByID( id )
+    if not healthBar then return end
+
+    healthBar:setHeight( height )
+end )
+
+net.receive( "LKL_HealthBar_SetDepth", function()
+    local id = -net.readUInt( 16 )
+    local depth
+
+    if net.readBool() then
+        depth = net.readInt( 32 )
+    else
+        depth = net.readFloat()
+    end
+
+    local healthBar = HealthBar:getByID( id )
+    if not healthBar then return end
+
+    healthBar:setDepth( depth )
+end )
+
+net.receive( "LKL_HealthBar_SetBorderSize", function()
+    local id = -net.readUInt( 16 )
+    local borderSize
+
+    if net.readBool() then
+        borderSize = net.readInt( 32 )
+    else
+        borderSize = net.readFloat()
+    end
+
+    local healthBar = HealthBar:getByID( id )
+    if not healthBar then return end
+
+    healthBar:setBorderSize( borderSize )
+end )
+
+net.receive( "LKL_HealthBar_SetOffsetPos", function()
+    local id = -net.readUInt( 16 )
+    local pos = net.readVector()
+
+    local healthBar = HealthBar:getByID( id )
+    if not healthBar then return end
+
+    healthBar:setOffsetPos( pos )
+end )
+
+net.receive( "LKL_HealthBar_SetOffsetAng", function()
+    local id = -net.readUInt( 16 )
+    local ang = net.readAngle()
+
+    local healthBar = HealthBar:getByID( id )
+    if not healthBar then return end
+
+    healthBar:setOffsetAngles( ang )
+end )

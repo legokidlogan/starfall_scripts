@@ -1,0 +1,27 @@
+--@name Health Bar Tester
+--@author legokidlogan
+--@shared
+--@include lkl/health_bar.txt
+
+require( "lkl/health_bar.txt" )
+
+if CLIENT then return end
+
+
+local healthBar = HealthBar:new( owner(), true, true )
+healthBar:setStyle( HEALTH_BAR_CLIENT_STYLE_OFFSET_POS_FOLLOW_EYE_YAW )
+healthBar:setOffsetPos( Vector( 0, 0, 80 ) )
+
+
+hook.add( "PlayerHurt", "TEST", function( ply, _, newHealth )
+    if ply ~= owner() then return end
+
+    healthBar:setHealth( newHealth / ply:getMaxHealth() )
+end )
+
+hook.add( "PlayerSpawn", "TEST", function( ply )
+    if ply ~= owner() then return end
+
+    healthBar:setHealth( 1 )
+end )
+
