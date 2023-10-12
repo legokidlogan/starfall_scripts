@@ -415,8 +415,12 @@ end
     snapDist: (optional) (number)
         - The maximum distance to search for snap partners.
         - If nil, will use the default snap distance.
+    ignoreHeldSnappables: (optional) (boolean)
+        - If true, will not auto-snap to Snappables that are currently being held by a player and have unsnap-on-grab enabled.
 --]]
-function Snappable:autoSnap( snapDist )
+function Snappable:autoSnap( snapDist, ignoreHeldSnappables )
+    if ignoreHeldSnappables and self:getUnSnapOnGrab() and self:getEntity():isPlayerHolding() then return end
+
     snapDist = snapDist or self:getAutoSnapDistance()
 
     local bestSnapInd = nil
@@ -426,6 +430,7 @@ function Snappable:autoSnap( snapDist )
 
     for _, otherSnappable in ipairs( allSnappables ) do
         if otherSnappable == self then continue end
+        if ignoreHeldSnappables and otherSnappable:getUnSnapOnGrab() and otherSnappable:getEntity():isPlayerHolding() then continue end
 
         local snapInd, otherSnapInd, distSqr = getAutoSnapIndices( self, otherSnappable )
         if not distSqr or distSqr > bestDistSqr then continue end
@@ -1192,9 +1197,7 @@ timer.simple( 0, function()
 
     local function autoSnapAll()
         for _, snappable in ipairs( allSnappables ) do
-            if snappable:getUnSnapOnGrab() and snappable:getEntity():isPlayerHolding() then continue end
-
-            snappable:autoSnap()
+            snappable:autoSnap( nil, true )
         end
     end
 
