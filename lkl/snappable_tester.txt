@@ -5,6 +5,8 @@
 
 require( "lkl/snappable.txt" )
 
+Snappable.static.AUTO_SNAP_DISTANCE = 8
+
 
 local ents = {}
 local entCount = 4
@@ -18,13 +20,13 @@ for i = 1, entCount do
         Vector( 1, 0, 0 ) * size,
         Vector( 0, 1, 0 ) * size,
         Vector( 0, 0, 1 ) * size,
+        Vector( -1, 0, 0 ) * size,
+        Vector( 0, -1, 0 ) * size,
+        Vector( 0, 0, -1 ) * size,
     } )
 
     snappables[i] = snappable
 
     snappable:setUnSnapOnGrab( true )
+    snappable:setUnSnapOnGrabGravgun( false )
 end
-
-
-
-
