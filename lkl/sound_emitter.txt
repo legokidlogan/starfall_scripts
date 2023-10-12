@@ -77,7 +77,7 @@ function SoundEmitter:initialize( soundReplacements )
 end
 
 function SoundEmitter.static:inheritSounds( classObj )
-    self.class.static.SOUNDS = table.copy( classObj.SOUNDS )
+    self.static.SOUNDS = table.copy( classObj.SOUNDS )
 end
 
 function SoundEmitter.static:getAll()
