@@ -1,0 +1,54 @@
+--@name Cooldown Fire
+--@author legokidlogan
+--@server
+
+-- CONFIG
+local cooldown = 2
+local pulseHold = 0.1
+-- END CONFIG
+
+
+local canFire = true
+
+wire.adjustInputs( { "TryFire" }, { "NUMBER" } )
+wire.adjustOutputs( { "Fire" }, { "NUMBER" } )
+
+
+local function tryFire()
+    if not canFire then return false end
+
+    canFire = false
+    wire.ports.Fire = 1
+
+    timer.simple( pulseHold, function()
+        wire.ports.Fire = 0
+    end )
+
+    timer.simple( cooldown, function()
+        canFire = true
+    end )
+
+    return true
+end
+
+local function wireInput( name, value )
+    if name == "TryFire" then
+        local tryingToFire = value ~= 0
+
+        if tryingToFire then
+            tryFire()
+
+            hook.add( "think", "LKL_CooldownFire_TryFire", tryFire )
+        else
+            hook.remove( "think", "LKL_CooldownFire_TryFire" )
+        end
+    end
+end
+
+
+hook.add( "input", "LKL_CooldownFire_WireInput", wireInput )
+
+
+timer.simple( 1, function()
+    wireInput( "TryFire", wire.ports.TryFire )
+end )
