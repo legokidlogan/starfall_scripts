@@ -109,9 +109,16 @@ zoneHolo:setSize( -Vector( deletionZoneWidth, deletionZoneWidth, deletionZoneHei
 zoneHolo:setMaterial( "model_color" )
 zoneHolo:setColor( Color( 200, 200, 255, 150 ) )
 
+local zoneHolo2 = holograms.create( chip():localToWorld( Vector( 0, 0, deletionZoneHeight ) ), Angle(), "models/hunter/blocks/cube2x2x2.mdl" )
+zoneHolo2:setSize( Vector( deletionZoneWidth, deletionZoneWidth, deletionZoneHeight ) )
+zoneHolo2:setMaterial( "model_color" )
+zoneHolo2:setColor( Color( 200, 200, 255, 150 ) )
+
 
 hook.add( "think", "LKL_TrashCan_MoveZoneHolo", function()
     local minBounds, maxBounds = getZoneBounds()
+    local pos = ( minBounds + maxBounds ) / 2
 
-    zoneHolo:setPos( ( minBounds + maxBounds ) / 2 )
+    zoneHolo:setPos( pos )
+    zoneHolo2:setPos( pos )
 end )
