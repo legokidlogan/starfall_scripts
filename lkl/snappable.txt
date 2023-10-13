@@ -16,6 +16,7 @@ Snappable.static.AUTO_SNAP_DISTANCE = 4 -- Maximum distance between snap points 
 
 Snappable.static.SNAP_USE_WELDS = true -- Snapped entities will be welded together. If false, they will use parenting instead, which may behave strangely with complex snap chains.
 Snappable.static.SNAP_USE_NOCOLLIDES = true -- Snapped entities will be nocollided together. Ignored if SNAP_USE_WELDS is false.
+Snappable.static.SNAP_USE_ANGLE_EX = false -- Alters how roll is calculated during snapping.
 Snappable.static.SNAP_FACING_LIMIT = 0.25 -- Limits how far away snap points can face from each other and still snap. 0 is facing each other exactly, 1 is perpendicular.
 Snappable.static.SNAP_GAP = 0 -- The gap between snap points once snapped. 0 to snap exactly together.
 Snappable.static.SNAP_CLASS_WHITELIST_CHECKS_SUB_CLASSES = true
@@ -317,6 +318,7 @@ function Snappable:snapTo( otherSnappable, snapIndex, otherSnapIndex )
     local otherSnapNormal = otherSnappable:getSnapNormal( otherSnapIndex )
     local otherSnapNormalWorld = otherEnt:localToWorldVector( otherSnapNormal )
     local snapGap = self:getSnapGap() + otherSnappable:getSnapGap()
+    local useAngleEx = self:getSnapUseAngleEx()
 
     if snapGap ~= 0 then
         otherSnapPos = otherSnapPos - otherEnt:localToWorldVector( otherSnapNormal ) * snapGap
@@ -324,8 +326,13 @@ function Snappable:snapTo( otherSnappable, snapIndex, otherSnapIndex )
 
     local myEntPos = myEnt:getPos()
     local myEntAng = myEnt:getAngles()
-    local mySnapNormalTargetAng = ( -otherSnapNormalWorld ):getAngleEx( otherEnt:getUp() )
-    local mySnapPos, mySnapNormalAngWorld = localToWorld( mySnapPoint, mySnapNormal:getAngleEx( myEntAng:getUp() ), myEntPos, myEntAng )
+    local mySnapNormalTargetAng = useAngleEx and
+        ( -otherSnapNormalWorld ):getAngleEx( otherEnt:getUp() ) or
+        ( -otherSnapNormalWorld ):getAngle()
+    local mySnapNormalAng = useAngleEx and
+        mySnapNormal:getAngleEx( myEntAng:getUp() ) or
+        mySnapNormal:getAngle()
+    local mySnapPos, mySnapNormalAngWorld = localToWorld( mySnapPoint, mySnapNormalAng, myEntPos, myEntAng )
     local myEntPosLocalToSnapPoint, myEntAngLocalToNorm = worldToLocal( myEntPos, myEntAng, mySnapPos, mySnapNormalAngWorld )
     local myEntTargetPos, myEntTargetAng = localToWorld( myEntPosLocalToSnapPoint, myEntAngLocalToNorm, otherSnapPos, mySnapNormalTargetAng )
 
@@ -793,6 +800,17 @@ end
 function Snappable:getSnapUseNocollides()
     local state = self._snapUseNocollides
     if state == nil then return self.class.SNAP_USE_NOCOLLIDES end
+
+    return state
+end
+
+function Snappable:setSnapUseAngleEx( state )
+    self._snapUseAngleEx = state
+end
+
+function Snappable:getSnapUseAngleEx()
+    local state = self._snapUseAngleEx
+    if state == nil then return self.class.SNAP_USE_ANGLE_EX end
 
     return state
 end
