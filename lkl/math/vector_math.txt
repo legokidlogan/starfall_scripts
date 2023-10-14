@@ -981,7 +981,7 @@ function vectorMath.doesLineSegmentIntersectWithLineSegment( segmentStart1, segm
 end
 
 --[[
-    - Returns whether or not an infinite line intersects an infinite plane.
+    - Returns whether or not an infinite line intersects a plane.
 
     lineOrigin: (Vector)
         - A point on the line.
