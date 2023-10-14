@@ -41,6 +41,7 @@ local mLerpVector = math.lerpVector
 local isXCloseToY
 local getCylinderBottomAndDirEff
 local getConeEndRadius
+local getPlaneNormal
 
 
 --[[
@@ -556,8 +557,9 @@ end
         - The point to find the closest point to.
     planeOrigin: (Vector)
         - The center of the plane.
-    planeNormal: (Vector)
+    planeNormalAng: (Angle or Vector)
         - The normal of the plane.
+        - If planeWidth is provided, it's recommended to have this as an Angle.
     planeWidth: (optional) (number)
         - The width of the plane.
         - If nil, will be an infinite plane.
@@ -565,7 +567,10 @@ end
         - The height of the plane.
         - Defaults to the value of planeWidth.
 --]]
-function vectorMath.closestPointOnPlane( point, planeOrigin, planeNormal, planeWidth, planeHeight )
+function vectorMath.closestPointOnPlane( point, planeOrigin, planeNormalAng, planeWidth, planeHeight )
+    local planeNormal
+    planeNormal, planeNormalAng = getPlaneNormal( planeNormalAng )
+
     local originToPoint = point - planeOrigin
     local closestPoint = point - planeNormal * originToPoint:dot( planeNormal )
     if not planeWidth then return closestPoint end
@@ -574,7 +579,6 @@ function vectorMath.closestPointOnPlane( point, planeOrigin, planeNormal, planeW
     local planeWidthHalf = planeWidth / 2
     local planeHeightHalf = planeHeight / 2
 
-    local planeNormalAng = planeNormal:getAngle()
     local planeRight = planeNormalAng:getRight()
     local planeUp = planeNormalAng:getUp()
     local closestPointToOrigin = closestPoint - planeOrigin
@@ -724,8 +728,9 @@ end
         - The direction of the line.
     planeOrigin: (Vector)
         - The center of the plane.
-    planeNormal: (Vector)
+    planeNormalAng: (Angle or Vector)
         - The normal of the plane.
+        - If planeWidth is provided, it's recommended to have this as an Angle.
     planeWidth: (optional) (number)
         - The width of the plane.
         - If nil, will be an infinite plane.
@@ -741,12 +746,16 @@ end
         intersectionPoint: (Vector or nil)
             - The intersection point of the line and the plane, or nil if they don't intersect.
 --]]
-function vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
+function vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision )
     precision = precision or PRECISION_TINY
+
+    local planeNormal
+    planeNormal, planeNormalAng = getPlaneNormal( planeNormalAng )
+
     local dot = lineDir:dot( planeNormal )
 
     if dot == 0 then
-        if not vectorMath.isPointOnPlane( lineOrigin, planeOrigin, planeNormal, planeWidth, planeHeight, precision ) then return end
+        if not vectorMath.isPointOnPlane( lineOrigin, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision ) then return end
 
         return lineOrigin:clone()
     end
@@ -772,7 +781,7 @@ function vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin,
     local hypotenuse = adjacent / dot -- Recall that dot product on unit vectors gives cos(), and that cos() = a / h
     local intersectionPoint = lineOrigin + lineDir * hypotenuse
 
-    if not vectorMath.isPointOnPlane( intersectionPoint, planeOrigin, planeNormal, planeWidth, planeHeight, precision ) then return end
+    if not vectorMath.isPointOnPlane( intersectionPoint, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision ) then return end
 
     return intersectionPoint
 end
@@ -786,8 +795,9 @@ end
         - The end of the line segment.
     planeOrigin: (Vector)
         - The center of the plane.
-    planeNormal: (Vector)
+    planeNormalAng: (Angle or Vector)
         - The normal of the plane.
+        - If planeWidth is provided, it's recommended to have this as an Angle.
     planeWidth: (optional) (number)
         - The width of the plane.
         - If nil, will be an infinite plane.
@@ -803,8 +813,8 @@ end
         intersectionPoint: (Vector or nil)
             - The intersection point of the line segment and the plane, or nil if they don't intersect.
 --]]
-function vectorMath.lineSegmentIntersectionWithPlane( segmentStart, segmentEnd, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
-    local intersectionPoint = vectorMath.lineIntersectionWithPlane( segmentStart, segmentEnd - segmentStart, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
+function vectorMath.lineSegmentIntersectionWithPlane( segmentStart, segmentEnd, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision )
+    local intersectionPoint = vectorMath.lineIntersectionWithPlane( segmentStart, segmentEnd - segmentStart, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision )
     if not intersectionPoint then return end
     if not vectorMath.isPointOnLineSegment( intersectionPoint, segmentStart, segmentEnd, precision ) then return end
 
@@ -874,8 +884,9 @@ end
         - The point to check.
     planeOrigin: (Vector)
         - The center of the plane.
-    planeNormal: (Vector)
+    planeNormalAng: (Angle or Vector)
         - The normal of the plane.
+        - If planeWidth is provided, it's recommended to have this as an Angle.
     planeWidth: (optional) (number)
         - The width of the plane.
         - If nil, will be an infinite plane.
@@ -887,14 +898,17 @@ end
         - Smaller values are more precise.
         - Default is 10^-5.
 --]]
-function vectorMath.isPointOnPlane( point, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
+function vectorMath.isPointOnPlane( point, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision )
     precision = precision or PRECISION_TINY
+
+    local planeNormal
+    planeNormal, planeNormalAng = getPlaneNormal( planeNormalAng )
 
     if not planeWidth and not planeHeight then
         return vectorMath.pointDistanceFromPlane( point, planeOrigin, planeNormal ) <= precision
     end
 
-    local closestPoint = vectorMath.closestPointOnPlane( point, planeOrigin, planeNormal, planeWidth, planeHeight )
+    local closestPoint = vectorMath.closestPointOnPlane( point, planeOrigin, planeNormalAng, planeWidth, planeHeight )
 
     return vectorMath.isPointOnPoint( point, closestPoint, precision )
 end
@@ -989,8 +1003,9 @@ end
         - The direction of the line.
     planeOrigin: (Vector)
         - The center of the plane.
-    planeNormal: (Vector)
+    planeNormalAng: (Angle or Vector)
         - The normal of the plane.
+        - If planeWidth is provided, it's recommended to have this as an Angle.
     planeWidth: (optional) (number)
         - The width of the plane.
         - If nil, will be an infinite plane.
@@ -1002,8 +1017,8 @@ end
         - Smaller values are more precise.
         - Default is 0.
 --]]
-function vectorMath.doesLineIntersectWithPlane( lineOrigin, lineDir, planeOrigin, planeNormal, planeWidth, planeHeight, precision )
-    return vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin, planeNormal, planeWidth, planeHeight, precision ) ~= nil
+function vectorMath.doesLineIntersectWithPlane( lineOrigin, lineDir, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision )
+    return vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision ) ~= nil
 end
 
 --[[
@@ -2105,4 +2120,17 @@ getConeEndRadius = function( length, endRadius, theta )
     if theta < 0 or theta >= PI_HALF then error( "Expected theta to be in the range [0, PI / 2)." ) end
 
     return length * mTan( theta )
+end
+
+getPlaneNormal = function( planeNormalAng )
+    local planeNormal
+
+    if planeNormalAng.getForward then
+        planeNormal = planeNormalAng:getForward()
+    else
+        planeNormal = planeNormalAng
+        planeNormalAng = planeNormal:getAngle()
+    end
+
+    return planeNormal, planeNormalAng
 end
