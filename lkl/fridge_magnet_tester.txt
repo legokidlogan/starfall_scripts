@@ -51,6 +51,13 @@ local letterModels = {
     "models/sprops/misc/alphanum/alphanum_x.mdl",
     "models/sprops/misc/alphanum/alphanum_y.mdl",
     "models/sprops/misc/alphanum/alphanum_z.mdl",
+
+    -- Add extra vowels
+    "models/sprops/misc/alphanum/alphanum_a.mdl",
+    "models/sprops/misc/alphanum/alphanum_e.mdl",
+    "models/sprops/misc/alphanum/alphanum_i.mdl",
+    "models/sprops/misc/alphanum/alphanum_o.mdl",
+    "models/sprops/misc/alphanum/alphanum_u.mdl",
 }
 -- END CONFIG
 
