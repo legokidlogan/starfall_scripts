@@ -20,6 +20,8 @@ local mainSurfaceUpDirNum = DIR_NUM_BACK
 local letterMaterial = ""
 local letterColor = Color( 255, 255, 255 )
 local letterRollVariance = 10
+local colorLettersByTeam = true
+local resetLetterColorOnDrop = true
 local numLettersPerModel = 3
 
 local letterModels = {
@@ -60,6 +62,21 @@ function FridgeMagnet.static:traceFilterEnt( ent, _fridgeMagnet )
     if ent:isPlayer() then return false end
 
     return true
+end
+
+function FridgeMagnet:onGrabStart( ply )
+    if not colorLettersByTeam then return end
+
+    local teamColor = team.getColor( ply:getTeam() )
+
+    self:getHolo():setColor( teamColor )
+end
+
+function FridgeMagnet:onGrabEnd( _ply )
+    if not colorLettersByTeam then return end
+    if not resetLetterColorOnDrop then return end
+
+    self:getHolo():setColor( letterColor )
 end
 
 
