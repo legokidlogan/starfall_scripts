@@ -1,0 +1,780 @@
+--@name Fridge Magnet
+--@author legokidlogan
+--@server
+--@include lkl/destroyable.txt
+--@include lkl/math/holo_trace.txt
+
+--[[
+    - Holograms that can be grabbed and slid along a flat surface.
+--]]
+
+
+if FridgeMagnet then return end -- Don't run twice
+
+require( "lkl/destroyable.txt" )
+require( "lkl/math/holo_trace.txt" )
+
+
+DIR_NUM_MIN = 1
+DIR_NUM_FORWARD = 1
+DIR_NUM_RIGHT = 2
+DIR_NUM_UP = 3
+DIR_NUM_BACK = 4
+DIR_NUM_LEFT = 5
+DIR_NUM_DOWN = 6
+DIR_NUM_MAX = 6
+
+
+FridgeMagnet = class( "FridgeMagnet", Destroyable )
+
+FridgeMagnet.static.HOLO_SCALE = Vector( 1 )
+FridgeMagnet.static.HOLO_OFFSET_POS = Vector( 0, 0, 0 )
+FridgeMagnet.static.HOLO_OFFSET_ANG = Angle( 0, 0, 0 )
+
+-- Not overridable on a per-instance basis:
+FridgeMagnet.static.INTERACT_RANGE = 200
+FridgeMagnet.static.FORCE_DROP_DIST = 250
+FridgeMagnet.static.GRAB_UPDATE_INTERVAL = 0.1 -- Will apply one tick after this class is loaded, and cannot be changed afterwards.
+FridgeMagnet.static.GRAB_UPDATE_PERF_LIMIT = 0.4 -- Will apply one tick after this class is loaded, and cannot be changed afterwards.
+
+
+local IN_USE = IN_KEY.USE
+
+local allFridgeMagnets = {}
+local fridgeMagnetsByID = {}
+local fridgeMagnetIncrement = 0
+local grabbedFridgeMagnets = {}
+local cpuMaxGrabUpdate = 0
+local getFaceDimensions
+local getSurfaceDir
+local updateHoloPos
+local updateHoloAngles
+local getTraceFilters
+
+local mathClamp = math.clamp
+
+
+----- STATIC FUNCTIONS -----
+
+function FridgeMagnet:initialize( surfaceEnt, surfaceDirNum, surfaceUpDirNum, model )
+    FridgeMagnet.super.initialize( self )
+
+    if type( surfaceEnt ) ~= "Entity" and type( surfaceEnt ) ~= "Hologram" then error( "Expected surfaceEnt to be an Entity or a Hologram" ) end
+    if not isValid( surfaceEnt ) then error( "Expected surfaceEnt to be valid" ) end
+
+    if type( surfaceDirNum ) ~= "number" then error( "Expected surfaceDirNum to be a number" ) end
+    if math.floor( surfaceDirNum ) ~= surfaceDirNum then error( "Expected surfaceDirNum to be an integer" ) end
+    if surfaceDirNum < DIR_NUM_MIN or surfaceDirNum > DIR_NUM_MAX then error( "Expected surfaceDirNum to be between " .. DIR_NUM_MIN .. " and " .. DIR_NUM_MAX ) end
+
+    if type( surfaceUpDirNum ) ~= "number" then error( "Expected surfaceUpDirNum to be a number" ) end
+    if math.floor( surfaceUpDirNum ) ~= surfaceUpDirNum then error( "Expected surfaceUpDirNum to be an integer" ) end
+    if surfaceUpDirNum < DIR_NUM_MIN or surfaceUpDirNum > DIR_NUM_MAX then error( "Expected surfaceUpDirNum to be between " .. DIR_NUM_MIN .. " and " .. DIR_NUM_MAX ) end
+
+    if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+
+    local holo = holograms.create( Vector(), Angle(), model, self:getHoloScale() )
+    if not isValid( holo ) then error( "Failed to initialize " .. self.class.name ) end
+    self._holo = holo
+    holo._fridgeMagnet_FridgeMagnetObject = self
+    holo:setParent( surfaceEnt )
+
+    surfaceEnt._fridgeMagnet_FridgeMagnets = surfaceEnt._fridgeMagnet_FridgeMagnets or {}
+    table.insert( surfaceEnt._fridgeMagnet_FridgeMagnets, self )
+
+    fridgeMagnetIncrement = fridgeMagnetIncrement + 1
+    fridgeMagnetsByID[fridgeMagnetIncrement] = self
+    table.insert( allFridgeMagnets, self )
+
+    local depth, width, height = getFaceDimensions( surfaceEnt, surfaceDirNum, surfaceUpDirNum )
+    local surfaceForward = getSurfaceDir( surfaceEnt, surfaceDirNum )
+    local surfaceUp = getSurfaceDir( surfaceEnt, surfaceUpDirNum )
+    local centerWorldPos
+    depth = depth / 2
+
+    if surfaceEnt.getScale then
+        centerWorldPos = surfaceEnt:localToWorld( surfaceEnt:obbCenter() * surfaceEnt:getScale() )
+    else
+        centerWorldPos = surfaceEnt:obbCenterW()
+    end
+
+    self._id = fridgeMagnetIncrement
+    self._surfaceEnt = surfaceEnt
+    --self._surfaceDirNum = surfaceDirNum
+    --self._surfaceUpDirNum = surfaceUpDirNum
+    --self._surfaceDepth = depth
+    self._surfaceWidth = width
+    self._surfaceHeight = height
+    self._surfaceLocalPos = surfaceEnt:worldToLocal( centerWorldPos + surfaceForward * depth )
+    self._surfaceLocalAng = surfaceEnt:worldToLocalAngles( surfaceForward:getAngleEx( surfaceUp ) )
+    self._surfaceLocalForward = surfaceEnt:worldToLocal( surfaceForward + surfaceEnt:getPos() )
+
+    self:setLocalPos( Vector() )
+    self:setRoll( 0 )
+    self:setAllowInteraction( true )
+    self:setAllowGrabbing( true )
+end
+
+function FridgeMagnet.static:getAll()
+    return allFridgeMagnets
+end
+
+function FridgeMagnet.static:getByID( id )
+    return fridgeMagnetsByID[id]
+end
+
+--[[
+    - Whether or not to hit a hologram when performing FridgeMagnet-related traces.
+    - THIS IS OVERRIDABLE!
+
+    ent: (Hologram)
+        - The hologram to check.
+    fridgeMagnet: (FridgeMagnet or nil)
+        - If provided, this is a trace pertaining specifically to this FridgeMagnet.
+            - e.g. a trace for handling where to move a currently-grabbed FridgeMagnet.
+            - The magnet's corresponding holo will automatically be ignored.
+        - If nil, this applies to any FridgeMagnet.
+            - e.g. a trace to see if a player is about to grab a FridgeMagnet.
+
+    RETURNS: shouldHit
+        shouldHit: (boolean)
+            - Whether or not to hit the hologram.
+--]]
+function FridgeMagnet.static:traceFilterHolo( _holo, _fridgeMagnet )
+    return true
+end
+
+--[[
+    - Whether or not to hit an entity when performing FridgeMagnet-related traces.
+    - THIS IS OVERRIDABLE!
+
+    ent: (Entity)
+        - The entity to check.
+    fridgeMagnet: (FridgeMagnet or nil)
+        - If provided, this is a trace pertaining specifically to this FridgeMagnet.
+            - e.g. a trace for handling where to move a currently-grabbed FridgeMagnet.
+            - The magnet's corresponding holo will automatically be ignored.
+        - If nil, this applies to any FridgeMagnet.
+            - e.g. a trace to see if a player is about to grab a FridgeMagnet.
+
+    RETURNS: shouldHit
+        shouldHit: (boolean)
+            - Whether or not to hit the entity.
+--]]
+function FridgeMagnet.static:traceFilterEnt( _ent, _fridgeMagnet )
+    return true
+end
+
+--[[
+    - Performs a trace on holograms and entities.
+
+    fridgeMagnet: (FridgeMagnet or nil)
+        - The FridgeMagnet to perform the trace for, if any.
+        - If provided, its corresponding holo will automatically be ignored.
+    startPos: (Vector)
+        - The position to start the trace from.
+    endPos: (Vector)
+        - The position to end the trace at.
+    holoFilter: (optional) (Hologram or function)
+        - If a Hologram, will exclude it from the trace.
+        - If a function, will block any holograms that return false when passed to it.
+        - Note that this does NOT accept a table as input.
+        - After this, the trace will run through FridgeMagnet:traceFilterHolo().
+    entFilter: (optional) (Entity or function)
+        - If an Entity, will exclude it from the trace.
+        - If a function, will block any entities that return false when passed to it.
+        - Note that this does NOT accept a table as input.
+        - After this, the trace will run through FridgeMagnet:traceFilterEnt().
+    entMask: (optional) (number)
+        - Identical to mask in trace.line().
+    entColGroup: (optional) (number)
+        - Identical to collisiongroup in trace.line().
+    entIgnoreWorld: (optional) (boolean)
+        - Identical to ignworld in trace.line().
+
+    - Return results are identical to holoTrace.traceLineIncludeEnts() from lkl/math/holo_trace.txt
+--]]
+function FridgeMagnet.static:doTrace( fridgeMagnet, startPos, endPos, holoFilter, entFilter, entMask, entColGroup, entIgnoreWorld )
+    local holoFilterEff, entFilterEff = getTraceFilters( self, fridgeMagnet, holoFilter, entFilter )
+
+    return holoTrace.traceLineIncludeEnts( startPos, endPos, holoFilterEff, entFilterEff, entMask, entColGroup, entIgnoreWorld )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function FridgeMagnet:getID()
+    return self._id
+end
+
+function FridgeMagnet:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+--[[
+    - Sets the local position of this FridgeMagnet.
+
+    localPos: (Vector)
+        - The position to use, local to the FridgeMagnet's surface.
+        - x is depth, y is width, z is height.
+    restrictToSurface: (optional) (boolean)
+        - If true, will clamp the width and height to the surface's bounds.
+--]]
+function FridgeMagnet:setLocalPos( localPos, restrictToSurface )
+    if type( localPos ) ~= "Vector" then error( "Expected localPos to be a Vector" ) end
+
+    localPos = localPos:clone()
+
+    if restrictToSurface then
+        local width = self:getSurfaceWidth() / 2
+        local height = self:getSurfaceHeight() / 2
+
+        localPos[2] = mathClamp( localPos[2], -width, width )
+        localPos[3] = mathClamp( localPos[3], -height, height )
+    end
+
+    self._localPos = localPos
+    updateHoloPos( self )
+end
+
+-- Gets the local position of this FridgeMagnet.
+function FridgeMagnet:getLocalPos()
+    return self._localPos
+end
+
+--[[
+    - Sets the position of this FridgeMagnet to be the closest point on its surface to the given world position.
+
+    worldPos: (Vector)
+        - The position to use, in world coordinates.
+    restrictToSurface: (optional) (boolean)
+        - If true, will restrict the position to the surface's bounds.
+        - Regardless of this, the resulting position will always have a local depth of 0.
+--]]
+function FridgeMagnet:setPos( worldPos, restrictToSurface )
+    if type( worldPos ) ~= "Vector" then error( "Expected worldPos to be a Vector" ) end
+
+    local planeOrigin, planeNormalAng = self:surfaceLocalToWorld()
+    local localPos = vectorMath.closestPointOnPlane( worldPos, planeOrigin, planeNormalAng )
+
+    self:setLocalPos( localPos, restrictToSurface )
+end
+
+-- Gets the position of this FridgeMagnet, in world coordinates.
+function FridgeMagnet:getPos()
+    return self:surfaceLocalToWorld( self:getLocalPos() )
+end
+
+-- Sets the roll of this FridgeMagnet, local to its surface.
+function FridgeMagnet:setRoll( roll )
+    if self._roll == roll then return end
+    if type( roll ) ~= "number" then error( "Expected roll to be a number" ) end
+
+    self._roll = roll
+    updateHoloAngles( self )
+end
+
+function FridgeMagnet:getRoll()
+    return self._roll
+end
+
+-- Gets the world angles of this FridgeMagnet.
+function FridgeMagnet:getAngles()
+    local roll = self:getRoll()
+    local localAng = self._surfaceLocalAng
+
+    localAng = localAng:rotateAroundAxis( self._surfaceLocalForward, roll )
+
+    return self:getSurfaceEntity():localToWorldAngles( localAng )
+end
+
+-- Gets the forward direction of this FridgeMagnet, as a world vector.
+function FridgeMagnet:getForward()
+    return self:getSurfaceEntity():localToWorldAngles( self._surfaceLocalAng ):getForward()
+end
+
+-- Gets the right direction of this FridgeMagnet, as a world vector.
+function FridgeMagnet:getRight()
+    return self:getAngles():getRight()
+end
+
+-- Gets the up direction of this FridgeMagnet, as a world vector.
+function FridgeMagnet:getUp()
+    return self:getAngles():getUp()
+end
+
+function FridgeMagnet:surfaceLocalToWorld( localPos, localAng )
+    localPos = localPos or Vector()
+    localAng = localAng or Angle()
+
+    local surfaceEnt = self:getSurfaceEntity()
+    local originPos, originAng = localToWorld( self._surfaceLocalPos, self._surfaceLocalAng, surfaceEnt:getPos(), surfaceEnt:getAngles() )
+
+    return localToWorld( localPos, localAng, originPos, originAng )
+end
+
+function FridgeMagnet:surfaceWorldToLocal( worldPos, worldAng )
+    worldPos = worldPos or Vector()
+    worldAng = worldAng or Angle()
+
+    local surfaceEnt = self:getSurfaceEntity()
+    local originPos, originAng = localToWorld( self._surfaceLocalPos, self._surfaceLocalAng, surfaceEnt:getPos(), surfaceEnt:getAngles() )
+
+    return worldToLocal( worldPos, worldAng, originPos, originAng )
+end
+
+function FridgeMagnet:getSurfaceWidth()
+    return self._surfaceWidth
+end
+
+function FridgeMagnet:getSurfaceHeight()
+    return self._surfaceHeight
+end
+
+function FridgeMagnet:setAllowInteraction( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._allowInteraction = state
+end
+
+function FridgeMagnet:doesAllowInteraction()
+    return self._allowInteraction
+end
+
+function FridgeMagnet:setAllowGrabbing( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._allowGrabbing = state
+end
+
+function FridgeMagnet:doesAllowGrabbing()
+    return self._allowGrabbing
+end
+
+-- Forces the player interacting with and/or grabbing this FridgeMagnet to stop.
+function FridgeMagnet:forceLetGo()
+    local interactingPly = self:getInteractingPlayer()
+
+    if interactingPly then
+        interactingPly._fridgeMagnet_HeldFridgeMagnet = nil
+        self._interactingPlayer = nil
+        self:onInteractEnd( interactingPly )
+    end
+
+    local grabbingPly = self:getGrabbingPlayer()
+
+    if grabbingPly then
+        table.removeByValue( grabbedFridgeMagnets, self )
+        grabbingPly._fridgeMagnet_HeldFridgeMagnet = nil
+        self._grabbingPlayer = nil
+        self:onGrabEnd( grabbingPly )
+    end
+end
+
+function FridgeMagnet:getInteractingPlayer()
+    return self._interactingPlayer
+end
+
+function FridgeMagnet:isInteracting()
+    return self._interactingPlayer ~= nil
+end
+
+function FridgeMagnet:getGrabbingPlayer()
+    return self._grabbingPlayer
+end
+
+function FridgeMagnet:isGrabbed()
+    return self._grabbingPlayer ~= nil
+end
+
+function FridgeMagnet:setHoloScale( scale )
+    if scale ~= nil and type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
+
+    self._holoScale = scale
+    self:getHolo():setScale( self:getHoloScale() )
+end
+
+function FridgeMagnet:getHoloScale()
+    return self._holoScale or self.class.HOLO_SCALE
+end
+
+function FridgeMagnet:setHoloOffsetPos( offsetPos )
+    if offsetPos ~= nil and type( offsetPos ) ~= "Vector" then error( "Expected offsetPos to be a Vector or nil" ) end
+
+    self._holoOffsetPos = offsetPos
+    updateHoloPos( self )
+end
+
+function FridgeMagnet:getHoloOffsetPos()
+    return self._holoOffsetPos or self.class.HOLO_OFFSET_POS
+end
+
+function FridgeMagnet:setHoloOffsetAngles( offsetAng )
+    if offsetAng ~= nil and type( offsetAng ) ~= "Angle" then error( "Expected offsetAng to be an Angle or nil" ) end
+
+    self._holoOffsetAng = offsetAng
+    updateHoloAngles( self )
+end
+
+function FridgeMagnet:getHoloOffsetAngles()
+    return self._holoOffsetAng or self.class.HOLO_OFFSET_ANG
+end
+
+function FridgeMagnet:getHolo()
+    return self._holo
+end
+
+function FridgeMagnet:getSurfaceEntity()
+    return self._surfaceEnt
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function FridgeMagnet:canPlayerInteract( _ply )
+    return true
+end
+
+function FridgeMagnet:canPlayerGrab( _ply )
+    return true
+end
+
+function FridgeMagnet:onInteractStart( _ply )
+
+end
+
+function FridgeMagnet:onInteractEnd( _ply )
+
+end
+
+function FridgeMagnet:onGrabStart( _ply )
+
+end
+
+function FridgeMagnet:onGrabEnd( _ply )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function FridgeMagnet:onDestroyed()
+    local surfaceEnt = self:getSurfaceEntity()
+
+    if isValid( surfaceEnt ) then
+        local fridgeMagnets = surfaceEnt._fridgeMagnet_FridgeMagnets or {}
+        table.removeByValue( fridgeMagnets, self )
+    end
+
+    local holo = self:getHolo()
+
+    if isValid( holo ) then
+        holo._fridgeMagnet_FridgeMagnetObject = nil
+        holo:remove()
+    end
+
+    local interactingPly = self:getInteractingPlayer()
+
+    if interactingPly then
+        interactingPly._fridgeMagnet_HeldFridgeMagnet = nil
+    end
+
+    local grabbingPly = self:getGrabbingPlayer()
+
+    if grabbingPly then
+        grabbingPly._fridgeMagnet_HeldFridgeMagnet = nil
+    end
+
+    fridgeMagnetsByID[self._id] = nil
+    table.removeByValue( allFridgeMagnets, self )
+    table.removeByValue( grabbedFridgeMagnets, self )
+
+    FridgeMagnet.super.onDestroyed( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+local function filterOutUnholdables( holo, ply )
+    local fridgeMagnet = holo._fridgeMagnet_FridgeMagnetObject
+    if not fridgeMagnet then return true end
+    if fridgeMagnet:isInteracting() then return false end
+    if fridgeMagnet:isGrabbed() then return false end
+    if fridgeMagnet:doesAllowInteraction() and fridgeMagnet:canPlayerInteract( ply ) then return true end
+    if fridgeMagnet:doesAllowGrabbing() and fridgeMagnet:canPlayerGrab( ply ) then return true end
+
+    return false
+end
+
+local function updateGrabbedMagnets()
+    local cpuTotal = cpuTotalAverage()
+    if cpuTotal > cpuMaxGrabUpdate then return end
+
+    local cpuLimitEff = cpuMaxGrabUpdate - ( cpuTotal + cpuAverage() )
+    local dropDist = FridgeMagnet.FORCE_DROP_DIST
+    local dropDistSqr = dropDist * dropDist
+
+    for i = 1, #grabbedFridgeMagnets do
+        if cpuAverage() >= cpuLimitEff then break end
+
+        local fridgeMagnet = grabbedFridgeMagnets[i]
+        local ply = fridgeMagnet:getGrabbingPlayer()
+
+        local startPos = ply:getShootPos()
+
+        -- Use holo for distance check to reduce extra calculations, and it's a close enough approximation.
+        if startPos:getDistanceSqr( fridgeMagnet:getHolo():getPos() ) > dropDistSqr then
+            fridgeMagnet:forceLetGo()
+
+            continue
+        end
+
+        local traceDir = ply:getEyeAngles():getForward()
+        local planeOrigin, planeNormalAng = fridgeMagnet:surfaceLocalToWorld()
+
+        local newPosWorld = vectorMath.lineIntersectionWithPlane( startPos, traceDir, planeOrigin, planeNormalAng )
+        local newPos = fridgeMagnet:surfaceWorldToLocal( newPosWorld ) + fridgeMagnet._grabOffsetPosLocal
+
+        fridgeMagnet:setLocalPos( newPos, true )
+    end
+end
+
+getFaceDimensions = function( surfaceEnt, dirNum, upDirNum )
+    local obbSize = surfaceEnt:obbSize()
+    local depth
+    local width
+    local height
+
+    if surfaceEnt.getScale then
+        obbSize = obbSize * surfaceEnt:getScale()
+    end
+
+    if dirNum == DIR_NUM_FORWARD or dirNum == DIR_NUM_BACK then
+        depth = obbSize[1]
+
+        if upDirNum == DIR_NUM_UP or upDirNum == DIR_NUM_DOWN then
+            width = obbSize[2]
+            height = obbSize[3]
+        elseif upDirNum == DIR_NUM_RIGHT or upDirNum == DIR_NUM_LEFT then
+            width = obbSize[3]
+            height = obbSize[2]
+        else
+            error( "Expected surfaceUpDirNum be orthogonal to surfaceDirNum" )
+        end
+    elseif dirNum == DIR_NUM_RIGHT or dirNum == DIR_NUM_LEFT then
+        depth = obbSize[2]
+
+        if upDirNum == DIR_NUM_UP or upDirNum == DIR_NUM_DOWN then
+            width = obbSize[1]
+            height = obbSize[3]
+        elseif upDirNum == DIR_NUM_FORWARD or upDirNum == DIR_NUM_BACK then
+            width = obbSize[3]
+            height = obbSize[1]
+        else
+            error( "Expected surfaceUpDirNum be orthogonal to surfaceDirNum" )
+        end
+    else -- DIR_NUM_UP, DIR_NUM_DOWN
+        depth = obbSize[3]
+
+        if upDirNum == DIR_NUM_FORWARD or upDirNum == DIR_NUM_BACK then
+            width = obbSize[2]
+            height = obbSize[1]
+        elseif upDirNum == DIR_NUM_RIGHT or upDirNum == DIR_NUM_LEFT then
+            width = obbSize[1]
+            height = obbSize[2]
+        else
+            error( "Expected surfaceUpDirNum be orthogonal to surfaceDirNum" )
+        end
+    end
+
+    return depth, width, height
+end
+
+getSurfaceDir = function( surfaceEnt, dirNum )
+    if dirNum == DIR_NUM_FORWARD then return surfaceEnt:getForward() end
+    if dirNum == DIR_NUM_RIGHT then return surfaceEnt:getRight() end
+    if dirNum == DIR_NUM_UP then return surfaceEnt:getUp() end
+    if dirNum == DIR_NUM_BACK then return -surfaceEnt:getForward() end
+    if dirNum == DIR_NUM_LEFT then return -surfaceEnt:getRight() end
+
+    return -surfaceEnt:getUp() -- DIR_NUM_DOWN
+end
+
+updateHoloPos = function( fridgeMagnet )
+    local holo = fridgeMagnet:getHolo()
+    local localPos = fridgeMagnet:getLocalPos()
+    local holoOffsetPos = fridgeMagnet:getHoloOffsetPos()
+
+    local holoWorldPos = fridgeMagnet:surfaceLocalToWorld( localPos + holoOffsetPos )
+
+    holo:setPos( holoWorldPos )
+end
+
+updateHoloAngles = function( fridgeMagnet )
+    local holo = fridgeMagnet:getHolo()
+    local roll = fridgeMagnet:getRoll()
+    local holoOffsetAng = fridgeMagnet:getHoloOffsetAngles()
+
+    holoOffsetAng = holoOffsetAng:rotateAroundAxis( fridgeMagnet._surfaceLocalForward, roll )
+
+    --local _, holoWorldAng = fridgeMagnet:surfaceLocalToWorld( nil, holoOffsetAng )
+    local holoWorldAng = fridgeMagnet:getSurfaceEntity():localToWorldAngles( holoOffsetAng )
+
+    holo:setAngles( holoWorldAng )
+end
+
+getTraceFilters = function( classObj, fridgeMagnet, holoFilter, entFilter )
+    local fridgeMagnetHolo = fridgeMagnet and fridgeMagnet:getHolo() or nil
+    local holoFilterEff
+    local entFilterEff
+
+    if holoFilter then
+        if type( holoFilter ) == "function" then
+            holoFilterEff = function( holo )
+                if holo == fridgeMagnetHolo then return false end
+                if not holoFilter( holo ) then return false end
+
+                return classObj:traceFilterHolo( holo, fridgeMagnet )
+            end
+        else
+            holoFilterEff = function( holo )
+                if holo == fridgeMagnetHolo then return false end
+                if holo == holoFilter then return false end
+
+                return classObj:traceFilterHolo( holo, fridgeMagnet )
+            end
+        end
+    else
+        holoFilterEff = function( holo )
+            if holo == fridgeMagnetHolo then return false end
+
+            return classObj:traceFilterHolo( holo, fridgeMagnet )
+        end
+    end
+
+    if entFilter then
+        if type( entFilter ) == "function" then
+            entFilterEff = function( ent )
+                if not entFilter( ent ) then return false end
+
+                return classObj:traceFilterEnt( ent, fridgeMagnet )
+            end
+        else
+            entFilterEff = function( ent )
+                if ent == entFilter then return false end
+
+                return classObj:traceFilterEnt( ent, fridgeMagnet )
+            end
+        end
+    else
+        entFilterEff = function( ent )
+            return classObj:traceFilterEnt( ent, fridgeMagnet )
+        end
+    end
+
+    return holoFilterEff, entFilterEff
+end
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_FridgeMagnet_TrackDestroyedSurfaces", function( ent )
+    local fridgeMagnets = ent._fridgeMagnet_FridgeMagnets
+    if not fridgeMagnets then return end
+
+    ent._fridgeMagnet_FridgeMagnets = {}
+
+    for _, fridgeMagnet in ipairs( fridgeMagnets ) do
+        fridgeMagnet:destroy()
+    end
+end )
+
+hook.add( "EntityRemoved", "LKL_FridgeMagnet_TrackDestroyedHolos", function( ent )
+    local fridgeMagnet = ent._fridgeMagnet_FridgeMagnetObject
+    if not fridgeMagnet then return end
+
+    ent._fridgeMagnet_FridgeMagnetObject = nil
+    fridgeMagnet._holo = nil
+
+    fridgeMagnet:destroy()
+end )
+
+hook.add( "PlayerDisconnect", "LKL_FridgeMagnet_TrackLeavingPlayers", function( _, _, ply )
+    if not ply then return end
+
+    local fridgeMagnet = ply._fridgeMagnet_HeldFridgeMagnet
+    if not fridgeMagnet then return end
+
+    fridgeMagnet:forceLetGo()
+end )
+
+hook.add( "KeyPress", "LKL_FrdigeMagnet_InteractWithMagnets", function( ply, key )
+    if key ~= IN_USE then return end
+    if cpuTotalAverage() > cpuMaxGrabUpdate then return end
+
+    local heldMagnet = ply._fridgeMagnet_HeldFridgeMagnet
+    if heldMagnet then return end
+
+    local startPos = ply:getShootPos()
+    local traceDir = ply:getEyeAngles():getForward()
+    local endPos = startPos + traceDir * FridgeMagnet.INTERACT_RANGE
+
+    local tr = FridgeMagnet.static:doTrace( nil, startPos, endPos, function( ent )
+        return filterOutUnholdables( ent, ply )
+    end, ply )
+
+    local ent = tr.Entity
+    if not ent or not ent:isValid() then return end
+
+    local fridgeMagnet = ent._fridgeMagnet_FridgeMagnetObject
+    if not fridgeMagnet then return end
+
+    ply._fridgeMagnet_HeldFridgeMagnet = fridgeMagnet
+
+    local doInteract = fridgeMagnet:doesAllowInteraction() and fridgeMagnet:canPlayerInteract( ply )
+
+    if not fridgeMagnet:doesAllowGrabbing() or not fridgeMagnet:canPlayerGrab( ply ) then
+        if doInteract then
+            fridgeMagnet._interactingPlayer = ply
+            fridgeMagnet:onInteractStart( ply )
+        end
+
+        return
+    end
+
+    local planeOrigin, planeNormalAng = fridgeMagnet:surfaceLocalToWorld()
+    local hitPos = vectorMath.closestPointOnPlane( tr.HitPos, planeOrigin, planeNormalAng )
+    local hitPosLocal = fridgeMagnet:surfaceWorldToLocal( hitPos )
+
+    fridgeMagnet._grabOffsetPosLocal = fridgeMagnet:getLocalPos() - hitPosLocal
+    table.insert( grabbedFridgeMagnets, fridgeMagnet )
+
+    if doInteract then
+        fridgeMagnet._interactingPlayer = ply
+        fridgeMagnet:onInteractStart( ply )
+    end
+
+    fridgeMagnet._grabbingPlayer = ply
+    fridgeMagnet:onGrabStart( ply )
+end )
+
+hook.add( "KeyRelease", "LKL_FrdigeMagnet_LetGoOfMagnets", function( ply, key )
+    if key ~= IN_USE then return end
+
+    local fridgeMagnet = ply._fridgeMagnet_HeldFridgeMagnet
+    if not fridgeMagnet then return end
+
+    fridgeMagnet:forceLetGo()
+end )
+
+
+timer.simple( 0, function()
+    local grabUpdateInterval = FridgeMagnet.GRAB_UPDATE_INTERVAL
+    cpuMaxGrabUpdate = FridgeMagnet.GRAB_UPDATE_PERF_LIMIT * cpuMax()
+
+    if grabUpdateInterval <= 0 then
+        hook.add( "think", "LKL_FridgeMagnet_UpdateGrabbedMagnets", updateGrabbedMagnets )
+    else
+        timer.create( "LKL_FridgeMagnet_UpdateGrabbedMagnets", grabUpdateInterval, 0, updateGrabbedMagnets )
+    end
+end )

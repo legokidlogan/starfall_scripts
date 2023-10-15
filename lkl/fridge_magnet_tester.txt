@@ -1,0 +1,85 @@
+--@name Fridge Magnet Tester
+--@author legokidlogan
+--@server
+--@include lkl/fridge_magnet.txt
+
+require( "lkl/fridge_magnet.txt" )
+
+
+-- Basic example usage of the FridgeMagnet class, putting a bunch of letter magnets on a plate.
+
+
+-- CONFIG:
+FridgeMagnet.static.HOLO_SCALE = Vector( 0.25 )
+FridgeMagnet.static.HOLO_OFFSET_POS = Vector( 0, 0, 0 )
+FridgeMagnet.static.HOLO_OFFSET_ANG = Angle( 0, -90, 90 )
+
+local mainSurfaceDirNum = DIR_NUM_UP
+local mainSurfaceUpDirNum = DIR_NUM_BACK
+
+local letterMaterial = ""
+local letterColor = Color( 255, 255, 255 )
+local letterRollVariance = 10
+local numLettersPerModel = 3
+
+local letterModels = {
+    "models/sprops/misc/alphanum/alphanum_a.mdl",
+    "models/sprops/misc/alphanum/alphanum_b.mdl",
+    "models/sprops/misc/alphanum/alphanum_c.mdl",
+    "models/sprops/misc/alphanum/alphanum_d.mdl",
+    "models/sprops/misc/alphanum/alphanum_e.mdl",
+    "models/sprops/misc/alphanum/alphanum_f.mdl",
+    "models/sprops/misc/alphanum/alphanum_g.mdl",
+    "models/sprops/misc/alphanum/alphanum_h.mdl",
+    "models/sprops/misc/alphanum/alphanum_i.mdl",
+    "models/sprops/misc/alphanum/alphanum_j.mdl",
+    "models/sprops/misc/alphanum/alphanum_k.mdl",
+    "models/sprops/misc/alphanum/alphanum_l.mdl",
+    "models/sprops/misc/alphanum/alphanum_m.mdl",
+    "models/sprops/misc/alphanum/alphanum_n.mdl",
+    "models/sprops/misc/alphanum/alphanum_o.mdl",
+    "models/sprops/misc/alphanum/alphanum_p.mdl",
+    "models/sprops/misc/alphanum/alphanum_q.mdl",
+    "models/sprops/misc/alphanum/alphanum_r.mdl",
+    "models/sprops/misc/alphanum/alphanum_s.mdl",
+    "models/sprops/misc/alphanum/alphanum_t.mdl",
+    "models/sprops/misc/alphanum/alphanum_u.mdl",
+    "models/sprops/misc/alphanum/alphanum_v.mdl",
+    "models/sprops/misc/alphanum/alphanum_w.mdl",
+    "models/sprops/misc/alphanum/alphanum_x.mdl",
+    "models/sprops/misc/alphanum/alphanum_y.mdl",
+    "models/sprops/misc/alphanum/alphanum_z.mdl",
+}
+-- END CONFIG
+
+
+local mainSurface = chip():isWeldedTo()
+
+
+function FridgeMagnet.static:traceFilterEnt( ent, _fridgeMagnet )
+    if ent:isPlayer() then return false end
+
+    return true
+end
+
+
+for i, model in ipairs( letterModels ) do
+    timer.simple( 0.1 * i, function()
+        for _ = 1, numLettersPerModel do
+            local magnet = FridgeMagnet:new( mainSurface, mainSurfaceDirNum, mainSurfaceUpDirNum, model )
+            local width = magnet:getSurfaceWidth() / 2
+            local height = magnet:getSurfaceHeight() / 2
+            local holo = magnet:getHolo()
+
+            magnet:setLocalPos( Vector(
+                0,
+                math.rand( -width, width ),
+                math.rand( -height, height )
+            ) )
+            magnet:setRoll( math.rand( -letterRollVariance, letterRollVariance ) / 2 )
+
+            holo:setMaterial( letterMaterial )
+            holo:setColor( letterColor )
+        end
+    end )
+end
