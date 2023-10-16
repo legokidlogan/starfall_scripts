@@ -32,7 +32,7 @@ local spawnPosMinScaled = Vector( 0, -1, 1 ) -- Scaled by the surface's width an
 local spawnPosMin = Vector( 0, 4, -2 ) -- x is depth, y is left/right, z is up/down.
 local spawnPosMaxScaled = spawnPosMinScaled + Vector( 0, 0, 0 )
 local spawnPosMax = spawnPosMin + Vector( 0, 5, -5 )
-local spawnStackMax = 10
+local spawnStackMax = 5
 local spawnStackColor = Color( 80, 80, 120 )
 
 local deleterDetectionRadiusMult = 1.5
