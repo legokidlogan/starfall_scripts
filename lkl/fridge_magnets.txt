@@ -1,0 +1,435 @@
+--@name Fridge Magnets
+--@author legokidlogan
+--@server
+--@include lkl/fridge_magnet.txt
+--@include lkl/queue.txt
+
+require( "lkl/fridge_magnet.txt" )
+require( "lkl/queue.txt" )
+
+
+-- Example usage of the FridgeMagnet class, letting players spawn letters from a letter bank.
+
+-- CONFIG:
+FridgeMagnet.static.HOLO_SCALE = Vector( 0.125 )
+FridgeMagnet.static.HOLO_OFFSET_POS = Vector( 0, 0, 0 )
+FridgeMagnet.static.HOLO_OFFSET_ANG = Angle( 0, -90, 90 )
+
+local mainSurfaceDirNum = DIR_NUM_UP
+local mainSurfaceUpDirNum = DIR_NUM_BACK
+
+local bankSurfaceDirNum = DIR_NUM_UP
+local bankSurfaceUpDirNum = DIR_NUM_RIGHT
+local bankNumSymbolsPerRow = 10
+local bankSpacing = 0.5
+local bankVerticalOffset = 5
+local bankMagnetColor = Color( 255, 255, 255 )
+local bankHoloOffsetScale = Vector( 0.15 )
+local bankHoloOffsetPos = Vector( 0, 0, 0 )
+local bankHoloOffsetAng = Angle( 0, 0, 90 )
+
+local spawnPosMinScaled = Vector( 0, -1, 1 ) -- Scaled by the surface's width and height on y and z axes respectively. x is ignored.
+local spawnPosMin = Vector( 0, 4, -2 ) -- x is depth, y is left/right, z is up/down.
+local spawnPosMaxScaled = spawnPosMinScaled + Vector( 0, 0, 0 )
+local spawnPosMax = spawnPosMin + Vector( 0, 5, -5 )
+local spawnStackMax = 10
+local spawnStackColor = Color( 80, 80, 120 )
+
+local deleterDetectionRadiusMult = 1
+local deleterHoloScale = Vector( 0.05, 0.01, 0.05 )
+local deleterHoloOffsetPos = Vector( -0.2, 0, 0 )
+local deleterHoloOffsetAng = Angle( 0, -90, 90 )
+local deleterPosScaled = Vector( 0, -1, 1 )
+local deleterPos = Vector( 0, 2, -2 )
+local deleterModel = "models/props_trainstation/trashcan_indoor001b.mdl"
+local deleterMaterial = "models/shiny"
+local deleterColor = Color( 255, 0, 0 )
+
+local symbolMaterial = "models/shiny"
+local symbolColor = Color( 255, 255, 255 )
+local symbolRollVariance = 10
+local symbolMax = 100
+local colorSymbolsByTeam = true
+local resetSymbolColorOnDrop = true
+
+local symbolStartingModels = { -- Auto-fills the fridge with some symbols on startup.
+    a = math.random( 0, 3 ),
+    b = math.random( 0, 1 ),
+    c = math.random( 0, 1 ),
+    d = math.random( 0, 1 ),
+    e = math.random( 0, 3 ),
+    f = math.random( 0, 1 ),
+    g = math.random( 0, 1 ),
+    h = math.random( 0, 1 ),
+    i = math.random( 0, 3 ),
+    j = math.random( 0, 1 ),
+    k = math.random( 0, 1 ),
+    l = math.random( 0, 1 ),
+    m = math.random( 0, 1 ),
+    n = math.random( 0, 1 ),
+    o = math.random( 0, 3 ),
+    p = math.random( 0, 1 ),
+    q = math.random( 0, 1 ),
+    r = math.random( 0, 1 ),
+    s = math.random( 0, 1 ),
+    t = math.random( 0, 1 ),
+    u = math.random( 0, 3 ),
+    v = math.random( 0, 1 ),
+    w = math.random( 0, 1 ),
+    x = math.random( 0, 1 ),
+    y = math.random( 0, 1 ),
+    z = math.random( 0, 1 ),
+}
+
+local symbolModels = {
+    "models/sprops/misc/alphanum/alphanum_a.mdl",
+    "models/sprops/misc/alphanum/alphanum_b.mdl",
+    "models/sprops/misc/alphanum/alphanum_c.mdl",
+    "models/sprops/misc/alphanum/alphanum_d.mdl",
+    "models/sprops/misc/alphanum/alphanum_e.mdl",
+    "models/sprops/misc/alphanum/alphanum_f.mdl",
+    "models/sprops/misc/alphanum/alphanum_g.mdl",
+    "models/sprops/misc/alphanum/alphanum_h.mdl",
+    "models/sprops/misc/alphanum/alphanum_i.mdl",
+    "models/sprops/misc/alphanum/alphanum_j.mdl",
+    "models/sprops/misc/alphanum/alphanum_k.mdl",
+    "models/sprops/misc/alphanum/alphanum_l.mdl",
+    "models/sprops/misc/alphanum/alphanum_m.mdl",
+    "models/sprops/misc/alphanum/alphanum_n.mdl",
+    "models/sprops/misc/alphanum/alphanum_o.mdl",
+    "models/sprops/misc/alphanum/alphanum_p.mdl",
+    "models/sprops/misc/alphanum/alphanum_q.mdl",
+    "models/sprops/misc/alphanum/alphanum_r.mdl",
+    "models/sprops/misc/alphanum/alphanum_s.mdl",
+    "models/sprops/misc/alphanum/alphanum_t.mdl",
+    "models/sprops/misc/alphanum/alphanum_u.mdl",
+    "models/sprops/misc/alphanum/alphanum_v.mdl",
+    "models/sprops/misc/alphanum/alphanum_w.mdl",
+    "models/sprops/misc/alphanum/alphanum_x.mdl",
+    "models/sprops/misc/alphanum/alphanum_y.mdl",
+    "models/sprops/misc/alphanum/alphanum_z.mdl",
+
+    --[[
+    "models/sprops/misc/alphanum/alphanum_1.mdl",
+    "models/sprops/misc/alphanum/alphanum_2.mdl",
+    "models/sprops/misc/alphanum/alphanum_3.mdl",
+    "models/sprops/misc/alphanum/alphanum_4.mdl",
+    "models/sprops/misc/alphanum/alphanum_5.mdl",
+    "models/sprops/misc/alphanum/alphanum_6.mdl",
+    "models/sprops/misc/alphanum/alphanum_7.mdl",
+    "models/sprops/misc/alphanum/alphanum_8.mdl",
+    "models/sprops/misc/alphanum/alphanum_9.mdl",
+    "models/sprops/misc/alphanum/alphanum_0.mdl",
+    --]]
+
+    --[[
+    "models/sprops/misc/alphanum/alphanum_prd.mdl",
+    "models/sprops/misc/alphanum/alphanum_com.mdl",
+    "models/sprops/misc/alphanum/alphanum_colon.mdl",
+    "models/sprops/misc/alphanum/alphanum_scolon.mdl",
+    "models/sprops/misc/alphanum/alphanum_qmark.mdl",
+    "models/sprops/misc/alphanum/alphanum_xmark.mdl",
+    "models/sprops/misc/alphanum/alphanum_apost.mdl",
+    "models/sprops/misc/alphanum/alphanum_quote.mdl",
+    "models/sprops/misc/alphanum/alphanum_tilde.mdl",
+    "models/sprops/misc/alphanum/alphanum_lessthan.mdl",
+    "models/sprops/misc/alphanum/alphanum_greaterthan.mdl",
+    "models/sprops/misc/alphanum/alphanum_underscore.mdl",
+    "models/sprops/misc/alphanum/alphanum_plu.mdl",
+    "models/sprops/misc/alphanum/alphanum_min.mdl",
+    "models/sprops/misc/alphanum/alphanum_ast.mdl",
+    "models/sprops/misc/alphanum/alphanum_equal.mdl",
+    "models/sprops/misc/alphanum/alphanum_div.mdl",
+    "models/sprops/misc/alphanum/alphanum_and.mdl",
+    "models/sprops/misc/alphanum/alphanum_lpar.mdl",
+    "models/sprops/misc/alphanum/alphanum_rpar.mdl",
+    --]]
+}
+-- END CONFIG
+
+
+local mainSurface = nil
+local bankSurface = nil
+local deleterMagnet = nil
+local spawnPosMinEff = nil
+local spawnPosMaxEff = nil
+local mainSurfaceWidth = 0
+local mainSurfaceHeight = 0
+local deleterDetectionRadiusSqr = 0
+local symbolCount = 0
+local spawnStack = {}
+local symbolStartingMinPos = nil
+local symbolStartingMaxPos = nil
+
+
+wire.adjustInputs( { "MainSurface", "BankSurface" }, { "ENTITY", "ENTITY" } )
+
+
+local function getSymbolModel( symbol )
+    if string.endsWith( symbol, ".mdl" ) then return symbol end
+
+    return "models/sprops/misc/alphanum/alphanum_" .. symbol .. ".mdl"
+end
+
+local function applyTeamColor( magnet, ply )
+    if not colorSymbolsByTeam then return end
+
+    local teamColor = team.getColor( ply:getTeam() )
+
+    magnet:getHolo():setColor( teamColor )
+end
+
+local function removeTeamColor( magnet )
+    if not colorSymbolsByTeam then return end
+    if not resetSymbolColorOnDrop then return end
+
+    magnet:getHolo():setColor( magnet._baseColor or symbolColor )
+end
+
+
+local function setUpMainSurfaceMagnet( magnet, skipSpawnStack )
+    symbolCount = symbolCount + 1
+
+    local holo = magnet:getHolo()
+
+    if skipSpawnStack then
+        magnet:setLocalPos( vectorMath.randomInsideBox( symbolStartingMinPos, symbolStartingMaxPos ) )
+        holo:setColor( symbolColor )
+    else
+        if #spawnStack >= spawnStackMax then
+            local magnetToDestroy = table.remove( spawnStack, 1 )
+            magnetToDestroy:destroy()
+        end
+
+        table.insert( spawnStack, magnet )
+        magnet._isInSpawnStack = true
+
+        magnet:setLocalPos( vectorMath.randomInsideBox( spawnPosMinEff, spawnPosMaxEff ) )
+        holo:setColor( spawnStackColor )
+    end
+
+    magnet:setRoll( math.rand( -symbolRollVariance, symbolRollVariance ) / 2 )
+    holo:setMaterial( symbolMaterial )
+
+    function magnet:onGrabStart( ply )
+        if self._isInSpawnStack then
+            self._isInSpawnStack = nil
+            table.removeByValue( spawnStack, self )
+
+            if not colorSymbolsByTeam then
+                self:getHolo():setColor( symbolColor )
+            end
+        end
+
+        applyTeamColor( self, ply )
+    end
+
+    function magnet:onGrabEnd( _ply )
+        local pos = self:getLocalPos()
+        local destroyerPos = deleterMagnet:getLocalPos()
+
+        if pos:getDistanceSqr( destroyerPos ) <= deleterDetectionRadiusSqr then
+            self:destroy()
+
+            return
+        end
+
+        removeTeamColor( self )
+    end
+
+    function magnet:onDestroyed()
+        symbolCount = symbolCount - 1
+
+        FridgeMagnet.onDestroyed( self )
+    end
+end
+
+local function setUpBankMagnet( magnet )
+    local holo = magnet:getHolo()
+    holo:setColor( bankMagnetColor )
+
+    magnet:setAllowGrabbing( false )
+    magnet._baseColor = bankMagnetColor
+
+
+    function magnet:onInteractStart( ply )
+        if symbolCount >= symbolMax then return end
+
+        local symbolMagnet
+        pcall( function()
+            symbolMagnet = FridgeMagnet:new( mainSurface, mainSurfaceDirNum, mainSurfaceUpDirNum, magnet:getModel() )
+        end )
+
+        if not isValid( symbolMagnet ) then return end
+
+        setUpMainSurfaceMagnet( symbolMagnet )
+        applyTeamColor( self, ply )
+    end
+
+    function magnet:onInteractEnd( _ply )
+        removeTeamColor( self )
+    end
+end
+
+local function setUpMainSurface()
+    if not mainSurface then return end
+
+    deleterMagnet = FridgeMagnet:new( mainSurface, mainSurfaceDirNum, mainSurfaceUpDirNum, deleterModel )
+    mainSurfaceWidth = deleterMagnet:getSurfaceWidth()
+    mainSurfaceHeight = deleterMagnet:getSurfaceHeight()
+
+    local deleterHolo = deleterMagnet:getHolo()
+    deleterMagnet:setAllowInteraction( false )
+    deleterMagnet:setAllowGrabbing( false )
+    deleterMagnet:setLocalPos( deleterPosScaled * Vector( 0, mainSurfaceWidth, mainSurfaceHeight ) / 2 + deleterPos )
+    deleterMagnet:setHoloScale( deleterHoloScale )
+    deleterMagnet:setHoloOffsetPos( deleterHoloOffsetPos )
+    deleterMagnet:setHoloOffsetAngles( deleterHoloOffsetAng )
+    deleterHolo:setMaterial( deleterMaterial )
+    deleterHolo:setColor( deleterColor )
+
+    local deleterHoloSize = deleterHolo:obbSize() * deleterHoloScale
+    local deleterDetectionRadius = math.max( math.max( deleterHoloSize[1], deleterHoloSize[2] ), deleterHoloSize[3] ) * deleterDetectionRadiusMult / 2
+    deleterDetectionRadiusSqr = deleterDetectionRadius ^ 2
+
+    local surfaceSizeVec = Vector( 0, mainSurfaceWidth, mainSurfaceHeight ) / 2
+
+    spawnPosMinEff = spawnPosMinScaled * surfaceSizeVec + spawnPosMin
+    spawnPosMaxEff = spawnPosMaxScaled * surfaceSizeVec + spawnPosMax
+    symbolStartingMinPos = surfaceSizeVec * Vector( -0.8 )
+    symbolStartingMaxPos = surfaceSizeVec * Vector( 0.8 )
+
+    local startingSymbolEntries = {}
+
+    for symbol, count in pairs( symbolStartingModels ) do
+        local model = getSymbolModel( symbol )
+
+        for _ = 1, count do
+            table.insert( startingSymbolEntries, model )
+        end
+    end
+
+    local spawnQueue = Queue:new(
+        function( _, model )
+            if not hologram.canSpawn() then return true end
+
+            local magnet
+            pcall( function()
+                magnet = FridgeMagnet:new( mainSurface, mainSurfaceDirNum, mainSurfaceUpDirNum, model )
+            end )
+
+            if not isValid( magnet ) then return true end
+
+            setUpMainSurfaceMagnet( magnet, true )
+        end,
+        function()
+
+        end,
+        startingSymbolEntries,
+        0.25,
+        5,
+        0.5
+    )
+
+    spawnQueue:start()
+end
+
+local function setUpBankSurface()
+    if not bankSurface then return end
+
+    local xStart
+    local yStart
+    local xyStep
+    local xInd = 0
+    local yInd = 0
+
+    local spawnQueue = Queue:new(
+        function( _, model )
+            if not hologram.canSpawn() then return true end
+
+            local magnet
+            pcall( function()
+                magnet = FridgeMagnet:new( bankSurface, bankSurfaceDirNum, bankSurfaceUpDirNum, model )
+            end )
+
+            if not isValid( magnet ) then return true end
+
+            magnet:setHoloScale( bankHoloOffsetScale )
+            magnet:setHoloOffsetPos( bankHoloOffsetPos )
+            magnet:setHoloOffsetAngles( bankHoloOffsetAng )
+
+            if not xStart then
+                --local width = magnet:getSurfaceWidth()
+                local height = magnet:getSurfaceHeight()
+                local holoSize = magnet:getHolo():obbSize() * magnet:getHoloScale()
+                holoSize = math.max( math.max( holoSize[1], holoSize[2] ), holoSize[3] )
+
+                xyStep = holoSize + bankSpacing
+                local rowTotalWidth = xyStep * ( bankNumSymbolsPerRow - 1 ) + holoSize
+                xStart = -rowTotalWidth / 2
+                yStart = height / 2 - ( holoSize / 2 + bankSpacing )
+                yStart = yStart - bankVerticalOffset
+            end
+
+            local x = xStart + xInd * xyStep
+            local y = yStart - yInd * xyStep
+
+            magnet:setLocalPos( Vector( 0, x, y ) )
+
+            xInd = xInd + 1
+
+            if xInd >= bankNumSymbolsPerRow then
+                xInd = 0
+                yInd = yInd + 1
+            end
+
+            setUpBankMagnet( magnet )
+        end,
+        function()
+
+        end,
+        symbolModels,
+        0.5,
+        bankNumSymbolsPerRow,
+        0.5
+    )
+
+    spawnQueue:start()
+end
+
+local function wireInput( name, value )
+    if name == "MainSurface" then
+        if mainSurface then print( "Restart the chip to apply changes!" ) return end
+
+        mainSurface = isValid( value ) and value
+
+        setUpMainSurface()
+    else
+        if bankSurface then print( "Restart the chip to apply changes!" ) return end
+
+        bankSurface = isValid( value ) and value
+
+        setUpBankSurface()
+    end
+end
+
+
+function FridgeMagnet.static:traceFilterEnt( ent, _fridgeMagnet )
+    if ent:isPlayer() then return false end
+
+    return true
+end
+
+
+hook.add( "input", "LKL_FridgeMagnets_WireInput", wireInput )
+
+
+timer.simple( 1, function()
+    if not mainSurface then
+        wireInput( "MainSurface", wire.ports.MainSurface )
+    end
+
+    if not bankSurface then
+        wireInput( "BankSurface", wire.ports.BankSurface )
+    end
+end )
