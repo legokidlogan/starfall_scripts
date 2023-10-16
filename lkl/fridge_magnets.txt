@@ -146,7 +146,29 @@ local symbolModels = {
     "models/sprops/misc/alphanum/alphanum_equal.mdl",
     "models/sprops/misc/alphanum/alphanum_div.mdl",
     "models/sprops/misc/alphanum/alphanum_and.mdl",
+    "models/sprops/misc/alphanum/alphanum_atsign.mdl",
     --]]
+}
+
+local badWordLookup = {
+    [string.utf8char( 110, 105, 103, 103, 101, 114 )] = true,
+    [string.utf8char( 110, 105, 103, 103, 101, 114, 115 )] = true,
+    [string.utf8char( 110, 105, 103, 103, 97 )] = true,
+    [string.utf8char( 110, 105, 103, 103, 97, 115 )] = true,
+    [string.utf8char( 110, 105, 103, 108, 101, 116 )] = true,
+    [string.utf8char( 110, 105, 103, 108, 101, 116, 115 )] = true,
+    [string.utf8char( 114, 101, 103, 103, 105, 110 )] = true,
+    [string.utf8char( 115, 114, 101, 103, 103, 105, 110 )] = true,
+    [string.utf8char( 110, 105, 98, 98, 101, 114 )] = true,
+    [string.utf8char( 110, 105, 98, 98, 101, 114, 115 )] = true,
+    [string.utf8char( 110, 105, 98, 98, 97 )] = true,
+    [string.utf8char( 110, 105, 98, 98, 97, 115 )] = true,
+    [string.utf8char( 110, 103, 103, 101, 114 )] = true,
+    [string.utf8char( 110, 103, 103, 101, 114, 115 )] = true,
+    [string.utf8char( 102, 97, 103, 103, 111, 116 )] = true,
+    [string.utf8char( 102, 97, 103, 103, 111, 116, 115 )] = true,
+    [string.utf8char( 102, 97, 103 )] = true,
+    [string.utf8char( 102, 97, 103, 115 )] = true,
 }
 -- END CONFIG
 
@@ -164,14 +186,69 @@ local spawnStack = {}
 local symbolStartingMinPos = nil
 local symbolStartingMaxPos = nil
 
+local symbolToLetterLookup = {
+    a = "a",
+    b = "b",
+    c = "c",
+    d = "d",
+    e = "e",
+    f = "f",
+    g = "g",
+    h = "h",
+    i = "i",
+    j = "j",
+    k = "k",
+    l = "l",
+    m = "m",
+    n = "n",
+    o = "o",
+    p = "p",
+    q = "q",
+    r = "r",
+    s = "s",
+    t = "t",
+    u = "u",
+    v = "v",
+    w = "w",
+    x = "x",
+    y = "y",
+    z = "z",
+
+    ["0"] = "o",
+    ["1"] = "i",
+    ["3"] = "e",
+    ["4"] = "a",
+    ["5"] = "s",
+    ["6"] = "g",
+    ["7"] = "l",
+    ["8"] = "b",
+
+    xmark = "i",
+    lpar = "c",
+    div = "l",
+    atsign = "a",
+}
 
 wire.adjustInputs( { "MainSurface", "BankSurface" }, { "ENTITY", "ENTITY" } )
 
 
-local function getSymbolModel( symbol )
+local function getModelFromSymbol( symbol )
     if string.endsWith( symbol, ".mdl" ) then return symbol end
 
     return "models/sprops/misc/alphanum/alphanum_" .. symbol .. ".mdl"
+end
+
+local function getSymbolFromModel( model )
+    local symbol = string.match( model, "alphanum_(%w+).mdl" )
+    if symbol then return symbol end
+
+    return model
+end
+
+local function getLetterFromModel( model )
+    local symbol = getSymbolFromModel( model )
+
+    return symbolToLetterLookup[symbol] or ""
 end
 
 local function applyTeamColor( magnet, ply )
@@ -187,6 +264,30 @@ local function removeTeamColor( magnet )
     if not resetSymbolColorOnDrop then return end
 
     magnet:getHolo():setColor( magnet._baseColor or symbolColor )
+end
+
+local function purgeBadWords( magnet )
+    if not perfCheck( 0.75 ) then return end
+
+    local chains = magnet:findChains()
+
+    for _, chain in ipairs( chains ) do
+        local word = ""
+
+        for _, chainMagnet in ipairs( chain ) do
+            word = word .. getLetterFromModel( chainMagnet:getModel() )
+        end
+
+        if badWordLookup[word] then
+            for _, chainMagnet in ipairs( chain ) do
+                if not chainMagnet._dontAutoDestroy then
+                    chainMagnet:destroy()
+                end
+            end
+
+            return
+        end
+    end
 end
 
 
@@ -238,6 +339,7 @@ local function setUpMainSurfaceMagnet( magnet, skipSpawnStack )
         end
 
         removeTeamColor( self )
+        purgeBadWords( self )
     end
 
     function magnet:onDestroyed()
@@ -253,6 +355,7 @@ local function setUpBankMagnet( magnet )
 
     magnet:setAllowGrabbing( false )
     magnet._baseColor = bankMagnetColor
+    magnet._dontAutoDestroy = true
 
 
     function magnet:onInteractStart( ply )
@@ -282,6 +385,7 @@ local function setUpMainSurface()
     mainSurfaceHeight = deleterMagnet:getSurfaceHeight()
 
     local deleterHolo = deleterMagnet:getHolo()
+    deleterMagnet._dontAutoDestroy = true
     deleterMagnet:setAllowInteraction( false )
     deleterMagnet:setAllowGrabbing( false )
     deleterMagnet:setLocalPos( deleterPosScaled * Vector( 0, mainSurfaceWidth, mainSurfaceHeight ) / 2 + deleterPos )
@@ -305,7 +409,7 @@ local function setUpMainSurface()
     local startingSymbolEntries = {}
 
     for symbol, count in pairs( symbolStartingModels ) do
-        local model = getSymbolModel( symbol )
+        local model = getModelFromSymbol( symbol )
 
         for _ = 1, count do
             table.insert( startingSymbolEntries, model )
