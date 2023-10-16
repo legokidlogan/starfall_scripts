@@ -49,6 +49,8 @@ local symbolMaterial = "models/shiny"
 local symbolColor = Color( 255, 255, 255 )
 local symbolRollVariance = 10
 local symbolMax = 100
+local wordDetectionRadiusMult = 2
+local wordDetectionLinearityThreshold = 0.75
 local colorSymbolsByTeam = true
 local resetSymbolColorOnDrop = true
 
@@ -269,7 +271,9 @@ end
 local function purgeBadWords( magnet )
     if not perfCheck( 0.75 ) then return end
 
-    local chains = magnet:findChains()
+    local holoSize = magnet:getHolo():obbSize() * magnet:getHoloScale()
+    local radius = math.max( math.max( holoSize[1], holoSize[2] ), holoSize[3] ) * wordDetectionRadiusMult
+    local chains = magnet:findChains( radius, wordDetectionLinearityThreshold )
 
     for _, chain in ipairs( chains ) do
         local word = ""
