@@ -51,6 +51,10 @@ local updateHoloPos
 local updateHoloAngles
 local getTraceFilters
 
+local tableInsert = table.insert
+local tableRemove = table.remove
+local mathAbs = math.abs
+local mathSqrt = math.sqrt
 local mathClamp = math.clamp
 
 
@@ -332,6 +336,156 @@ function FridgeMagnet:getSurfaceHeight()
     return self._surfaceHeight
 end
 
+--[[
+    - Returns a list of all FridgeMagnets on the same surface as this one, including itself.
+    - This returns by reference, so do not modify the returned table.
+--]]
+function FridgeMagnet:getSurfaceFridgeMagnets()
+    return self:getSurfaceEntity()._fridgeMagnet_FridgeMagnets
+end
+
+--[[
+    - Finds chains of close-together FridgeMagnets on the same surface as this one.
+
+    radius: (optional) (number)
+        - The maximum distance between magnets in a chain.
+        - Defaults to the max per-axis size of the holo * 1.2.
+    linearityThreshold: (optional) (number 0 to 1)
+        - The limit to how out-of-line magnets can be and still be considered part of the same chain.
+        - 0 means the magnets must be perfectly in line.
+        - 1 means the magnets can be at a 90 degree angle and still be considered part of the same chain.
+        - Defaults to 0.1.
+    filter: (optional) (function)
+        - A function to filter out magnets that should not be considered for chains.
+        - Takes a single FridgeMagnet as input.
+        - Returns true if the magnet should be considered, false otherwise.
+        - If not provided, then all magnets will be considered.
+
+    RETURNS: chains
+        chains: (table)
+            - A list of 0 or more chains.
+            - Each chain is a list of 2 or more FridgeMagnets.
+            - The FridgeMagnet this function was called on will always be somewhere in each chain, but not necessarily at the start.
+                - Chain elements are ordered from left to right, top to bottom relative to the surface.
+                - Order is poorly defined for magnets whose position only varies by their depth.
+                    - (i.e. the x-axis of their :getLocalPos())
+--]]
+function FridgeMagnet:findChains( radius, linearityThreshold, filter )
+    if radius ~= nil and type( radius ) ~= "number" then error( "Expected radius to be a number or nil" ) end
+    if linearityThreshold ~= nil and type( linearityThreshold ) ~= "number" then error( "Expected linearityThreshold to be a number or nil" ) end
+    if filter ~= nil and type( filter ) ~= "function" then error( "Expected filter to be a function or nil" ) end
+
+    if not radius then
+        local holoSize = self:getHolo():obbSize() * self:getHoloScale()
+        radius = math.max( math.max( holoSize[1], holoSize[2] ), holoSize[3] ) * 1.2
+    end
+
+    linearityThreshold = mathClamp( linearityThreshold or 0.1, 0, 1 )
+
+    local remainingMagnetCount = 0
+    local remainingMagnets = {}
+    local remainingMagnetPoss = {}
+    local chains = {}
+
+    local firstMagnetCount = 0
+    local firstMagnets = {}
+    local firstMagnetPoss = {}
+    local firstMagnetDirs = {}
+    local firstMagnetBackMagnets = {}
+
+    local myPos = self:getLocalPos()
+    local siblings = self:getSurfaceFridgeMagnets()
+    local radiusSqr = radius * radius
+    local dotMin = 1 - linearityThreshold
+
+    local allowedSiblingCount = 0
+    local allowedSiblings = {}
+
+    for i = 1, #siblings do
+        local magnet = siblings[i]
+
+        if magnet ~= self and ( not filter or filter( magnet ) ) then
+            local pos = magnet:getLocalPos()
+            local delta = pos - myPos
+            local distSqr = delta:getLengthSqr()
+
+            if distSqr ~= 0 then
+                allowedSiblingCount = allowedSiblingCount + 1
+                allowedSiblings[allowedSiblingCount] = {
+                    magnet = magnet,
+                    pos = pos,
+                    delta = delta,
+                    distSqr = distSqr,
+                }
+            end
+        end
+    end
+
+    table.sortByMember( allowedSiblings, "distSqr", true )
+
+    for i = 1, allowedSiblingCount do
+        local sibling = allowedSiblings[i]
+        local magnet = sibling.magnet
+        local pos = sibling.pos
+        local delta = sibling.delta
+        local distSqr = sibling.distSqr
+
+        local canBeFirst = distSqr <= radiusSqr
+        local dir = canBeFirst and delta / mathSqrt( distSqr )
+
+        if canBeFirst then
+            for i2 = 1, firstMagnetCount do
+                local otherDir = firstMagnetDirs[i2]
+                local dot = dir:dot( otherDir )
+
+                -- Don't separate nearby magnets that are on the same line.
+                if mathAbs( dot ) >= dotMin then
+                    canBeFirst = false
+
+                    -- If this magnet is behind the other, mark it as a back magnet if there isn't already one.
+                    if dot < 0 and not firstMagnetBackMagnets[i2] then
+                        firstMagnetBackMagnets[i2] = magnet
+
+                        continue -- Exclude from remaining magnets, it will be added to the chain later.
+                    end
+
+                    break
+                end
+            end
+        end
+
+        if canBeFirst then
+            firstMagnetCount = firstMagnetCount + 1
+            firstMagnets[firstMagnetCount] = magnet
+            firstMagnetPoss[firstMagnetCount] = pos
+            firstMagnetDirs[firstMagnetCount] = dir
+        else
+            remainingMagnetCount = remainingMagnetCount + 1
+            remainingMagnets[remainingMagnetCount] = magnet
+            remainingMagnetPoss[remainingMagnetCount] = pos
+        end
+    end
+
+    for i = 1, firstMagnetCount do
+        local chain = { self }
+        local magnet = firstMagnets[i]
+        local pos = firstMagnetPoss[i]
+        local dir = firstMagnetDirs[i]
+        local backMagnet = firstMagnetBackMagnets[i]
+
+        chains[i] = chain
+
+        magnet:_findChains( radiusSqr, dotMin, remainingMagnets, remainingMagnetPoss, chain, pos, dir )
+        if backMagnet then
+            local backPos = backMagnet:getLocalPos()
+
+            backMagnet:_findChains( radiusSqr, dotMin, remainingMagnets, remainingMagnetPoss, chain, backPos, -dir )
+        end
+    end
+
+    return chains
+end
+
 function FridgeMagnet:setAllowInteraction( state )
     if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
 
@@ -544,6 +698,7 @@ local function updateGrabbedMagnets()
     end
 end
 
+
 getFaceDimensions = function( surfaceEnt, dirNum, upDirNum )
     local obbSize = surfaceEnt:obbSize()
     local depth
@@ -679,6 +834,58 @@ getTraceFilters = function( classObj, fridgeMagnet, holoFilter, entFilter )
 
     return holoFilterEff, entFilterEff
 end
+
+
+function FridgeMagnet:_findChains( radiusSqr, dotMin, remainingMagnets, remainingMagnetPoss, curChain, curPos, prevDir )
+    local prevDirX = prevDir[2]
+    local prevDirY = prevDir[3]
+
+    if mathAbs( prevDirX ) >= mathAbs( prevDirY ) then -- X is the dominant factor
+        if prevDirX < 0 then
+            tableInsert( curChain, 1, self ) -- To the left, so insert at beginning
+        else
+            tableInsert( curChain, self ) -- To the right, so add to the end
+        end
+    else -- Y is the dominant factor
+        if prevDirY >= 0 then
+            tableInsert( curChain, 1, self ) -- Above, so insert at beginning
+        else
+            tableInsert( curChain, self ) -- Below, so add to the end
+        end
+    end
+
+    local closestMagnet = nil
+    local closestInd = nil
+    local closestPos = nil
+    local closestDir = nil
+    local closestDistSqr = radiusSqr
+
+    for i = 1, #remainingMagnets do
+        local magnet = remainingMagnets[i]
+        local pos = remainingMagnetPoss[i]
+        local delta = pos - curPos
+        local distSqr = delta:getLengthSqr()
+
+        if distSqr ~= 0 and distSqr < closestDistSqr then -- Check for closeness
+            local dir = delta / mathSqrt( distSqr )
+
+            if dir:dot( prevDir ) >= dotMin then -- Check for linearity
+                closestMagnet = magnet
+                closestInd = i
+                closestPos = pos
+                closestDir = dir
+                closestDistSqr = distSqr
+            end
+        end
+    end
+
+    if closestMagnet then
+        tableRemove( remainingMagnets, closestInd )
+        tableRemove( remainingMagnetPoss, closestInd )
+        closestMagnet:_findChains( radiusSqr, dotMin, remainingMagnets, remainingMagnetPoss, curChain, closestPos, closestDir, false )
+    end
+end
+
 
 ----- SETUP -----
 
