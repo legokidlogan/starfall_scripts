@@ -35,7 +35,7 @@ local spawnPosMax = spawnPosMin + Vector( 0, 5, -5 )
 local spawnStackMax = 10
 local spawnStackColor = Color( 80, 80, 120 )
 
-local deleterDetectionRadiusMult = 1
+local deleterDetectionRadiusMult = 1.5
 local deleterHoloScale = Vector( 0.05, 0.01, 0.05 )
 local deleterHoloOffsetPos = Vector( -0.2, 0, 0 )
 local deleterHoloOffsetAng = Angle( 0, -90, 90 )
@@ -122,15 +122,20 @@ local symbolModels = {
     "models/sprops/misc/alphanum/alphanum_0.mdl",
     --]]
 
-    --[[
+    --
     "models/sprops/misc/alphanum/alphanum_prd.mdl",
     "models/sprops/misc/alphanum/alphanum_com.mdl",
-    "models/sprops/misc/alphanum/alphanum_colon.mdl",
-    "models/sprops/misc/alphanum/alphanum_scolon.mdl",
     "models/sprops/misc/alphanum/alphanum_qmark.mdl",
     "models/sprops/misc/alphanum/alphanum_xmark.mdl",
     "models/sprops/misc/alphanum/alphanum_apost.mdl",
     "models/sprops/misc/alphanum/alphanum_quote.mdl",
+    "models/sprops/misc/alphanum/alphanum_lpar.mdl",
+    "models/sprops/misc/alphanum/alphanum_rpar.mdl",
+    --
+
+    --[[
+    "models/sprops/misc/alphanum/alphanum_colon.mdl",
+    "models/sprops/misc/alphanum/alphanum_scolon.mdl",
     "models/sprops/misc/alphanum/alphanum_tilde.mdl",
     "models/sprops/misc/alphanum/alphanum_lessthan.mdl",
     "models/sprops/misc/alphanum/alphanum_greaterthan.mdl",
@@ -141,8 +146,6 @@ local symbolModels = {
     "models/sprops/misc/alphanum/alphanum_equal.mdl",
     "models/sprops/misc/alphanum/alphanum_div.mdl",
     "models/sprops/misc/alphanum/alphanum_and.mdl",
-    "models/sprops/misc/alphanum/alphanum_lpar.mdl",
-    "models/sprops/misc/alphanum/alphanum_rpar.mdl",
     --]]
 }
 -- END CONFIG
