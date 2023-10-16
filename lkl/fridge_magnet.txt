@@ -421,6 +421,10 @@ function FridgeMagnet:getHoloOffsetAngles()
     return self._holoOffsetAng or self.class.HOLO_OFFSET_ANG
 end
 
+function FridgeMagnet:getModel()
+    return self:getHolo():getModel()
+end
+
 function FridgeMagnet:getHolo()
     return self._holo
 end
