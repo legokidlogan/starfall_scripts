@@ -365,7 +365,7 @@ end
         chains: (table)
             - A list of 0 or more chains.
             - Each chain is a list of 2 or more FridgeMagnets.
-            - The FridgeMagnet this function was called on will always be somewhere in each chain, but not necessarily at the start.
+                - The FridgeMagnet this function was called on will always be somewhere in each chain, but not necessarily at the start.
                 - Chain elements are ordered from left to right, top to bottom relative to the surface.
                 - Order is poorly defined for magnets whose position only varies by their depth.
                     - (i.e. the x-axis of their :getLocalPos())
