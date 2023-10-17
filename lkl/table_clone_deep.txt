@@ -6,19 +6,27 @@ if table.cloneDeep then return end
 
 
 local layerLimit = 8
+local _tableCloneDeep
+local isClassObject = isClassObject
 
+--[[
+    - Similar to table.copy(), but performs deep clones of Vectors, Angles, and Colors as well.
+    - Also respects middleclass objects, preserving their reference instead of deep-cloning them.
+        - If you want a specific class to be deep-cloned, then define a :cloneDeep() method on it.
 
- -- Redefine if lkl/middleclass_extras.txt isn't present.
-local isClassObject = isClassObject or function( classObj )
-    --if type( classObj ) ~= "table" then return false end
-    if classObj.name == nil then return false end
-    if classObj.subclass == nil then return false end
-    if classObj.allocate == nil then return false end
+    source: (any)
+        - The table or value to clone.
 
-    return true
+    RETURNS: out
+        out: (any)
+            - The cloned table or value.
+--]]
+function table.cloneDeep( source )
+    return _tableCloneDeep( source, {}, 1 )
 end
 
-local function _tableCloneDeep( source, target, layer )
+
+_tableCloneDeep = function( source, target, layer )
     if layer > layerLimit then return target end
 
     local sourceType = type( source )
@@ -51,7 +59,14 @@ local function _tableCloneDeep( source, target, layer )
     return target
 end
 
+-- Redefine if lkl/middleclass_extras.txt isn't present.
+if not isClassObject then
+    isClassObject = function( classObj )
+        --if type( classObj ) ~= "table" then return false end
+        if classObj.name == nil then return false end
+        if classObj.subclass == nil then return false end
+        if classObj.allocate == nil then return false end
 
-function table.cloneDeep( source )
-    return _tableCloneDeep( source, {}, 1 )
+        return true
+    end
 end
