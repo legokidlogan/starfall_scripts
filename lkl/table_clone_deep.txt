@@ -4,10 +4,9 @@
 
 if table.cloneDeep then return end
 
-
-local layerLimit = 8
 local _tableCloneDeep
 local isClassObject = isClassObject
+
 
 --[[
     - Similar to table.copy(), but performs deep clones of Vectors, Angles, and Colors as well.
@@ -16,17 +15,21 @@ local isClassObject = isClassObject
 
     source: (any)
         - The table or value to clone.
+    layerLimit: (optional) (number)
+        - The maximum number of subtable layers to clone.
+        - Anything beyond this will still end up in the result, but will not be deep clones.
+        - Defaults to 8.
 
     RETURNS: out
         out: (any)
             - The cloned table or value.
 --]]
-function table.cloneDeep( source )
-    return _tableCloneDeep( source, {}, 1 )
+function table.cloneDeep( source, layerLimit )
+    return _tableCloneDeep( source, layerLimit or 8, {}, 1 )
 end
 
 
-_tableCloneDeep = function( source, target, layer )
+_tableCloneDeep = function( source, layerLimit, target, layer )
     if layer > layerLimit then return target end
 
     local sourceType = type( source )
