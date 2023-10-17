@@ -152,25 +152,25 @@ local symbolModels = {
     --]]
 }
 
-local badWordLookup = {
-    [string.utf8char( 110, 105, 103, 103, 101, 114 )] = true,
-    [string.utf8char( 110, 105, 103, 103, 101, 114, 115 )] = true,
-    [string.utf8char( 110, 105, 103, 103, 97 )] = true,
-    [string.utf8char( 110, 105, 103, 103, 97, 115 )] = true,
-    [string.utf8char( 110, 105, 103, 108, 101, 116 )] = true,
-    [string.utf8char( 110, 105, 103, 108, 101, 116, 115 )] = true,
-    [string.utf8char( 114, 101, 103, 103, 105, 110 )] = true,
-    [string.utf8char( 115, 114, 101, 103, 103, 105, 110 )] = true,
-    [string.utf8char( 110, 105, 98, 98, 101, 114 )] = true,
-    [string.utf8char( 110, 105, 98, 98, 101, 114, 115 )] = true,
-    [string.utf8char( 110, 105, 98, 98, 97 )] = true,
-    [string.utf8char( 110, 105, 98, 98, 97, 115 )] = true,
-    [string.utf8char( 110, 103, 103, 101, 114 )] = true,
-    [string.utf8char( 110, 103, 103, 101, 114, 115 )] = true,
-    [string.utf8char( 102, 97, 103, 103, 111, 116 )] = true,
-    [string.utf8char( 102, 97, 103, 103, 111, 116, 115 )] = true,
-    [string.utf8char( 102, 97, 103 )] = true,
-    [string.utf8char( 102, 97, 103, 115 )] = true,
+local badWords = {
+    string.utf8char( 110, 105, 103, 103, 101, 114 ),
+    string.utf8char( 110, 105, 103, 103, 101, 114, 115 ),
+    string.utf8char( 110, 105, 103, 103, 97 ),
+    string.utf8char( 110, 105, 103, 103, 97, 115 ),
+    string.utf8char( 110, 105, 103, 108, 101, 116 ),
+    string.utf8char( 110, 105, 103, 108, 101, 116, 115 ),
+    string.utf8char( 114, 101, 103, 103, 105, 110 ),
+    string.utf8char( 115, 114, 101, 103, 103, 105, 110 ),
+    string.utf8char( 110, 105, 98, 98, 101, 114 ),
+    string.utf8char( 110, 105, 98, 98, 101, 114, 115 ),
+    string.utf8char( 110, 105, 98, 98, 97 ),
+    string.utf8char( 110, 105, 98, 98, 97, 115 ),
+    string.utf8char( 110, 103, 103, 101, 114 ),
+    string.utf8char( 110, 103, 103, 101, 114, 115 ),
+    string.utf8char( 102, 97, 103, 103, 111, 116 ),
+    string.utf8char( 102, 97, 103, 103, 111, 116, 115 ),
+    string.utf8char( 102, 97, 103 ),
+    string.utf8char( 102, 97, 103, 115 ),
 }
 -- END CONFIG
 
@@ -187,6 +187,7 @@ local symbolCount = 0
 local spawnStack = {}
 local symbolStartingMinPos = nil
 local symbolStartingMaxPos = nil
+local badWordLookup = {}
 
 local symbolToLetterLookup = {
     a = "a",
@@ -282,7 +283,19 @@ local function purgeBadWords( magnet )
             word = word .. getLetterFromModel( chainMagnet:getModel() )
         end
 
-        if badWordLookup[word] then
+        local wordIsBad = badWordLookup[word]
+
+        if not wordIsBad then
+            for _, badWord in ipairs( badWords ) do
+                if string.find( word, badWord ) then
+                    wordIsBad = true
+
+                    break
+                end
+            end
+        end
+
+        if wordIsBad then
             for _, chainMagnet in ipairs( chain ) do
                 if not chainMagnet._dontAutoDestroy then
                     chainMagnet:destroy()
@@ -544,3 +557,7 @@ timer.simple( 1, function()
         wireInput( "BankSurface", wire.ports.BankSurface )
     end
 end )
+
+for _, badWord in ipairs( badWords ) do
+    badWordLookup[badWord] = true
+end
