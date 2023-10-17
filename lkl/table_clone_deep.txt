@@ -8,6 +8,16 @@ if table.cloneDeep then return end
 local layerLimit = 8
 
 
+ -- Redefine if lkl/middleclass_extras.txt isn't present.
+local isClassObject = isClassObject or function( classObj )
+    --if type( classObj ) ~= "table" then return false end
+    if classObj.name == nil then return false end
+    if classObj.subclass == nil then return false end
+    if classObj.allocate == nil then return false end
+
+    return true
+end
+
 local function _tableCloneDeep( source, target, layer )
     if layer > layerLimit then return target end
 
@@ -20,6 +30,10 @@ local function _tableCloneDeep( source, target, layer )
     elseif sourceType == "Color" then
         return Color( source.r, source.g, source.b, source.a )
     elseif sourceType ~= "table" then
+        return source
+    elseif isClassObject( source ) then
+        if source.cloneDeep then return source:cloneDeep() end
+
         return source
     end
 
