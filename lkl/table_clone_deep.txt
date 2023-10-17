@@ -53,9 +53,9 @@ _tableCloneDeep = function( source, layerLimit, target, layer )
             local targetVal = {}
 
             target[key] = targetVal
-            _tableCloneDeep( val, targetVal, layer + 1 )
+            _tableCloneDeep( val, layerLimit, targetVal, layer + 1 )
         else
-            target[key] = _tableCloneDeep( val, target, layer + 1 )
+            target[key] = _tableCloneDeep( val, layerLimit, target, layer + 1 )
         end
     end
 
