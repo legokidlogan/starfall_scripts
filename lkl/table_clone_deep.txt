@@ -7,6 +7,11 @@ if table.cloneDeep then return end
 local _tableCloneDeep
 local isClassObject = isClassObject
 
+local type = type
+local Vector = Vector
+local Angle = Angle
+local Color = Color
+
 
 --[[
     - Similar to table.copy(), but performs deep clones of Vectors, Angles, and Colors as well.
@@ -25,19 +30,17 @@ local isClassObject = isClassObject
             - The cloned table or value.
 --]]
 function table.cloneDeep( source, layerLimit )
-    return _tableCloneDeep( source, layerLimit or 8, {}, 1 )
+    return _tableCloneDeep( source, layerLimit or 8, {}, 1, type( source ) )
 end
 
 
-_tableCloneDeep = function( source, layerLimit, target, layer )
+_tableCloneDeep = function( source, layerLimit, target, layer, sourceType )
     if layer > layerLimit then return target end
 
-    local sourceType = type( source )
-
     if sourceType == "Vector" then
-        return Vector( source.x, source.y, source.z )
+        return Vector( source[1], source[2], source[3] )
     elseif sourceType == "Angle" then
-        return Angle( source.p, source.y, source.r )
+        return Angle( source[1], source[2], source[3] )
     elseif sourceType == "Color" then
         return Color( source.r, source.g, source.b, source.a )
     elseif sourceType ~= "table" then
@@ -49,13 +52,15 @@ _tableCloneDeep = function( source, layerLimit, target, layer )
     end
 
     for key, val in pairs( source ) do
-        if type( val ) == "table" then
+        local valType = type( val )
+
+        if valType == "table" then
             local targetVal = {}
 
             target[key] = targetVal
-            _tableCloneDeep( val, layerLimit, targetVal, layer + 1 )
+            _tableCloneDeep( val, layerLimit, targetVal, layer + 1, valType )
         else
-            target[key] = _tableCloneDeep( val, layerLimit, target, layer + 1 )
+            target[key] = _tableCloneDeep( val, layerLimit, target, layer + 1, valType )
         end
     end
 
