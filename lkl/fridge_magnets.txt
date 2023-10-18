@@ -149,6 +149,8 @@ local symbolModels = {
     "models/sprops/misc/alphanum/alphanum_div.mdl",
     "models/sprops/misc/alphanum/alphanum_and.mdl",
     "models/sprops/misc/alphanum/alphanum_atsign.mdl",
+    "models/sprops/misc/alphanum/alphanum_crt.mdl",
+    "models/sprops/misc/alphanum/alphanum_bar.mdl",
     --]]
 }
 
