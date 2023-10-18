@@ -190,6 +190,7 @@ local spawnStack = {}
 local symbolStartingMinPos = nil
 local symbolStartingMaxPos = nil
 local badWordLookup = {}
+local ownerEnt = owner()
 
 local symbolToLetterLookup = {
     a = "a",
@@ -539,6 +540,12 @@ local function wireInput( name, value )
     end
 end
 
+
+function FridgeMagnet.static:traceFilterHolo( holo, _fridgeMagnet )
+    if holo:getOwner() ~= ownerEnt then return false end
+
+    return true
+end
 
 function FridgeMagnet.static:traceFilterEnt( ent, _fridgeMagnet )
     if ent:isPlayer() then return false end
