@@ -173,6 +173,8 @@ local badWords = {
     string.utf8char( 102, 97, 103, 103, 111, 116, 115 ),
     string.utf8char( 102, 97, 103 ),
     string.utf8char( 102, 97, 103, 115 ),
+    string.utf8char( 116, 114, 97, 110, 110, 121 ),
+    string.utf8char( 116, 114, 97, 110, 110, 105, 101, 115 ),
 }
 -- END CONFIG
 
