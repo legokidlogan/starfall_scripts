@@ -17,6 +17,8 @@ FridgeMagnet.static.HOLO_OFFSET_ANG = Angle( 0, -90, 90 )
 
 local mainSurfaceDirNum = DIR_NUM_UP
 local mainSurfaceUpDirNum = DIR_NUM_BACK
+local mainSurfaceWidthAdjust = 0 -- Adds to the surface's width. Useful for if you have thick props bordering the surface and need to make the region smaller to prevent magnet clipping.
+local mainSurfaceHeightAdjust = 0 -- Adds to the surface's height. Useful for if you have thick props bordering the surface and need to make the region smaller to prevent magnet clipping.
 
 local bankSurfaceDirNum = DIR_NUM_UP
 local bankSurfaceUpDirNum = DIR_NUM_RIGHT
@@ -378,6 +380,9 @@ local function setUpMainSurfaceMagnet( magnet, skipSpawnStack )
     symbolCount = symbolCount + 1
 
     local holo = magnet:getHolo()
+
+    magnet._surfaceWidth = magnet:getSurfaceWidth() + mainSurfaceWidthAdjust
+    magnet._surfaceHeight = magnet:getSurfaceHeight() + mainSurfaceHeightAdjust
 
     if skipSpawnStack then
         magnet:setLocalPos( vectorMath.randomInsideBox( symbolStartingMinPos, symbolStartingMaxPos ) )
