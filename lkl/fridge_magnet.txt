@@ -109,11 +109,9 @@ function FridgeMagnet:initialize( surfaceEnt, surfaceDirNum, surfaceUpDirNum, mo
         centerWorldPos = surfaceEnt:obbCenterW()
     end
 
+
     self._id = fridgeMagnetIncrement
     self._surfaceEnt = surfaceEnt
-    --self._surfaceDirNum = surfaceDirNum
-    --self._surfaceUpDirNum = surfaceUpDirNum
-    --self._surfaceDepth = depth
     self._surfaceWidth = width
     self._surfaceHeight = height
     self._surfaceLocalPos = surfaceEnt:worldToLocal( centerWorldPos + surfaceForward * depth )
@@ -1028,10 +1026,8 @@ updateHoloAngles = function( fridgeMagnet )
     local holo = fridgeMagnet:getHolo()
     local roll = fridgeMagnet:getRoll()
     local holoOffsetAng = fridgeMagnet:getHoloOffsetAngles()
-
     holoOffsetAng = holoOffsetAng:rotateAroundAxis( fridgeMagnet._surfaceLocalForward, roll )
 
-    --local _, holoWorldAng = fridgeMagnet:surfaceLocalToWorld( nil, holoOffsetAng )
     local holoWorldAng = fridgeMagnet:getSurfaceEntity():localToWorldAngles( holoOffsetAng )
 
     holo:setAngles( holoWorldAng )
