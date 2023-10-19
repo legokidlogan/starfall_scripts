@@ -27,6 +27,7 @@ local bankMagnetColor = Color( 255, 255, 255 )
 local bankHoloOffsetScale = Vector( 0.15 )
 local bankHoloOffsetPos = Vector( 0, 0, 0 )
 local bankHoloOffsetAng = Angle( 0, 0, 90 )
+local bankAutoGrabCooldown = 1 -- When IN_KEY.ATTACK2 is used on a bank magnet, it will auto-grab the spawned letter. This temporarily disables the bank magnet to prevent spam.
 
 local spawnPosMinScaled = Vector( 0, -1, 1 ) -- Scaled by the surface's width and height on y and z axes respectively. x is ignored.
 local spawnPosMin = Vector( 0, 4, -2 ) -- x is depth, y is left/right, z is up/down.
@@ -178,6 +179,11 @@ local badWords = {
 }
 -- END CONFIG
 
+
+local IN_USE = IN_KEY.USE
+local IN_RELOAD = IN_KEY.RELOAD
+local IN_ATTACK = IN_KEY.ATTACK
+local IN_ATTACK2 = IN_KEY.ATTACK2
 
 local mainSurface = nil
 local bankSurface = nil
@@ -390,6 +396,8 @@ local function setUpMainSurfaceMagnet( magnet, skipSpawnStack )
     end
 
     magnet:setRoll( math.rand( -symbolRollVariance, symbolRollVariance ) / 2 )
+    magnet:setInteractionKeys( { [IN_USE] = true, [IN_RELOAD] = false, [IN_ATTACK] = true, [IN_ATTACK2] = true } )
+    magnet:setGrabbingKeys( { [IN_USE] = true, [IN_RELOAD] = false, [IN_ATTACK] = true, [IN_ATTACK2] = true } )
     holo:setMaterial( symbolMaterial )
 
     function magnet:onGrabStart( ply, _key )
@@ -431,11 +439,18 @@ local function setUpBankMagnet( magnet )
     holo:setColor( bankMagnetColor )
 
     magnet:setAllowGrabbing( false )
+    magnet:setInteractionKeys( { [IN_USE] = true, [IN_RELOAD] = false, [IN_ATTACK] = true, [IN_ATTACK2] = true } )
     magnet._fridgeMagnets_BaseColor = bankMagnetColor
     magnet._fridgeMagnets_DontAutoDestroy = true
 
 
-    function magnet:onInteractStart( ply )
+    function magnet:canPlayerInteract( _ply, _key )
+        if self._fridgeMagnets_InteractOnCooldown then return false end
+
+        return true
+    end
+
+    function magnet:onInteractStart( ply, key )
         if symbolCount >= symbolMax then return end
 
         local symbolMagnet
@@ -447,9 +462,23 @@ local function setUpBankMagnet( magnet )
 
         setUpMainSurfaceMagnet( symbolMagnet )
         applyTeamColor( self, ply )
+
+        if key ~= IN_ATTACK2 then return end
+
+        -- ATTACK2 should auto-grab the latter for faster placement.
+        self:forceLetGo()
+        self._fridgeMagnets_InteractOnCooldown = true
+
+        timer.simple( bankAutoGrabCooldown, function()
+            if not isValid( self ) then return end
+
+            self._fridgeMagnets_InteractOnCooldown = nil
+        end )
+
+        symbolMagnet:tryGrab( ply, key, Vector() )
     end
 
-    function magnet:onInteractEnd( _ply )
+    function magnet:onInteractEnd( _ply, _key )
         removeTeamColor( self )
     end
 end
