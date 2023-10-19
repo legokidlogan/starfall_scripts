@@ -191,6 +191,7 @@ local symbolCount = 0
 local spawnStack = {}
 local symbolStartingMinPos = nil
 local symbolStartingMaxPos = nil
+local badWordLengths = {}
 local badWordLookup = {}
 local ownerEnt = owner()
 
@@ -259,6 +260,16 @@ local function getLetterFromModel( model )
     return symbolToLetterLookup[symbol] or ""
 end
 
+local function getLetterFromMagnet( magnet )
+    local letter = magnet._fridgeMagnets_Letter
+    if letter then return letter end
+
+    letter = getLetterFromModel( magnet:getModel() )
+    magnet._fridgeMagnets_Letter = letter
+
+    return letter
+end
+
 local function applyTeamColor( magnet, ply )
     if not colorSymbolsByTeam then return end
 
@@ -271,7 +282,61 @@ local function removeTeamColor( magnet )
     if not colorSymbolsByTeam then return end
     if not resetSymbolColorOnDrop then return end
 
-    magnet:getHolo():setColor( magnet._baseColor or symbolColor )
+    magnet:getHolo():setColor( magnet._fridgeMagnets_BaseColor or symbolColor )
+end
+
+local function purgeBadSubWord( chain, chainWord )
+    local longestBadWord = ""
+    local longestBadWordLength = 0
+
+    -- Find longest bad word as a substring in the chain.
+    for i, badWord in ipairs( badWords ) do
+        local wordLength = badWordLengths[i]
+
+        if wordLength > longestBadWordLength then
+            local badWordIsPresent = string.find( chainWord, badWord, nil, true )
+
+            if badWordIsPresent then
+                longestBadWord = badWord
+                longestBadWordLength = wordLength
+            end
+        end
+    end
+
+    if longestBadWordLength == 0 then return end -- No bad word was found.
+
+    local badLetters = string.split( longestBadWord, "" )
+    local curLetterInd = 1
+    local curLetter = badLetters[curLetterInd]
+    local badMagnets = {}
+
+    -- Only destroy magnets that contribute to the bad word.
+    for _, magnet in ipairs( chain ) do
+        local letter = getLetterFromMagnet( magnet )
+
+        if letter ~= "" and not magnet._fridgeMagnets_DontAutoDestroy then -- Letterless characters don't count.
+            if letter == curLetter then -- This magnet contributes, add it.
+                table.insert( badMagnets, magnet )
+                curLetterInd = curLetterInd + 1
+
+                if curLetterInd > longestBadWordLength then
+                    break
+                end
+
+                curLetter = badLetters[curLetterInd]
+            else -- This magnet breaks the word, reset.
+                badMagnets = {}
+                curLetterInd = 1
+                curLetter = badLetters[curLetterInd]
+            end
+        end
+    end
+
+    for _, magnet in ipairs( badMagnets ) do
+        magnet:destroy()
+    end
+
+    return true
 end
 
 local function purgeBadWords( magnet )
@@ -282,33 +347,23 @@ local function purgeBadWords( magnet )
     local chains = magnet:findChains( radius, wordDetectionLinearityThreshold )
 
     for _, chain in ipairs( chains ) do
-        local word = ""
+        local chainWord = ""
 
         for _, chainMagnet in ipairs( chain ) do
-            word = word .. getLetterFromModel( chainMagnet:getModel() )
+            chainWord = chainWord .. getLetterFromMagnet( chainMagnet )
         end
 
-        local wordIsBad = badWordLookup[word]
-
-        if not wordIsBad then
-            for _, badWord in ipairs( badWords ) do
-                if string.find( word, badWord, nil, true ) then
-                    wordIsBad = true
-
-                    break
-                end
-            end
-        end
-
-        if wordIsBad then
+        if badWordLookup[chainWord] then
             for _, chainMagnet in ipairs( chain ) do
-                if not chainMagnet._dontAutoDestroy then
+                if not chainMagnet._fridgeMagnets_DontAutoDestroy then
                     chainMagnet:destroy()
                 end
             end
 
-            return
+            break
         end
+
+        if purgeBadSubWord( chain, chainWord ) then break end
     end
 end
 
@@ -376,8 +431,8 @@ local function setUpBankMagnet( magnet )
     holo:setColor( bankMagnetColor )
 
     magnet:setAllowGrabbing( false )
-    magnet._baseColor = bankMagnetColor
-    magnet._dontAutoDestroy = true
+    magnet._fridgeMagnets_BaseColor = bankMagnetColor
+    magnet._fridgeMagnets_DontAutoDestroy = true
 
 
     function magnet:onInteractStart( ply )
@@ -407,7 +462,7 @@ local function setUpMainSurface()
     mainSurfaceHeight = deleterMagnet:getSurfaceHeight()
 
     local deleterHolo = deleterMagnet:getHolo()
-    deleterMagnet._dontAutoDestroy = true
+    deleterMagnet._fridgeMagnets_DontAutoDestroy = true
     deleterMagnet:setAllowInteraction( false )
     deleterMagnet:setAllowGrabbing( false )
     deleterMagnet:setLocalPos( deleterPosScaled * Vector( 0, mainSurfaceWidth, mainSurfaceHeight ) / 2 + deleterPos )
@@ -569,6 +624,7 @@ timer.simple( 1, function()
     end
 end )
 
-for _, badWord in ipairs( badWords ) do
+for i, badWord in ipairs( badWords ) do
     badWordLookup[badWord] = true
+    badWordLengths[i] = #badWord
 end
