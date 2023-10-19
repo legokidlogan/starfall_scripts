@@ -392,7 +392,7 @@ local function setUpMainSurfaceMagnet( magnet, skipSpawnStack )
     magnet:setRoll( math.rand( -symbolRollVariance, symbolRollVariance ) / 2 )
     holo:setMaterial( symbolMaterial )
 
-    function magnet:onGrabStart( ply )
+    function magnet:onGrabStart( ply, _key )
         if self._isInSpawnStack then
             self._isInSpawnStack = nil
             table.removeByValue( spawnStack, self )
@@ -405,7 +405,7 @@ local function setUpMainSurfaceMagnet( magnet, skipSpawnStack )
         applyTeamColor( self, ply )
     end
 
-    function magnet:onGrabEnd( _ply )
+    function magnet:onGrabEnd( _ply, _key )
         local pos = self:getLocalPos()
         local destroyerPos = deleterMagnet:getLocalPos()
 

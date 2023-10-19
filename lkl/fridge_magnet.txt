@@ -39,11 +39,19 @@ FridgeMagnet.static.GRAB_UPDATE_PERF_LIMIT = 0.4 -- Will apply one tick after th
 
 
 local IN_USE = IN_KEY.USE
+local IN_RELOAD = IN_KEY.RELOAD
+local IN_ATTACK = IN_KEY.ATTACK
+local IN_ATTACK2 = IN_KEY.ATTACK2
 
 local allFridgeMagnets = {}
 local fridgeMagnetsByID = {}
 local fridgeMagnetIncrement = 0
 local grabbedFridgeMagnets = {}
+local relevantKeys = { [IN_USE] = true, [IN_RELOAD] = true, [IN_ATTACK] = true, [IN_ATTACK2] = true }
+local interactionKeyFilters = {}
+local grabbingKeyFilters = {}
+local interactionKeyEmptyFilters = {}
+local grabbingKeyEmptyFilters = {}
 local cpuMaxGrabUpdate = 0
 local getFaceDimensions
 local getSurfaceDir
@@ -111,11 +119,15 @@ function FridgeMagnet:initialize( surfaceEnt, surfaceDirNum, surfaceUpDirNum, mo
     self._surfaceLocalPos = surfaceEnt:worldToLocal( centerWorldPos + surfaceForward * depth )
     self._surfaceLocalAng = surfaceEnt:worldToLocalAngles( surfaceForward:getAngleEx( surfaceUp ) )
     self._surfaceLocalForward = surfaceEnt:worldToLocal( surfaceForward + surfaceEnt:getPos() )
+    self._interactionKeys = {}
+    self._grabbingKeys = {}
 
     self:setLocalPos( Vector() )
     self:setRoll( 0 )
     self:setAllowInteraction( true )
     self:setAllowGrabbing( true )
+    self:setInteractionKeys( { [IN_USE] = true, [IN_RELOAD] = false, [IN_ATTACK] = false, [IN_ATTACK2] = false } )
+    self:setGrabbingKeys( { [IN_USE] = true, [IN_RELOAD] = false, [IN_ATTACK] = false, [IN_ATTACK2] = false } )
 end
 
 function FridgeMagnet.static:getAll()
@@ -506,14 +518,240 @@ function FridgeMagnet:doesAllowGrabbing()
     return self._allowGrabbing
 end
 
+--[[
+    - Sets which keys are(n't) used for interacting with this FridgeMagnet.
+    - By default, only IN_KEY.USE is enabled.
+
+    keyStates: (table)
+        - A table of key states.
+            - Keys are IN_KEY enums.
+                - Only uses USE, RELOAD, ATTACK, and ATTACK2. All other keys are ignored.
+            - Values are booleans.
+                - If true, the key will be used for interacting with this FridgeMagnet.
+                - If false, the key will not be used for interacting with this FridgeMagnet.
+                - If nil, the key's state will remain unchanged.
+--]]
+function FridgeMagnet:setInteractionKeys( keyStates )
+    if type( keyStates ) ~= "table" then error( "Expected keyStates to be a table" ) end
+
+    for key, state in pairs( keyStates ) do
+        self:setInteractionKey( key, state )
+    end
+end
+
+--[[
+    - Sets whether or not a key can be used for interacting with this FridgeMagnet.
+    - By default, only IN_KEY.USE is enabled.
+
+    key: (number)
+        - The IN_KEY enum of the key to set.
+            - Only uses USE, RELOAD, ATTACK, and ATTACK2. All other keys are ignored.
+    state: (optional) (boolean)
+        - Whether or not to use the key.
+        - If nil, nothing will change.
+--]]
+function FridgeMagnet:setInteractionKey( key, state )
+    if state == nil then return end
+    if type( key ) ~= "number" then error( "Expected key to be a number" ) end
+    if not relevantKeys[key] then return end
+
+    local interactionKeyFilter = interactionKeyFilters[key]
+
+    self._interactionKeys[key] = state
+    interactionKeyFilter[self] = state or nil
+
+    if state then
+        interactionKeyEmptyFilters[key] = false
+    else
+        interactionKeyEmptyFilters[key] = next( interactionKeyFilter ) == nil
+    end
+end
+
+--[[
+    - Returns the lookup table of which keys are used for interacting with this FridgeMagnet.
+    - This returns by reference, so do not modify the returned table.
+--]]
+function FridgeMagnet:getInteractionKeys()
+    return self._interactionKeys
+end
+
+--[[
+    - Sets which keys are(n't) used for grabbing this FridgeMagnet.
+
+    keyStates: (table)
+        - A table of key states.
+            - Keys are IN_KEY enums.
+                - Only uses USE, RELOAD, ATTACK, and ATTACK2. All other keys are ignored.
+            - Values are booleans.
+                - If true, the key will be used for grabbing this FridgeMagnet.
+                - If false, the key will not be used for grabbing this FridgeMagnet.
+                - If nil, the key's state will remain unchanged.
+--]]
+function FridgeMagnet:setGrabbingKeys( keyStates )
+    if type( keyStates ) ~= "table" then error( "Expected keyStates to be a table" ) end
+
+    for key, state in pairs( keyStates ) do
+        self:setGrabbingKey( key, state )
+    end
+end
+
+--[[
+    - Sets whether or not a key can be used for grabbing this FridgeMagnet.
+
+    key: (number)
+        - The IN_KEY enum of the key to set.
+            - Only uses USE, RELOAD, ATTACK, and ATTACK2. All other keys are ignored.
+    state: (optional) (boolean)
+        - Whether or not to use the key.
+        - If nil, nothing will change.
+--]]
+function FridgeMagnet:setGrabbingKey( key, state )
+    if state == nil then return end
+    if type( key ) ~= "number" then error( "Expected key to be a number" ) end
+    if not relevantKeys[key] then return end
+
+    local grabbingKeyFilter = grabbingKeyFilters[key]
+
+    self._grabbingKeys[key] = state
+    grabbingKeyFilter[self] = state or nil
+
+    if state then
+        grabbingKeyEmptyFilters[key] = false
+    else
+        grabbingKeyEmptyFilters[key] = next( grabbingKeyFilter ) == nil
+    end
+end
+
+--[[
+    - Returns the lookup table of which keys are used for grabbing this FridgeMagnet.
+    - This returns by reference, so do not modify the returned table.
+--]]
+function FridgeMagnet:getGrabbingKeys()
+    return self._grabbingKeys
+end
+
+--[[
+    - Tries to make a player interact with this FridgeMagnet.
+
+    ply: (Player)
+        - The player to interact with this FridgeMagnet.
+    key: (number)
+        - The IN_KEY enum of the key to initiate the interaction with.
+            - Only uses USE, RELOAD, ATTACK, and ATTACK2. All other keys are ignored.
+
+    RETURNS: didInteract
+        didInteract: (boolean)
+            - Whether or not the interaction was successful.
+--]]
+function FridgeMagnet:tryInteract( ply, key )
+    if not self:willInteractSucceed( ply, key ) then return false end
+
+    ply._fridgeMagnet_HeldFridgeMagnet = self
+    self._interactingPlayer = ply
+    self._heldKey = key
+
+    self:onInteractStart( ply, key )
+
+    return true
+end
+
+-- Returns whether or not an interaction attempt will succeed.
+function FridgeMagnet:willInteractSucceed( ply, key )
+    if not isValid( ply ) or not ply:isPlayer() then error( "Expected ply to be a valid Player" ) end
+    if type( key ) ~= "number" then error( "Expected key to be a number" ) end
+
+    local interactionKeyFilter = interactionKeyFilters[key]
+    if not interactionKeyFilter then return false end
+    if not interactionKeyFilter[self] then return false end
+
+    local curMagnet = ply._fridgeMagnet_HeldFridgeMagnet
+
+    if curMagnet then
+        if curMagnet ~= self then return false end
+        if curMagnet._heldKey ~= key then return false end
+    end
+
+    if self:isInteracting() then return false end
+    if not self:doesAllowInteraction() then return false end
+    if not self:canPlayerInteract( ply, key ) then return false end
+
+    return true
+end
+
+--[[
+    - Tries to make a player grab this FridgeMagnet.
+
+    ply: (Player)
+        - The player to grab this FridgeMagnet.
+    key: (number)
+        - The IN_KEY enum of the key to initiate the grab with.
+            - Only uses USE, RELOAD, ATTACK, and ATTACK2. All other keys are ignored.
+    offsetPos: (Vector)
+        - The position to offset the FridgeMagnet by from the player's aim position, in local surface coordinates.
+        - These coords are similar to the ones used in :setLocalPos() (i.e. x is depth, y is width, z is height).
+
+    RETURNS: didGrab
+        didGrab: (boolean)
+            - Whether or not the grab was successful.
+--]]
+function FridgeMagnet:tryGrab( ply, key, offsetPos )
+    if not self:willGrabSucceed( ply, key, offsetPos ) then return false end
+
+    ply._fridgeMagnet_HeldFridgeMagnet = self
+    self._grabbingPlayer = ply
+    self._heldKey = key
+    self._grabOffsetPosLocal = offsetPos
+
+    table.insert( grabbedFridgeMagnets, self )
+
+    self:onGrabStart( ply, key )
+
+    return true
+end
+
+-- Returns whether or not a grab attempt will succeed.
+function FridgeMagnet:willGrabSucceed( ply, key, offsetPos )
+    if not isValid( ply ) or not ply:isPlayer() then error( "Expected ply to be a valid Player" ) end
+    if type( key ) ~= "number" then error( "Expected key to be a number" ) end
+    if type( offsetPos ) ~= "Vector" then error( "Expected offsetPos to be a Vector" ) end
+
+    local grabbingKeyFilter = grabbingKeyFilters[key]
+    if not grabbingKeyFilter then return false end
+    if not grabbingKeyFilter[self] then return false end
+
+    local curMagnet = ply._fridgeMagnet_HeldFridgeMagnet
+
+    if curMagnet then
+        if curMagnet ~= self then return false end
+        if curMagnet._heldKey ~= key then return false end
+    end
+
+    if self:isGrabbed() then return false end
+    if not self:doesAllowGrabbing() then return false end
+    if not self:canPlayerGrab( ply, key ) then return false end
+
+    return true
+end
+
+
+function FridgeMagnet:tryInteractAndGrab( ply, key, offsetPos )
+    local didInteract = self:tryInteract( ply, key )
+    local didGrab = self:tryGrab( ply, key, offsetPos )
+
+    return didInteract, didGrab
+end
+
 -- Forces the player interacting with and/or grabbing this FridgeMagnet to stop.
 function FridgeMagnet:forceLetGo()
+    local key = self._heldKey
     local interactingPly = self:getInteractingPlayer()
+
+    self._heldKey = nil
 
     if interactingPly then
         interactingPly._fridgeMagnet_HeldFridgeMagnet = nil
         self._interactingPlayer = nil
-        self:onInteractEnd( interactingPly )
+        self:onInteractEnd( interactingPly, key )
     end
 
     local grabbingPly = self:getGrabbingPlayer()
@@ -522,7 +760,7 @@ function FridgeMagnet:forceLetGo()
         table.removeByValue( grabbedFridgeMagnets, self )
         grabbingPly._fridgeMagnet_HeldFridgeMagnet = nil
         self._grabbingPlayer = nil
-        self:onGrabEnd( grabbingPly )
+        self:onGrabEnd( grabbingPly, key )
     end
 end
 
@@ -540,6 +778,11 @@ end
 
 function FridgeMagnet:isGrabbed()
     return self._grabbingPlayer ~= nil
+end
+
+-- The key being used to 'hold' (interact with or grab) this FridgeMagnet.
+function FridgeMagnet:getHeldKey()
+    return self._heldKey
 end
 
 function FridgeMagnet:setHoloScale( scale )
@@ -590,27 +833,27 @@ end
 
 ----- OVERRIDABLE FUNCTIONS -----
 
-function FridgeMagnet:canPlayerInteract( _ply )
+function FridgeMagnet:canPlayerInteract( _ply, _key )
     return true
 end
 
-function FridgeMagnet:canPlayerGrab( _ply )
+function FridgeMagnet:canPlayerGrab( _ply, _key )
     return true
 end
 
-function FridgeMagnet:onInteractStart( _ply )
+function FridgeMagnet:onInteractStart( _ply, _key )
 
 end
 
-function FridgeMagnet:onInteractEnd( _ply )
+function FridgeMagnet:onInteractEnd( _ply, _key )
 
 end
 
-function FridgeMagnet:onGrabStart( _ply )
+function FridgeMagnet:onGrabStart( _ply, _key )
 
 end
 
-function FridgeMagnet:onGrabEnd( _ply )
+function FridgeMagnet:onGrabEnd( _ply, _key )
 
 end
 
@@ -644,6 +887,17 @@ function FridgeMagnet:onDestroyed()
         grabbingPly._fridgeMagnet_HeldFridgeMagnet = nil
     end
 
+    for key in pairs( relevantKeys ) do
+        local interactionKeyFilter = interactionKeyFilters[key]
+        local grabbingKeyFilter = grabbingKeyFilters[key]
+
+        interactionKeyFilter[self] = nil
+        interactionKeyEmptyFilters[key] = next( interactionKeyFilter ) == nil
+
+        grabbingKeyFilter[self] = nil
+        grabbingKeyEmptyFilters[key] = next( grabbingKeyFilter ) == nil
+    end
+
     fridgeMagnetsByID[self._id] = nil
     table.removeByValue( allFridgeMagnets, self )
     table.removeByValue( grabbedFridgeMagnets, self )
@@ -654,13 +908,15 @@ end
 
 ----- PRIVATE FUNCTIONS -----
 
-local function filterOutUnholdables( holo, ply )
+local function filterOutUnholdables( holo, ply, key, interactionKeyFilter, grabbingKeyFilter )
     local fridgeMagnet = holo._fridgeMagnet_FridgeMagnetObject
     if not fridgeMagnet then return true end
+    if not interactionKeyFilter[fridgeMagnet] then return false end
+    if not grabbingKeyFilter[fridgeMagnet] then return false end
     if fridgeMagnet:isInteracting() then return false end
     if fridgeMagnet:isGrabbed() then return false end
-    if fridgeMagnet:doesAllowInteraction() and fridgeMagnet:canPlayerInteract( ply ) then return true end
-    if fridgeMagnet:doesAllowGrabbing() and fridgeMagnet:canPlayerGrab( ply ) then return true end
+    if fridgeMagnet:doesAllowInteraction() and fridgeMagnet:canPlayerInteract( ply, key ) then return true end
+    if fridgeMagnet:doesAllowGrabbing() and fridgeMagnet:canPlayerGrab( ply, key ) then return true end
 
     return false
 end
@@ -920,18 +1176,25 @@ hook.add( "PlayerDisconnect", "LKL_FridgeMagnet_TrackLeavingPlayers", function( 
 end )
 
 hook.add( "KeyPress", "LKL_FrdigeMagnet_InteractWithMagnets", function( ply, key )
-    if key ~= IN_USE then return end
-    if cpuTotalAverage() > cpuMaxGrabUpdate then return end
+    local interactionKeyFilter = interactionKeyFilters[key]
+    if not interactionKeyFilter then return end
 
     local heldMagnet = ply._fridgeMagnet_HeldFridgeMagnet
     if heldMagnet then return end
 
+    local interactionFilterIsEmpty = interactionKeyEmptyFilters[key]
+    local grabbingFilterIsEmpty = grabbingKeyEmptyFilters[key]
+    if interactionFilterIsEmpty and grabbingFilterIsEmpty then return end
+
+    if cpuTotalAverage() > cpuMaxGrabUpdate then return end
+
     local startPos = ply:getShootPos()
     local traceDir = ply:getEyeAngles():getForward()
     local endPos = startPos + traceDir * FridgeMagnet.INTERACT_RANGE
+    local grabbingKeyFilter = grabbingKeyFilters[key]
 
     local tr = FridgeMagnet.static:doTrace( nil, startPos, endPos, function( ent )
-        return filterOutUnholdables( ent, ply )
+        return filterOutUnholdables( ent, ply, key, interactionKeyFilter, grabbingKeyFilter )
     end, ply )
 
     local ent = tr.Entity
@@ -940,40 +1203,24 @@ hook.add( "KeyPress", "LKL_FrdigeMagnet_InteractWithMagnets", function( ply, key
     local fridgeMagnet = ent._fridgeMagnet_FridgeMagnetObject
     if not fridgeMagnet then return end
 
-    ply._fridgeMagnet_HeldFridgeMagnet = fridgeMagnet
+    if fridgeMagnet:doesAllowGrabbing() then
+        local planeOrigin, planeNormalAng = fridgeMagnet:surfaceLocalToWorld()
+        local hitPos = vectorMath.closestPointOnPlane( tr.HitPos, planeOrigin, planeNormalAng )
+        local hitPosLocal = fridgeMagnet:surfaceWorldToLocal( hitPos )
+        local grabOffsetPosLocal = fridgeMagnet:getLocalPos() - hitPosLocal
 
-    local doInteract = fridgeMagnet:doesAllowInteraction() and fridgeMagnet:canPlayerInteract( ply )
-
-    if not fridgeMagnet:doesAllowGrabbing() or not fridgeMagnet:canPlayerGrab( ply ) then
-        if doInteract then
-            fridgeMagnet._interactingPlayer = ply
-            fridgeMagnet:onInteractStart( ply )
-        end
-
-        return
+        fridgeMagnet:tryInteractAndGrab( ply, key, grabOffsetPosLocal )
+    else
+        fridgeMagnet:tryInteract( ply, key )
     end
-
-    local planeOrigin, planeNormalAng = fridgeMagnet:surfaceLocalToWorld()
-    local hitPos = vectorMath.closestPointOnPlane( tr.HitPos, planeOrigin, planeNormalAng )
-    local hitPosLocal = fridgeMagnet:surfaceWorldToLocal( hitPos )
-
-    fridgeMagnet._grabOffsetPosLocal = fridgeMagnet:getLocalPos() - hitPosLocal
-    table.insert( grabbedFridgeMagnets, fridgeMagnet )
-
-    if doInteract then
-        fridgeMagnet._interactingPlayer = ply
-        fridgeMagnet:onInteractStart( ply )
-    end
-
-    fridgeMagnet._grabbingPlayer = ply
-    fridgeMagnet:onGrabStart( ply )
 end )
 
 hook.add( "KeyRelease", "LKL_FrdigeMagnet_LetGoOfMagnets", function( ply, key )
-    if key ~= IN_USE then return end
+    if not relevantKeys[key] then return end
 
     local fridgeMagnet = ply._fridgeMagnet_HeldFridgeMagnet
     if not fridgeMagnet then return end
+    if key ~= fridgeMagnet._heldKey then return end
 
     fridgeMagnet:forceLetGo()
 end )
@@ -989,3 +1236,14 @@ timer.simple( 0, function()
         timer.create( "LKL_FridgeMagnet_UpdateGrabbedMagnets", grabUpdateInterval, 0, updateGrabbedMagnets )
     end
 end )
+
+
+do
+    for key in pairs( relevantKeys ) do
+        interactionKeyFilters[key] = {}
+        interactionKeyEmptyFilters[key] = true
+
+        grabbingKeyFilters[key] = {}
+        grabbingKeyEmptyFilters[key] = true
+    end
+end

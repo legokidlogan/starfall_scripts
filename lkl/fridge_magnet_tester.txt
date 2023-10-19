@@ -71,7 +71,7 @@ function FridgeMagnet.static:traceFilterEnt( ent, _fridgeMagnet )
     return true
 end
 
-function FridgeMagnet:onGrabStart( ply )
+function FridgeMagnet:onGrabStart( ply, _key )
     if not colorLettersByTeam then return end
 
     local teamColor = team.getColor( ply:getTeam() )
@@ -79,7 +79,7 @@ function FridgeMagnet:onGrabStart( ply )
     self:getHolo():setColor( teamColor )
 end
 
-function FridgeMagnet:onGrabEnd( _ply )
+function FridgeMagnet:onGrabEnd( _ply, _key )
     if not colorLettersByTeam then return end
     if not resetLetterColorOnDrop then return end
 
