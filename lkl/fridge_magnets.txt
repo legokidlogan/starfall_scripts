@@ -401,9 +401,21 @@ local function setUpMainSurfaceMagnet( magnet, skipSpawnStack )
     end
 
     magnet:setRoll( math.rand( -symbolRollVariance, symbolRollVariance ) / 2 )
-    magnet:setInteractionKeys( { [IN_USE] = true, [IN_RELOAD] = false, [IN_ATTACK] = true, [IN_ATTACK2] = true } )
+    magnet:setInteractionKeys( { [IN_USE] = false, [IN_RELOAD] = true, [IN_ATTACK] = false, [IN_ATTACK2] = false } )
     magnet:setGrabbingKeys( { [IN_USE] = true, [IN_RELOAD] = false, [IN_ATTACK] = true, [IN_ATTACK2] = true } )
     holo:setMaterial( symbolMaterial )
+
+    function magnet:canPlayerInteract( ply, _key )
+        return ply == ownerEnt
+    end
+
+    function magnet:onInteractStart( _ply, _key )
+        timer.simple( 0, function()
+            if not isValid( self ) then return end
+
+            self:destroy()
+        end )
+    end
 
     function magnet:onGrabStart( ply, _key )
         if self._isInSpawnStack then
