@@ -470,6 +470,8 @@ local function setUpBankMagnet( magnet )
     function magnet:onInteractStart( ply, key )
         if symbolCount >= symbolMax then return end
 
+        local skipSpawnStack = key == IN_ATTACK2
+
         local symbolMagnet
         pcall( function()
             symbolMagnet = FridgeMagnet:new( mainSurface, mainSurfaceDirNum, mainSurfaceUpDirNum, magnet:getModel() )
@@ -477,7 +479,7 @@ local function setUpBankMagnet( magnet )
 
         if not isValid( symbolMagnet ) then return end
 
-        setUpMainSurfaceMagnet( symbolMagnet )
+        setUpMainSurfaceMagnet( symbolMagnet, skipSpawnStack )
         applyTeamColor( self, ply )
 
         if key ~= IN_ATTACK2 then return end
