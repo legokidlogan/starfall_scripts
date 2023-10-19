@@ -911,12 +911,10 @@ end
 local function filterOutUnholdables( holo, ply, key, interactionKeyFilter, grabbingKeyFilter )
     local fridgeMagnet = holo._fridgeMagnet_FridgeMagnetObject
     if not fridgeMagnet then return true end
-    if not interactionKeyFilter[fridgeMagnet] then return false end
-    if not grabbingKeyFilter[fridgeMagnet] then return false end
     if fridgeMagnet:isInteracting() then return false end
     if fridgeMagnet:isGrabbed() then return false end
-    if fridgeMagnet:doesAllowInteraction() and fridgeMagnet:canPlayerInteract( ply, key ) then return true end
-    if fridgeMagnet:doesAllowGrabbing() and fridgeMagnet:canPlayerGrab( ply, key ) then return true end
+    if interactionKeyFilter[fridgeMagnet] and fridgeMagnet:doesAllowInteraction() and fridgeMagnet:canPlayerInteract( ply, key ) then return true end
+    if grabbingKeyFilter[fridgeMagnet] and fridgeMagnet:doesAllowGrabbing() and fridgeMagnet:canPlayerGrab( ply, key ) then return true end
 
     return false
 end
