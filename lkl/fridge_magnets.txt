@@ -446,6 +446,7 @@ local function setUpMainSurfaceMagnet( magnet, skipSpawnStack )
 
     function magnet:onDestroyed()
         symbolCount = symbolCount - 1
+        table.removeByValue( spawnStack, self )
 
         FridgeMagnet.onDestroyed( self )
     end
