@@ -1,0 +1,39 @@
+--@name Convar Hook Tester
+--@author legokidlogan
+--@client
+--@include lkl/convar_hook.txt
+
+if player() ~= owner() then return end
+
+require( "lkl/convar_hook.txt" )
+
+
+local cHook = ConvarHook:new(
+    "muscle_material",
+    function( oldValue, newValue, oldValueStr, newValueStr )
+        print(
+            "cHook:\n" ..
+            "  oldValue = " .. tostring( oldValue ) .. " (" .. type( oldValue ) .. ")\n" ..
+            "  newValue = " .. tostring( newValue ) .. " (" .. type( newValue ) .. ")\n" ..
+            "  oldValueStr = " .. tostring( oldValueStr ) .. " (" .. type( oldValueStr ) .. ")\n" ..
+            "  newValueStr = " .. tostring( newValueStr ) .. " (" .. type( newValueStr ) .. ")"
+        )
+    end,
+    nil,
+    nil
+)
+
+local cHook2 = ConvarHook:new(
+    "voice_scale",
+    function( oldValue, newValue, oldValueStr, newValueStr )
+        print(
+            "cHook2:\n" ..
+            "  oldValue = " .. tostring( oldValue ) .. " (" .. type( oldValue ) .. ")\n" ..
+            "  newValue = " .. tostring( newValue ) .. " (" .. type( newValue ) .. ")\n" ..
+            "  oldValueStr = " .. tostring( oldValueStr ) .. " (" .. type( oldValueStr ) .. ")\n" ..
+            "  newValueStr = " .. tostring( newValueStr ) .. " (" .. type( newValueStr ) .. ")"
+        )
+    end,
+    "float",
+    nil
+)

@@ -1,0 +1,204 @@
+--@name Convar Hook
+--@author legokidlogan
+--@client
+--@include lkl/destroyable.txt
+
+
+if ConvarHook then return end -- Don't run twice
+
+require( "lkl/destroyable.txt" )
+
+ConvarHook = class( "ConvarHook", Destroyable )
+
+
+local allConvarHooks = {}
+local convarHooksByID = {}
+local convarHooksIncrement = 0
+local createConvarTimer
+local checkPerms
+
+local validDatatypes = {
+    ["string"] = "String",
+
+    ["number"] = "Float",
+    ["float"] = "Float",
+
+    ["integer"] = "Int",
+    ["int"] = "Int",
+
+    ["boolean"] = "Bool"
+}
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    - ConvarHook constructor.
+    - Note that, if player() hasn't granted you the "convar" permission, all convar values will return as nil.
+
+    convarName: (string)
+        - The name of the convar to track.
+    callback: (optional) (function)
+        - The function to call when the convar changes.
+        - Should be a function of the form  function( oldValue, newValue, oldValueStr, newValueStr ) return end
+    convarType: (optional) (string)
+        - The type of value to expect from the convar.
+        - Valid values are "string", "number", "integer", and "boolean".
+        - Default is "string".
+    checkInterval: (optional) (number)
+        - How often to check for changes.
+        - Default is 0.1 seconds.
+--]]
+function ConvarHook:initialize( convarName, callback, convarType, checkInterval )
+    if type( convarName ) ~= "string" then error( "Expected convarName to be a string" ) end
+    if not convar.exists( convarName ) then error( "Could not find a convar by the name of \"" .. convarName .. "\"" ) end
+    if callback ~= nil and type( callback ) ~= "function" then error( "Expected callback to be a function or nil" ) end
+    if convarType ~= nil and type( convarType ) ~= "string" then error( "Expected convarType to be a string or nil" ) end
+    if checkInterval ~= nil and type( checkInterval ) ~= "number" then error( "Expected checkInterval to be a number or nil" ) end
+
+    callback = callback or function() end
+    convarType = convarType or "string"
+    checkInterval = checkInterval or 0.1
+
+    if not validDatatypes[convarType] then error( "Invalid convarType" ) end
+    if checkInterval <= 0 then error( "checkInterval must be > 0" ) end
+
+    convarHooksIncrement = convarHooksIncrement + 1
+    convarHooksByID[convarHooksIncrement] = self
+    table.insert( allConvarHooks, self )
+    self._id = convarHooksIncrement
+
+    local convarGetterName = "get" .. validDatatypes[convarType]
+
+    self._convarName = convarName
+    self._callback = callback
+    self._convarType = convarType
+    self._convarGetterName = convarGetterName
+    self._checkInterval = checkInterval
+
+    self._lastValue = self:getValue()
+    self._lastValueStr = self:getValueStr()
+
+    createConvarTimer( self )
+end
+
+-- Returns by reference; do not modify the table.
+function ConvarHook.static:getAll()
+    return allConvarHooks
+end
+
+function ConvarHook.static:getByID( id )
+    return convarHooksByID[id]
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ConvarHook:getID()
+    return self._id
+end
+
+function ConvarHook:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+function ConvarHook:getConvarName()
+    return self._convarName
+end
+
+function ConvarHook:getConvarType()
+    return self._convarType
+end
+
+function ConvarHook:matchesConvarType( convarType )
+    if not convarType then return false end
+
+    local typeName = validDatatypes[convarType]
+    if not typeName then return false end
+
+    return self._convarGetterName == "get" .. typeName
+end
+
+-- Get the last value cached by update checks.
+function ConvarHook:getLastValue()
+    return self._lastValue
+end
+
+-- Get the last raw string value cached by update checks.
+function ConvarHook:getLastValueStr()
+    return self._lastValueStr
+end
+
+-- Get the convar's current value. Will not cache the result.
+function ConvarHook:getValue()
+    if not checkPerms( self ) then return nil end
+
+    return convar[self._convarGetterName]( self._convarName )
+end
+
+-- Get the convar's current raw string value. Will not cache the result.
+function ConvarHook:getValueStr()
+    if not checkPerms( self ) then return nil end
+
+    return convar.getString( self._convarName )
+end
+
+-- Pause automatic update checks.
+function ConvarHook:pause()
+    timer.pause( self._convarTimerName )
+end
+
+-- Resume automatic update checks.
+function ConvarHook:resume()
+    timer.resume( self._convarTimerName )
+end
+
+-- Force an update check, regardless of the timer's status.
+function ConvarHook:forceUpdateCheck()
+    local lastValueStr = self:getLastValueStr()
+    local newValueStr = self:getValueStr()
+
+    if lastValueStr == newValueStr then return end -- No change.
+
+    local lastValue = self:getLastValue()
+    local newValue = self:getValue()
+
+    self._lastValue = newValue
+    self._lastValueStr = newValueStr
+    self._callback( lastValue, newValue, lastValueStr, newValueStr )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ConvarHook:onDestroyed()
+    timer.remove( self._convarTimerName )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+createConvarTimer = function( convarHook )
+    local timerName = convarHook:getTimerName( "ConvarHook_CheckConvar" )
+    convarHook._convarTimerName = timerName
+
+    timer.create( timerName, convarHook._checkInterval, 0, function()
+        convarHook:forceUpdateCheck()
+    end )
+end
+
+checkPerms = function( convarHook )
+    if convarHook._permissionSatisified then return true end
+
+    local hasPerms = hasPermission( "convar" )
+
+    convarHook._permissionSatisified = hasPerms
+
+    return hasPerms
+end
