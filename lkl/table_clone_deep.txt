@@ -5,7 +5,7 @@
 if table.cloneDeep then return end
 
 local _tableCloneDeep
-local isClassObject = isClassObject
+local isTableMiddleclassObject = isTableMiddleclassObject
 
 local type = type
 local Vector = Vector
@@ -45,7 +45,7 @@ _tableCloneDeep = function( source, layerLimit, target, layer, sourceType )
         return Color( source.r, source.g, source.b, source.a )
     elseif sourceType ~= "table" then
         return source
-    elseif isClassObject( source ) then
+    elseif isTableMiddleclassObject( source ) then
         if source.cloneDeep then return source:cloneDeep() end
 
         return source
@@ -54,7 +54,7 @@ _tableCloneDeep = function( source, layerLimit, target, layer, sourceType )
     for key, val in pairs( source ) do
         local valType = type( val )
 
-        if valType == "table" then
+        if valType == "table" and not isTableMiddleclassObject( val ) then
             local targetVal = {}
 
             target[key] = targetVal
@@ -68,9 +68,10 @@ _tableCloneDeep = function( source, layerLimit, target, layer, sourceType )
 end
 
 -- Redefine if lkl/middleclass_extras.txt isn't present.
-if not isClassObject then
-    isClassObject = function( classObj )
-        --if type( classObj ) ~= "table" then return false end
+if not isTableMiddleclassObject then
+    isTableMiddleclassObject = function( tbl )
+        local classObj = tbl.class or tbl
+        if type( classObj ) ~= "table" then return false end
         if classObj.name == nil then return false end
         if classObj.subclass == nil then return false end
         if classObj.allocate == nil then return false end
