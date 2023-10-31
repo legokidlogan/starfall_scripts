@@ -1748,18 +1748,24 @@ end
 --]]
 
 --[[
-    - If defined, will cause the Panel to clip the rendering and hovering detection of its children to its bounds.
-    - The function should return xMin, yMin, xMax, yMax.
+    - Causes the Panel to clip the rendering and hovering detection of its children.
+    - If this returns nil, then no clipping will occur.
+    - Otherwise, this should return xMin, yMin, xMax, yMax.
         - The positions are global, i.e. relative to the HUD/screen the Panel belongs to.
-    - An example implementation is provided below.
-
-    function Panel:getStencilBounds()
-        local xMin, yMin = self:getPosEffective()
-        local width, height = self:getSize()
-
-        return xMin, yMin, xMin + width, yMin + height
-    end
+    - Example implementation are provided in the comments below.
 --]]
+function Panel:getStencilBounds()
+    --[[ -- Example implementation:
+    local xMin, yMin = self:getPosEffective()
+    local width, height = self:getSize()
+
+    return xMin, yMin, xMin + width, yMin + height
+    --]]
+
+    --[[ -- Example implementation 2: (identical to the above)
+    return self:getBoundsEffective()
+    --]]
+end
 
 -- Perform and cache your intensive layout calculations here.
 function Panel:performLayout()
@@ -1873,12 +1879,10 @@ end
 local function checkForMouseHover( panel, mouseX, mouseY )
     if not panel:isVisible() then return end
 
-    -- Ignore this panel and its children if mouse is outside of its bounds.
-    if panel.getStencilBounds then
-        local xMin, yMin, xMax, yMax = panel:getStencilBounds()
+    local xMin, yMin, xMax, yMax = panel:getStencilBounds()
 
-        if not isPointWithinBounds( mouseX, mouseY, xMin, yMin, xMax, yMax ) then return end
-    end
+    -- Ignore this panel and its children if mouse is outside of its bounds.
+    if xMin and not isPointWithinBounds( mouseX, mouseY, xMin, yMin, xMax, yMax ) then return end
 
     -- Check if the mouse is hovering over this panel.
     if panel ~= heldPanel and panel:doesAcceptMouseInput() then
@@ -2290,9 +2294,10 @@ stopStencil = function()
 end
 
 pushBoundaryStack = function( panel )
-    if not panel.getStencilBounds then return false end
+    local xMin, yMin, xMax, yMax = panel:getStencilBounds()
+    if not xMin then return false end
 
-    tableInsert( boundaryStacks, { panel:getStencilBounds() } )
+    tableInsert( boundaryStacks, { xMin, yMin, xMax, yMax } )
     boundaryStacksActive = true
     calcBoundaryStacksEff()
 
