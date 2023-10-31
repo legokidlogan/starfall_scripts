@@ -48,22 +48,54 @@ function isClassByName( obj, className )
     return objClassName == className
 end
 
--- Whether or not obj is a middleclass instance object
+--[[
+    - Whether or not tbl is a middleclass instance object.
+    - tbl must be a table, otherwise this will error.
+    - This is faster than isInstanceObject() by skipping the type check.
+--]]
+function isTableInstanceObject( tbl )
+    return isClassObject( tbl.class )
+end
+
+-- Whether or not obj is a middleclass instance object.
 function isInstanceObject( obj )
     if type( obj ) ~= "table" then return false end
 
-    local objClass = obj.class
-    if type( objClass ) ~= "table" then return false end
-
-    return objClass.name ~= nil
+    return isTableInstanceObject( obj )
 end
 
--- Whether or not classObj is a middleclass class object
-function isClassObject( classObj )
-    if type( classObj ) ~= "table" then return false end
-    if classObj.name == nil then return false end
-    if classObj.subclass == nil then return false end
-    if classObj.allocate == nil then return false end
+--[[
+    - Whether or not tbl is a middleclass class object.
+    - tbl must be a table, otherwise this will error.
+    - This is faster than isClassObject() by skipping the type check.
+--]]
+function isTableClassObject( tbl )
+    if tbl.name == nil then return false end
+    if tbl.subclass == nil then return false end
+    if tbl.allocate == nil then return false end
 
     return true
+end
+
+-- Whether or not obj is a middleclass class object
+function isClassObject( obj )
+    if type( obj ) ~= "table" then return false end
+
+    return isTableClassObject( obj )
+end
+
+--[[
+    - Whether or not tbl is a middleclass object (class or instance).
+    - tbl must be a table, otherwise this will error.
+    - This is faster than isMiddleclassObject() by skipping the type check.
+--]]
+function isTableMiddleclassObject( tbl )
+    return isTableInstanceObject( tbl ) or isTableClassObject( tbl )
+end
+
+-- Whether or not obj is a middleclass object (class or instance).
+function isMiddleclassObject( obj )
+    if type( obj ) ~= "table" then return false end
+
+    return isTableMiddleclassObject( obj )
 end
