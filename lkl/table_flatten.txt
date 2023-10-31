@@ -1,0 +1,66 @@
+--@name Table Flatten
+--@author legokidlogan
+--@shared
+--@include lkl/table_traverse.txt
+
+if table.flatten then return end
+
+require( "lkl/table_traverse.txt" )
+
+
+--[[
+    - Recursively flattens a matrix (table of tables of ... of tables of items) into a single table of items.
+    - Non-sequential keys will be ignored.
+
+    matrix: (any)
+        - The matrix to flatten.
+        - If not a table, then will return { matrix }.
+        - If a table, it must be sequential.
+            - Allowed to be a 'mixed' table, i.e. containing both tables and items instead of only one or the other.
+    traversalFilter: (optional) (function)
+        - Identical to traversalFilter in table.traverse() (see lkl/table_traverse.txt).
+--]]
+function table.flatten( matrix, traversalFilter )
+    if type( matrix ) ~= "table" then return { matrix } end
+    if isTableMiddleclassObject( matrix ) then return { matrix } end
+
+    local out = {}
+    local count = 0
+
+    table.traverse(
+        matrix,
+        function( item )
+            count = count + 1
+            out[count] = item
+        end,
+        traversalFilter,
+        false
+    )
+
+    return out
+end
+
+--[[
+    - Identical to table.flatten() but faster and stricter.
+    - Will not work on 'mixed' tables. Each table must either contain only tables or only items.
+    - See table.traverseFast() (see lkl/table_traverse.txt) for more information.
+--]]
+function table.flattenFast( matrix, traversalFilter )
+    if type( matrix ) ~= "table" then return { matrix } end
+    if isTableMiddleclassObject( matrix ) then return { matrix } end
+
+    local out = {}
+    local count = 0
+
+    table.traverseFast(
+        matrix,
+        function( item )
+            count = count + 1
+            out[count] = item
+        end,
+        traversalFilter,
+        false
+    )
+
+    return out
+end

@@ -1,0 +1,325 @@
+--@name Table Traverse
+--@author legokidlogan
+--@shared
+--@include lkl/middleclass_extras.txt
+
+if table.traverse then return end
+
+require( "lkl/middleclass_extras.txt" )
+
+local type = type
+local isTableMiddleclassObject = isTableMiddleclassObject
+local validateTraverseArgs
+local _traverse
+local _traverseFast
+local _traverseWithInds
+local _traverseWithIndsFast
+
+
+--[[
+    - Traverses a matrix (table of tables) and calls func on each item.
+
+    matrix: (table)
+        - The matrix to traverse.
+        - Must be a sequential table, and any sub-tables (recursively) must also be sequential tables.
+        - Can be a table of items, a table of items and tables, a table of tables of items, a table of tables of items and tables, etc.
+            - i.e. Has no limit on nesting depth, and each level can contain both items and tables.
+    func: (function)
+        - The function to call on each item.
+        - Should be of the form  function( item, startingMatrix, tbl, i ) end
+            item: (any)
+                - The item being processed.
+            startingMatrix: (table)
+                - This is the same as the original matrix passed to table.traverse(), and will be the same for all calls to func during the traversal.
+                - This is useful for super generalized functions that need to know the original matrix.
+            tbl: (table)
+                - The table containing the item. May be the starting matrix or one of its (recursive) sub-tables.
+            i: (number)
+                - The index of the item in tbl.
+    traversalFilter: (optional) (function)
+        - A function that determines whether or not to traverse an item with a type of table.
+        - Should be of the form  function( item, startingMatrix, tbl, i ) return shouldTraverse end
+            item: (table)
+                - The item being processed.
+            startingMatrix: (table)
+                - This is the same as the original matrix passed to table.traverse(), and will be the same for all calls to func during the traversal.
+                - This is useful for super generalized functions that need to know the original matrix.
+            tbl: (table)
+                - The table containing the item. May be the starting matrix or one of its (recursive) sub-tables.
+            i: (number)
+                - The index of the item in tbl.
+
+            RETURNS: shouldTraverse
+                shouldTraverse: (boolean)
+                    - Whether or not to traverse the item.
+                    - If true, the item will be recursively travered.
+                    - If false, the item will not be traversed and func will be called on the item itself.
+        - If not provided, then all tables will be traversed.
+        - Regardless of whether or not this is defined, middleclass objects will never be traversed, only passed to func.
+    doReverse: (optional) (boolean)
+        - Whether or not to traverse the matrix in reverse order.
+        - Required if you want to use table.remove() on the matrix during traversal.
+            - Note that new values appended to the matrix during traversal will be ignored.
+        - Defaults to false.
+--]]
+function table.traverse( matrix, func, traversalFilter, doReverse )
+    doReverse = validateTraverseArgs( matrix, func, traversalFilter, doReverse )
+
+    _traverse( matrix, matrix, func, traversalFilter, doReverse )
+end
+
+--[[
+    - Traverses a matrix (table of tables) and calls func on each item.
+    - Faster than table.traverse(), but more strict.
+    - Args are the same as table.traverse() with the following differences:
+
+    matrix: (table)
+        - Cannot be a mixed table. This means that, for matrix and every sub-table, either:
+            - All values must be traversable tables, or
+            - All values must be items (either not a table, or is a non-traversable table)
+    func: (function)
+        - Unchanged.
+    traversalFilter: (optional) (function)
+        - Will only be called once per table, running on the first value encountered, determining how the other values will be treated.
+    doReverse: (optional) (boolean)
+        - Unchanged.
+--]]
+function table.traverseFast( matrix, func, traversalFilter, doReverse )
+    doReverse = validateTraverseArgs( matrix, func, traversalFilter, doReverse )
+
+    _traverseFast( matrix, matrix, func, traversalFilter, doReverse )
+end
+
+--[[
+    - Traverses a matrix (table of tables) and calls func on each item.
+    - Args are the same as table.traverse() with the following differences:
+
+    matrix: (table)
+        - Unchanged.
+    func: (function)
+        - A function of the form  function( item, startingMatrix, tbl, i, inds ) end
+            item: (any)
+                - Unchanged.
+            startingMatrix: (table)
+                - Unchanged.
+            tbl: (table)
+                - Unchanged.
+            i: (number)
+                - Unchanged.
+            inds: (table)
+                - A table of indices leading from startingMatrix to the current item.
+                - The last value in this is the same as i.
+                - The length of this is the depth level, with depth 1 being the direct items of startingMatrix.
+    traversalFilter: (optional) (function)
+        - A function of the form  function( item, startingMatrix, tbl, i, inds ) return shouldTraverse end
+            item: (any)
+                - Unchanged.
+            startingMatrix: (table)
+                - Unchanged.
+            tbl: (table)
+                - Unchanged.
+            i: (number)
+                - Unchanged.
+            inds: (table)
+                - A table of indices leading from startingMatrix to the current item.
+                - The last value in this is the same as i.
+                - The length of this is the depth level, with depth 1 being the direct items of startingMatrix.
+
+            RETURNS: shouldTraverse
+                shouldTraverse: (boolean)
+                    - Unchanged.
+    doReverse: (optional) (boolean)
+        - Unchanged.
+--]]
+function table.traverseWithInds( matrix, func, traversalFilter, doReverse )
+    doReverse = validateTraverseArgs( matrix, func, traversalFilter, doReverse )
+
+    _traverseWithInds( matrix, matrix, func, traversalFilter, doReverse, {}, 1 )
+end
+
+--[[
+    - Traverses a matrix (table of tables) and calls func on each item.
+    - Faster than table.traverseWithInds(), but more strict.
+    - Args are the same as table.traverseWithInds() with the following differences:
+
+    matrix: (table)
+        - Cannot be a mixed table. This means that, for matrix and every sub-table, either:
+            - All values must be traversable tables, or
+            - All values must be items (either not a table, or is a non-traversable table)
+    func: (function)
+        - Unchanged.
+    traversalFilter: (optional) (function)
+        - Will only be called once per table, running on the first value encountered, determining how the other values will be treated.
+    doReverse: (optional) (boolean)
+        - Unchanged.
+--]]
+function table.traverseFast( matrix, func, traversalFilter, doReverse )
+    doReverse = validateTraverseArgs( matrix, func, traversalFilter, doReverse )
+
+    _traverseWithIndsFast( matrix, matrix, func, traversalFilter, doReverse, {}, 1 )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+validateTraverseArgs = function( matrix, func, traversalFilter, doReverse )
+    if type( matrix ) ~= "table" then error( "Expected matrix to be a table" ) end
+    if type( func ) ~= "function" then error( "Expected func to be a function" ) end
+    if traversalFilter ~= nil and type( traversalFilter ) ~= "function" then error( "Expected traversalFilter to be a function or nil" ) end
+
+    if doReverse == nil then
+        doReverse = false
+    else
+        if type( doReverse ) ~= "boolean" then error( "Expected doReverse to be a boolean or nil" ) end
+    end
+
+    return doReverse
+end
+
+_traverse = function( startingMatrix, matrix, func, traversalFilter, doReverse )
+    local traverseAll = not traversalFilter
+    local startInd
+    local endInd
+    local step
+
+    if doReverse then
+        startInd = #matrix
+        endInd = 1
+        step = -1
+    else
+        startInd = 1
+        endInd = #matrix
+        step = 1
+    end
+
+    for i = startInd, endInd, step do
+        local item = matrix[i]
+        local doTraverse =
+            type( item ) == "table" and
+            ( not isTableMiddleclassObject( item ) ) and
+            ( traverseAll or traversalFilter( item, startingMatrix, matrix, i ) )
+
+        if doTraverse then
+            _traverse( startingMatrix, item, func, traversalFilter, doReverse )
+        else
+            func( item, startingMatrix, matrix, i )
+        end
+    end
+end
+
+_traverseFast = function( startingMatrix, matrix, func, traversalFilter, doReverse )
+    local traverseAll = not traversalFilter
+    local startInd
+    local endInd
+    local step
+
+    if doReverse then
+        startInd = #matrix
+        endInd = 1
+        step = -1
+
+        if startInd == 0 then return end
+    else
+        startInd = 1
+        endInd = #matrix
+        step = 1
+
+        if endInd == 0 then return end
+    end
+
+    local firstItem = matrix[startInd]
+    local doTraverse =
+        type( firstItem ) == "table" and
+        ( not isTableMiddleclassObject( firstItem ) ) and
+        ( traverseAll or traversalFilter( firstItem, startingMatrix, matrix, startInd ) )
+
+    if doTraverse then
+        for i = startInd, endInd, step do
+            _traverseFast( startingMatrix, matrix[i], func, traversalFilter, doReverse )
+        end
+    else
+        for i = startInd, endInd, step do
+            func( matrix[i], startingMatrix, matrix, i )
+        end
+    end
+end
+
+_traverseWithInds = function( startingMatrix, matrix, func, traversalFilter, doReverse, inds, depth )
+    local depthPlusOne = depth + 1
+    local traverseAll = not traversalFilter
+    local startInd
+    local endInd
+    local step
+
+    if doReverse then
+        startInd = #matrix
+        endInd = 1
+        step = -1
+    else
+        startInd = 1
+        endInd = #matrix
+        step = 1
+    end
+
+    for i = startInd, endInd, step do
+        inds[depth] = i
+
+        local item = matrix[i]
+        local doTraverse =
+            type( item ) == "table" and
+            ( not isTableMiddleclassObject( item ) ) and
+            ( traverseAll or traversalFilter( item, startingMatrix, matrix, i, inds ) )
+
+        if doTraverse then
+            _traverseWithInds( startingMatrix, item, func, traversalFilter, doReverse, inds, depthPlusOne )
+        else
+            func( item, startingMatrix, matrix, i, inds )
+        end
+    end
+
+    inds[depth] = nil
+end
+
+_traverseWithIndsFast = function( startingMatrix, matrix, func, traversalFilter, doReverse, inds, depth )
+    local depthPlusOne = depth + 1
+    local traverseAll = not traversalFilter
+    local startInd
+    local endInd
+    local step
+
+    if doReverse then
+        startInd = #matrix
+        endInd = 1
+        step = -1
+
+        if startInd == 0 then return end
+    else
+        startInd = 1
+        endInd = #matrix
+        step = 1
+
+        if endInd == 0 then return end
+    end
+
+    local firstItem = matrix[startInd]
+    local doTraverse =
+        type( firstItem ) == "table" and
+        ( not isTableMiddleclassObject( firstItem ) ) and
+        ( traverseAll or traversalFilter( firstItem, startingMatrix, matrix, startInd, inds ) )
+
+    if doTraverse then
+        for i = startInd, endInd, step do
+            inds[depth] = i
+
+            _traverseWithIndsFast( startingMatrix, matrix[i], func, traversalFilter, doReverse, inds, depthPlusOne )
+        end
+    else
+        for i = startInd, endInd, step do
+            inds[depth] = i
+
+            func( matrix[i], startingMatrix, matrix, i, inds )
+        end
+    end
+
+    inds[depth] = nil
+end
