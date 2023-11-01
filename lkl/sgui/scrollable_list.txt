@@ -29,17 +29,23 @@ local scrollDirectionFromListDirection
 function ScrollableList:initialize( parent, listDirection, listAlign )
     ScrollableList.super.initialize( self, parent, listDirection, listAlign )
 
+    local selfObj = self
     local scrollDirection = scrollDirectionFromListDirection( self:getListDirection() )
 
     local scrollable = Scrollable( nil, scrollDirection )
+    local scrollableInsert = scrollable:getScrollInsert()
     self._scrollable = scrollable
     scrollable._partOfList = self
-    scrollable:getScrollInsert()._partOfList = self
+    scrollableInsert._partOfList = self
     scrollable:_forceNextParent()
     scrollable:setParent( self )
     scrollable:setMargin( 0 )
     scrollable:setBorderSize( self:getBorderSize() )
     scrollable:setInnerMargin( self:getInnerMargin() )
+
+    function scrollableInsert:doesAllowDragParenting()
+        return selfObj._dragParentingAllowed
+    end
 
     self:setMinSize( self:getMinSize() )
     self:setAutoExpand( true )
@@ -205,6 +211,10 @@ end
 
 function ScrollableList:handleDrawBackground()
     -- Do nothing.
+end
+
+function ScrollableList:doesAllowDragParenting()
+    return false -- Drag parenting state gets passed down to scrollInsert
 end
 
 
