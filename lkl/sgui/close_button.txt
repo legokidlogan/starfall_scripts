@@ -27,8 +27,6 @@ local tableInsert = table.insert
 
 function CloseButton:initialize( parent, initialState )
     CloseButton.super.initialize( self, parent, initialState )
-
-    self:allowDragParenting( false )
 end
 
 

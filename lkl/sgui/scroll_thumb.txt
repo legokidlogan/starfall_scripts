@@ -31,7 +31,6 @@ function ScrollThumb:initialize( parent, scrollable, scrollDirection )
     self:setMargin( 0 )
     self:setDragParent( true )
     self:setDragReleaseMode( DRAG_RELEASE_ORIGINAL )
-    self:allowDragParenting( false )
 
     if self:isVertical() then
         self:setExpand( EXPAND_WIDTH )

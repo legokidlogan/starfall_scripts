@@ -47,7 +47,6 @@ function Slider:initialize( parent )
     self:setButtonRadius( 6 )
     self:setSliderThickness( 2 )
     self:setEnabled( true )
-    self:allowDragParenting( false )
 end
 
 

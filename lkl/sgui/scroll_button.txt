@@ -41,7 +41,6 @@ function ScrollButton:initialize( parent, scrollDirection, doesIncrement )
     self._arrowPolys = arrowPolys
     self:setBorderSize( 0 )
     self:setMargin( 0 )
-    self:allowDragParenting( false )
 end
 
 

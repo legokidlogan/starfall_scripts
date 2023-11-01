@@ -47,6 +47,10 @@ function Collapsible:initialize( parent )
         return selfObj:getBackgroundColor( fallbackColor, ... )
     end
 
+    function collapseRegion:doesAllowDragParenting()
+        return selfObj._dragParentingAllowed
+    end
+
 
     local collapseBar = SGUI.Panel()
     self._collapseBar = collapseBar
@@ -54,7 +58,6 @@ function Collapsible:initialize( parent )
     collapseBar:setBorderSize( 0 )
     collapseBar:setMargin( 0 )
     collapseBar:setInnerMargin( 0 )
-    collapseBar:allowDragParenting( false )
 
     function collapseBar:getBackgroundColor( fallbackColor, ... )
         return selfObj:getCollapseBarColor( fallbackColor, ... )
@@ -259,6 +262,10 @@ end
 
 function Collapsible:doesAcceptMouseInput()
     return self:getCollapseRegion():doesAcceptMouseInput()
+end
+
+function Collapsible:doesAllowDragParenting()
+    return false -- Drag parenting state gets passed down to collapseRegion
 end
 
 

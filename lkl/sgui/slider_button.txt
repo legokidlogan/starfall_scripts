@@ -31,7 +31,6 @@ function SliderButton:initialize( parent )
     self:setMargin( 0 )
     self:setDragParent( true )
     self:setDragReleaseMode( DRAG_RELEASE_ORIGINAL )
-    self:allowDragParenting( false )
 end
 
 

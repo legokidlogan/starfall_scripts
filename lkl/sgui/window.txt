@@ -63,6 +63,10 @@ function Window:initialize( parent )
         selfObj:onResized( x, y, width, height )
     end
 
+    function collapseRegion:doesAllowDragParenting()
+        return selfObj._dragParentingAllowed
+    end
+
 
     local collapseBar = SGUI.Draggable()
     self._collapseBar:destroy()
@@ -74,7 +78,6 @@ function Window:initialize( parent )
     collapseBar:setDragTarget( self )
     collapseBar:setDragParent( false )
     collapseBar:setDragReleaseMode( DRAG_RELEASE_NONE )
-    collapseBar:allowDragParenting( false )
 
     function collapseBar:getBackgroundColor( fallbackColor, ... )
         return selfObj:getCollapseBarColor( fallbackColor, ... )
@@ -103,7 +106,6 @@ function Window:initialize( parent )
     dropdownContainer:setDock( DOCK_RIGHT )
     dropdownContainer:setMargin( 4 )
     dropdownContainer:setInnerMargin( 2, 0, 4, 0 )
-    dropdownContainer:allowDragParenting( false )
 
     function dropdownContainer:getBackgroundColor( fallbackColor, ... )
         return selfObj:getButtonContainerColor( fallbackColor, ... )
@@ -115,7 +117,6 @@ function Window:initialize( parent )
     titleLabel:setDock( DOCK_FILL )
     titleLabel:setTextAlign( TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER )
     titleLabel:setMargin( 3 )
-    titleLabel:allowDragParenting( false )
 
 
     local closeButton = SGUI.CloseButton( dropdownContainer, nil )

@@ -28,8 +28,6 @@ local collapsedArrowPoly_B
 
 function CollapseButton:initialize( parent, initialState )
     CollapseButton.super.initialize( self, parent, initialState )
-
-    self:allowDragParenting( false )
 end
 
 

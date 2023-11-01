@@ -60,7 +60,6 @@ function ScrollBar:initialize( parent, scrollable, scrollDirection )
     local scrollThumbRegion = Panel()
     self._scrollThumbRegion = scrollThumbRegion
     scrollThumbRegion:setParent( self )
-    scrollThumbRegion:allowDragParenting( false )
     scrollThumbRegion:setDock( DOCK_FILL )
     scrollThumbRegion:setBorderSize( 0 )
     scrollThumbRegion:setMargin( 0 )

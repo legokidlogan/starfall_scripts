@@ -70,6 +70,10 @@ function ScrollInsert:getStencilBounds()
     return self:getScrollable():getInsertBounds()
 end
 
+function ScrollInsert:doesAllowDragParenting()
+    return self:getScrollable()._dragParentingAllowed
+end
+
 
 ----- PRIVATE FUNCTIONS -----
 

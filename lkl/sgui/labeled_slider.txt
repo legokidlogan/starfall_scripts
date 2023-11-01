@@ -44,7 +44,6 @@ function LabeledSlider:initialize( parent )
     label:setWidth( 1 )
     label:setMargin( 1, 0, 1, 0 )
     label:setInnerMargin( 0 )
-    label:allowDragParenting( false )
 
     function label:onRenderedTextSizeChanged()
         selfObj:setSize( calcFinalSize( selfObj ) )
@@ -95,7 +94,6 @@ function LabeledSlider:initialize( parent )
 
 
     self:setSliderWidth( 100 )
-    self:allowDragParenting( false )
     self:setBorderAndInnerMargin( 0 )
     self:setText( "" )
     self:setRounding( 0 )

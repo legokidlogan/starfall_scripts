@@ -149,7 +149,7 @@ function Panel:initialize( parent )
     self:setInnerMargin( self:getBorderSize() )
     self:setParent( parent )
     self:setVisible( true )
-    self:allowDragParenting( true )
+    self:allowDragParenting( false )
     self:setInvalidateWhenChildResizes( false )
 
     tableInsert( allPanels, self )
@@ -1332,7 +1332,7 @@ end
 
 --[[
     - Allows Draggables to be parented to this Panel via DRAG_RELEASE_HOVERED.
-    - True by default.
+    - False by default.
 --]]
 function Panel:allowDragParenting( state )
     self._dragParentingAllowed = state
