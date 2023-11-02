@@ -63,7 +63,7 @@ function Window:initialize( parent )
         selfObj:onResized( x, y, width, height )
     end
 
-    function collapseRegion:doesAllowDragParenting()
+    function collapseRegion:canDraggableParentToMe( _draggable )
         return selfObj._dragParentingAllowed
     end
 

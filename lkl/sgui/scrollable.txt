@@ -407,7 +407,7 @@ function Scrollable:doesAcceptMouseInput()
     return self:getScrollInsert():doesAcceptMouseInput()
 end
 
-function Scrollable:doesAllowDragParenting()
+function Scrollable:canDraggableParentToMe( _draggable )
     return false -- Drag parenting state gets passed down to scrollInsert
 end
 

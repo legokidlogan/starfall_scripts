@@ -281,7 +281,7 @@ getDragReleaseParent = function( draggable, dragTarget )
 
     local hoveredPanel = getHoverParent( Panel:getHoveredPanel() )
     if hoveredPanel then hoveredPanel = hoveredPanel:rerouteChild( dragTarget ) end
-    if hoveredPanel and not hoveredPanel:doesAllowDragParenting() then return false end
+    if hoveredPanel and not hoveredPanel:canDraggableParentToMe( draggable ) then return false end
     if not draggable:canParentTo( dragTarget, hoveredPanel ) then return false end
 
     return hoveredPanel

@@ -43,7 +43,7 @@ function ScrollableList:initialize( parent, listDirection, listAlign )
     scrollable:setBorderSize( self:getBorderSize() )
     scrollable:setInnerMargin( self:getInnerMargin() )
 
-    function scrollableInsert:doesAllowDragParenting()
+    function scrollableInsert:canDraggableParentToMe( _draggable )
         return selfObj._dragParentingAllowed
     end
 
@@ -213,7 +213,7 @@ function ScrollableList:handleDrawBackground()
     -- Do nothing.
 end
 
-function ScrollableList:doesAllowDragParenting()
+function ScrollableList:canDraggableParentToMe( _draggable )
     return false -- Drag parenting state gets passed down to scrollInsert
 end
 

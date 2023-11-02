@@ -47,7 +47,7 @@ function Collapsible:initialize( parent )
         return selfObj:getBackgroundColor( fallbackColor, ... )
     end
 
-    function collapseRegion:doesAllowDragParenting()
+    function collapseRegion:canDraggableParentToMe( _draggable )
         return selfObj._dragParentingAllowed
     end
 
@@ -264,7 +264,7 @@ function Collapsible:doesAcceptMouseInput()
     return self:getCollapseRegion():doesAcceptMouseInput()
 end
 
-function Collapsible:doesAllowDragParenting()
+function Collapsible:canDraggableParentToMe( _draggable )
     return false -- Drag parenting state gets passed down to collapseRegion
 end
 
