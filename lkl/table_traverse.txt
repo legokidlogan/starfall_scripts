@@ -153,7 +153,7 @@ end
     doReverse: (optional) (boolean)
         - Unchanged.
 --]]
-function table.traverseFast( matrix, func, traversalFilter, doReverse )
+function table.traverseWithIndsFast( matrix, func, traversalFilter, doReverse )
     doReverse = validateTraverseArgs( matrix, func, traversalFilter, doReverse )
 
     _traverseWithIndsFast( matrix, matrix, func, traversalFilter, doReverse, {}, 1 )
