@@ -1338,7 +1338,12 @@ function Panel:allowDragParenting( state )
     self._dragParentingAllowed = state
 end
 
-function Panel:doesAllowDragParenting()
+--[[
+    - Gives the state of :allowDragParenting() for this Panel.
+    - This doesn't necessarily mean this Panel actually allows drag parenting, see :doesAllowDragParenting() for that.
+    - For example, Collapsibles will pass on their :allowDragParenting() state to their collapse region, but will not allow drag parenting themselves.
+--]]
+function Panel:doesAllowDragParentingInside()
     return self._dragParentingAllowed
 end
 
@@ -1845,6 +1850,15 @@ end
 --]]
 function Panel:rerouteChild( _child )
     return self
+end
+
+--[[
+    - Returns whether or not Draggables can try to parent themselves to this Panel via DRAG_RELEASE_HOVERED.
+    - Can be overwritten to handle special cases, such as a Collapsible not allowing drag parenting to itself, but allowing it to its collapse region.
+    - :doesAllowDragParentingInside() is what should be used to track the state of :allowDragParenting(), and should not be overwritten.
+--]]
+function Panel:doesAllowDragParenting()
+    return self._dragParentingAllowed
 end
 
 
