@@ -19,6 +19,7 @@ local holoGroups = {}
 local holoGroupCallbacks = {}
 local holoGroupOrigins = {}
 local holoGroupOriginAngles = {}
+local holoGroupScales = {}
 local holoGroupIncrement = 0
 local spawnQueue
 
@@ -38,6 +39,8 @@ local spawnQueue
     callback: (optional) (function)
         - A function of the form  function( holograms ) end
         - Called when the holograms are done being created.
+    scale: (optional) (Vector)
+        - An overall scale to apply to all of the holograms.
 
 
     RETURNS: groupID
@@ -46,7 +49,7 @@ local spawnQueue
             - Used to cancel the group from spawning, if needed.
             - Will be nil if the group cannot be spawned, such as if the request is too large for the current hologram limit.
 --]]
-function pthSpawner.spawn( pos, ang, dataStr, callback )
+function pthSpawner.spawn( pos, ang, dataStr, callback, scale )
     if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
     if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
     if type( dataStr ) ~= "string" then error( "Expected dataStr to be a string" ) end
@@ -56,6 +59,7 @@ function pthSpawner.spawn( pos, ang, dataStr, callback )
     end
 
     if type( callback ) ~= "function" then error( "Expected callback to be a function or nil" ) end
+    if scale ~= nil and type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
 
     local data = json.decode( dataStr )
     local dataCount = #data
@@ -71,6 +75,7 @@ function pthSpawner.spawn( pos, ang, dataStr, callback )
     holoGroupCallbacks[holoGroupIncrement] = callback
     holoGroupOrigins[holoGroupIncrement] = pos
     holoGroupOriginAngles[holoGroupIncrement] = ang
+    holoGroupScales[holoGroupIncrement] = scale
 
     for _, entry in ipairs( data ) do
         entry.GroupID = holoGroupIncrement
@@ -114,6 +119,7 @@ function pthSpawner.cancel( groupID )
     holoGroups[groupID] = nil
     holoGroupCallbacks[groupID] = nil
     holoGroupOrigins[groupID] = nil
+    holoGroupScales[groupID] = nil
 end
 
 
@@ -124,18 +130,26 @@ spawnQueue = Queue:new(
         local groupID = entry.GroupID
         local origin = holoGroupOrigins[groupID]
         local originAng = holoGroupOriginAngles[groupID]
+        local overallScale = holoGroupScales[groupID]
+
+        local localPos = entry.Pos
+        local scale = entry.Scale
+
+        if overallScale then
+            localPos = localPos * overallScale
+            scale = ( scale or 1 ) * overallScale
+        end
 
         local holo
         local success = pcall( function()
-            local pos, ang = localToWorld( entry.Pos, entry.Ang, origin, originAng )
+            local pos, ang = localToWorld( localPos, entry.Ang, origin, originAng )
 
-            holo = hologram.create( pos, ang, entry.Model )
+            holo = hologram.create( pos, ang, entry.Model, scale )
         end )
 
         if not success then return true end
 
         local holoGroup = holoGroups[groupID]
-        local scale = entry.Scale
 
         holo:setMaterial( entry.Material )
         submaterial.setSubMaterials( holo, entry.SubMaterials )
@@ -143,10 +157,6 @@ spawnQueue = Queue:new(
         holo:setRenderMode( entry.RenderMode or RENDER_MODE_DEFAULT )
         holo:setSkin( entry.Skin or 0 )
         table.insert( holoGroup, holo )
-
-        if scale then
-            holo:setScale( scale )
-        end
 
         if entry.IsLast then
             local callback = holoGroupCallbacks[groupID]
@@ -156,6 +166,7 @@ spawnQueue = Queue:new(
             holoGroups[groupID] = nil
             holoGroupCallbacks[groupID] = nil
             holoGroupOrigins[groupID] = nil
+            holoGroupScales[groupID] = nil
         end
     end,
     nil,
