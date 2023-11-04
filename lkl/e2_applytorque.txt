@@ -16,9 +16,9 @@ local mAbs = math.abs
 
 function clampVec( v )
     return Vector(
-        mClamp( v.x, -1000000, 1000000 ),
-        mClamp( v.y, -1000000, 1000000 ),
-        mClamp( v.z, -1000000, 1000000 )
+        mClamp( v.x, -10000000, 10000000 ),
+        mClamp( v.y, -10000000, 10000000 ),
+        mClamp( v.z, -10000000, 10000000 )
     )
 end
 
