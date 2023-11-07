@@ -35,6 +35,23 @@ function polyTools.drawPoly( points, xPos, yPos, width, height )
     renderDrawPoly( newPoints )
 end
 
+-- Same as polyTools.drawPoly() but without width/height scaling, which is faster.
+function polyTools.drawPolyUnscaled( points, xPos, yPos )
+    local newPoints = {}
+
+    for i = 1, #points do
+        local point = points[i]
+        newPoints[i] = {
+            x = xPos + point.x,
+            y = yPos + point.y,
+            u = point.u,
+            v = point.v,
+        }
+    end
+
+    renderDrawPoly( newPoints )
+end
+
 function polyTools.polyFlipHorizontal( points )
     local newPoints = {}
 
