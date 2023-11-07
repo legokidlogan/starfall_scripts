@@ -145,4 +145,4 @@ end
 
 ----- SETUP -----
 
-circlePoly = SGUI.polyMakeCircleFilled( 0.5, 0.5, 0.5, CIRCLE_SEGMENTS )
+circlePoly = polyTools.polyMakeCircleFilled( 0.5, 0.5, 0.5, CIRCLE_SEGMENTS )

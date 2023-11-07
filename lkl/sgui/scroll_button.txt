@@ -158,19 +158,19 @@ do
         { x = 0.59375, y = 0.78125 },
         { x = 0.5, y = 0.78125 },
     }
-    local arrowPoly_B = SGUI.polyFlipHorizontal( arrowPoly_A )
+    local arrowPoly_B = polyTools.polyFlipHorizontal( arrowPoly_A )
 
     arrowPolyGroups[DIR_BOTTOM] = { arrowPoly_A, arrowPoly_B }
     arrowPolyGroups[DIR_RIGHT] = {
-        SGUI.polyRotateAround( arrowPoly_A, -90, 0.5, 0.5 ),
-        SGUI.polyRotateAround( arrowPoly_B, -90, 0.5, 0.5 )
+        polyTools.polyRotateAround( arrowPoly_A, -90, 0.5, 0.5 ),
+        polyTools.polyRotateAround( arrowPoly_B, -90, 0.5, 0.5 )
     }
     arrowPolyGroups[DIR_TOP] = {
-        SGUI.polyRotateAround( arrowPoly_A, 180, 0.5, 0.5 ),
-        SGUI.polyRotateAround( arrowPoly_B, 180, 0.5, 0.5 )
+        polyTools.polyRotateAround( arrowPoly_A, 180, 0.5, 0.5 ),
+        polyTools.polyRotateAround( arrowPoly_B, 180, 0.5, 0.5 )
     }
     arrowPolyGroups[DIR_LEFT] = {
-        SGUI.polyRotateAround( arrowPoly_A, 90, 0.5, 0.5 ),
-        SGUI.polyRotateAround( arrowPoly_B, 90, 0.5, 0.5 )
+        polyTools.polyRotateAround( arrowPoly_A, 90, 0.5, 0.5 ),
+        polyTools.polyRotateAround( arrowPoly_B, 90, 0.5, 0.5 )
     }
 end

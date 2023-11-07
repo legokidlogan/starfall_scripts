@@ -4,6 +4,7 @@
 --@include lkl/sgui/base.txt
 --@include lkl/middleclass_extras.txt
 --@include lkl/destroyable.txt
+--@include lkl/render/poly_tools.txt
 
 --[[
     - SGUI.Panel
@@ -51,6 +52,7 @@ if SGUI.Panel then return end -- Don't run twice
 
 require( "lkl/middleclass_extras.txt" )
 require( "lkl/destroyable.txt" )
+require( "lkl/render/poly_tools.txt" )
 
 
 SGUI.Panel = class( "Panel", Destroyable )
@@ -1687,7 +1689,7 @@ function Panel:drawSimpleBackgroundRounded( backgroundColor, borderColor, radius
 end
 
 --[[
-    - SGUI.drawPoly() but uses the Panel's position and size.
+    - polyTools.drawPoly() but uses the Panel's position and size.
     - Has optional position offsets and size overrides.
 --]]
 function Panel:drawPoly( points, xOff, yOff, widthOverride, heightOverride )
@@ -1697,7 +1699,7 @@ function Panel:drawPoly( points, xOff, yOff, widthOverride, heightOverride )
     local x, y = self:getPosEffective()
     local w, h = self:getSize()
 
-    SGUI.drawPoly( points, x + xOff, y + yOff, widthOverride or w, heightOverride or h )
+    polyTools.drawPoly( points, x + xOff, y + yOff, widthOverride or w, heightOverride or h )
 end
 
 

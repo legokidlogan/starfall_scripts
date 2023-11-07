@@ -218,13 +218,13 @@ function Resizable:handleOrderedDraw()
     render.setColor( c_black )
 
     for i = 1, polySectionsCount do
-        SGUI.drawPoly( polySections[i], mouseX, mouseY, sizeOutline, sizeOutline )
+        polyTools.drawPoly( polySections[i], mouseX, mouseY, sizeOutline, sizeOutline )
     end
 
     render.setColor( c_white )
 
     for i = 1, polySectionsCount do
-        SGUI.drawPoly( polySections[i], mouseX, mouseY, size, size )
+        polyTools.drawPoly( polySections[i], mouseX, mouseY, size, size )
     end
 end
 
@@ -362,7 +362,7 @@ do
         { x = 62 / 100, y = 25 / 100 },
         { x = 38 / 100, y = 25 / 100 },
     }
-    local arrowPoly_B = SGUI.polyFlipVertical( arrowPoly_A )
+    local arrowPoly_B = polyTools.polyFlipVertical( arrowPoly_A )
     local arrowPoly_C = {
         { x = 52 / 100, y = 25 / 100 },
         { x = 52 / 100, y = 75 / 100 },
@@ -370,9 +370,9 @@ do
         { x = 48 / 100, y = 25 / 100 },
     }
     local arrowPolySections = {
-        SGUI.polyTranslate( arrowPoly_A, -0.5, -0.5 ),
-        SGUI.polyTranslate( arrowPoly_B, -0.5, -0.5 ),
-        SGUI.polyTranslate( arrowPoly_C, -0.5, -0.5 ),
+        polyTools.polyTranslate( arrowPoly_A, -0.5, -0.5 ),
+        polyTools.polyTranslate( arrowPoly_B, -0.5, -0.5 ),
+        polyTools.polyTranslate( arrowPoly_C, -0.5, -0.5 ),
     }
 
     for i = 1, DIR_MAX do
@@ -383,13 +383,13 @@ do
         local section = arrowPolySections[i]
 
         arrowPolys[DIR_TOP][i] = section
-        arrowPolys[DIR_TOP_RIGHT][i] = SGUI.polyRotate( arrowPolys[DIR_TOP][i], 45 )
-        arrowPolys[DIR_RIGHT][i] = SGUI.polyRotate( arrowPolys[DIR_TOP_RIGHT][i], 45 )
-        arrowPolys[DIR_BOTTOM_RIGHT][i] = SGUI.polyRotate( arrowPolys[DIR_RIGHT][i], 45 )
-        arrowPolys[DIR_BOTTOM][i] = SGUI.polyRotate( arrowPolys[DIR_BOTTOM_RIGHT][i], 45 )
-        arrowPolys[DIR_BOTTOM_LEFT][i] = SGUI.polyRotate( arrowPolys[DIR_BOTTOM][i], 45 )
-        arrowPolys[DIR_LEFT][i] = SGUI.polyRotate( arrowPolys[DIR_BOTTOM_LEFT][i], 45 )
-        arrowPolys[DIR_TOP_LEFT][i] = SGUI.polyRotate( arrowPolys[DIR_LEFT][i], 45 )
+        arrowPolys[DIR_TOP_RIGHT][i] = polyTools.polyRotate( arrowPolys[DIR_TOP][i], 45 )
+        arrowPolys[DIR_RIGHT][i] = polyTools.polyRotate( arrowPolys[DIR_TOP_RIGHT][i], 45 )
+        arrowPolys[DIR_BOTTOM_RIGHT][i] = polyTools.polyRotate( arrowPolys[DIR_RIGHT][i], 45 )
+        arrowPolys[DIR_BOTTOM][i] = polyTools.polyRotate( arrowPolys[DIR_BOTTOM_RIGHT][i], 45 )
+        arrowPolys[DIR_BOTTOM_LEFT][i] = polyTools.polyRotate( arrowPolys[DIR_BOTTOM][i], 45 )
+        arrowPolys[DIR_LEFT][i] = polyTools.polyRotate( arrowPolys[DIR_BOTTOM_LEFT][i], 45 )
+        arrowPolys[DIR_TOP_LEFT][i] = polyTools.polyRotate( arrowPolys[DIR_LEFT][i], 45 )
     end
 end
 
