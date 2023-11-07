@@ -122,6 +122,9 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
     - Able to be controlled by both chat commands and wire inputs.
     - Can be played from either the owner or the chip.
     - Has wire outputs for if you want to make a fancy radio which adjusts visuals per song.
+- [starfall_error_viewer.txt](/lkl/starfall_error_viewer.txt)
+    - Displays (through walls) the position of errored starfall chips that are owned by you.
+    - Toggleable with the `/sev` chat commmand.
 - [enhanced_first_person.txt](/lkl/enhanced_first_person.txt)
     - Lets you see yourself in first person, well and truly.
     - Uses calcview so your playermodel actually gets rendered, no janky fake models or duplicate rendering required.

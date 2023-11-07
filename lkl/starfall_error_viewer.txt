@@ -1,0 +1,217 @@
+--@name Starfall Error Viewer
+--@author legokidlogan
+--@shared
+--@include lkl/render/poly_tools.txt
+--@include lkl/gcolors.txt
+
+if SERVER then
+    require( "lkl/gcolors.txt" )
+
+
+    local active = true
+
+
+    hook.add( "PlayerSay", "LKL_SEV_ToggleActive", function( ply, msg )
+        if ply ~= owner() then return end
+
+        local args = string.split( msg, " " )
+        local prefix = table.remove( args, 1 )
+
+        if prefix ~= "/sev" then return end
+
+        -- Currently only one command and no args: toggling the active state.
+        active = not active
+
+        print(
+            c_white, "[SEV] ",
+            c_white, "Error viewer is now ",
+            active and c_pale_green or c_pale_red, active and "active" or "inactive"
+        )
+
+        net.start( "LKL_SEV_SetActive" )
+        net.writeBool( active )
+        net.send( ply )
+
+        return ""
+    end )
+
+    hook.add( "StarfallError", "LKL_SEV_TrackServerError", function( ent, chipOwner )
+        if chipOwner ~= owner() then return end
+        if not isValid( ent ) then return end
+
+        net.start( "LKL_SEV_TrackServerError" )
+        net.writeEntity( ent )
+        net.send( chipOwner )
+    end )
+
+    return
+end
+
+if player() ~= owner() then return end
+
+require( "lkl/render/poly_tools.txt" )
+require( "lkl/gcolors.txt" )
+
+
+-- CONFIG:
+local diamondSize = 20
+local diamondThickness = 0.15
+local chipNameFontSize = 16
+local chipNameFontOutline = true
+local chipNameTextColor = Color( 255, 200, 200, 255 )
+-- END CONFIG
+
+
+local IN_KEY_ATTACK = IN_KEY.ATTACK
+local IN_KEY_RELOAD = IN_KEY.RELOAD
+
+local active = true
+local erroredChips = {}
+local erroredChipDatas = {}
+local diamondPolyLeft = nil
+local diamondPolyRight = nil
+local chipNameOffsetY = -( diamondSize * 0.5 + chipNameFontSize * 1 + 2 )
+local chipNameFont = render.createFont( "Roboto Mono", chipNameFontSize, 500, true, false, false, chipNameFontOutline, false, false )
+
+
+local function addErroredChip( ent, isServer )
+    local data = erroredChipDatas[ent]
+
+    if not data then
+        data = {
+            OnServer = false,
+            OnClient = false,
+            ChipName = ent:getChipName(),
+        }
+        erroredChipDatas[ent] = data
+        table.insert( erroredChips, ent )
+    end
+
+    if isServer then
+        data.OnServer = true
+    else
+        data.OnClient = true
+    end
+end
+
+local function removeErroredChip( ent, i )
+    erroredChipDatas[ent] = nil
+
+    if i then
+        table.remove( erroredChips, i )
+    else
+        table.removeByValue( erroredChips, ent )
+    end
+end
+
+local function drawChipError( ent )
+    local data = erroredChipDatas[ent]
+    local onServer = data.OnServer
+    local onClient = data.OnClient
+    local onShared = onServer and onClient
+
+    local screenPos = ent:getPos():toScreen()
+    if not screenPos.visible then return end
+
+    local centerX = screenPos.x
+    local centerY = screenPos.y
+
+    render.setFont( chipNameFont )
+    render.setColor( chipNameTextColor )
+    render.drawSimpleText( centerX, centerY + chipNameOffsetY, data.ChipName, 1, 3 )
+
+    if onShared then
+        render.setColor( c_realm_server )
+        polyTools.drawPolyUnscaled( diamondPolyLeft, centerX, centerY )
+
+        render.setColor( c_realm_client )
+        polyTools.drawPolyUnscaled( diamondPolyRight, centerX, centerY )
+    elseif onServer then
+        render.setColor( c_realm_server )
+        polyTools.drawPolyUnscaled( diamondPolyLeft, centerX, centerY )
+        polyTools.drawPolyUnscaled( diamondPolyRight, centerX, centerY )
+    else
+        render.setColor( c_realm_client )
+        polyTools.drawPolyUnscaled( diamondPolyLeft, centerX, centerY )
+        polyTools.drawPolyUnscaled( diamondPolyRight, centerX, centerY )
+    end
+end
+
+
+hook.add( "StarfallError", "LKL_SEV_TrackClientError", function( ent )
+    if not isValid( ent ) then return end
+    if ent:getOwner() ~= owner() then return end
+
+    addErroredChip( ent, false )
+end )
+
+hook.add( "KeyPress", "LKL_SEV_RemoveChipsWhenRefreshed", function( ply, key )
+    if not isFirstTimePredicted() then return end
+    if key ~= IN_KEY_ATTACK and key ~= IN_KEY_RELOAD then return end
+
+    local wep = ply:getActiveWeapon()
+    if not isValid( wep ) or wep:getClass() ~= "gmod_tool" then return end
+    if wep:getToolMode() ~= "starfall_processor" then return end
+
+    local ent = ply:getEyeTrace().Entity
+    if not isValid( ent ) or ent:getClass() ~= "starfall_processor" then return end
+    if ent:getOwner() ~= ply then return end
+
+    removeErroredChip( ent )
+end )
+
+hook.add( "EntityRemoved", "LKL_SEV_RemoveDeletedChips", function( ent )
+    if not erroredChipDatas[ent] then return end
+
+    removeErroredChip( ent )
+end )
+
+hook.add( "drawhud", "LKL_SEV_DrawChipErrors", function()
+    if not active then return end
+
+    for i = #erroredChips, 1, -1 do
+        local ent = erroredChips[i]
+
+        if not ent:isValid() then
+            removeErroredChip( ent, i )
+        else
+            drawChipError( ent )
+        end
+    end
+end )
+
+
+net.receive( "LKL_SEV_SetActive", function()
+    active = net.readBool()
+end )
+
+net.receive( "LKL_SEV_TrackServerError", function()
+    local ent = net.readEntity()
+    if not isValid( ent ) then return end
+
+    addErroredChip( ent, true )
+end )
+
+
+do
+    diamondPolyLeft = polyTools.polyScale( {
+        { x = -0.5, y = 0 },
+        { x = 0, y = -0.5 },
+        { x = 0, y = -0.5 + diamondThickness },
+        { x = -0.5 + diamondThickness, y = 0 },
+        { x = 0, y = 0.5 - diamondThickness },
+        { x = 0, y = 0.5 },
+    }, diamondSize, diamondSize )
+
+    diamondPolyRight = polyTools.polyScale( {
+        { x = 0.5, y = 0 },
+        { x = 0, y = 0.5 },
+        { x = 0, y = 0.5 - diamondThickness },
+        { x = 0.5 - diamondThickness, y = 0 },
+        { x = 0, y = -0.5 + diamondThickness },
+        { x = 0, y = -0.5 },
+    }, diamondSize, diamondSize )
+
+
+    enableHud( player(), true )
+end
