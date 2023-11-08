@@ -358,11 +358,11 @@ if SERVER then
 
         local targets
 
-        -- Use find.allPlayers() and find.all() instead of find.inSphere() due to its internal 512 ent limit prior to getting the lua filter.
-        if self:getVehicleTargetMode() == 0 then
-            targets = find.allPlayers( filterFunc )
-        else
+        -- Use find.allPlayers() and find.byClass() instead of find.inSphere() due to its internal 512 ent limit prior to getting the lua filter.
+        if self:doesTargetNPCs() then
             targets = find.all( filterFunc )
+        else
+            targets = find.allPlayers( filterFunc )
         end
 
         targets = find.sortByClosest( targets, pos )
