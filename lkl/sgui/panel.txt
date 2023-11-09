@@ -514,30 +514,6 @@ function Panel:getSize()
     return self._width, self._height
 end
 
--- Gets the max bounding box size based on the size and position of the Panel and its children.
-function Panel:getTotalSize()
-    local width, height = self:getSize()
-    local xPos, yPos = self:getPosEffective()
-
-    for _, child in ipairs( self:getChildren() ) do
-        local childWidth, childHeight = child:getTotalSize()
-        local childXPos, childYPos = child:getPosEffective()
-
-        local childXRange = childXPos + childWidth - xPos
-        local childYRange = childYPos + childHeight - yPos
-
-        if childXRange > width then
-            width = childXRange
-        end
-
-        if childYRange > height then
-            height = childYRange
-        end
-    end
-
-    return width, height
-end
-
 function Panel:setWidthFractional( width, scrW )
     scrW = scrW or self:getScreenSize()
 
@@ -817,6 +793,27 @@ function Panel:getBoundsEffective()
     local width, height = self:getSize()
 
     return x, y, x + width, y + height
+end
+
+--[[
+    - Returns xMin, yMin, xMax, yMax of the Panel and its children, relative to the screen.
+    - This is slow due to being recursive, and is only useful if the children poke outside of the Panel's bounds.
+--]]
+function Panel:getTotalBoundsEffective()
+    local xMin, yMin = self:getPosEffective()
+    local xMax = xMin + self:getWidth()
+    local yMax = yMin + self:getHeight()
+
+    for _, child in ipairs( self:getChildren() ) do
+        local childXMin, childYMin, childXMax, childYMax = child:getTotalBoundsEffective()
+
+        xMin = mathMin( xMin, childXMin )
+        yMin = mathMin( yMin, childYMin )
+        xMax = mathMax( xMax, childXMax )
+        yMax = mathMax( yMax, childYMax )
+    end
+
+    return xMin, yMin, xMax, yMax
 end
 
 --[[
