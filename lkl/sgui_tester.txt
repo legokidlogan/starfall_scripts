@@ -415,6 +415,8 @@ end
 
 -- Grid test
 --
+panelOne:setUncollapsedSize( 500, 500 )
+
 local gridOne = Grid:new( panelOne )
 local numRows = 4
 local numCols = 4
