@@ -816,6 +816,40 @@ function Panel:getTotalBoundsEffective()
     return xMin, yMin, xMax, yMax
 end
 
+-- Similar to :getTotalBoundsEffective(), but ignores the bounds of the initial Panel itself.
+function Panel:getTotalChildBoundsEffective()
+    local xMin, yMin = self:getPosEffective()
+    local xMax = mathFloor( xMin + self:getWidth() / 2 )
+    local yMax = mathFloor( yMin + self:getHeight() / 2 )
+    xMin = xMax
+    yMin = yMax
+
+    for _, child in ipairs( self:getChildren() ) do
+        local childXMin, childYMin, childXMax, childYMax = child:getTotalBoundsEffective()
+
+        xMin = mathMin( xMin, childXMin )
+        yMin = mathMin( yMin, childYMin )
+        xMax = mathMax( xMax, childXMax )
+        yMax = mathMax( yMax, childYMax )
+    end
+
+    return xMin, yMin, xMax, yMax
+end
+
+-- Gets the total bounding size of the Panel and its children, according to :getTotalBoundsEffective().
+function Panel:getTotalSize()
+    local xMin, yMin, xMax, yMax = self:getTotalBoundsEffective()
+
+    return xMax - xMin, yMax - yMin
+end
+
+-- Gets the total bounding size of the Panel's children, according to :getTotalChildBoundsEffective().
+function Panel:getTotalChildSize()
+    local xMin, yMin, xMax, yMax = self:getTotalChildBoundsEffective()
+
+    return xMax - xMin, yMax - yMin
+end
+
 --[[
     - Returns x, y, width, height for the inner margin bounds of the Panel, relative to itself.
     - If child is supplied, then the child's outer margins will be accounted for as well.
