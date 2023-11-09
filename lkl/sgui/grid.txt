@@ -913,6 +913,22 @@ function Grid:canDraggableParentToMe( _draggable )
     return false -- Drag parenting state gets passed down to grid nodes
 end
 
+function Grid:onDestroyed()
+    self:setParent()
+
+    local children = self:getChildren()
+
+    for i = #children, 1, -1 do
+        local child = children[i]
+        children[i] = nil
+
+        child._grid = nil
+        child:destroy()
+    end
+
+    Grid.super.onDestroyed( self )
+end
+
 
 ----- PRIVATE FUNCTIONS -----
 
