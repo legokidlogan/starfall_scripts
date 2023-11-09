@@ -22,6 +22,7 @@ local List = SGUI.List
 local ScrollableList = SGUI.ScrollableList
 local ComboBox = SGUI.ComboBox
 local ProgressBar = SGUI.ProgressBar
+local Grid = SGUI.Grid
 
 
 addPermissions( {
@@ -392,6 +393,7 @@ end
 
 
 -- ProgressBar test
+--[[
 local barOne = ProgressBar:new( panelOne, 0.25 )
 barOne:setPos( 10, 10 )
 barOne:setProgressColor( function( _, progress )
@@ -410,6 +412,27 @@ function barOne:think()
 end
 --]]
 
+
+-- Grid test
+--
+local gridOne = Grid:new( panelOne )
+local numRows = 4
+local numCols = 4
+gridOne:setDock( DOCK_FILL )
+gridOne:setRowCount( numRows )
+gridOne:setColCount( numCols )
+
+for r = 1, numRows do
+    for c = 1, numCols do
+        local panel = Panel:new()
+
+        gridOne:add( panel, r, c )
+        panel:setSize( math.random( 25, 100 ), math.random( 25, 100 ) )
+        panel:setAnchor( ANCHOR_CENTER )
+        panel:setBackgroundColor( Color( ( ( r - 1 ) * numCols + c ) * 360 / ( numRows * numCols ), 1, 1 ):hsvToRGB() )
+    end
+end
+--]]
 
 
 --[[

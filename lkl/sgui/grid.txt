@@ -1,0 +1,1050 @@
+--@name Grid
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+--@include lkl/sgui/grid_node.txt
+--@include lkl/table_clone_deep.txt
+--@include lkl/table_flatten.txt
+
+--[[
+    - SGUI.Grid
+    - Blah
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+require( "lkl/sgui/grid_node.txt" )
+require( "lkl/table_clone_deep.txt" )
+require( "lkl/table_flatten.txt" )
+
+if SGUI.Grid then return end -- Don't run twice
+
+
+SGUI.Grid = class( "Grid", SGUI.Panel )
+
+
+local Grid = SGUI.Grid
+local GridNode = SGUI.GridNode
+local Panel = SGUI.Panel
+
+Grid.static.ROW_CONSTRAINTS_DEFAULT = {
+    [1] = {
+        MinSize = 5,
+        MaxSize = math.huge,
+        EmptySize = 20,
+    }
+}
+
+Grid.static.COL_CONSTRAINTS_DEFAULT = {
+    [1] = {
+        MinSize = 5,
+        MaxSize = math.huge,
+        EmptySize = 20,
+    }
+}
+
+
+local buildConstraints
+local makeNode
+local getDistributedSpace
+
+local tableCopy = table.copy
+local tableCloneDeep = table.cloneDeep
+local mathMin = math.min
+local mathMax = math.max
+local mathClamp = math.clamp
+local mathFloor = math.floor
+local renderSetColor = render.setColor
+local renderDrawRectFast = render.drawRectFast
+
+
+----- STATIC FUNCTIONS -----
+
+function Grid:initialize( parent )
+    Grid.super.initialize( self, parent )
+
+    self._nodes = {}
+    self._nodeLookup = {}
+    self._rowLinePoss = {}
+    self._colLinePoss = {}
+    self._rowCount = 0
+    self._colCount = 0
+
+    self:setUseStencil( true )
+    self:setDistributeExtraSpace( true )
+    self:setRowCount( 1 )
+    self:setColCount( 1 )
+    self:setRowLineSize( 1 )
+    self:setColLineSize( 1 )
+    self:setRowConstraints()
+    self:setColConstraints()
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+-- Whether or not to cut off out-of-bounds children with a stencil. True by default.
+function Grid:setUseStencil( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if self._useStencil == state then return end
+
+    self._useStencil = state
+
+    local nodes = self:getNodesFlat()
+
+    for _, node in ipairs( nodes ) do
+        node:setUseStencil( state )
+    end
+end
+
+function Grid:doesUseStencil()
+    return self._useStencil
+end
+
+--[[
+    - If true, then any extra space not taken up by children will be distributed to try and make
+        each node have equal width/height to the other nodes in its row/column.
+    - True by default.
+--]]
+function Grid:setDistributeExtraSpace( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if self._distributeExtraSpace == state then return end
+
+    self._distributeExtraSpace = state
+    self:invalidateLayout()
+end
+
+function Grid:doesDistributeExtraSpace()
+    return self._distributeExtraSpace
+end
+
+--[[
+    - Sets the Grid's row constraints.
+
+    constraints: (optional) (table)
+        - If nil, will reset constraints to self.class.ROW_CONSTRAINTS_DEFAULT.
+        - If table:
+            - Gaps are allowed in the indices.
+                - Going in increasing order, the latest-defined index will be used for any gaps following it.
+                - If index 1 is not defined, then the smalled defined index will be used for any gaps preceding it.
+                - If the table is empty, then the default constraints will be used.
+            {
+                [index (integer number > 0)] = {
+                    MinSize = (number) (optional) (default: 5)
+                        - The minimum size of the row.
+                    MaxSize = (number) (optional) (default: math.huge)
+                        - The maximum size of the row.
+                    EmptySize = (number) (optional) (default: 20)
+                        - The size of the row when it is empty.
+                }
+            }
+--]]
+function Grid:setRowConstraints( constraints )
+    if constraints == nil then return self:setRowConstraints( self.class.ROW_CONSTRAINTS_DEFAULT ) end
+    if type( constraints ) ~= "table" then error( "Expected constraints to be a table or nil" ) end
+    if table.isEmpty( constraints ) then return self:setRowConstraints( self.class.ROW_CONSTRAINTS_DEFAULT ) end
+
+    self._rowConstraints = buildConstraints( constraints )
+end
+
+--[[
+    - Gets a copy of the Grid's finalized row constraints.
+    - Format is similar to the constraints arg in :setRowConstraints(), plus the following extra values:
+        MaxIndex = (integer number > 0)
+            - The largest defined constraint index.
+            - If trying to get the constraint of a row higher than this, then you should query the constraint at this index instead.
+        IndexLookup = (table { [integer > 0] = integer, ... } )
+            - Maps indices to a corresponding defined constraint index.
+            - To get the constraints for a given row, pass the row index through this first.
+                - Values greater than MaxIndex will yield nil.
+--]]
+function Grid:getRowConstraints()
+    return tableCopy( self._rowConstraints )
+end
+
+-- Same as :setRowConstraints(), but for columns.
+function Grid:setColConstraints( constraints )
+    if constraints == nil then return self:setColConstraints( self.class.COL_CONSTRAINTS_DEFAULT ) end
+    if type( constraints ) ~= "table" then error( "Expected constraints to be a table or nil" ) end
+    if table.isEmpty( constraints ) then return self:setColConstraints( self.class.COL_CONSTRAINTS_DEFAULT ) end
+
+    self._colConstraints = buildConstraints( constraints )
+end
+
+-- Same as :getRowConstraints(), but for columns.
+function Grid:getColConstraints()
+    return tableCopy( self._colConstraints )
+end
+
+--[[
+    - Sets the number of rows the Grid has.
+
+    amount: (integer number > 0)
+        - The number of rows the Grid should have.
+        - If the Grid has more rows than this, then the extra rows will be removed.
+            - Any Panels inside the removed rows will be destroyed.
+        - If the Grid has less rows than this, then the extra rows will be added.
+--]]
+function Grid:setRowCount( amount )
+    if type( amount ) ~= "number" then error( "Expected amount to be a number" ) end
+    if mathFloor( amount ) ~= amount then error( "Expected amount to be an integer" ) end
+    if amount <= 0 then error( "Expected amount to be > 0" ) end
+
+    local oldRowCount = self:getRowCount()
+    if amount == oldRowCount then return end
+
+    self._rowCount = amount
+
+    local colCount = self:getColCount() or 1
+
+    if amount > oldRowCount then
+        for r = oldRowCount + 1, amount do
+            local row = {}
+            self._nodes[r] = row
+
+            for c = 1, colCount do
+                row[c] = makeNode( self, r, c )
+            end
+        end
+
+        self:invalidateLayout()
+
+        return
+    end
+
+    for r = amount + 1, oldRowCount do
+        local row = self._nodes[r]
+
+        for c = 1, colCount do
+            local node = row[c]
+
+            self._nodeLookup[node] = nil
+            node._grid = nil
+            node:destroy()
+        end
+
+        self._nodes[r] = nil
+    end
+
+    self:invalidateLayout()
+end
+
+-- Gets the number of rows the Grid has.
+function Grid:getRowCount()
+    return self._rowCount
+end
+
+--[[
+    - Sets the number of columns the Grid has.
+
+    amount: (integer number > 0)
+        - The number of columns the Grid should have.
+        - If the Grid has more columns than this, then the extra columns will be removed.
+            - Any Panels inside the removed columns will be destroyed.
+        - If the Grid has less columns than this, then the extra columns will be added.
+--]]
+function Grid:setColCount( amount )
+    if type( amount ) ~= "number" then error( "Expected amount to be a number" ) end
+    if mathFloor( amount ) ~= amount then error( "Expected amount to be an integer" ) end
+    if amount <= 0 then error( "Expected amount to be > 0" ) end
+
+    local oldColCount = self:getColCount()
+    if amount == oldColCount then return end
+
+    self._colCount = amount
+
+    local rowCount = self:getRowCount() or 1
+
+    if amount > oldColCount then
+        for r = 1, rowCount do
+            local row = self._nodes[r]
+
+            for c = oldColCount + 1, amount do
+                row[c] = makeNode( self, r, c )
+            end
+        end
+
+        self:invalidateLayout()
+
+        return
+    end
+
+    for r = 1, rowCount do
+        local row = self._nodes[r]
+
+        for c = amount + 1, oldColCount do
+            local node = row[c]
+
+            self._nodeLookup[node] = nil
+            node._grid = nil
+            node:destroy()
+
+            row[c] = nil
+        end
+    end
+
+    self:invalidateLayout()
+end
+
+-- Gets the number of columns the Grid has.
+function Grid:getColCount()
+    return self._colCount
+end
+
+--[[
+    - Sets the size of the horizontal lines separating rows.
+    - Will be forced to an integer.
+
+    size: (number > 0)
+        - The line's size.
+--]]
+function Grid:setRowLineSize( size )
+    if self._rowLineSize == size then return end
+    if type( size ) ~= "number" then error( "Expected size to be a number" ) end
+    if size < 0 then error( "Expected size to be >= 0" ) end
+
+    self._rowLineSize = mathFloor( size )
+
+    self:invalidateLayout()
+end
+
+-- Gets the size of the horizontal lines separating rows.
+function Grid:getRowLineSize()
+    return self._rowLineSize
+end
+
+--[[
+    - Sets the size of the vertical lines separating columns.
+    - Will be forced to an integer.
+
+    size: (number > 0)
+        - The line's size.
+--]]
+function Grid:setColLineSize( size )
+    if self._colLineSize == size then return end
+    if type( size ) ~= "number" then error( "Expected size to be a number" ) end
+    if size < 0 then error( "Expected size to be >= 0" ) end
+
+    self._colLineSize = mathFloor( size )
+
+    self:invalidateLayout()
+end
+
+-- Gets the size of the vertical lines separating columns.
+function Grid:getColLineSize()
+    return self._colLineSize
+end
+
+function Grid:setRowLineColor( color )
+    self:setColor( self.class.name .. "RowLine", color )
+end
+
+function Grid:getRowLineColor( fallbackColor, ... )
+    return self:getClassColor( "RowLine", fallbackColor, ... )
+end
+
+function Grid:setColLineColor( color )
+    self:setColor( self.class.name .. "ColLine", color )
+end
+
+function Grid:getColLineColor( fallbackColor, ... )
+    return self:getClassColor( "ColLine", fallbackColor, ... )
+end
+
+--[[
+    - Adds a panel to the Grid.
+
+    panel: (Panel)
+        - The Panel to add.
+        - To later remove it from the Grid, just use panel:setParent().
+    row: (number)
+        - The row to add the Panel to.
+    col: (number)
+        - The column to add the Panel to.
+--]]
+function Grid:add( panel, row, col )
+    Panel:expectValidPanel( panel, 1, "panel" )
+
+    if type( row ) ~= "number" then error( "Expected row to be a number" ) end
+    if mathFloor( row ) ~= row then error( "Expected row to be an integer" ) end
+    if row < 1 or row > self:getRowCount() then error( "row is out of bounds" ) end
+
+    if type( col ) ~= "number" then error( "Expected col to be a number" ) end
+    if mathFloor( col ) ~= col then error( "Expected col to be an integer" ) end
+    if col < 1 or col > self:getColCount() then error( "col is out of bounds" ) end
+
+    local node = self:getNodes( row, col )
+    panel:setParent( node )
+end
+
+--[[
+    - Gets the items of a grid, one of its rows, one of its columns, or of one of its nodes.
+    - Result will either be a table of tables of tables of Panels, a table of tables of Panels, a table of Panels, or nil.
+
+    row: (nil or number)
+        - If nil, then will get across all rows.
+        - If number, then will get across the given row.
+    col: (nil or number)
+        - If nil, then will get across all columns.
+        - If number, then will get across the given column.
+--]]
+function Grid:getItems( row, col )
+    local nodes = self:getNodes( row, col )
+    if not nodes then return nil end
+
+    local items = {}
+
+    if not col then
+        if row then
+            for i, node in ipairs( nodes ) do
+                items[i] = tableCloneDeep( node:getChildren() )
+            end
+
+            return items
+        end
+
+        for i, nodeRows in ipairs( nodes ) do
+            items[i] = {}
+
+            for i2, node in ipairs( nodeRows ) do
+                items[i][i2] = tableCloneDeep( node:getChildren() )
+            end
+        end
+
+        return items
+    end
+
+    if row then return tableCloneDeep( nodes:getChildren() ) end
+
+    for i, node in ipairs( nodes ) do
+        items[i] = tableCloneDeep( node:getChildren() )
+    end
+
+    return items
+end
+
+--[[
+    - Identical to :getItems(), but flattens the result into a single table.
+--]]
+function Grid:getItemsFlat( row, col )
+    local nodesFlat = self:getNodesFlat( row, col )
+
+    local out = {}
+    local count = 0
+
+    for _, node in ipairs( nodesFlat ) do
+        local children = node:getChildren()
+
+        for _, child in ipairs( children ) do
+            count = count + 1
+            out[count] = child
+        end
+    end
+
+    return out
+end
+
+--[[
+    - Gets a portion of the Grid's items between two rows and two columns (inclusive).
+    - Result is a table of tables of tables of Panels.
+    - See :getNodesFromTo() for argument details.
+--]]
+function Grid:getItemsFromTo( fromRow, toRow, fromCol, toCol, maintainInds )
+    fromRow = fromRow or 1
+    toRow = toRow or self:getRowCount()
+    fromCol = fromCol or 1
+    toCol = toCol or self:getColCount()
+
+    local out = self:getNodesFromTo( fromRow, toRow, fromCol, toCol, maintainInds )
+
+    if maintainInds then
+        -- Maintain low -> high order
+        if fromRow > toRow then
+            fromRow, toRow = toRow, fromRow
+        end
+
+        -- Maintain low -> high order
+        if fromCol > toCol then
+            fromCol, toCol = toCol, fromCol
+        end
+
+        for i = fromRow, toRow do
+            local nodeRows = out[i]
+
+            for i2 = fromCol, toCol do
+                out[i][i2] = tableCloneDeep( nodeRows[i2]:getChildren() )
+            end
+        end
+    else
+        for i, nodeRows in ipairs( out ) do
+            for i2, node in ipairs( nodeRows ) do
+                out[i][i2] = tableCloneDeep( node:getChildren() )
+            end
+        end
+    end
+
+    return out
+end
+
+--[[
+    - Identical to :getItemFromTo(), but flattens the result into a single table.
+    - Lacks the maintainInds arg, as it would be redundant.
+--]]
+function Grid:getItemsFromToFlat( fromRow, toRow, fromCol, toCol )
+    return table.flattenFast( self:getItemFromTo( fromRow, toRow, fromCol, toCol, false ) )
+end
+
+--[[
+    - Gets the node(s) of a grid, one of its rows, one of its columns, or a single node.
+    - Result will either be a table of tables of GridNodes, a table of GridNodes, a single GridNode, or nil.
+
+    row: (nil or number)
+        - If nil, then will get across all rows.
+        - If number, then will get across the given row.
+    col: (nil or number)
+        - If nil, then will get across all columns.
+            - CAUTION: If col is nil, the returned table will be by reference, not by value. Do not modify it.
+        - If number, then will get across the given column.
+--]]
+function Grid:getNodes( row, col )
+    if not col then
+        if row then return self._nodes[row] end
+
+        return self._nodes
+    end
+
+    if row then
+        local nodeRows = self._nodes[row]
+        if nodeRows then return nodeRows[col] end
+
+        return nil
+    end
+
+    local colNodes = {}
+    local nodes = self._nodes
+    local firstRow = nodes[1]
+    if not firstRow then return colNodes end
+
+    local firstNode = firstRow[col]
+    if not firstNode then return colNodes end
+
+    colNodes[1] = firstNode
+
+    local rowCount = #nodes
+    if rowCount == 1 then return colNodes end
+
+    for i = 2, rowCount do
+        colNodes[i] = nodes[i][col]
+    end
+end
+
+--[[
+    - Identical to :getNodes(), but flattens the result into a single table.
+--]]
+function Grid:getNodesFlat( row, col )
+    return table.flattenFast( self:getNodes( row, col ) )
+end
+
+--[[
+    - Gets a portion of the Grid's nodes between two rows and two columns (inclusive).
+    - Result is a table of tables of GridNodes.
+
+    fromRow: (integer number)
+        - The row to start from.
+        - If nil, then will start from the first row.
+        - Must be >= 1 and <= the Grid's row count.
+    toRow: (integer number)
+        - The row to end at.
+        - If nil, then will end at the last row.
+        - Must be >= 1 and <= the Grid's row count.
+        - If larger than fromRow, it will be swapped with fromRow.
+    fromCol: (integer number)
+        - The column to start from.
+        - If nil, then will start from the first column.
+        - Must be >= 1 and <= the Grid's column count.
+    toCol: (integer number)
+        - The column to end at.
+        - If nil, then will end at the last column.
+        - Must be >= 1 and <= the Grid's column count.
+        - If larger than fromCol, it will be swapped with fromCol.
+    maintainInds: (optional) (boolean)
+        - If true, will make the returned table use the same indices that the nodes came from.
+            - This will create gaps, making the returned table non-sequential.
+        - If false, will shift all indices down to start from 1.
+            - This will remove gaps, making the returned table sequential.
+            - e.g. fromRow = 3, toRow = 5 will still get the corresponding rows, but they will be placed in indices 1, 2, and 3.
+            - This applies to both row and column indices.
+        - Defaults to false.
+--]]
+function Grid:getNodesFromTo( fromRow, toRow, fromCol, toCol, maintainInds )
+    local out = {}
+    local nodes = self._nodes
+    local rowCount = self:getRowCount()
+    local colCount = self:getColCount()
+
+    fromRow = fromRow or 1
+    toRow = toRow or rowCount
+    fromCol = fromCol or 1
+    toCol = toCol or colCount
+
+    if mathFloor( fromRow ) ~= fromRow then error( "Expected fromRow to be an integer" ) end
+    if mathFloor( toRow ) ~= toRow then error( "Expected toRow to be an integer" ) end
+    if mathFloor( fromCol ) ~= fromCol then error( "Expected fromCol to be an integer" ) end
+    if mathFloor( toCol ) ~= toCol then error( "Expected toCol to be an integer" ) end
+
+    if fromRow < 1 or fromRow > rowCount then error( "fromRow is out of bounds" ) end
+    if toRow < 1 or toRow > rowCount then error( "toRow is out of bounds" ) end
+    if fromCol < 1 or fromCol > colCount then error( "fromCol is out of bounds" ) end
+    if toCol < 1 or toCol > colCount then error( "toCol is out of bounds" ) end
+
+    -- Maintain low -> high order
+    if fromRow > toRow then
+        fromRow, toRow = toRow, fromRow
+    end
+
+    -- Maintain low -> high order
+    if fromCol > toCol then
+        fromCol, toCol = toCol, fromCol
+    end
+
+    local rowOffset
+    local colOffset
+    local traversalFunc
+
+    if maintainInds then
+        rowOffset = 0
+        colOffset = 0
+
+        traversalFunc = function( item, _, _, i, inds )
+            local rowInd = inds[1]
+
+            out[rowInd][i] = item
+        end
+    else
+        rowOffset = 1 - fromRow
+        colOffset = 1 - fromCol
+
+        traversalFunc = function( item, _, _, i, inds )
+            local rowInd = inds[1] + rowOffset
+            local colInd = i + colOffset
+
+            out[rowInd][colInd] = item
+        end
+    end
+
+    for i = fromRow, toRow do
+        out[i + rowOffset] = {}
+    end
+
+    table.traverseWithIndsFast( nodes, traversalFunc, nil, false )
+
+    return out
+end
+
+--[[
+    - Identical to :getNodesFromTo(), but flattens the result into a single table.
+    - Lacks the maintainInds arg, as it would be redundant.
+--]]
+function Grid:getNodesFromToFlat( fromRow, toRow, fromCol, toCol )
+    return table.flattenFast( self:getNodesFromTo( fromRow, toRow, fromCol, toCol, false ) )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Grid:performLayout()
+    local rowCount = self:getRowCount()
+    local colCount = self:getColCount()
+    if not rowCount or not colCount then return end
+
+    local dontDistrbuteExtraSpace = not self:doesDistributeExtraSpace()
+
+    local nodes = self._nodes
+    local rowConstraints = self:getRowConstraints()
+    local colConstraints = self:getColConstraints()
+    local rowDefinedIndMax = rowConstraints.MaxIndex
+    local colDefinedIndMax = colConstraints.MaxIndex
+    local rowIndLookup = rowConstraints.IndexLookup
+    local colIndLookup = colConstraints.IndexLookup
+    local rowMaxConstraint = rowConstraints[rowDefinedIndMax]
+    local colMaxConstraint = colConstraints[colDefinedIndMax]
+
+    local rowLineSize = self:getRowLineSize()
+    local colLineSize = self:getColLineSize()
+    local rowLinePoss = self._rowLinePoss
+    local colLinePoss = self._colLinePoss
+
+    local borderSize = self:getBorderSize()
+    local gridWidth = self:getWidth() - borderSize
+    local gridHeight = self:getHeight() - borderSize
+    local widthAccum = borderSize
+    local heightAccum = borderSize
+    local widthLimitReached = false
+    local heightLimitReached = false
+
+    self._firstUnfitRow = false
+    self._firstUnfitCol = false
+
+    local largestWidths = {}
+    local largestHeights = {}
+    local lastFitRow = rowCount
+    local lastFitCol = colCount
+
+    for c = 1, colCount do
+        largestWidths[c] = 0
+    end
+
+    for r = 1, rowCount do
+        local nodeRows = nodes[r]
+        local rowConstraint = rowIndLookup[r]
+        rowConstraint = rowConstraint and rowConstraints[rowConstraint] or rowMaxConstraint
+        local rowMinSize = rowConstraint.MinSize
+        local rowMaxSize = rowConstraint.MaxSize
+        local rowEmptySize = rowConstraint.EmptySize
+
+        local largestHeight = 0
+
+        for c = 1, colCount do
+            local node = nodeRows[c]
+            local colConstraint = colIndLookup[c]
+            colConstraint = colConstraint and colConstraints[colConstraint] or colMaxConstraint
+
+            local nodeWidth
+            local nodeHeight
+
+            node._suppressInvalidateLayoutOnce = true
+
+            if heightLimitReached then
+                node._visible = false
+            else
+                node._visible = true
+
+                if node:isEmpty() then
+                    nodeWidth = colConstraint.EmptySize
+                    nodeHeight = rowEmptySize
+                else
+                    nodeWidth, nodeHeight = node:getTotalChildSize()
+
+                    nodeWidth = mathClamp( nodeWidth, colConstraint.MinSize, colConstraint.MaxSize )
+                    nodeHeight = mathClamp( nodeHeight, rowMinSize, rowMaxSize )
+                end
+
+                largestWidths[c] = mathMax( largestWidths[c], nodeWidth )
+                largestHeight = mathMax( largestHeight, nodeHeight )
+            end
+        end
+
+        largestHeights[r] = largestHeight
+
+        if not heightLimitReached then
+            heightAccum = heightAccum + largestHeight
+            rowLinePoss[r] = heightAccum -- Top edge of line
+            heightAccum = heightAccum + rowLineSize
+            heightLimitReached = heightAccum >= gridHeight
+
+            if heightLimitReached then
+                self._firstUnfitRow = r
+                lastFitRow = r - 1
+            end
+        end
+    end
+
+    for c = 1, colCount do
+        local largestWidth = largestWidths[c]
+
+        for r = 1, lastFitRow do
+            local node = nodes[r][c]
+
+            if widthLimitReached then
+                node._visible = false
+            else
+                if dontDistrbuteExtraSpace then
+                    local largestHeight = largestHeights[r]
+                    local rowLinePos = rowLinePoss[r]
+
+                    node:setSize( largestWidth, largestHeight )
+                    node:setPos( widthAccum, rowLinePos - largestHeight )
+                end
+            end
+        end
+
+        widthAccum = widthAccum + largestWidth
+        colLinePoss[c] = widthAccum -- Left edge of line
+        widthAccum = widthAccum + colLineSize
+        widthLimitReached = widthAccum >= gridWidth
+
+        if widthLimitReached then
+            self._firstUnfitCol = c
+            lastFitCol = c - 1
+        end
+    end
+
+    if dontDistrbuteExtraSpace then return end
+
+    local rowHeightDatas = not heightLimitReached and getDistributedSpace( rowCount, largestHeights, gridHeight - heightAccum )
+    local colWidthDatas = not widthLimitReached and getDistributedSpace( colCount, largestWidths, gridWidth - widthAccum )
+    local rowHeights = {}
+    local colWidths = {}
+
+    if rowHeightDatas then
+        heightAccum = borderSize
+
+        -- Restore ordering of rowHeightDatas to match original row ordering.
+        for i = 1, rowCount do
+            local rowHeightData = rowHeightDatas[i]
+
+            rowHeights[rowHeightData.Index] = rowHeightData.Size
+        end
+
+        -- Update rowLinePoss to match new row heights.
+        for r = 1, rowCount do
+            local rowHeight = rowHeights[r]
+
+            heightAccum = heightAccum + rowHeight
+            rowLinePoss[r] = heightAccum -- Top edge of line
+            heightAccum = heightAccum + rowLineSize
+        end
+    else
+        rowHeights = largestHeights
+    end
+
+    if colWidthDatas then
+        widthAccum = borderSize
+
+        -- Restore ordering of colWidthDatas to match original col ordering.
+        for i = 1, colCount do
+            local colWidthData = colWidthDatas[i]
+
+            colWidths[colWidthData.Index] = colWidthData.Size
+        end
+
+        -- Update colLinePoss to match new col widths.
+        for c = 1, colCount do
+            local colWidth = colWidths[c]
+
+            widthAccum = widthAccum + colWidth
+            colLinePoss[c] = widthAccum -- Left edge of line
+            widthAccum = widthAccum + colLineSize
+        end
+    else
+        colWidths = largestWidths
+    end
+
+    -- Apply new sizes to nodes.
+    for r = 1, lastFitRow do
+        local nodeRows = nodes[r]
+        local rowHeight = rowHeights[r]
+        local rowLinePos = rowLinePoss[r]
+
+        for c = 1, lastFitCol do
+            local node = nodeRows[c]
+            local colWidth = colWidths[c]
+            local colLinePos = colLinePoss[c]
+
+            node:setSize( colWidth, rowHeight )
+            node:setPos( colLinePos - colWidth, rowLinePos - rowHeight )
+        end
+    end
+end
+
+function Grid:handleDraw()
+    local rowLineSize = self:getRowLineSize()
+    local rowLineColor = self:getRowLineColor()
+    local rowLinesInvisible = rowLineSize == 0 or rowLineColor.a == 0
+
+    local colLineSize = self:getColLineSize()
+    local colLineColor = self:getColLineColor()
+    local colLinesInvisible = colLineSize == 0 or colLineColor.a == 0
+
+    if rowLinesInvisible and colLinesInvisible then return end
+
+    local borderSize = self:getBorderSize()
+    local borderSizeDouble = borderSize * 2
+    local gridPosX, gridPosY = self:getPosEffective()
+
+    if not rowLinesInvisible then
+        local linesToDraw = ( self._firstUnfitRow or self:getRowCount() ) - 1
+        local linePoss = self._rowLinePoss
+        local lineLength = self:getWidth() - borderSizeDouble
+        local rowX = gridPosX + borderSize
+
+        renderSetColor( rowLineColor )
+
+        for i = 1, linesToDraw do
+            renderDrawRectFast( rowX, gridPosY + linePoss[i], lineLength, rowLineSize )
+        end
+    end
+
+    if not colLinesInvisible then
+        local linesToDraw = ( self._firstUnfitCol or self:getColCount() ) - 1
+        local linePoss = self._colLinePoss
+        local lineLength = self:getHeight() - borderSizeDouble
+        local colY = gridPosY + borderSize
+
+        renderSetColor( colLineColor )
+
+        for i = 1, linesToDraw do
+            renderDrawRectFast( gridPosX + linePoss[i], colY, colLineSize, lineLength )
+        end
+    end
+end
+
+function Grid:rerouteChild( child )
+    if not self._nodeLookup[child] then error( "You cannot parent to a Grid, use grid:add() instead" ) end
+
+    return self
+end
+
+function Grid:setBackgroundRadius()
+    return Grid.super.setBackgroundRadius( self, 0 )
+end
+
+function Grid:getStencilBounds()
+    if not self:doesUseStencil() then return false end
+
+    return self:getBoundsEffective()
+end
+
+function Grid:canDraggableParentToMe( _draggable )
+    return false -- Drag parenting state gets passed down to grid nodes
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+buildConstraints = function( constraints )
+    local definedInds = {}
+    local definedIndCount = 0
+    local definedIndMin = math.huge
+    local definedIndMax = -math.huge
+
+    for ind in pairs( constraints ) do
+        if type( ind ) == "number" then
+            if ind < 1 then error( "Expected constraints to only contain positive indices" ) end
+            if ind ~= mathFloor( ind ) then error( "Expected constraints to only contain integer indices" ) end
+
+            definedIndCount = definedIndCount + 1
+            definedInds[definedIndCount] = ind
+            definedIndMin = mathMin( definedIndMin, ind )
+            definedIndMax = mathMax( definedIndMax, ind )
+        end
+    end
+
+    table.sort( definedInds )
+
+    local indMappings = {}
+
+    if definedIndMin ~= 1 then
+        for i = 1, definedIndMin - 1 do
+            indMappings[i] = definedIndMin
+        end
+    end
+
+    local nextDefinedInd = definedInds[1]
+
+    for i = 1, definedIndCount - 1 do
+        local definedInd = nextDefinedInd
+        nextDefinedInd = definedInds[i + 1]
+
+        for i2 = definedInd, nextDefinedInd - 1 do
+            indMappings[i2] = definedInd
+        end
+    end
+
+    indMappings[definedIndMax] = definedIndMax
+
+    local newConstraints = {
+        IndexLookup = indMappings,
+        MaxIndex = definedIndMax,
+    }
+
+    for i = 1, definedIndCount do
+        local ind = definedInds[i]
+        local oldConstraint = constraints[ind]
+
+        local minSize = mathMax( oldConstraint.MinSize or 5, 0 )
+        local maxSize = mathMax( oldConstraint.MaxSize or math.huge, 0 )
+        local emptySize = mathMax( oldConstraint.EmptySize or 20, 0 )
+
+        if minSize > 1 then
+            minSize = mathFloor( minSize )
+        end
+
+        if maxSize > 1 then
+            maxSize = mathFloor( maxSize )
+        end
+
+        if emptySize > 1 then
+            emptySize = mathFloor( emptySize )
+        end
+
+        if maxSize < minSize then
+            local swap = maxSize
+            maxSize = minSize
+            minSize = swap
+        end
+
+        local newConstraint = {
+            MinSize = minSize,
+            MaxSize = maxSize,
+            EmptySize = emptySize,
+        }
+
+        newConstraints[ind] = newConstraint
+    end
+
+    return newConstraints
+end
+
+makeNode = function( grid, rowInd, colInd )
+    local node = GridNode:new( grid, rowInd, colInd )
+    grid._nodeLookup[node] = true
+    node:setParent( grid )
+    node:setUseStencil( grid:doesUseStencil() )
+
+    return node
+end
+
+getDistributedSpace = function( sliverCount, sliverSizes, remainingSize )
+    local sizeDatas = {}
+
+    for i = 1, sliverCount do
+        sizeDatas[i] = {
+            Size = sliverSizes[i],
+            Index = i,
+        }
+    end
+
+    table.sortByMember( sizeDatas, "Size", true )
+
+    local largestSize = sizeDatas[sliverCount].Size
+
+    for i = 1, sliverCount do
+        local sizeData = sizeDatas[i]
+        local size = sizeData.Size
+        local amountToAdd = mathMin( remainingSize, largestSize - size )
+
+        sizeData.Size = size + amountToAdd
+        remainingSize = remainingSize - amountToAdd
+
+        if remainingSize == 0 then break end
+    end
+
+    if remainingSize ~= 0 then
+        local amountToAdd = mathFloor( remainingSize / sliverCount )
+
+        for i = 1, sliverCount do
+            sizeDatas[i].Size = sizeDatas[i].Size + amountToAdd
+        end
+    end
+
+    return sizeDatas
+end
+
+
+----- SETUP -----
+

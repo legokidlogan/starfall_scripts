@@ -1,0 +1,135 @@
+--@name grid_node
+--@author legokidlogan
+--@client
+--@include lkl/sgui/panel.txt
+
+--[[
+    - SGUI.GridNode
+    - THIS IS AN INTERNAL CLASS, DO NOT USE
+--]]
+
+
+require( "lkl/sgui/panel.txt" )
+
+if SGUI.GridNode then return end -- Don't run twice
+
+
+SGUI.GridNode = class( "GridNode", SGUI.Panel )
+
+
+local GridNode = SGUI.GridNode
+
+
+----- STATIC FUNCTIONS -----
+
+function GridNode:initialize( grid, rowInd, colInd )
+    GridNode.super.initialize( self, nil )
+
+    self._rowInd = rowInd
+    self._colInd = colInd
+    self._grid = grid
+
+    self:setBorderAndInnerMargin( 0 )
+    self:setInvalidateWhenChildResizes( true )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function GridNode:setUseStencil( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if self._useStencil == state then return end
+
+    self._useStencil = state
+end
+
+function GridNode:doesUseStencil()
+    return self._useStencil
+end
+
+function GridNode:isEmpty()
+    return self._children[1] == nil
+end
+
+function GridNode:getRowIndex()
+    return self._rowInd
+end
+
+function GridNode:getColIndex()
+    return self._colInd
+end
+
+function GridNode:getGrid()
+    return self._grid
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function GridNode:destroy()
+    if self._grid then error( "Can't destroy a GridNode that's still in a grid!" ) end
+
+    GridNode.super.destroy( self )
+end
+
+function GridNode:onDestroyed()
+    self._gridNode_IsDestroying = true
+
+    GridNode.super.onDestroyed( self )
+end
+
+function GridNode:invalidateLayout()
+    if self._suppressInvalidateLayout then return end
+
+    if self._suppressInvalidateLayoutOnce then
+        self._suppressInvalidateLayoutOnce = nil
+
+        return
+    end
+
+    local grid = self:getGrid()
+    if not grid then return end
+
+    GridNode.super.invalidateLayout( self )
+    grid:invalidateLayout()
+end
+
+function GridNode:setDock()
+    -- Do nothing.
+end
+
+function GridNode:setExpand()
+    -- Do nothing.
+end
+
+function GridNode:setAnchor()
+    -- Do nothing.
+end
+
+function GridNode:setParent( parent )
+    if self:getParent() and not self._gridNode_IsDestroying then return end
+
+    GridNode.super.setParent( self, parent )
+end
+
+function GridNode:getStencilBounds()
+    if not self:doesUseStencil() then return false end
+
+    return self:getBoundsEffective()
+end
+
+function GridNode:canDraggableParentToMe( _draggable )
+    return self:getGrid()._dragParentingAllowed
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+

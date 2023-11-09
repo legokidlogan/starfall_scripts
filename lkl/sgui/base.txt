@@ -111,6 +111,12 @@ SGUI.COLOR_SCHEME_DEFAULT = ColorScheme:new( "SGUI", nil, nil, {
     ["ProgressBarBorder"] = Color( 40, 55, 105 ),
     ["ProgressBarProgress"] = Color( 100, 50, 100 ),
 
+    ["GridBackground"] = Color( 55, 65, 115 ), -- TODO: VERIFY
+    ["GridRowLine"] = Color( 70, 85, 130 ), -- TODO: VERIFY
+    ["GridColLine"] = Color( 70, 85, 130 ), -- TODO: VERIFY
+
+    ["GridNodeBackground"] = Color( 0, 0, 0, 0 ),
+
     --["DEFINEME"] = Color( 255, 255, 255 ),
 } )
 
