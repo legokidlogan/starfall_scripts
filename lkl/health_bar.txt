@@ -143,11 +143,10 @@ else
         self:_sharedInitialize( ent, doBorder )
 
         healthBarIncrement = healthBarIncrement + 1
-        local id = -healthBarIncrement
-        healthBarsByID[id] = self
+        healthBarsByID[healthBarIncrement] = self
         table.insert( allHealthBars, self )
 
-        self._id = id
+        self._id = healthBarIncrement
 
         self:setStyle( self.class.STYLE )
         self:setSize()
