@@ -85,36 +85,6 @@ function Placeable:isSyncedCopy()
     return self._id < 0
 end
 
-function Placeable:getPos()
-    local parent = self:getParent()
-    if isValid( parent ) then return parent:localToWorld( self._localPos ) end
-
-    return self._pos
-end
-
-function Placeable:getLocalPos()
-    if not isValid( self:getParent() ) then return self._pos end
-
-    return self._localPos
-end
-
-function Placeable:getAngles()
-    local parent = self:getParent()
-    if isValid( parent ) then return parent:localToWorldAngles( self._localAng ) end
-
-    return self._ang
-end
-
-function Placeable:getLocalAngles()
-    if not isValid( self:getParent() ) then return self._ang end
-
-    return self._localAng
-end
-
-function Placeable:getParent()
-    return self._parent
-end
-
 function Placeable:localToWorld( pos )
     if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
 
@@ -186,6 +156,19 @@ function Placeable:setPos( pos )
     end
 end
 
+function Placeable:getPos()
+    local parent = self:getParent()
+    if isValid( parent ) then return parent:localToWorld( self._localPos ) end
+
+    return self._pos
+end
+
+function Placeable:getLocalPos()
+    if not isValid( self:getParent() ) then return self._pos end
+
+    return self._localPos
+end
+
 -- Sets the angles of the Placeable.
 function Placeable:setAngles( ang )
     if type( ang ) ~= "Angle" then error( "Expected ang to be an Angle" ) end
@@ -209,6 +192,19 @@ function Placeable:setAngles( ang )
         net.writeAngle( ang )
         net.send()
     end
+end
+
+function Placeable:getAngles()
+    local parent = self:getParent()
+    if isValid( parent ) then return parent:localToWorldAngles( self._localAng ) end
+
+    return self._ang
+end
+
+function Placeable:getLocalAngles()
+    if not isValid( self:getParent() ) then return self._ang end
+
+    return self._localAng
 end
 
 --[[
@@ -265,6 +261,10 @@ function Placeable:setParent( ent )
         net.writeAngle( localAng or Angle() )
         net.send()
     end
+end
+
+function Placeable:getParent()
+    return self._parent
 end
 
 
