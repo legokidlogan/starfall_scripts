@@ -4,6 +4,7 @@
 --@include lkl/placeable.txt
 --@include lkl/global_whitelist.txt
 --@include lkl/prop_buffer.txt
+--@include lkl/math/vector_math.txt
 
 --[[
     - TODO
@@ -23,6 +24,7 @@ if SERVER then
     propBuffer.storePos = propBuffer.storePos or Vector( 0, 0, -4000 )
 
     require( "lkl/prop_buffer.txt" )
+    require( "lkl/math/vector_math.txt" )
 end
 
 
@@ -937,13 +939,7 @@ if SERVER then
         local spread = self:getBulletSpread()
         if spread == 0 then return dir end
 
-        local spreadYaw = math.rand( -spread, spread ) * 180
-        local spreadPitch = math.rand( -spread, spread ) * 180
-
-        dir = dir:rotateAroundAxis( dir:getAngle():getUp(), spreadYaw )
-        dir = dir:rotateAroundAxis( dir:getAngle():getRight(), spreadPitch )
-
-        return dir
+        return vectorMath.spreadVector( dir, spread * 180 )
     end
 end
 
