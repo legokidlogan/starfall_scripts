@@ -27,7 +27,6 @@ local placeableIncrement = 0
 local placeableParents = {}
 local placeableParentLookup = {}
 local checkForPosAngChanges
-local getRootParent
 
 
 ----- STATIC FUNCTIONS -----
@@ -381,55 +380,6 @@ checkForPosAngChanges = function( placeable )
     placeable._parentPrevPos = parentPos
     placeable._parentPrevAng = parentAng
     placeable:onPosAngChanged( prevPos, prevAng )
-end
-
-if SERVER then
-    getRootParent = function( ent )
-        local parent = ent:getParent()
-        if not isValid( parent ) then return ent end
-
-        return getRootParent( parent )
-    end
-
-    function Placeable:_getShootDir()
-        local target = self:getTarget()
-        local velAccount = self:getTargetVelAccount()
-
-        if isValid( target ) then
-            local shootPos = self:getShootWorldPos()
-            local targetPos = target:obbCenterW()
-
-            if velAccount ~= 0 then
-                local targetVel = target:getVelocity()
-
-                if target.inVehicle and target:inVehicle() then
-                    targetVel = getRootParent( target:getVehicle() ):getVelocity()
-                end
-
-                local dist = shootPos:getDistance( targetPos )
-                targetPos = targetPos + targetVel * velAccount * dist / self:getBulletSpeed()
-            end
-
-            return ( targetPos - shootPos ):getNormalized()
-        end
-
-        local headAng = self:getHeadWorldAngles()
-
-        return headAng:getForward()
-    end
-
-    function Placeable:_spreadDir( dir )
-        local spread = self:getBulletSpread()
-        if spread == 0 then return dir end
-
-        local spreadYaw = math.rand( -spread, spread ) * 180
-        local spreadPitch = math.rand( -spread, spread ) * 180
-
-        dir = dir:rotateAroundAxis( dir:getAngle():getUp(), spreadYaw )
-        dir = dir:rotateAroundAxis( dir:getAngle():getRight(), spreadPitch )
-
-        return dir
-    end
 end
 
 
