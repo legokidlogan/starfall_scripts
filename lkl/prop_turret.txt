@@ -712,7 +712,7 @@ end
     - Can safely be made different between server and client.
     - Note that prevTarget will always be nil on the first call.
 --]]
-function PropTurret:onSetTarget( prevTarget )
+function PropTurret:onSetTarget( _prevTarget )
 
 end
 
@@ -721,7 +721,7 @@ end
     - Caused by :setPos(), :setAngles(), :setParent(), or the parent Entity moving.
     -- Can safely be made different between server and client.
 --]]
-function PropTurret:onPosAngChanged( prevPos, prevAng )
+function PropTurret:onPosAngChanged( _prevPos, _prevAng )
 
 end
 
@@ -731,7 +731,7 @@ end
     - Can safely be made different between server and client.
     - Note that prevPos will always be nil on the first call.
 --]]
-function PropTurret:onSetPos( prevPos )
+function PropTurret:onSetPos( _prevPos )
 
 end
 
@@ -741,7 +741,7 @@ end
     - Can safely be made different between server and client.
     - Note that prevAng will always be nil on the first call.
 --]]
-function PropTurret:onSetAngles( prevAng )
+function PropTurret:onSetAngles( _prevAng )
 
 end
 
@@ -750,7 +750,7 @@ end
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
 --]]
-function PropTurret:onSetParent( prevParent )
+function PropTurret:onSetParent( _prevParent )
 
 end
 
@@ -760,7 +760,7 @@ end
     - Can safely be made different between server and client.
     - Note that prevHeadPos will always be nil on the first call.
 --]]
-function PropTurret:onSetHeadPos( prevHeadPos )
+function PropTurret:onSetHeadPos( _prevHeadPos )
 
 end
 
@@ -770,7 +770,7 @@ end
     - Can safely be made different between server and client.
     - Note that prevHeadAng will always be nil on the first call.
 --]]
-function PropTurret:onSetHeadAngles( prevHeadAng )
+function PropTurret:onSetHeadAngles( _prevHeadAng )
 
 end
 
@@ -780,7 +780,7 @@ end
     - Can safely be made different between server and client.
     - Note that prevShootPos will always be nil on the first call.
 --]]
-function PropTurret:onSetShootPos( prevShootPos )
+function PropTurret:onSetShootPos( _prevShootPos )
 
 end
 
@@ -791,7 +791,7 @@ end
 
     bullets: A table of bullet props that were shot.
 --]]
-function PropTurret:onShoot( bullets )
+function PropTurret:onShoot( _bullets )
 
 end
 
@@ -832,7 +832,7 @@ if SERVER then
         - For each bullet that gets shot, this is called the first time it collides with something.
         - If the bullet is an explosive prop going at high speed, it will likely explode first and not reach this callback.
     --]]
-    function PropTurret:onBulletImpact( bullet, colData )
+    function PropTurret:onBulletImpact( _bullet, _colData )
 
     end
 
@@ -840,7 +840,7 @@ if SERVER then
         - For each bullet that gets shot, this is called when it's stored (despawned).
         - This is called after the bullet has been removed from the active list.
     --]]
-    function PropTurret:onStoreBullet( bullet )
+    function PropTurret:onStoreBullet( _bullet )
 
     end
 
