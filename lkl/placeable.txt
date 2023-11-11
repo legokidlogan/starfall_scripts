@@ -17,7 +17,7 @@ require( "lkl/perf_check.txt" )
 Placeable = class( "Placeable", Destroyable )
 
 -- These static vars can be overridden by subclasses, but not by instances.
-Placeable.static.NET_ENABLED = false -- Whether or not to network the Placeable.
+Placeable.static.SERVER_REPLICATE_ON_CLIENT = false -- Whether or not serverside Placeables should be replicated on client.
 Placeable.static.THINK_PERF_LIMIT = 0.9 -- :think() calls will be skipped when the chip's fractional quota exceeds this amount.
 
 
@@ -41,30 +41,24 @@ function Placeable.static:getByID( id )
 end
 
 
-if SERVER then
-    function Placeable:initialize( pos, ang )
-        table.insert( allPlaceables, self )
+function Placeable:initialize( pos, ang )
+    table.insert( allPlaceables, self )
 
-        placeableIncrement = placeableIncrement + 1
-        placeablesByID[placeableIncrement] = self
-        self._id = placeableIncrement
+    placeableIncrement = placeableIncrement + 1
+    placeablesByID[placeableIncrement] = self
+    self._id = placeableIncrement
 
-        if self:isNetEnabled() then
-            net.start( "LKL_Placeable_Create" )
-            net.writeUInt( placeableIncrement, 16 )
-            net.writeString( self.class.name )
-            net.send()
-        end
-
-        self:setPos( pos )
-        self:setAngles( ang )
+    if self:isReplicatedOnClient() then
+        net.start( "LKL_Placeable_Create" )
+        net.writeUInt( placeableIncrement, 16 )
+        net.writeString( self.class.name )
+        net.writeVector( pos )
+        net.writeAngle( ang )
+        net.send()
     end
-else
-    -- Placeables can be made manually on client, but they will not be synced with or exist on the server.
-    function Placeable:initialize()
-        self._id = -1
-        table.insert( allPlaceables, self )
-    end
+
+    self:setPos( pos )
+    self:setAngles( ang )
 end
 
 
@@ -78,6 +72,18 @@ function Placeable:getTimerName( timerName )
     if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
 
     return timerName .. "_" .. self:getID()
+end
+
+function Placeable:isReplicatedOnClient()
+    if CLIENT then return false end
+
+    return self.class.SERVER_REPLICATE_ON_CLIENT
+end
+
+function Placeable:isSyncedCopy()
+    if SERVER then return false end
+
+    return self._id < 0
 end
 
 function Placeable:getPos()
@@ -173,7 +179,7 @@ function Placeable:setPos( pos )
     self:onSetPos( prevPos )
     self:onPosAngChanged( prevPos, self:getAngles() )
 
-    if SERVER and self:isNetEnabled() then
+    if self:isReplicatedOnClient() then
         net.start( "LKL_Placeable_SetPos" )
         net.writeUInt( self:getID(), 16 )
         net.writeVector( pos )
@@ -198,7 +204,7 @@ function Placeable:setAngles( ang )
     self:onSetAngles( prevAng )
     self:onPosAngChanged( self:getPos(), prevAng )
 
-    if SERVER and self:isNetEnabled() then
+    if self:isReplicatedOnClient() then
         net.start( "LKL_Placeable_SetAngles" )
         net.writeUInt( self:getID(), 16 )
         net.writeAngle( ang )
@@ -252,39 +258,13 @@ function Placeable:setParent( ent )
     self:onSetParent( prevParent )
     self:onPosAngChanged( worldPos, worldAng )
 
-    if SERVER and self:isNetEnabled() then
+    if self:isReplicatedOnClient() then
         net.start( "LKL_Placeable_SetParent" )
         net.writeUInt( self:getID(), 16 )
         net.writeEntity( ent or game.getWorld() )
         net.writeVector( localPos or Vector() )
         net.writeAngle( localAng or Angle() )
         net.send()
-    end
-end
-
-
-if SERVER then
-    function Placeable:destroy()
-        table.removeByValue( allPlaceables, self )
-
-        if self:isNetEnabled() then
-            net.start( "LKL_Placeable_Destroy" )
-            net.writeUInt( self:getID(), 16 )
-            net.send()
-        end
-
-        Placeable.super.destroy( self )
-    end
-
-    function Placeable:isNetEnabled()
-        return self.class.NET_ENABLED
-    end
-else
-    function Placeable:destroy()
-        if self:getID() ~= -1 then error( "Synced Placeables cannot be destroyed manually in the client realm" ) end
-
-        table.removeByValue( allPlaceables, self )
-        Placeable.super.destroy( self )
     end
 end
 
@@ -344,10 +324,43 @@ function Placeable:onSetParent( _prevParent )
 end
 
 
+if SERVER then
+    -- Called when a synced serverside Placeable fails to replicate to a client.
+    function Placeable:onReplicationFailed( _ply, _err )
+
+    end
+end
+
+
 ----- IMPLEMENTED FUNCTIONS -----
 
 function Placeable:tostringInner()
     return "ID " .. self:getID()
+end
+
+function Placeable:destroy()
+    if self:isSyncedCopy() then error( "Synced Placeables cannot be destroyed manually in the client realm" ) end
+
+    table.removeByValue( allPlaceables, self )
+    placeablesByID[self:getID()] = nil
+
+    local children = self._placeable_Children
+
+    if children then
+        for _, placeable in ipairs( children ) do
+            if isValid( placeable ) and not placeable:isSyncedCopy() then
+                placeable:destroy()
+            end
+        end
+    end
+
+    if self:isReplicatedOnClient() then
+        net.start( "LKL_Placeable_Destroy" )
+        net.writeUInt( self:getID(), 16 )
+        net.send()
+    end
+
+    Placeable.super.destroy( self )
 end
 
 
@@ -431,77 +444,116 @@ hook.add( "think", "LKL_Placeable_Think", function()
     end
 end )
 
+hook.add( "EntityRemoved", "LKL_Placeable_DestroyChildren", function( ent )
+    if not placeableParentLookup[ent] then return end
+
+    table.removeByValue( placeableParents, ent )
+    placeableParentLookup[ent] = nil
+
+    local children = ent._placeable_Children
+
+    for _, placeable in ipairs( children ) do
+        if isValid( placeable ) and not placeable:isSyncedCopy() then
+            placeable:destroy()
+        end
+    end
+end )
+
+
 if SERVER then
-    hook.add( "EntityRemoved", "LKL_Placeable_DestroyChildrenTurrets", function( ent )
-        if not placeableParentLookup[ent] then return end
-
-        local children = ent._placeable_Children
-
-        for _, placeable in ipairs( children ) do
-            if isValid( placeable ) then
-                placeable:destroy()
-            end
-        end
-
-        table.removeByValue( placeableParents, ent )
-        placeableParentLookup[ent] = nil
-    end )
-else
-    net.receive( "LKL_Placeable_Create", function()
+    net.receive( "LKL_Placeable_FailedToReplicate", function( _, ply )
         local id = net.readUInt( 16 )
-        local classObj = _G[net.readString()]
-        local placeable = classObj:new()
+        local err = net.readString()
 
-        placeable._id = id
-        placeablesByID[id] = placeable
-    end )
-
-    net.receive( "LKL_Placeable_Destroy", function()
-        local id = net.readUInt( 16 )
         local placeable = Placeable:getByID( id )
-        if not placeable then print( "Tried to :destroy() an invalid Placeable id " .. id ) return end
+        if not placeable then return end
 
-        Placeable.super.destroy( placeable )
+        placeable:onReplicationFailed( ply, err )
+
+        print( "Failed to replicate Placeable " .. id .. " to " .. tostring( ply ) .. ": " .. err )
     end )
 
-    net.receive( "LKL_Placeable_SetPos", function()
-        local id = net.readUInt( 16 )
-        local placeable = Placeable:getByID( id )
-        if not placeable then print( "Tried to :setPos() on an invalid Placeable id " .. id ) return end
-
-        placeable:setPos( net.readVector() )
-    end )
-
-    net.receive( "LKL_Placeable_SetAngles", function()
-        local id = net.readUInt( 16 )
-        local placeable = Placeable:getByID( id )
-        if not placeable then print( "Tried to :setAngles() on an invalid Placeable id " .. id ) return end
-
-        placeable:setAngles( net.readAngle() )
-    end )
-
-    net.receive( "LKL_Placeable_SetParent", function()
-        local id = net.readUInt( 16 )
-        local placeable = Placeable:getByID( id )
-        if not placeable then print( "Tried to :setParent() on an invalid Placeable id " .. id ) return end
-
-        local parent = net.readEntity()
-        parent = isValid( parent ) and parent or nil
-
-        if not parent then
-            placeable:setParent( nil )
-
-            return
-        end
-
-        local localPos = net.readVector()
-        local localAng = net.readAngle()
-
-        placeable._parent = nil
-        placeable._pos = localPos
-        placeable._ang = localAng
-
-        placeable:setParent( parent )
-    end )
+    return
 end
 
+
+net.receive( "LKL_Placeable_Create", function()
+    local id = net.readUInt( 16 )
+    local classObj = _G[net.readString()]
+    local pos = net.readVector()
+    local ang = net.readAngle()
+
+    local placeable
+    local success, err = pcall( function()
+        placeable = classObj:new( pos, ang )
+    end )
+
+    if not success then
+        err = type( err ) == "table" and tostring( err.message ) or tostring( err )
+
+        net.start( "LKL_Placeable_FailedToReplicate" )
+        net.writeUInt( id, 16 )
+        net.writeString( err )
+        net.send()
+
+        return
+    end
+
+    placeablesByID[placeable._id] = nil
+    placeableIncrement = placeableIncrement - 1
+    id = -id
+    placeablesByID[id] = placeable
+    placeable._id = id
+end )
+
+net.receive( "LKL_Placeable_Destroy", function()
+    local id = -net.readUInt( 16 )
+    local placeable = Placeable:getByID( id )
+    if not placeable then print( "Tried to :destroy() an invalid Placeable id " .. id ) return end
+
+    function placeable:isSyncedCopy()
+        return false
+    end
+
+    Placeable.super.destroy( placeable )
+end )
+
+net.receive( "LKL_Placeable_SetPos", function()
+    local id = -net.readUInt( 16 )
+    local placeable = Placeable:getByID( id )
+    if not placeable then print( "Tried to :setPos() on an invalid Placeable id " .. id ) return end
+
+    placeable:setPos( net.readVector() )
+end )
+
+net.receive( "LKL_Placeable_SetAngles", function()
+    local id = -net.readUInt( 16 )
+    local placeable = Placeable:getByID( id )
+    if not placeable then print( "Tried to :setAngles() on an invalid Placeable id " .. id ) return end
+
+    placeable:setAngles( net.readAngle() )
+end )
+
+net.receive( "LKL_Placeable_SetParent", function()
+    local id = -net.readUInt( 16 )
+    local placeable = Placeable:getByID( id )
+    if not placeable then print( "Tried to :setParent() on an invalid Placeable id " .. id ) return end
+
+    local parent = net.readEntity()
+    parent = isValid( parent ) and parent or nil
+
+    if not parent then
+        placeable:setParent( nil )
+
+        return
+    end
+
+    local localPos = net.readVector()
+    local localAng = net.readAngle()
+
+    placeable._parent = nil
+    placeable._pos = localPos
+    placeable._ang = localAng
+
+    placeable:setParent( parent )
+end )

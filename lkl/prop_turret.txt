@@ -174,7 +174,7 @@ if SERVER then
         self._autoTarget = enabled
         self:onAutoTargetChanged()
 
-        if self:isNetEnabled() then
+        if self:isReplicatedOnClient() then
             net.start( "LKL_PropTurret_SetAutoTarget" )
             net.writeUInt( self:getID(), 16 )
             net.writeBool( enabled )
@@ -191,7 +191,7 @@ if SERVER then
         self._target = target
         self:onSetTarget( prevTarget )
 
-        if self:isNetEnabled() then
+        if self:isReplicatedOnClient() then
             net.start( "LKL_PropTurret_SetTarget" )
             net.writeUInt( self:getID(), 16 )
             net.writeEntity( target or game.getWorld() )
@@ -304,7 +304,7 @@ if SERVER then
         table.add( self._activeBullets, bullets )
         self:onShoot( bullets )
 
-        if self:isNetEnabled() then
+        if self:isReplicatedOnClient() then
             net.start( "LKL_PropTurret_Shoot" )
             net.writeUInt( self:getID(), 16 )
             net.writeTable( bullets )
@@ -453,7 +453,7 @@ if SERVER then
         self._headPos = pos
         self:onSetHeadPos( prevHeadPos )
 
-        if self:isNetEnabled() then
+        if self:isReplicatedOnClient() then
             net.start( "LKL_PropTurret_SetHeadPos" )
             net.writeUInt( self:getID(), 16 )
             net.writeVector( pos )
@@ -481,7 +481,7 @@ if SERVER then
         self._headAng = ang
         self:onSetHeadAngles( prevHeadAng )
 
-        if self:isNetEnabled() then
+        if self:isReplicatedOnClient() then
             net.start( "LKL_PropTurret_SetHeadAngles" )
             net.writeUInt( self:getID(), 16 )
             net.writeAngle( ang )
@@ -515,7 +515,7 @@ if SERVER then
         self._shootPos = pos
         self:onSetShootPos( prevShootPos )
 
-        if self:isNetEnabled() then
+        if self:isReplicatedOnClient() then
             net.start( "LKL_PropTurret_SetShootPos" )
             net.writeUInt( self:getID(), 16 )
             net.writeVector( pos )
