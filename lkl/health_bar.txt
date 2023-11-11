@@ -587,9 +587,12 @@ function HealthBar:handleCustomStyle()
 
 end
 
--- Called when a synced serverside HealthBar fails to replicate to a client.
-function HealthBar:onReplicationFailed( _ply, _err )
 
+if SERVER then
+    -- Called when a synced serverside HealthBar fails to replicate to a client.
+    function HealthBar:onReplicationFailed( _ply, _err )
+
+    end
 end
 
 
