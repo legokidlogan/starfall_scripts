@@ -310,7 +310,7 @@ end
     - Caused by :setPos(), :setAngles(), :setParent(), or the parent Entity moving.
     -- Can safely be made different between server and client.
 --]]
-function Placeable:onPosAngChanged( prevPos, prevAng )
+function Placeable:onPosAngChanged( _prevPos, _prevAng )
 
 end
 
@@ -320,7 +320,7 @@ end
     - Can safely be made different between server and client.
     - Note that prevPos will always be nil on the first call.
 --]]
-function Placeable:onSetPos( prevPos )
+function Placeable:onSetPos( _prevPos )
 
 end
 
@@ -330,7 +330,7 @@ end
     - Can safely be made different between server and client.
     - Note that prevAng will always be nil on the first call.
 --]]
-function Placeable:onSetAngles( prevAng )
+function Placeable:onSetAngles( _prevAng )
 
 end
 
@@ -339,7 +339,7 @@ end
     - Used for updating props, holograms, etc.
     - Can safely be made different between server and client.
 --]]
-function Placeable:onSetParent( prevParent )
+function Placeable:onSetParent( _prevParent )
 
 end
 
