@@ -1,0 +1,585 @@
+--@name Hitbox
+--@author legokidlogan
+--@server
+--@include lkl/placeable.txt
+--@include lkl/linked_create.txt
+--@include lkl/prop_to_holo_spawner.txt
+
+if Hitbox then return end
+
+require( "lkl/placeable.txt" )
+require( "lkl/linked_create.txt" )
+require( "lkl/prop_to_holo_spawner.txt" )
+
+
+Hitbox = class( "Hitbox", Placeable )
+
+-- These can be overridden per-instance, but only on initialization.
+Hitbox.static.HITBOX_PROP_MODEL = "models/hunter/blocks/cube025x025x025.mdl" -- The model of the hitbox prop.
+
+Hitbox.static.HITBOX_PTH_STRING = "" -- Replace with a result from require( "pth/.../somefile.txt" ) to use Prop To Holo visuals.
+Hitbox.static.HITBOX_PTH_SCALE = Vector( 1, 1, 1 )
+
+-- These can be overridden on a per-instance basis.
+Hitbox.static.HITBOX_PROP_OFFSET_POS = Vector( 0, 0, 0 ) -- Local offsets for the prop relative to the Hitbox instance.
+Hitbox.static.HITBOX_PROP_OFFSET_ANG = Angle( 0, 0, 0 )
+Hitbox.static.HITBOX_PROP_MASS = 2000
+Hitbox.static.HITBOX_PROP_COLOR = Color( 255, 255, 255, 255 )
+Hitbox.static.HITBOX_PROP_MATERIAL = ""
+
+Hitbox.static.HITBOX_PTH_OFFSET_POS = Vector( 0, 0, 0 ) -- Local offsets for the PTH holo relative to the hitbox prop.
+Hitbox.static.HITBOX_PTH_OFFSET_ANG = Angle( 0, 0, 0 )
+
+Hitbox.static.RESPAWN_TIMEOUT = 5 -- The amount of time to wait before giving up on respawning the hitbox.
+
+
+local MODEL_CUBE = "models/hunter/blocks/cube025x025x025.mdl"
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    pos: (Vector)
+        - The position of the Hitbox.
+    ang: (Angle)
+        - The angle of the Hitbox.
+    hitboxModel: (optional) (string)
+        - Overrides the HITBOX_PROP_MODEL static variable for this instance.
+    pthString: (optional) (string)
+        - Overrides the HITBOX_PTH_STRING static variable for this instance.
+        - If the result is an empty string, then no PTH or related properties will be used.
+    pthScale: (optional) (Vector)
+        - Overrides the HITBOX_PTH_SCALE static variable for this instance.
+
+    - Note: If you create a Hitbox subclass:
+        - Always call YourClass.super.initialize( self, pos, ang ) at the start of your initialize function.
+        - Always have pos, ang as the first arguments to your initialize function.
+            - This expectation is needed for :respawn() to work.
+--]]
+function Hitbox:initialize( pos, ang, hitboxModel, pthString, pthScale )
+    Hitbox.super.initialize( self, pos, ang )
+
+    hitboxModel = hitboxModel or self.class.HITBOX_PROP_MODEL
+    if type( hitboxModel ) ~= "string" then error( "Expected hitboxModel to resolve to a string" ) end
+
+    pthString = pthString or self.class.HITBOX_PTH_STRING
+    if type( pthString ) ~= "string" then error( "Expected pthString to resolve to a string" ) end
+
+    pthScale = pthScale or self.class.HITBOX_PTH_SCALE
+    if type( pthScale ) ~= "Vector" then error( "Expected pthScale to resolve to a Vector" ) end
+
+    self._respawnRetainedValues = self._respawnRetainedValues or {}
+    self._respawnRetainedClassValues = self._respawnRetainedClassValues or {}
+
+    self:retainClassValueOnRespawn( "HITBOX_PROP_MODEL", hitboxModel )
+    self:retainClassValueOnRespawn( "HITBOX_PTH_STRING", pthString )
+    self:retainClassValueOnRespawn( "HITBOX_PTH_SCALE", pthScale )
+
+    local dontDoPTH = pthString == ""
+
+    if dontDoPTH then
+        self._hitboxPTHHolosReady = true
+
+        self:_spawnHitboxProp( hitboxModel )
+
+        return
+    end
+
+    local linkedEnts = {}
+
+    local hitboxPTHHolo = linkedCreate.holo( Vector(), Angle(), MODEL_CUBE, Vector( 0.01 ), linkedEnts )
+    if not hitboxPTHHolo then error( "Failed to initialize " .. self.class.name ) end
+    self._hitboxPTHHolo = hitboxPTHHolo
+    hitboxPTHHolo._isCriticalHolo = true
+    hitboxPTHHolo._hitbox_HitboxObject = self
+    hitboxPTHHolo:setColor( Color( 0, 0, 0, 0 ) )
+
+    local hitboxPTHHoloQueueID = pthSpawner.spawn( Vector(), Angle(), pthString, function( holos )
+        self._hitboxPTHHolos = holos
+
+        for _, holo in pairs( holos ) do
+            holo:setParent( hitboxPTHHolo )
+        end
+
+        self._hitboxPTHHolosReady = true
+        self:becomeReady()
+    end, pthScale )
+    self._hitboxPTHHoloQueueID = hitboxPTHHoloQueueID
+
+    if not hitboxPTHHoloQueueID then
+        for _, ent in ipairs( linkedEnts ) do
+            ent:remove()
+        end
+
+        if hitboxPTHHoloQueueID then
+            pthSpawner.cancel( hitboxPTHHoloQueueID )
+        end
+
+        error( "Failed to initialize " .. self.class.name )
+    end
+
+    self:_spawnHitboxProp( hitboxModel )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Hitbox:isReady()
+    return self._ready
+end
+
+function Hitbox:isHitboxPropDestroyed()
+    return self._hitboxPropIsDestroyed
+end
+
+function Hitbox:isHitboxPTHHoloDestroyed()
+    return self._hitboxPTHHoloIsDestroyed
+end
+
+function Hitbox:getHitboxProp()
+    return self._hitboxProp
+end
+
+function Hitbox:getHitboxPTHHolo()
+    return self._hitboxPTHHolo
+end
+
+function Hitbox:getHitboxPTHHolos()
+    return self._hitboxPTHHolos
+end
+
+function Hitbox:getHitboxPropWorldPosAng()
+    return self:localToWorldPosAng( self:getHitboxPropOffsetPos(), self:getHitboxPropOffsetAng() )
+end
+
+function Hitbox:getHitboxPTHWorldPosAng()
+    local hitboxProp = self:getHitboxProp()
+    local hitboxPropWorldPos = hitboxProp:getPos()
+    local hitboxPropWorldAng = hitboxProp:getAngles()
+
+    return localToWorld( self:getHitboxPTHOffsetPos(), self:getHitboxPTHOffsetAng(), hitboxPropWorldPos, hitboxPropWorldAng )
+end
+
+--[[
+    - Sets the position and angle of the Hitbox based on its prop's location and offsets.
+    - Useful if you have the hitbox prop moving freely and you want the Hitbox to follow it.
+    - Unless you perform calculations from Hitbox:getPos() and Hitbox:getAngles(), or the Hitbox is about to respawn, this has no significant impact.
+--]]
+function Hitbox:setPosAngToMatchHitboxProp()
+    local hitboxProp = self:getHitboxProp()
+    local hitboxPropWorldPos = hitboxProp:getPos()
+    local hitboxPropWorldAng = hitboxProp:getAngles()
+
+    local hitboxPropIntendedPos, hitboxPropIntendedAng = self:getHitboxPropWorldPosAng()
+    local posLocal, angLocal = worldToLocal( self:getPos(), self:getAngles(), hitboxPropIntendedPos, hitboxPropIntendedAng )
+
+    local pos, ang = localToWorld( posLocal, angLocal, hitboxPropWorldPos, hitboxPropWorldAng )
+
+    self:setPos( pos )
+    self:setAngles( ang )
+end
+
+--[[
+    - Will cause the Hitbox to retain a value when it is respawned.
+    - Note that position and angle of the Hitbox itself are retained automatically.
+    - The setter functions will run right after the new Hitbox is created, so they will likely call while :isReady() is false.
+        - This may or may not complicate certain setter functions, depending on what they do.
+
+    setterFuncName: (string)
+        - The name of a function on the Hitbox's class or a superclass.
+            - The class is taken from the instance object, so you can use functions on subclasses as well.
+        - The function should take one argument.
+    value: (any)
+        - The value to pass to the setterFuncName function.
+--]]
+function Hitbox:retainValueOnRespawn( setterFuncName, value )
+    self._respawnRetainedValues[setterFuncName] = value
+end
+
+--[[
+    - Will cause the Hitbox to retain a static class variable when it is respawned.
+    - This is for values controlled by class variables that only apply on instance init.
+
+    varName: (string)
+        - The name of the static class variable, e.g. "HITBOX_PROP_MODEL".
+    value: (any)
+        - The value to retain.
+--]]
+function Hitbox:retainClassValueOnRespawn( varName, value )
+    self._respawnRetainedClassValues[varName] = value
+end
+
+--[[
+    - Will attempt to respawn the Hitbox, destroying it and creating a new one in its place.
+    - During the destruction, :isRespawning() will return true.
+        - Use it in your :onDestroyed() function to prevent any unwanted effects.
+    - The new object will repeatedly retry to spawn itself until it succeeds or the respawn timeout is reached.
+        - If the respawn succeeds, the "LKL_Hitbox_HitboxRespawned" hook will run with the old and new Hitbox objects.
+        - If the respawn fails, the "LKL_Hitbox_RespawnFailed" hook will run with the old Hitbox object.
+--]]
+function Hitbox:respawn()
+    if not self:isReady() then return end
+
+    local pos = self:getPos()
+    local ang = self:getAngles()
+    local timerName = self:getTimerName( "LKL_Hitbox_Respawn" )
+    local timerNameTimeout = timerName .. "_Timeout"
+    local classObj = self.class
+    local selfObj = self
+    local timeout = self:getRespawnTimeout()
+    local retainedValues = self._respawnRetainedValues
+    local retainedClassValues = self._respawnRetainedClassValues
+
+    self._respawning = true
+    self._ready = false
+
+    function self:becomeReady() end
+
+    self:destroy()
+
+    timer.create( timerName, 0.1, 0, function()
+        local originalClassValues = {}
+
+        for varName, value in pairs( retainedClassValues ) do
+            originalClassValues[varName] = classObj.static[varName]
+            classObj.static[varName] = value
+        end
+
+        local hitbox
+        pcall( function()
+            hitbox = classObj:new( pos, ang )
+        end )
+
+        for varName, value in pairs( originalClassValues ) do
+            classObj.static[varName] = value
+        end
+
+        if not isValid( hitbox ) then return end
+
+        for setterFuncName, value in pairs( retainedValues ) do
+            hitbox[setterFuncName]( hitbox, value )
+        end
+
+        timer.remove( timerName )
+        timer.remove( timerNameTimeout )
+        hook.run( "LKL_Hitbox_HitboxRespawned", selfObj, hitbox )
+    end )
+
+    timer.create( timerNameTimeout, timeout, 1, function()
+        timer.remove( timerName )
+
+        hook.run( "LKL_Hitbox_RespawnFailed", selfObj )
+    end )
+end
+
+function Hitbox:isRespawning()
+    return self._respawning
+end
+
+function Hitbox:setHitboxPropOffsetPos( pos )
+    self:retainValueOnRespawn( "setHitboxPropOffsetPos", pos )
+
+    self._hitboxPropOffsetPos = pos
+
+    local hitboxProp = self:getHitboxProp()
+    if not isValid( hitboxProp ) then return end
+
+    pos = self:getHitboxPropWorldPosAng()
+
+    hitboxProp:setPos( pos )
+end
+
+function Hitbox:getHitboxPropOffsetPos()
+    return self._hitboxPropOffsetPos or self.class.HITBOX_PROP_OFFSET_POS
+end
+
+function Hitbox:setHitboxPropOffsetAng( ang )
+    self:retainValueOnRespawn( "setHitboxPropOffsetAng", ang )
+
+    self._hitboxPropOffsetAng = ang
+
+    local hitboxProp = self:getHitboxProp()
+    if not isValid( hitboxProp ) then return end
+
+    local _
+    _, ang = self:getHitboxPropWorldPosAng()
+
+    hitboxProp:setAngles( ang )
+end
+
+function Hitbox:getHitboxPropOffsetAng()
+    return self._hitboxPropOffsetAng or self.class.HITBOX_PROP_OFFSET_ANG
+end
+
+function Hitbox:setHitboxPropMass( mass )
+    self:retainValueOnRespawn( "setHitboxPropMass", mass )
+
+    self._hitboxPropMass = mass
+
+    local hitboxProp = self:getHitboxProp()
+    if not isValid( hitboxProp ) then return end
+
+    hitboxProp:setMass( self:getHitboxPropMass() )
+end
+
+function Hitbox:getHitboxPropMass()
+    return self._hitboxPropMass or self.class.HITBOX_PROP_MASS
+end
+
+function Hitbox:setHitboxPropColor( color )
+    self:retainValueOnRespawn( "setHitboxPropColor", color )
+
+    self._hitboxPropColor = color
+
+    local hitboxProp = self:getHitboxProp()
+    if not isValid( hitboxProp ) then return end
+
+    hitboxProp:setColor( self:getHitboxPropColor() )
+end
+
+function Hitbox:getHitboxPropColor()
+    return self._hitboxPropColor or self.class.HITBOX_PROP_COLOR
+end
+
+function Hitbox:setHitboxPropMaterial( material )
+    self:retainValueOnRespawn( "setHitboxPropMaterial", material )
+
+    self._hitboxPropMaterial = material
+
+    local hitboxProp = self:getHitboxProp()
+    if not isValid( hitboxProp ) then return end
+
+    hitboxProp:setMaterial( self:getHitboxPropMaterial() )
+end
+
+function Hitbox:getHitboxPropMaterial()
+    return self._hitboxPropMaterial or self.class.HITBOX_PROP_MATERIAL
+end
+
+function Hitbox:setHitboxPTHOffsetPos( pos )
+    self:retainValueOnRespawn( "setHitboxPTHOffsetPos", pos )
+
+    self._hitboxPTHOffsetPos = pos
+
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
+    if not isValid( hitboxPTHHolo ) then return end
+
+    pos = self:getHitboxPTHWorldPosAng()
+
+    hitboxPTHHolo:setPos( pos )
+end
+
+function Hitbox:getHitboxPTHOffsetPos()
+    return self._hitboxPTHOffsetPos or self.class.HITBOX_PTH_OFFSET_POS
+end
+
+function Hitbox:setHitboxPTHOffsetAng( ang )
+    self:retainValueOnRespawn( "setHitboxPTHOffsetAng", ang )
+
+    self._hitboxPTHOffsetAng = ang
+
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
+    if not isValid( hitboxPTHHolo ) then return end
+
+    local _
+    _, ang = self:getHitboxPTHWorldPosAng()
+
+    hitboxPTHHolo:setAngles( ang )
+end
+
+function Hitbox:getHitboxPTHOffsetAng()
+    return self._hitboxPTHOffsetAng or self.class.HITBOX_PTH_OFFSET_ANG
+end
+
+function Hitbox:setRespawnTimeout( timeout )
+    self:retainValueOnRespawn( "setRespawnTimeout", timeout )
+
+    self._respawnTimeout = timeout
+end
+
+function Hitbox:getRespawnTimeout()
+    return self._respawnTimeout or self.class.RESPAWN_TIMEOUT
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+-- Called when the hitbox prop is destroyed.
+function Hitbox:onHitboxPropDestroyed()
+    self:destroy()
+end
+
+-- Called when the hitbox PTH holo is destroyed.
+function Hitbox:onHitboxPTHHoloDestroyed()
+    self:destroy()
+end
+
+--[[
+    - Override this if you need to add more conditions for the Hitbox to be considered ready.
+    - Be sure to call YourClassName.super.onHitboxPropReady( self ) at the end if you do override this.
+    - Example:
+        function MyClass:becomeReady()
+            if not self:someExtraCondition() then return end
+            if not self._someExtraPrivateCondition then return end
+
+            MyClass.super.onHitboxPropReady( self )
+        end
+--]]
+function Hitbox:becomeReady()
+    if self:isReady() then return end
+    if not self._hitboxPTHHolosReady then return end
+    if not self._hitboxPropReady then return end
+
+    self._ready = true
+
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
+
+    if isValid( hitboxPTHHolo ) then -- Hitboxes can be created without PTH.
+        local pos, ang = self:getHitboxPTHWorldPosAng()
+
+        hitboxPTHHolo:setPos( pos )
+        hitboxPTHHolo:setAngles( ang )
+        hitboxPTHHolo:setParent( self:getHitboxProp() )
+    end
+
+    self:onReady()
+    self:onPosAngChanged( self:getPos(), self:getAngles() )
+end
+
+-- Called once when the Hitbox is ready to be used.
+function Hitbox:onReady()
+
+end
+
+--[[
+    - Called when a Hitbox is destroyed and not trying to respawn.
+    - Note that :getHitboxProp() and :getHitboxPTHHolo() may or may not return valid entities in here.
+--]]
+function Hitbox:doDeathEffect()
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Hitbox:onDestroyed()
+    if self:isReady() and not self:isRespawning() then
+        self:doDeathEffect()
+    end
+
+    local hitboxProp = self:getHitboxProp()
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
+
+    if hitboxProp then
+        hitboxProp._hitbox_HitboxObject = nil
+    end
+
+    if hitboxPTHHolo then
+        hitboxPTHHolo._hitbox_HitboxObject = nil
+    end
+
+    if not self:isHitboxPropDestroyed() and isValid( hitboxProp ) then
+        hitboxProp:remove()
+    end
+
+    if not self:isHitboxPTHHoloDestroyed() and isValid( hitboxPTHHolo ) then
+        hitboxPTHHolo:remove()
+    end
+
+    timer.remove( self:getTimerName( "LKL_Hitbox_SpawnHitboxProp" ) )
+
+    if not self._hitboxPTHHolosReady and self._hitboxPTHHoloQueueID then
+        pthSpawner.cancel( self._hitboxPTHHoloQueueID )
+    end
+
+    Hitbox.super.onDestroyed( self )
+end
+
+function Hitbox:isReplicatedOnClient()
+    return false
+end
+
+function Hitbox:onPosAngChanged()
+    if not self:isReady() then return end
+
+    local hitboxProp = self:getHitboxProp()
+    local pos, ang = self:getHitboxPropWorldPosAng()
+
+    hitboxProp:setPos( pos )
+    hitboxProp:setAngles( ang )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+-- Handles Hitbox prop spawning. Called automatically during Hitbox init.
+function Hitbox:_spawnHitboxProp( model )
+    model = model or self.class.HITBOX_PROP_MODEL
+    if type( model ) ~= "string" then error( "Expected model to resolve to a string" ) end
+
+    if not prop.canSpawn() then
+        timer.create( self:getTimerName( "LKL_Hitbox_SpawnHitboxProp" ), 0.25, 1, function()
+            if not self:isValid() then return end
+
+            self:_spawnHitboxProp( model )
+        end )
+
+        return
+    end
+
+    local hitboxProp
+    pcall( function()
+        local pos, ang = self:getHitboxPropWorldPosAng()
+        hitboxProp = prop.create( pos, ang, model, true )
+    end )
+
+    if not isValid( hitboxProp ) then
+        timer.create( self:getTimerName( "LKL_Hitbox_SpawnHitboxProp" ), 0.25, 1, function()
+            if not self:isValid() then return end
+
+            self:_spawnHitboxProp( model )
+        end )
+
+        return
+    end
+
+    hitboxProp._hitbox_isHitboxProp = true
+    hitboxProp._hitbox_HitboxObject = self
+    hitboxProp:setMass( self:getHitboxPropMass() )
+    hitboxProp:setColor( self:getHitboxPropColor() )
+    hitboxProp:setMaterial( self:getHitboxPropMaterial() )
+    hitboxProp:enableMotion( false )
+
+    self._hitboxProp = hitboxProp
+    self._hitboxPropReady = true
+    self:becomeReady()
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_Hitbox_HitboxPropDestroyed", function( ent )
+    if not ent._hitbox_isHitboxProp then return end
+
+    local hitbox = ent._hitbox_HitboxObject
+    if not isValid( hitbox ) then return end
+
+    ent._hitbox_isHitboxProp = nil
+    ent._hitbox_HitboxObject = nil
+
+    hitbox._hitboxPropIsDestroyed = true
+    hitbox:onHitboxPropDestroyed()
+end )
+
+hook.add( "EntityRemoved", "LKL_Hitbox_CriticalHoloDestroyed", function( ent )
+    if not ent._isCriticalHolo then return end
+
+    local hitbox = ent._hitbox_HitboxObject
+    if not isValid( hitbox ) then return end
+
+    ent._isCriticalHolo = nil
+    ent._hitbox_HitboxObject = nil
+
+    hitbox._hitboxPTHHoloIsDestroyed = true
+    hitbox:onHitboxPTHHoloDestroyed()
+end )
