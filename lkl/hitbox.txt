@@ -22,12 +22,14 @@ Hitbox.static.HITBOX_PTH_SCALE = Vector( 1, 1, 1 )
 
 -- These can be overridden on a per-instance basis.
 Hitbox.static.HITBOX_PROP_OFFSET_POS = Vector( 0, 0, 0 ) -- Local offsets for the prop relative to the Hitbox instance.
+Hitbox.static.HITBOX_PROP_OFFSET_POS_SCALED = Vector( 0, 0, 0 ) -- Scaled by half the obb size of the hitbox prop. e.g. 0,0,1 will put the prop's bottom edge at the Hitbox's origin.
 Hitbox.static.HITBOX_PROP_OFFSET_ANG = Angle( 0, 0, 0 )
 Hitbox.static.HITBOX_PROP_MASS = 2000
 Hitbox.static.HITBOX_PROP_COLOR = Color( 255, 255, 255, 255 )
 Hitbox.static.HITBOX_PROP_MATERIAL = ""
 
 Hitbox.static.HITBOX_PTH_OFFSET_POS = Vector( 0, 0, 0 ) -- Local offsets for the PTH holo relative to the hitbox prop.
+Hitbox.static.HITBOX_PTH_OFFSET_POS_SCALED = Vector( 0, 0, 0 ) -- Scaled by half the obb size of the hitbox prop.
 Hitbox.static.HITBOX_PTH_OFFSET_ANG = Angle( 0, 0, 0 )
 
 Hitbox.static.RESPAWN_TIMEOUT = 5 -- The amount of time to wait before giving up on respawning the hitbox.
@@ -148,8 +150,21 @@ function Hitbox:getHitboxPTHHolos()
     return self._hitboxPTHHolos
 end
 
+function Hitbox:getHitboxPropOBBSize()
+    return self._hitboxPropOBBSize
+end
+
+function Hitbox:getHitboxPropOBBSizeHalf()
+    return self._hitboxPropOBBSizeHalf
+end
+
 function Hitbox:getHitboxPropWorldPosAng()
-    return self:localToWorldPosAng( self:getHitboxPropOffsetPos(), self:getHitboxPropOffsetAng() )
+    local obbSizeHalf = self:getHitboxPropOBBSizeHalf()
+    local offsetPos = self:getHitboxPropOffsetPos()
+    local offsetPosScaled = self:getHitboxPropOffsetPosScaled()
+    local offsetAng = self:getHitboxPropOffsetAng()
+
+    return self:localToWorldPosAng( offsetPos + offsetPosScaled * obbSizeHalf, offsetAng )
 end
 
 function Hitbox:getHitboxPTHWorldPosAng()
@@ -157,7 +172,12 @@ function Hitbox:getHitboxPTHWorldPosAng()
     local hitboxPropWorldPos = hitboxProp:getPos()
     local hitboxPropWorldAng = hitboxProp:getAngles()
 
-    return localToWorld( self:getHitboxPTHOffsetPos(), self:getHitboxPTHOffsetAng(), hitboxPropWorldPos, hitboxPropWorldAng )
+    local obbSizeHalf = self:getHitboxPropOBBSizeHalf()
+    local offsetPos = self:getHitboxPTHOffsetPos()
+    local offsetPosScaled = self:getHitboxPTHOffsetPosScaled()
+    local offsetAng = self:getHitboxPTHOffsetAng()
+
+    return localToWorld( offsetPos + offsetPosScaled * obbSizeHalf, offsetAng, hitboxPropWorldPos, hitboxPropWorldAng )
 end
 
 --[[
@@ -276,15 +296,15 @@ function Hitbox:isRespawning()
     return self._respawning
 end
 
-function Hitbox:setHitboxPropOffsetPos( pos )
-    self:retainValueOnRespawn( "setHitboxPropOffsetPos", pos )
+function Hitbox:setHitboxPropOffsetPos( offsetPos )
+    self:retainValueOnRespawn( "setHitboxPropOffsetPos", offsetPos )
 
-    self._hitboxPropOffsetPos = pos
+    self._hitboxPropOffsetPos = offsetPos
 
     local hitboxProp = self:getHitboxProp()
     if not isValid( hitboxProp ) then return end
 
-    pos = self:getHitboxPropWorldPosAng()
+    local pos = self:getHitboxPropWorldPosAng()
 
     hitboxProp:setPos( pos )
 end
@@ -293,16 +313,32 @@ function Hitbox:getHitboxPropOffsetPos()
     return self._hitboxPropOffsetPos or self.class.HITBOX_PROP_OFFSET_POS
 end
 
-function Hitbox:setHitboxPropOffsetAng( ang )
-    self:retainValueOnRespawn( "setHitboxPropOffsetAng", ang )
+function Hitbox:setHitboxPropOffsetPosScaled( offsetPosScaled )
+    self:retainValueOnRespawn( "setHitboxPropOffsetPosScaled", offsetPosScaled )
 
-    self._hitboxPropOffsetAng = ang
+    self._hitboxPropOffsetPosScaled = offsetPosScaled
 
     local hitboxProp = self:getHitboxProp()
     if not isValid( hitboxProp ) then return end
 
-    local _
-    _, ang = self:getHitboxPropWorldPosAng()
+    local pos = self:getHitboxPropWorldPosAng()
+
+    hitboxProp:setPos( pos )
+end
+
+function Hitbox:getHitboxPropOffsetPosScaled()
+    return self._hitboxPropOffsetPosScaled or self.class.HITBOX_PROP_OFFSET_POS_SCALED
+end
+
+function Hitbox:setHitboxPropOffsetAng( offsetAng )
+    self:retainValueOnRespawn( "setHitboxPropOffsetAng", offsetAng )
+
+    self._hitboxPropOffsetAng = offsetAng
+
+    local hitboxProp = self:getHitboxProp()
+    if not isValid( hitboxProp ) then return end
+
+    local _, ang = self:getHitboxPropWorldPosAng()
 
     hitboxProp:setAngles( ang )
 end
@@ -356,15 +392,15 @@ function Hitbox:getHitboxPropMaterial()
     return self._hitboxPropMaterial or self.class.HITBOX_PROP_MATERIAL
 end
 
-function Hitbox:setHitboxPTHOffsetPos( pos )
-    self:retainValueOnRespawn( "setHitboxPTHOffsetPos", pos )
+function Hitbox:setHitboxPTHOffsetPos( offsetPos )
+    self:retainValueOnRespawn( "setHitboxPTHOffsetPos", offsetPos )
 
-    self._hitboxPTHOffsetPos = pos
+    self._hitboxPTHOffsetPos = offsetPos
 
     local hitboxPTHHolo = self:getHitboxPTHHolo()
     if not isValid( hitboxPTHHolo ) then return end
 
-    pos = self:getHitboxPTHWorldPosAng()
+    local pos = self:getHitboxPTHWorldPosAng()
 
     hitboxPTHHolo:setPos( pos )
 end
@@ -373,16 +409,32 @@ function Hitbox:getHitboxPTHOffsetPos()
     return self._hitboxPTHOffsetPos or self.class.HITBOX_PTH_OFFSET_POS
 end
 
-function Hitbox:setHitboxPTHOffsetAng( ang )
-    self:retainValueOnRespawn( "setHitboxPTHOffsetAng", ang )
+function Hitbox:setHitboxPTHOffsetPosScaled( offsetPosScaled )
+    self:retainValueOnRespawn( "setHitboxPTHOffsetPosScaled", offsetPosScaled )
 
-    self._hitboxPTHOffsetAng = ang
+    self._hitboxPTHOffsetPosScaled = offsetPosScaled
 
     local hitboxPTHHolo = self:getHitboxPTHHolo()
     if not isValid( hitboxPTHHolo ) then return end
 
-    local _
-    _, ang = self:getHitboxPTHWorldPosAng()
+    local pos = self:getHitboxPTHWorldPosAng()
+
+    hitboxPTHHolo:setPos( pos )
+end
+
+function Hitbox:getHitboxPTHOffsetPosScaled()
+    return self._hitboxPTHOffsetPosScaled or self.class.HITBOX_PTH_OFFSET_POS_SCALED
+end
+
+function Hitbox:setHitboxPTHOffsetAng( offsetAng )
+    self:retainValueOnRespawn( "setHitboxPTHOffsetAng", offsetAng )
+
+    self._hitboxPTHOffsetAng = offsetAng
+
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
+    if not isValid( hitboxPTHHolo ) then return end
+
+    local _, ang = self:getHitboxPTHWorldPosAng()
 
     hitboxPTHHolo:setAngles( ang )
 end
@@ -529,8 +581,7 @@ function Hitbox:_spawnHitboxProp( model )
 
     local hitboxProp
     pcall( function()
-        local pos, ang = self:getHitboxPropWorldPosAng()
-        hitboxProp = prop.create( pos, ang, model, true )
+        hitboxProp = prop.create( self:getPos(), self:getAngles(), model, true )
     end )
 
     if not isValid( hitboxProp ) then
@@ -543,8 +594,16 @@ function Hitbox:_spawnHitboxProp( model )
         return
     end
 
+    local obbSize = hitboxProp:obbSize()
+    self._hitboxPropOBBSize = obbSize
+    self._hitboxPropOBBSizeHalf = obbSize * 0.5
+
+    local pos, ang = self:getHitboxPropWorldPosAng()
+
     hitboxProp._hitbox_isHitboxProp = true
     hitboxProp._hitbox_HitboxObject = self
+    hitboxProp:setPos( pos )
+    hitboxProp:setAngles( ang )
     hitboxProp:setMass( self:getHitboxPropMass() )
     hitboxProp:setColor( self:getHitboxPropColor() )
     hitboxProp:setMaterial( self:getHitboxPropMaterial() )
