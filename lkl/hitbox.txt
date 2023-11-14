@@ -301,9 +301,9 @@ function Hitbox:setHitboxPropOffsetPos( offsetPos )
 
     self._hitboxPropOffsetPos = offsetPos
 
-    local hitboxProp = self:getHitboxProp()
-    if not isValid( hitboxProp ) then return end
+    if not self:isReady() then return end
 
+    local hitboxProp = self:getHitboxProp()
     local pos = self:getHitboxPropWorldPosAng()
 
     hitboxProp:setPos( pos )
@@ -318,9 +318,9 @@ function Hitbox:setHitboxPropOffsetPosScaled( offsetPosScaled )
 
     self._hitboxPropOffsetPosScaled = offsetPosScaled
 
-    local hitboxProp = self:getHitboxProp()
-    if not isValid( hitboxProp ) then return end
+    if not self:isReady() then return end
 
+    local hitboxProp = self:getHitboxProp()
     local pos = self:getHitboxPropWorldPosAng()
 
     hitboxProp:setPos( pos )
@@ -335,9 +335,9 @@ function Hitbox:setHitboxPropOffsetAng( offsetAng )
 
     self._hitboxPropOffsetAng = offsetAng
 
-    local hitboxProp = self:getHitboxProp()
-    if not isValid( hitboxProp ) then return end
+    if not self:isReady() then return end
 
+    local hitboxProp = self:getHitboxProp()
     local _, ang = self:getHitboxPropWorldPosAng()
 
     hitboxProp:setAngles( ang )
@@ -397,9 +397,9 @@ function Hitbox:setHitboxPTHOffsetPos( offsetPos )
 
     self._hitboxPTHOffsetPos = offsetPos
 
-    local hitboxPTHHolo = self:getHitboxPTHHolo()
-    if not isValid( hitboxPTHHolo ) then return end
+    if not self:isReady() then return end
 
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
     local pos = self:getHitboxPTHWorldPosAng()
 
     hitboxPTHHolo:setPos( pos )
@@ -414,9 +414,9 @@ function Hitbox:setHitboxPTHOffsetPosScaled( offsetPosScaled )
 
     self._hitboxPTHOffsetPosScaled = offsetPosScaled
 
-    local hitboxPTHHolo = self:getHitboxPTHHolo()
-    if not isValid( hitboxPTHHolo ) then return end
+    if not self:isReady() then return end
 
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
     local pos = self:getHitboxPTHWorldPosAng()
 
     hitboxPTHHolo:setPos( pos )
@@ -431,9 +431,9 @@ function Hitbox:setHitboxPTHOffsetAng( offsetAng )
 
     self._hitboxPTHOffsetAng = offsetAng
 
-    local hitboxPTHHolo = self:getHitboxPTHHolo()
-    if not isValid( hitboxPTHHolo ) then return end
+    if not self:isReady() then return end
 
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
     local _, ang = self:getHitboxPTHWorldPosAng()
 
     hitboxPTHHolo:setAngles( ang )
