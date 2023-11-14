@@ -33,6 +33,7 @@ Hitbox.static.HITBOX_PTH_OFFSET_POS = Vector( 0, 0, 0 ) -- Local offsets for the
 Hitbox.static.HITBOX_PTH_OFFSET_POS_SCALED = Vector( 0, 0, 0 ) -- Scaled by half the obb size of the hitbox prop.
 Hitbox.static.HITBOX_PTH_OFFSET_ANG = Angle( 0, 0, 0 )
 Hitbox.static.HITBOX_PTH_OFFSET_FROM_PROP_CENTER = false -- If true, the PTH holo will be offset from the hitbox prop's center instead of its origin.
+Hitbox.static.HITBOX_PTH_OFFSET_FROM_HITBOX = false -- If true, the PTH holo will be offset from the hitbox's pos/ang instead of the hitbox prop's pos/ang. The PTH will still parent to the prop.
 
 Hitbox.static.RESPAWN_TIMEOUT = 5 -- The amount of time to wait before giving up on respawning the hitbox.
 
@@ -181,14 +182,21 @@ function Hitbox:getHitboxPropWorldPosAng()
 end
 
 function Hitbox:getHitboxPTHWorldPosAng()
-    local hitboxProp = self:getHitboxProp()
-    local hitboxPropWorldPos
-    local hitboxPropWorldAng = hitboxProp:getAngles()
+    local basePos
+    local baseAng
 
-    if self:getHitboxPTHOffsetFromPropCenter() and self._hitboxPropOriginLocalToCenter then
-        hitboxPropWorldPos = hitboxProp:obbCenterW()
+    if self:getHitboxPTHOffsetFromHitbox() then
+        basePos = self:getPos()
+        baseAng = self:getAngles()
     else
-        hitboxPropWorldPos = hitboxProp:getPos()
+        local hitboxProp = self:getHitboxProp()
+        baseAng = hitboxProp:getAngles()
+
+        if self:getHitboxPTHOffsetFromPropCenter() and self._hitboxPropOriginLocalToCenter then
+            basePos = hitboxProp:obbCenterW()
+        else
+            basePos = hitboxProp:getPos()
+        end
     end
 
     local obbSizeHalf = self:getHitboxPropOBBSizeHalf()
@@ -196,7 +204,7 @@ function Hitbox:getHitboxPTHWorldPosAng()
     local offsetPosScaled = self:getHitboxPTHOffsetPosScaled()
     local offsetAng = self:getHitboxPTHOffsetAng()
 
-    return localToWorld( offsetPos + offsetPosScaled * obbSizeHalf, offsetAng, hitboxPropWorldPos, hitboxPropWorldAng )
+    return localToWorld( offsetPos + offsetPosScaled * obbSizeHalf, offsetAng, basePos, baseAng )
 end
 
 --[[
@@ -506,6 +514,27 @@ end
 function Hitbox:getHitboxPTHOffsetFromPropCenter()
     local state = self._hitboxPTHOffsetFromPropCenter
     if state == nil then return self.class.HITBOX_PTH_OFFSET_FROM_PROP_CENTER end
+
+    return state
+end
+
+function Hitbox:setHitboxPTHOffsetFromHitbox( state )
+    self:retainValueOnRespawn( "setHitboxPTHOffsetFromHitbox", state )
+
+    self._hitboxPTHOffsetFromHitbox = state
+
+    if not self:isReady() then return end
+
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
+    local pos, ang = self:getHitboxPTHWorldPosAng()
+
+    hitboxPTHHolo:setPos( pos )
+    hitboxPTHHolo:setAngles( ang )
+end
+
+function Hitbox:getHitboxPTHOffsetFromHitbox()
+    local state = self._hitboxPTHOffsetFromHitbox
+    if state == nil then return self.class.HITBOX_PTH_OFFSET_FROM_HITBOX end
 
     return state
 end
