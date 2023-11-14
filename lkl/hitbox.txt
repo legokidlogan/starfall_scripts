@@ -25,6 +25,7 @@ Hitbox.static.HITBOX_PROP_OFFSET_POS = Vector( 0, 0, 0 ) -- Local offsets for th
 Hitbox.static.HITBOX_PROP_OFFSET_POS_SCALED = Vector( 0, 0, 0 ) -- Scaled by half the obb size of the hitbox prop. e.g. 0,0,1 will put the prop's bottom edge at the Hitbox's origin.
 Hitbox.static.HITBOX_PROP_OFFSET_ANG = Angle( 0, 0, 0 )
 Hitbox.static.HITBOX_PROP_OFFSET_FROM_PROP_CENTER = false -- If true, the prop will be offset from its center instead of its origin.
+Hitbox.static.HITBOX_PROP_OFFSET_SCALE_ROTATE = true -- If true, the size axes used for PROP_OFFSET_POS_SCALED will be rotated by PROP_OFFSET_ANG. Only works nicely with 90-degree angles.
 Hitbox.static.HITBOX_PROP_MASS = 2000
 Hitbox.static.HITBOX_PROP_COLOR = Color( 255, 255, 255, 255 )
 Hitbox.static.HITBOX_PROP_MATERIAL = ""
@@ -33,6 +34,7 @@ Hitbox.static.HITBOX_PTH_OFFSET_POS = Vector( 0, 0, 0 ) -- Local offsets for the
 Hitbox.static.HITBOX_PTH_OFFSET_POS_SCALED = Vector( 0, 0, 0 ) -- Scaled by half the obb size of the hitbox prop.
 Hitbox.static.HITBOX_PTH_OFFSET_ANG = Angle( 0, 0, 0 )
 Hitbox.static.HITBOX_PTH_OFFSET_FROM_PROP_CENTER = false -- If true, the PTH holo will be offset from the hitbox prop's center instead of its origin.
+Hitbox.static.HITBOX_PTH_OFFSET_SCALE_ROTATE = true -- If true, the size axes used for PTH_OFFSET_POS_SCALED will be rotated by PROP_OFFSET_ANG. Only works nicely with 90-degree angles.
 Hitbox.static.HITBOX_PTH_OFFSET_FROM_HITBOX = false -- If true, the PTH holo will be offset from the hitbox's pos/ang instead of the hitbox prop's pos/ang. The PTH will still parent to the prop.
 
 Hitbox.static.RESPAWN_TIMEOUT = 5 -- The amount of time to wait before giving up on respawning the hitbox.
@@ -41,6 +43,10 @@ Hitbox.static.RESPAWN_TIMEOUT = 5 -- The amount of time to wait before giving up
 local MODEL_CUBE = "models/hunter/blocks/cube025x025x025.mdl"
 local VECTOR_ZERO = Vector()
 local ANGLE_ZERO = Angle()
+
+local vectorAbs
+
+local mAbs = math.abs
 
 
 ----- STATIC FUNCTIONS -----
@@ -169,6 +175,10 @@ function Hitbox:getHitboxPropWorldPosAng()
     local offsetPosScaled = self:getHitboxPropOffsetPosScaled()
     local offsetAng = self:getHitboxPropOffsetAng()
 
+    if self:getHitboxPropOffsetScaleRotate() then
+        obbSizeHalf = vectorAbs( obbSizeHalf:getRotated( offsetAng ) )
+    end
+
     if self:getHitboxPropOffsetFromPropCenter() then
         local originLocalToCenter = self._hitboxPropOriginLocalToCenter
 
@@ -203,6 +213,10 @@ function Hitbox:getHitboxPTHWorldPosAng()
     local offsetPos = self:getHitboxPTHOffsetPos()
     local offsetPosScaled = self:getHitboxPTHOffsetPosScaled()
     local offsetAng = self:getHitboxPTHOffsetAng()
+
+    if self:getHitboxPTHOffsetScaleRotate() then
+        obbSizeHalf = vectorAbs( obbSizeHalf:getRotated( self:getHitboxPropOffsetAng() ) )
+    end
 
     return localToWorld( offsetPos + offsetPosScaled * obbSizeHalf, offsetAng, basePos, baseAng )
 end
@@ -401,6 +415,27 @@ function Hitbox:getHitboxPropOffsetFromPropCenter()
     return state
 end
 
+function Hitbox:setHitboxPropOffsetScaleRotate( state )
+    self:retainValueOnRespawn( "setHitboxPropOffsetScaleRotate", state )
+
+    self._hitboxPropOffsetScaleRotate = state
+
+    if not self:isReady() then return end
+
+    local hitboxProp = self:getHitboxProp()
+    local pos, ang = self:getHitboxPropWorldPosAng()
+
+    hitboxProp:setPos( pos )
+    hitboxProp:setAngles( ang )
+end
+
+function Hitbox:getHitboxPropOffsetScaleRotate()
+    local state = self._hitboxPropOffsetScaleRotate
+    if state == nil then return self.class.HITBOX_PROP_OFFSET_SCALE_ROTATE end
+
+    return state
+end
+
 function Hitbox:setHitboxPropMass( mass )
     self:retainValueOnRespawn( "setHitboxPropMass", mass )
 
@@ -514,6 +549,27 @@ end
 function Hitbox:getHitboxPTHOffsetFromPropCenter()
     local state = self._hitboxPTHOffsetFromPropCenter
     if state == nil then return self.class.HITBOX_PTH_OFFSET_FROM_PROP_CENTER end
+
+    return state
+end
+
+function Hitbox:setHitboxPTHOffsetScaleRotate( state )
+    self:retainValueOnRespawn( "setHitboxPTHOffsetScaleRotate", state )
+
+    self._hitboxPTHOffsetScaleRotate = state
+
+    if not self:isReady() then return end
+
+    local hitboxPTHHolo = self:getHitboxPTHHolo()
+    local pos, ang = self:getHitboxPTHWorldPosAng()
+
+    hitboxPTHHolo:setPos( pos )
+    hitboxPTHHolo:setAngles( ang )
+end
+
+function Hitbox:getHitboxPTHOffsetScaleRotate()
+    local state = self._hitboxPTHOffsetScaleRotate
+    if state == nil then return self.class.HITBOX_PTH_OFFSET_SCALE_ROTATE end
 
     return state
 end
@@ -659,6 +715,14 @@ end
 
 
 ----- PRIVATE FUNCTIONS -----
+
+vectorAbs = function( vec )
+    return Vector(
+        mAbs( vec[1] ),
+        mAbs( vec[2] ),
+        mAbs( vec[3] )
+    )
+end
 
 -- Handles Hitbox prop spawning. Called automatically during Hitbox init.
 function Hitbox:_spawnHitboxProp( model )
