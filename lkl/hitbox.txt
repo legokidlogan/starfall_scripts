@@ -620,13 +620,13 @@ end
 
 --[[
     - Override this if you need to add more conditions for the Hitbox to be considered ready.
-    - Be sure to call YourClassName.super.onHitboxPropReady( self ) at the end if you do override this.
+    - Be sure to call YourClassName.super.becomeReady( self ) at the end if you do override this.
     - Example:
         function MyClass:becomeReady()
             if not self:someExtraCondition() then return end
             if not self._someExtraPrivateCondition then return end
 
-            MyClass.super.onHitboxPropReady( self )
+            MyClass.super.becomeReady( self )
         end
 --]]
 function Hitbox:becomeReady()
