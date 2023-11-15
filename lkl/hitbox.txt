@@ -103,7 +103,7 @@ function Hitbox:initialize( pos, ang, hitboxModel, pthString, pthScale )
     local hitboxPTHHolo = linkedCreate.holo( Vector(), Angle(), MODEL_CUBE, Vector( 0.01 ), linkedEnts )
     if not hitboxPTHHolo then error( "Failed to initialize " .. self.class.name ) end
     self._hitboxPTHHolo = hitboxPTHHolo
-    hitboxPTHHolo._hitbox_isHitboxPTHHolo = true
+    hitboxPTHHolo._hitbox_IsHitboxPTHHolo = true
     hitboxPTHHolo._hitbox_HitboxObject = self
     hitboxPTHHolo:setColor( Color( 0, 0, 0, 0 ) )
 
@@ -767,7 +767,7 @@ function Hitbox:_spawnHitboxProp( model )
 
     local pos, ang = self:getHitboxPropWorldPosAng()
 
-    hitboxProp._hitbox_isHitboxProp = true
+    hitboxProp._hitbox_IsHitboxProp = true
     hitboxProp._hitbox_HitboxObject = self
     hitboxProp:setPos( pos )
     hitboxProp:setAngles( ang )
@@ -785,12 +785,12 @@ end
 ----- SETUP -----
 
 hook.add( "EntityRemoved", "LKL_Hitbox_HitboxPropDestroyed", function( ent )
-    if not ent._hitbox_isHitboxProp then return end
+    if not ent._hitbox_IsHitboxProp then return end
 
     local hitbox = ent._hitbox_HitboxObject
     if not isValid( hitbox ) then return end
 
-    ent._hitbox_isHitboxProp = nil
+    ent._hitbox_IsHitboxProp = nil
     ent._hitbox_HitboxObject = nil
 
     hitbox._hitboxPropIsDestroyed = true
@@ -798,12 +798,12 @@ hook.add( "EntityRemoved", "LKL_Hitbox_HitboxPropDestroyed", function( ent )
 end )
 
 hook.add( "EntityRemoved", "LKL_Hitbox_PTHHoloDestroyed", function( ent )
-    if not ent._hitbox_isHitboxPTHHolo then return end
+    if not ent._hitbox_IsHitboxPTHHolo then return end
 
     local hitbox = ent._hitbox_HitboxObject
     if not isValid( hitbox ) then return end
 
-    ent._hitbox_isHitboxPTHHolo = nil
+    ent._hitbox_IsHitboxPTHHolo = nil
     ent._hitbox_HitboxObject = nil
 
     hitbox._hitboxPTHHoloIsDestroyed = true
