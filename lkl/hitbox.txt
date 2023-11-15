@@ -103,7 +103,7 @@ function Hitbox:initialize( pos, ang, hitboxModel, pthString, pthScale )
     local hitboxPTHHolo = linkedCreate.holo( Vector(), Angle(), MODEL_CUBE, Vector( 0.01 ), linkedEnts )
     if not hitboxPTHHolo then error( "Failed to initialize " .. self.class.name ) end
     self._hitboxPTHHolo = hitboxPTHHolo
-    hitboxPTHHolo._isCriticalHolo = true
+    hitboxPTHHolo._hitbox_isHitboxPTHHolo = true
     hitboxPTHHolo._hitbox_HitboxObject = self
     hitboxPTHHolo:setColor( Color( 0, 0, 0, 0 ) )
 
@@ -797,13 +797,13 @@ hook.add( "EntityRemoved", "LKL_Hitbox_HitboxPropDestroyed", function( ent )
     hitbox:onHitboxPropDestroyed()
 end )
 
-hook.add( "EntityRemoved", "LKL_Hitbox_CriticalHoloDestroyed", function( ent )
-    if not ent._isCriticalHolo then return end
+hook.add( "EntityRemoved", "LKL_Hitbox_PTHHoloDestroyed", function( ent )
+    if not ent._hitbox_isHitboxPTHHolo then return end
 
     local hitbox = ent._hitbox_HitboxObject
     if not isValid( hitbox ) then return end
 
-    ent._isCriticalHolo = nil
+    ent._hitbox_isHitboxPTHHolo = nil
     ent._hitbox_HitboxObject = nil
 
     hitbox._hitboxPTHHoloIsDestroyed = true
