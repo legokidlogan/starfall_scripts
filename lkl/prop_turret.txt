@@ -31,6 +31,9 @@ end
 
 PropTurret = class( "PropTurret", Placeable )
 
+-- These static vars cannot be overriden by subclasses. The value will only be read from the PropTurret class, and will the affect behavior of all subclasses.
+PropTurret.static.REDUCE_CONSTRAINTS = true -- If true, bullets will have COLLISION_GROUP_INTERACTIVE_DEBRIS and will not create nocollide constraints between each other.
+
 -- These static vars can be overridden by subclasses.
 PropTurret.static.BULLET_MODEL = "models/hunter/plates/plate.mdl"
 PropTurret.static.BULLET_BUFFER_SIZE = 10
@@ -52,12 +55,26 @@ PropTurret.static.TARGET_VEL_ACCOUNT = 1 -- Multiplier for adding the target's v
 PropTurret.static.SHOOT_COOLDOWN = 0.5
 
 
+local COLLISION_GROUP_NONE = COLLISION_GROUP.NONE
+local COLLISION_GROUP_DEBRIS = COLLISION_GROUP.DEBRIS
+local COLLISION_GROUP_DEBRIS_TRIGGER = COLLISION_GROUP.DEBRIS_TRIGGER
+local COLLISION_GROUP_INTERACTIVE_DEBRIS = COLLISION_GROUP.INTERACTIVE_DEBRIS
+local COLLISION_GROUP_IN_VEHICLE = COLLISION_GROUP.IN_VEHICLE
+local COLLISION_GROUP_WORLD = COLLISION_GROUP.WORLD
+
 local startupSyncComplete = false
 local allTurrets = {}
 local turretsByClass = {}
 local bulletModelLookup = {}
 local turretClasses = {}
 local turretClassLookup = {}
+local bulletPassableCollisionGroups = {
+    [COLLISION_GROUP_DEBRIS] = true,
+    [COLLISION_GROUP_DEBRIS_TRIGGER] = true,
+    [COLLISION_GROUP_INTERACTIVE_DEBRIS] = true,
+    [COLLISION_GROUP_IN_VEHICLE] = true,
+    [COLLISION_GROUP_WORLD] = true,
+}
 local registerTurretClass
 local getRootParent
 
@@ -231,6 +248,7 @@ if SERVER then
         local bulletSpeed = self:getBulletSpeed()
         local bulletColor = self:getBulletColor()
         local bulletMaterial = self:getBulletMaterial()
+        local bulletCollisionGroup = PropTurret.REDUCE_CONSTRAINTS and COLLISION_GROUP_INTERACTIVE_DEBRIS or COLLISION_GROUP_NONE
         local bullets = {}
         local shootPos = self:getShootWorldPos()
         local shootDir = self:_getShootDir()
@@ -250,7 +268,7 @@ if SERVER then
             bullet:setMass( bulletMass )
             bullet:setColor( bulletColor )
             bullet:setMaterial( bulletMaterial )
-            bullet:setNocollideAll( false )
+            bullet:setCollisionGroup( bulletCollisionGroup )
             bullet:enableMotion( true )
             bullet:getPhysicsObject():setVelocity( dir * bulletSpeed )
             bullet:enableGravity( bulletHasGravity )
@@ -413,6 +431,7 @@ if SERVER then
     --[[
         - Registers an entity as being part of the PropTurret.
         - This is used for filtering the props from line of sight traces.
+        - If PropTurret.REDUCE_CONSTRAINTS is true, then be sure to not change the entity's collision group after registering it.
     --]]
     function PropTurret:registerProp( ent )
         if not isValid( ent ) then return end
@@ -422,6 +441,9 @@ if SERVER then
 
         self._registeredPropLookup[ent] = true
         table.insert( self._registeredProps, ent )
+
+        -- Reduce constraints if possible.
+        if PropTurret.REDUCE_CONSTRAINTS and bulletPassableCollisionGroups[ent:getCollisionGroup()] then return end
 
         for _, bullet in ipairs( bullets ) do
             constraint.nocollide( ent, bullet )
@@ -967,17 +989,22 @@ if SERVER then
         if not bulletModelLookup[model] then return end
 
         local bullets = propBuffer.getProps( model )
+        local dontReduceConstraints = not PropTurret.REDUCE_CONSTRAINTS
 
-        for _, otherEnt in ipairs( bullets ) do
-            if otherEnt ~= ent then
-                constraint.nocollide( ent, otherEnt )
+        if dontReduceConstraints then
+            for _, otherEnt in ipairs( bullets ) do
+                if otherEnt ~= ent then
+                    constraint.nocollide( ent, otherEnt )
+                end
             end
         end
 
         for _, turret in ipairs( PropTurret:getAll() ) do
             if turret:getBulletModel() == model then
                 for _, prop in ipairs( turret:getProps() ) do
-                    constraint.nocollide( ent, prop )
+                    if dontReduceConstraints or not bulletPassableCollisionGroups[prop:getCollisionGroup()] then
+                        constraint.nocollide( ent, prop )
+                    end
                 end
             end
         end
