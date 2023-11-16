@@ -431,7 +431,7 @@ function vectorMath.getOBBCenter( obbMins, obbMaxs, ang, scale )
 end
 
 --[[
-    - Takes a vector and returns a copy that's been rotated randomly within a given pitch and yaw range.
+    - Takes a unit vector and returns a copy that's been rotated randomly within a given pitch and yaw range.
     - Useful for adding spread to projectiles.
     - ex:
         - vectorMath.spreadVector( vec, -10, 10, -10, 10 ) -> A circular spread of radius 10 degrees.
@@ -439,8 +439,8 @@ end
         - vectorMath.spreadVector( vec, -10, 10, -20, 20 ) -> An elliptical spread of pitch/yaw radii of 10 and 20 degrees, respectively.
             - Equivalent to vectorMath.spreadVector( vec, 10, nil, 20 )
 
-    vec: (Vector)
-        - The vector to spread.
+    dir: (Vector)
+        - The unit vector to spread.
     pitchMin: (-180 <= number <= 180)
         - The minimum pitch angle to spread by, in degrees.
     pitchMax: (optional) (-180 <= number <= 180)
@@ -453,24 +453,27 @@ end
         - The maximum yaw angle to spread by, in degrees.
         - If nil, defaults to -yawMin or pitchMax, depending on which is provided.
 --]]
-function vectorMath.spreadVector( vec, pitchMin, pitchMax, yawMin, yawMax )
+function vectorMath.spreadVector( dir, pitchMin, pitchMax, yawMin, yawMax )
     pitchMax = pitchMax or -pitchMin -- math.rand() still works even if min > max, so we don't need to swap the order.
     yawMax = yawMax or ( yawMin and -yawMin ) or pitchMax
     yawMin = yawMin or pitchMin
 
-    if pitchMin == 0 and pitchMax == 0 and yawMin == 0 and yawMax == 0 then return vec:clone() end
+    if pitchMin == 0 and pitchMax == 0 and yawMin == 0 and yawMax == 0 then return dir:clone() end
 
     local pitchDeg = mRand( pitchMin, pitchMax )
     local yawDeg = mRand( yawMin, yawMax )
 
-    vec = vec:rotateAroundAxis( vec:getAngle():getUp(), yawDeg )
-    vec = vec:rotateAroundAxis( vec:getAngle():getRight(), pitchDeg )
+    local ang = dir:getAngle()
+    local right = ang:getRight()
 
-    return vec
+    ang = ang:rotateAroundAxis( right, pitchDeg )
+    ang = ang:rotateAroundAxis( dir, yawDeg )
+
+    return ang:getForward()
 end
 
 --[[
-    - Takes a vector and returns a copy that's been rotated randomly within a ring of given pitch and yaw ranges.
+    - Takes a unit vector and returns a copy that's been rotated randomly within a ring of given pitch and yaw ranges.
     - Useful for adding spread to projectiles.
     - ex:
         - vectorMath.spreadVectorRing( vec, 10, 10, 10, 10 ) -> A circular ring of radius 10 degrees.
@@ -478,8 +481,8 @@ end
         - vectorMath.spreadVectorRing( vec, 10, 15, 10, 15 ) -> A circular ring of radius 10 to 15 degrees.
             - Equivalent to vectorMath.spreadVectorRing( vec, 10, 15 )
 
-    vec: (Vector)
-        - The vector to spread.
+    dir: (Vector)
+        - The unit vector to spread.
     pitchMin: (0 <= number <= 180)
         - The minimum pitch angle for the spread ring, in degrees.
     pitchMax: (optional) (0 <= number <= 180)
@@ -492,12 +495,12 @@ end
         - The maximum yaw angle for the spread ring, in degrees.
         - If nil, defaults to yawMin or pitchMax, depending on which is provided.
 --]]
-function vectorMath.spreadVectorRing( vec, pitchMin, pitchMax, yawMin, yawMax )
+function vectorMath.spreadVectorRing( dir, pitchMin, pitchMax, yawMin, yawMax )
     pitchMax = pitchMax or pitchMin
     yawMax = yawMax or yawMin or pitchMax
     yawMin = yawMin or pitchMin
 
-    if pitchMin == 0 and pitchMax == 0 and yawMin == 0 and yawMax == 0 then return vec:clone() end
+    if pitchMin == 0 and pitchMax == 0 and yawMin == 0 and yawMax == 0 then return dir:clone() end
 
     local pitchDoNegative = mRandom( 0, 1 ) == 1
     local yawDoNegative = mRandom( 0, 1 ) == 1
@@ -505,10 +508,13 @@ function vectorMath.spreadVectorRing( vec, pitchMin, pitchMax, yawMin, yawMax )
     local pitchDeg = pitchDoNegative and mRand( -pitchMin, -pitchMax ) or mRand( pitchMin, pitchMax )
     local yawDeg = yawDoNegative and mRand( -yawMin, -yawMax ) or mRand( yawMin, yawMax )
 
-    vec = vec:rotateAroundAxis( vec:getAngle():getUp(), yawDeg )
-    vec = vec:rotateAroundAxis( vec:getAngle():getRight(), pitchDeg )
+    local ang = dir:getAngle()
+    local right = ang:getRight()
 
-    return vec
+    ang = ang:rotateAroundAxis( right, pitchDeg )
+    ang = ang:rotateAroundAxis( dir, yawDeg )
+
+    return ang:getForward()
 end
 
 --[[
