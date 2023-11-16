@@ -474,6 +474,44 @@ function vectorMath.spreadVector( dir, pitchMin, pitchMax, yawMin, yawMax )
 end
 
 --[[
+    - Returns a randomized vector with a min-max range for each component.
+
+    xMin: (optional) (number)
+        - Defaults to 0.
+    xMax: (optional) (number)
+        - Defaults to 1.
+    yMin: (optional) (number)
+        - Defaults to xMin.
+    yMax: (optional) (number)
+        - Defaults to xMax.
+    zMin: (optional) (number)
+        - Defaults to xMin.
+    zMax: (optional) (number)
+        - Defaults to xMax.
+--]]
+function vectorMath.randomVector( xMin, xMax, yMin, yMax, zMin, zMax )
+    xMin = xMin or 0
+    xMax = xMax or 1
+
+    return Vector(
+        mRand( xMin, xMax ),
+        mRand( yMin or xMin, yMax or xMax ),
+        mRand( zMin or xMin, zMax or xMax )
+    )
+end
+
+-- Returns a random unit vector.
+function vectorMath.randomDirection()
+    local x = mRand( -1, 1 )
+    local y = mRand( -1, 1 )
+    local z = mRand( -1, 1 )
+
+    if x == 0 and y == 0 and z == 0 then return Vector( 1, 0, 0 ) end
+
+    return Vector( x, y, z ):getNormalized()
+end
+
+--[[
     - Retuns the minimal distance between a point and an infinite line.
 
     point: (Vector)
