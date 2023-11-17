@@ -819,6 +819,11 @@ function PropTurret:onShoot( _bullets )
 
 end
 
+-- Return the position that the PropTurret should aim at for the given target. Do not account for target velocity here.
+function PropTurret:getAimPosForTarget( target )
+    return target:obbCenterW()
+end
+
 -- Filter for auto targetting.
 function PropTurret:targetFilter( ent )
     if not isValid( ent ) then return false end
@@ -938,7 +943,7 @@ if SERVER then
 
         if isValid( target ) then
             local shootPos = self:getShootWorldPos()
-            local targetPos = target:obbCenterW()
+            local targetPos = self:getAimPosForTarget( target )
 
             if velAccount ~= 0 then
                 local targetVel = target:getVelocity()
