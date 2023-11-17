@@ -431,6 +431,64 @@ function vectorMath.getOBBCenter( obbMins, obbMaxs, ang, scale )
 end
 
 --[[
+    - Returns a table of vectors fanning out from a given direction.
+
+    dir: (Vector or Angle)
+        - The central direction to fan out from.
+        - Will use :getUp() to determine the rotation axis for the fan.
+            - i.e. the fan will rotate along its yaw axis.
+    count: (number >= 1)
+        - The number of vectors to return.
+    separationDeg: (number >= 0)
+        - The amount of degrees to separate each vector by.
+--]]
+function vectorMath.makeFan( dir, count, separationDeg )
+    if count < 1 then return {} end
+    if count == 1 then
+        if type( dir ) == "Angle" then return { dir:getForward() } end
+
+        return { dir:clone() }
+    end
+
+    local rotAxis
+
+    if type( dir ) == "Angle" then
+        rotAxis = dir:getUp()
+        dir = dir:getForward()
+    else
+        rotAxis = dir:getAngle():getUp()
+    end
+
+    local prevVec = dir:rotateAroundAxis( rotAxis, -separationDeg * ( count - 1 ) / 2 )
+    local fanVecs = { prevVec }
+
+    for i = 2, count do
+        prevVec = prevVec:rotateAroundAxis( rotAxis, separationDeg )
+        fanVecs[i] = prevVec
+    end
+
+    return fanVecs
+end
+
+--[[
+    - Returns a table of vectors fanning out from a given direction.
+
+    dir: (Vector or Angle)
+        - The central direction to fan out from.
+        - Will use :getUp() to determine the rotation axis for the fan.
+            - i.e. the fan will rotate along its yaw axis.
+    count: (number >= 1)
+        - The number of vectors to return.
+    totalDeg: (number >= 0)
+        - The amount of degrees to spread the fan across, with each vector being evenly spaced.
+--]]
+function vectorMath.makeFanWithin( dir, count, totalDeg )
+    if count <= 1 then return vectorMath.makeFan( dir, count ) end
+
+    return vectorMath.makeFan( dir, count, totalDeg / ( count - 1 ) )
+end
+
+--[[
     - Takes a unit vector and returns a copy that's been rotated randomly within a given pitch and yaw range.
     - Useful for adding spread to projectiles.
     - ex:
