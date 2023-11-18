@@ -23,6 +23,7 @@ local tableInsert = table.insert
 local tableRemove = table.remove
 local tableRemoveByValue = table.removeByValue
 local tableAdd = table.add
+local tableEmpty = table.empty
 
 
 ----- STATIC FUNCTIONS -----
@@ -377,6 +378,14 @@ function Queue:removeEntryByValue( val )
     end
 
     tableRemoveByValue( self._entries, val )
+end
+
+--[[
+    - Removes all entries from the Queue.
+    - Does not stop the Queue.
+--]]
+function Queue:clear()
+    tableEmpty( self._entries )
 end
 
 --[[
