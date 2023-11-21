@@ -70,6 +70,7 @@ COLORS.light_grey = Color( 200, 200, 200, 255 )
 
 -- Special colors
 COLORS.alert_red = Color( 150, 0, 0, 255 )
+COLORS.alert_green = Color( 0, 150, 0, 255 )
 COLORS.attention_red = Color( 255, 0, 100, 255 )
 COLORS.pend_orange = Color( 255, 127, 0, 255 )
 COLORS.info_blue = Color( 50, 150, 200, 255 )
