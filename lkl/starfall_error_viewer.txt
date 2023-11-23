@@ -44,6 +44,31 @@ if SERVER then
         net.send( chipOwner )
     end )
 
+
+    net.receive( "LKL_SEV_MakeChipSolid", function( _, ply )
+        if ply ~= owner() then return end
+
+        local ent = net.readEntity()
+        if not isValid( ent ) then return end
+
+        if ent:getCollisionGroup() == COLLISION_GROUP.IN_VEHICLE then
+            ent:setCollisionGroup( COLLISION_GROUP.NONE )
+        end
+
+        if not ent:isSolid() then
+            ent:setSolid( true )
+        end
+    end )
+
+    net.receive( "LKL_SEV_SetPos", function( _, ply )
+        if ply ~= owner() then return end
+
+        local ent = net.readEntity()
+        if not isValid( ent ) then return end
+
+        ent:setPos( net.readVector() )
+    end )
+
     return
 end
 
@@ -59,6 +84,10 @@ local diamondThickness = 0.15
 local chipNameFontSize = 16
 local chipNameFontOutline = true
 local chipNameTextColor = Color( 255, 200, 200, 255 )
+local returnDiamondColor = Color( 255, 255, 255, 255 )
+local makeChipSolidKey = KEY.E -- Set to false to disable. Looking at an errored chip (through walls) that's invisible to traces (PropNotSolid or COLLISION_GROUP_IN_VEHICLE) and pressing this key will re-solidify them.
+local toggleBringChipKey = KEY.G -- Set to false to disable. Loking at an errored chip (through walls) and pressing this key will bring it to you or teleport it back. The chip can be sent back even if it is no longer errored.
+local clearChipReturnKey = KEY.H -- Set to false to disable. Used for clearing the return position of a chip that has been brought to you.
 -- END CONFIG
 
 
@@ -68,8 +97,11 @@ local IN_KEY_RELOAD = IN_KEY.RELOAD
 local active = true
 local erroredChips = {}
 local erroredChipDatas = {}
+local returnableChips = {}
 local diamondPolyLeft = nil
 local diamondPolyRight = nil
+local diamondPolySmallLeft = nil
+local diamondPolySmallRight = nil
 local chipNameOffsetY = -( diamondSize * 0.5 + chipNameFontSize * 1 + 2 )
 local chipNameFont = render.createFont( "Roboto Mono", chipNameFontSize, 500, true, false, false, chipNameFontOutline, false, false )
 
@@ -102,6 +134,32 @@ local function removeErroredChip( ent, i )
     else
         table.removeByValue( erroredChips, ent )
     end
+end
+
+local function screenTrace( targets, pixelRadius )
+    local origin = eyePos()
+    local closestEnt = nil
+    local closestDistSqr = math.huge
+    local pixelRadiusSqr = pixelRadius ^ 2
+
+    local scrW, scrH = render.getGameResolution()
+    local scrOffset = Vector( -scrW * 0.5, -scrH * 0.5, 0 )
+
+    for _, ent in ipairs( targets ) do
+        local pos = ent:getPos()
+        local distSqr = origin:getDistanceSqr( pos )
+
+        if distSqr < closestDistSqr then
+            local screenPos = pos:toScreen()
+
+            if screenPos.visible and ( Vector( screenPos.x, screenPos.y, 0 ) + scrOffset ):getLengthSqr() < pixelRadiusSqr then
+                closestEnt = ent
+                closestDistSqr = distSqr
+            end
+        end
+    end
+
+    return closestEnt
 end
 
 local function drawChipError( ent )
@@ -137,6 +195,17 @@ local function drawChipError( ent )
     end
 end
 
+local function drawSmallDiamond( worldPos )
+    local screenPos = worldPos:toScreen()
+    if not screenPos.visible then return end
+
+    local centerX = screenPos.x
+    local centerY = screenPos.y
+
+    polyTools.drawPolyUnscaled( diamondPolySmallLeft, centerX, centerY )
+    polyTools.drawPolyUnscaled( diamondPolySmallRight, centerX, centerY )
+end
+
 
 hook.add( "StarfallError", "LKL_SEV_TrackClientError", function( ent )
     if not isValid( ent ) then return end
@@ -160,6 +229,47 @@ hook.add( "KeyPress", "LKL_SEV_RemoveChipsWhenRefreshed", function( ply, key )
     removeErroredChip( ent )
 end )
 
+hook.add( "inputPressed", "LKL_SEV_KeyPress", function( key )
+    if key == makeChipSolidKey then
+        local ent = screenTrace( erroredChips, diamondSize )
+        if not ent then return end
+
+        net.start( "LKL_SEV_MakeChipSolid" )
+        net.writeEntity( ent )
+        net.send()
+    elseif key == toggleBringChipKey then
+        local targets = table.copy( erroredChips )
+        table.add( targets, returnableChips )
+
+        local ent = screenTrace( targets, diamondSize * 0.5 )
+        if not ent then return end
+
+        local returnPos = ent._sev_ReturnPos
+        local desPos = nil
+
+        if returnPos then
+            desPos = returnPos
+            ent._sev_ReturnPos = nil
+            table.removeByValue( returnableChips, ent )
+        else
+            desPos = eyePos() + eyeAngles():getForward() * 50
+            ent._sev_ReturnPos = ent:getPos()
+            table.insert( returnableChips, ent )
+        end
+
+        net.start( "LKL_SEV_SetPos" )
+        net.writeEntity( ent )
+        net.writeVector( desPos )
+        net.send()
+    elseif key == clearChipReturnKey then
+        local ent = screenTrace( returnableChips, diamondSize * 0.5 )
+        if not ent then return end
+
+        ent._sev_ReturnPos = nil
+        table.removeByValue( returnableChips, ent )
+    end
+end )
+
 hook.add( "EntityRemoved", "LKL_SEV_RemoveDeletedChips", function( ent )
     if not erroredChipDatas[ent] then return end
 
@@ -176,6 +286,18 @@ hook.add( "drawhud", "LKL_SEV_DrawChipErrors", function()
             removeErroredChip( ent, i )
         else
             drawChipError( ent )
+        end
+    end
+
+    render.setColor( returnDiamondColor )
+
+    for i = #returnableChips, 1, -1 do
+        local ent = returnableChips[i]
+
+        if not ent:isValid() then
+            table.remove( returnableChips, i )
+        else
+            drawSmallDiamond( ent:getPos() )
         end
     end
 end )
@@ -211,6 +333,9 @@ do
         { x = 0, y = -0.5 + diamondThickness },
         { x = 0, y = -0.5 },
     }, diamondSize, diamondSize )
+
+    diamondPolySmallLeft = polyTools.polyScale( diamondPolyLeft, 0.5, 0.5 )
+    diamondPolySmallRight = polyTools.polyScale( diamondPolyRight, 0.5, 0.5 )
 
 
     enableHud( player(), true )
