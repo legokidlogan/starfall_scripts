@@ -47,6 +47,9 @@ function Placeable:initialize( pos, ang )
     placeablesByID[placeableIncrement] = self
     self._id = placeableIncrement
 
+    self._lastThinkTime = timer.curtime()
+    self._thinkDelta = 0
+
     if self:isReplicatedOnClient() then
         net.start( "LKL_Placeable_Create" )
         net.writeUInt( placeableIncrement, 16 )
@@ -275,6 +278,11 @@ function Placeable:think()
 
 end
 
+-- Acts similarly to timer.frametime(), but accounts for any time the Placeable's :think() gets skipped due to cpu usage.
+function Placeable:getThinkDelta()
+    return self._thinkDelta
+end
+
 --[[
     - Callback for when the Placeable is destroyed.
     - Used for cleaning up props, holograms, etc.
@@ -386,8 +394,14 @@ end
 ----- SETUP -----
 
 hook.add( "think", "LKL_Placeable_Think", function()
+    local now = timer.curtime()
+
     for _, placeable in ipairs( allPlaceables ) do
         if not perfCheck( placeable.class.THINK_PERF_LIMIT ) then break end
+
+        local dt = now - placeable._lastThinkTime
+        placeable._lastThinkTime = now
+        placeable._thinkDelta = dt
 
         checkForPosAngChanges( placeable )
         placeable:think()
