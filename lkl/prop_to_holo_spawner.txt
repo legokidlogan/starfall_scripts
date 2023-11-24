@@ -150,6 +150,7 @@ spawnQueue = Queue:new(
         if not success then return true end
 
         local holoGroup = holoGroups[groupID]
+        local clips = entry.Clips
 
         holo:setMaterial( entry.Material )
         submaterial.setSubMaterials( holo, entry.SubMaterials )
@@ -157,6 +158,12 @@ spawnQueue = Queue:new(
         holo:setRenderMode( entry.RenderMode or RENDER_MODE_DEFAULT )
         holo:setSkin( entry.Skin or 0 )
         table.insert( holoGroup, holo )
+
+        if clips then
+            for i, clip in ipairs( clips ) do
+                holo:setClip( i, true, clip.Origin, clip.Normal, holo )
+            end
+        end
 
         if entry.IsLast then
             local callback = holoGroupCallbacks[groupID]

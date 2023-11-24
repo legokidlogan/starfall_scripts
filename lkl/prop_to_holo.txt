@@ -21,6 +21,7 @@ if CLIENT and player() ~= owner() then return end
 local selectionSwep = "remotecontroller" -- The SWEP to hold in order to left/right click to select/deselect props.
 local selectionColor = Color( 0, 255, 0, 150 ) -- Manually-selected entities will temporarily be set to this color.
 local extraEntsListCount = 3 -- How many 'extra ents' wire inputs to make for adding additional entities, such as wiring in E2/SF holos. These will not get colored.
+local clipRounding = 3 -- How many decimal points to round to when saving clipping data. This is to fix tiny imprecisions made by the smart-snap toolgun grid. False to disable.
 -- END CONFIG
 
 
@@ -62,6 +63,15 @@ else
     wire.adjustInputs( inputNames, inputTypes )
 
 
+    local function vectorGetRounded( vec, idp )
+        if not idp then return vec end
+
+        vec = vec:clone()
+        vec:round( idp )
+
+        return vec
+    end
+
     local function selectProp( prop )
         if not isValid( prop ) then return end
         if propLookup[prop] then return end
@@ -94,6 +104,16 @@ else
             local renderMode = prop:getRenderMode()
             renderMode = renderMode ~= RENDER_MODE_DEFAULT and renderMode or nil -- Assume renderMode is 0 if it's not set.
 
+            local clips = {}
+            local entClips = prop:getClipping()
+
+            for i, clip in ipairs( entClips ) do
+                clips[i] = {
+                    Origin = vectorGetRounded( clip.origin, clipRounding ),
+                    Normal = vectorGetRounded( clip.normal, clipRounding ),
+                }
+            end
+
             return {
                 Model = prop:getModel(),
                 Pos = prop:getPos() - origin,
@@ -103,6 +123,7 @@ else
                 Color = color,
                 RenderMode = renderMode,
                 Skin = prop:getSkin(),
+                Clips = #clips > 0 and clips or nil, -- Note that clips in PtH will always be made relative to the hologram they're on.
                 --Scale = nil, -- Scale can't be set on props, and currently we can't get the scale from E2/SF holos from a different serverside chip from the creating one.
             }
         end
