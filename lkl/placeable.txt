@@ -270,17 +270,17 @@ function Placeable:getParent()
     return self._parent
 end
 
+-- Acts similarly to timer.frametime(), but accounts for any time the Placeable's :think() gets skipped due to cpu usage.
+function Placeable:getThinkDelta()
+    return self._thinkDelta
+end
+
 
 ----- OVERRIDABLE FUNCTIONS -----
 
 -- Called every tick.
 function Placeable:think()
 
-end
-
--- Acts similarly to timer.frametime(), but accounts for any time the Placeable's :think() gets skipped due to cpu usage.
-function Placeable:getThinkDelta()
-    return self._thinkDelta
 end
 
 --[[
