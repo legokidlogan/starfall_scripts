@@ -219,7 +219,13 @@ if SERVER then
     end
 
     function PropTurret:setAutoShoot( state )
-        if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+        if state == nil then
+            self._autoShoot = nil
+
+            return
+        end
+
+        if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
 
         self._autoShoot = state
     end
@@ -230,7 +236,13 @@ if SERVER then
 
     -- Target NPCs instead of players.
     function PropTurret:setTargetNPCs( state )
-        if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+        if state == nil then
+            self._targetNPCs = nil
+
+            return
+        end
+
+        if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
 
         self._targetNPCs = state
     end
@@ -552,6 +564,15 @@ if SERVER then
         - Note that the roll has no limit.
     --]]
     function PropTurret:setHeadAngleLimits( pitchMin, pitchMax, yawMin, yawMax )
+        if pitchMin == nil and pitchMax == nil and yawMin == nil and yawMax == nil then
+            self._headPitchMin = nil
+            self._headPitchMax = nil
+            self._headYawMin = nil
+            self._headYawMax = nil
+
+            return
+        end
+
         if type( pitchMin ) ~= "number" then error( "Expected pitchMin to be a number" ) end
         if type( pitchMax ) ~= "number" then error( "Expected pitchMax to be a number" ) end
         if type( yawMin ) ~= "number" then error( "Expected yawMin to be a number" ) end
@@ -599,7 +620,13 @@ if SERVER then
     end
 
     function PropTurret:setBulletSpeed( speed )
-        if type( speed ) ~= "number" then error( "Expected speed to be a number" ) end
+        if speed == nil then
+            self._bulletSpeed = nil
+
+            return
+        end
+
+        if type( speed ) ~= "number" then error( "Expected speed to be a number or nil" ) end
         if speed <= 0 then error( "speed must be > 0" ) end
 
         self._bulletSpeed = speed
@@ -610,7 +637,13 @@ if SERVER then
     end
 
     function PropTurret:setBulletMass( mass )
-        if type( mass ) ~= "number" then error( "Expected mass to be a number" ) end
+        if mass == nil then
+            self._bulletMass = nil
+
+            return
+        end
+
+        if type( mass ) ~= "number" then error( "Expected mass to be a number or nil" ) end
         if mass <= 0 then error( "mass must be > 0" ) end
 
         self._bulletMass = math.min( mass, 50000 )
@@ -621,7 +654,13 @@ if SERVER then
     end
 
     function PropTurret:setBulletCount( count )
-        if type( count ) ~= "number" then error( "Expected count to be a number" ) end
+        if count == nil then
+            self._bulletCount = nil
+
+            return
+        end
+
+        if type( count ) ~= "number" then error( "Expected count to be a number or nil" ) end
         if math.floor( count ) ~= count then error( "count must be an integer" ) end
         if count <= 0 then error( "count must be > 0" ) end
 
@@ -633,7 +672,13 @@ if SERVER then
     end
 
     function PropTurret:setBulletSpread( spread )
-        if type( spread ) ~= "number" then error( "Expected spread to be a number" ) end
+        if spread == nil then
+            self._bulletSpread = nil
+
+            return
+        end
+
+        if type( spread ) ~= "number" then error( "Expected spread to be a number or nil" ) end
         if spread < 0 or spread > 1 then error( "spread must be between 0 and 1" ) end
 
         self._bulletSpread = spread
@@ -644,7 +689,13 @@ if SERVER then
     end
 
     function PropTurret:setBulletColor( color )
-        if type( color ) ~= "Color" then error( "Expected color to be a Color" ) end
+        if color == nil then
+            self._bulletColor = nil
+
+            return
+        end
+
+        if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
 
         self._bulletColor = color
     end
@@ -654,7 +705,13 @@ if SERVER then
     end
 
     function PropTurret:setBulletLinger( duration )
-        if type( duration ) ~= "number" then error( "Expected duration to be a number" ) end
+        if duration == nil then
+            self._bulletLinger = nil
+
+            return
+        end
+
+        if type( duration ) ~= "number" then error( "Expected duration to be a number or nil" ) end
         if duration <= 0 then error( "duration must be > 0" ) end
 
         self._bulletLinger = duration
@@ -665,7 +722,13 @@ if SERVER then
     end
 
     function PropTurret:setBulletMaterial( material )
-        if type( material ) ~= "string" then error( "Expected material to be a string" ) end
+        if material == nil then
+            self._bulletMaterial = nil
+
+            return
+        end
+
+        if type( material ) ~= "string" then error( "Expected material to be a string or nil" ) end
 
         self._bulletMaterial = material
     end
@@ -679,14 +742,26 @@ if SERVER then
     end
 
     function PropTurret:setShootCooldown( duration )
-        if type( duration ) ~= "number" then error( "Expected duration to be a number" ) end
+        if duration == nil then
+            self._shootCooldown = nil
+
+            return
+        end
+
+        if type( duration ) ~= "number" then error( "Expected duration to be a number or nil" ) end
         if duration < 0 then error( "duration must be >= 0" ) end
 
         self._shootCooldown = duration
     end
 
     function PropTurret:setTargetVelAccount( multiplier )
-        if type( multiplier ) ~= "number" then error( "Expected multiplier to be a number" ) end
+        if multiplier == nil then
+            self._targetVelAccount = nil
+
+            return
+        end
+
+        if type( multiplier ) ~= "number" then error( "Expected multiplier to be a number or nil" ) end
 
         self._targetVelAccount = multiplier
     end
