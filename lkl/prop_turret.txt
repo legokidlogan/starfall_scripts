@@ -38,9 +38,6 @@ PropTurret.static.REDUCE_CONSTRAINTS = true -- If true, bullets will have COLLIS
 PropTurret.static.BULLET_MODEL = "models/hunter/plates/plate.mdl"
 PropTurret.static.BULLET_BUFFER_SIZE = 10
 PropTurret.static.AUTO_TARGET_INTERVAL = 0.5 -- How often the turret should auto target.
-PropTurret.static.AUTO_TARGET_CONE = 2 -- 0-1 fraction, corresponds to 0-180 degrees, i.e. a hemisphere at 1 cone. Set to 2 to force a full sphere.
-PropTurret.static.AUTO_TARGET_RANGE = 1000 -- How far the turret can see for auto targeting.
-PropTurret.static.AUTO_TARGET_VEHICLES = 0 -- 0 = don't target vehicles, 1 = only target vehicles, 2 = target vehicles and players.
 
 -- These can be overridden by subclasses, as well as set on a per-instance basis.
 PropTurret.static.BULLET_GRAVITY_ENABLED = true
@@ -51,6 +48,11 @@ PropTurret.static.BULLET_SPREAD = 0 -- 0-1 fraction, corresponds to 0-180 * 2 de
 PropTurret.static.BULLET_LINGER = 3 -- How long bullets should stay in the world before being removed.
 PropTurret.static.BULLET_COLOR = Color( 255, 255, 255, 255 )
 PropTurret.static.BULLET_MATERIAL = ""
+
+PropTurret.static.AUTO_TARGET_CONE = 2 -- 0-1 fraction, corresponds to 0-180 degrees, i.e. a hemisphere at 1 cone. Set to 2 to force a full sphere.
+PropTurret.static.AUTO_TARGET_RANGE = 1000 -- How far the turret can see for auto targeting.
+PropTurret.static.AUTO_TARGET_VEHICLES = 0 -- 0 = don't target vehicles, 1 = only target vehicles, 2 = target vehicles and players.
+
 PropTurret.static.TARGET_VEL_ACCOUNT = 1 -- Multiplier for adding the target's velocity when firing shots. Also gets affected by bullet speed and distance.
 PropTurret.static.SHOOT_COOLDOWN = 0.5
 
@@ -594,16 +596,55 @@ if SERVER then
         return self._headPitchMin, self._headPitchMax, self._headYawMin, self._headYawMax
     end
 
+    function PropTurret:setAutoTargetCone( coneFraction )
+        if coneFraction == nil then
+            self._autoTargetCone = nil
+
+            return
+        end
+
+        if type( coneFraction ) ~= "number" then error( "Expected coneFraction to be a number or nil" ) end
+        if coneFraction < 0 or ( coneFraction > 1 and coneFraction ~= 2 ) then error( "coneFraction must be either 2 or between 0 and 1" ) end
+
+        self._autoTargetCone = coneFraction
+    end
+
     function PropTurret:getAutoTargetCone()
-        return self.class.AUTO_TARGET_CONE
+        return self._autoTargetCone or self.class.AUTO_TARGET_CONE
+    end
+
+    function PropTurret:setAutoTargetRange( range )
+        if range == nil then
+            self._autoTargetRange = nil
+
+            return
+        end
+
+        if type( range ) ~= "number" then error( "Expected range to be a number or nil" ) end
+        if range <= 0 then error( "range must be > 0" ) end
+
+        self._autoTargetRange = range
     end
 
     function PropTurret:getAutoTargetRange()
-        return self.class.AUTO_TARGET_RANGE
+        return self._autoTargetRange or self.class.AUTO_TARGET_RANGE
+    end
+
+    function PropTurret:setVehicleTargetMode( mode )
+        if mode == nil then
+            self._vehicleTargetMode = nil
+
+            return
+        end
+
+        if type( mode ) ~= "number" then error( "Expected mode to be a number or nil" ) end
+        if mode ~= 0 and mode ~= 1 and mode ~= 2 then error( "mode must be 0, 1, or 2" ) end
+
+        self._vehicleTargetMode = mode
     end
 
     function PropTurret:getVehicleTargetMode()
-        return self.class.AUTO_TARGET_VEHICLES
+        return self._vehicleTargetMode or self.class.AUTO_TARGET_VEHICLES
     end
 
     function PropTurret:setBulletGravityEnabled( state )
