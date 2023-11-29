@@ -52,6 +52,12 @@ Rocket.static.EXPLOSIVE_COUNT = 1 -- The number of explosive props to use when e
 Rocket.static.TARGET_VEL_ACCOUNT = 0 -- Multiplier for adding the target's velocity when following them. Also gets affected by distance and rocket speed.
 Rocket.static.TARGET_USE_ANGLE_EX = true -- Whether or not to use :getAngleEx() when calculating the angle to the target. If false, :getAngle() will be used instead.
 
+Rocket.static.TRAIL_LENGTH = 2 -- Set to false to disable
+Rocket.static.TRAIL_START_SIZE = 20
+Rocket.static.TRAIL_END_SIZE = 8
+Rocket.static.TRAIL_MATERIAL = "trails/smoke"
+Rocket.static.TRAIL_COLOR = Color( 255, 255, 255, 255 )
+
 -- These are overrides from Hitbox.
 Rocket.static.HITBOX_PROP_MODEL = "models/hunter/blocks/cube025x1x025.mdl"
 Rocket.static.HITBOX_PTH_STRING = [===[[{"RenderMode":4.0,"Skin":0.0,"Pos":"[0.0249 0.0062 -5.9404]","Ang":"{-0 0 0}","SubMaterials":{"0":"","1":""},"Model":"models/props_phx/ww2bomb.mdl","Material":""}]]===]
@@ -256,6 +262,20 @@ function Rocket:explode()
 
     self:onExplode()
     self:destroy()
+end
+
+function Rocket:addTrail( ent )
+    if not isValid( ent ) then return end
+
+    local length = self:getTrailLength()
+    if not length then return end
+
+    local startSize = self:getTrailStartSize()
+    local endSize = self:getTrailEndSize()
+    local material = self:getTrailMaterial()
+    local color = self:getTrailColor()
+
+    ent:setTrails( startSize, endSize, length, material, color )
 end
 
 function Rocket:getAimPosForTargetWithVel( target )
@@ -650,6 +670,104 @@ function Rocket:getTargetUseAngleEx()
     return self.class.TARGET_USE_ANGLE_EX
 end
 
+function Rocket:setTrailLength( length )
+    if length == nil then
+        self._trailLength = nil
+
+        return
+    end
+
+    if type( length ) ~= "number" then error( "Expected length to be a number or nil" ) end
+    if length < 0 then error( "length must be >= 0" ) end
+
+    self._trailLength = length
+end
+
+function Rocket:getTrailLength()
+    local val = self._trailLength
+    if val ~= nil then return val end
+
+    return self.class.TRAIL_LENGTH
+end
+
+function Rocket:setTrailStartSize( size )
+    if size == nil then
+        self._trailStartSize = nil
+
+        return
+    end
+
+    if type( size ) ~= "number" then error( "Expected size to be a number or nil" ) end
+    if size < 0 then error( "size must be >= 0" ) end
+
+    self._trailStartSize = size
+end
+
+function Rocket:getTrailStartSize()
+    local val = self._trailStartSize
+    if val ~= nil then return val end
+
+    return self.class.TRAIL_START_SIZE
+end
+
+function Rocket:setTrailEndSize( size )
+    if size == nil then
+        self._trailEndSize = nil
+
+        return
+    end
+
+    if type( size ) ~= "number" then error( "Expected size to be a number or nil" ) end
+    if size < 0 then error( "size must be >= 0" ) end
+
+    self._trailEndSize = size
+end
+
+function Rocket:getTrailEndSize()
+    local val = self._trailEndSize
+    if val ~= nil then return val end
+
+    return self.class.TRAIL_END_SIZE
+end
+
+function Rocket:setTrailMaterial( material )
+    if material == nil then
+        self._trailMaterial = nil
+
+        return
+    end
+
+    if type( material ) ~= "string" then error( "Expected material to be a string or nil" ) end
+
+    self._trailMaterial = material
+end
+
+function Rocket:getTrailMaterial()
+    local val = self._trailMaterial
+    if val ~= nil then return val end
+
+    return self.class.TRAIL_MATERIAL
+end
+
+function Rocket:setTrailColor( color )
+    if color == nil then
+        self._trailColor = nil
+
+        return
+    end
+
+    if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._trailColor = color
+end
+
+function Rocket:getTrailColor()
+    local val = self._trailColor
+    if val ~= nil then return val end
+
+    return self.class.TRAIL_COLOR
+end
+
 
 ----- OVERRIDABLE FUNCTIONS -----
 
@@ -763,6 +881,14 @@ function Rocket:onReady()
 
     self._rocketLength = length
     self._rocketLengthHalf = length / 2
+
+    local pthHolo = self:getHitboxPTHHolo()
+
+    if isValid( pthHolo ) then
+        self:addTrail( pthHolo )
+    else
+        self:addTrail( self:getHitboxProp() )
+    end
 
     if self._launchOnReady then
         self:launch()
