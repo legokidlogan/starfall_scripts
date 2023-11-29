@@ -44,7 +44,7 @@ PropTurret.static.BULLET_GRAVITY_ENABLED = true
 PropTurret.static.BULLET_SPEED = 3000
 PropTurret.static.BULLET_MASS = 4
 PropTurret.static.BULLET_COUNT = 1
-PropTurret.static.BULLET_SPREAD = 0 -- 0-1 fraction, corresponds to 0-180 * 2 degrees, i.e. a full sphere at 1 spread.
+PropTurret.static.BULLET_SPREAD = 0 -- 0-2 fraction, corresponds to 0-360 degrees, i.e. a hemisphere at 1 cone. Set to 2 to force a full sphere.
 PropTurret.static.BULLET_LINGER = 3 -- How long bullets should stay in the world before being removed.
 PropTurret.static.BULLET_COLOR = Color( 255, 255, 255, 255 )
 PropTurret.static.BULLET_MATERIAL = ""
@@ -608,7 +608,7 @@ if SERVER then
         end
 
         if type( coneFraction ) ~= "number" then error( "Expected coneFraction to be a number or nil" ) end
-        if coneFraction < 0 or ( coneFraction > 1 and coneFraction ~= 2 ) then error( "coneFraction must be either 2 or between 0 and 1" ) end
+        if coneFraction < 0 or coneFraction > 2 then error( "coneFraction must be between 0 and 2" ) end
 
         self._autoTargetCone = coneFraction
     end
