@@ -1,0 +1,915 @@
+--@name Rocket
+--@author legokidlogan
+--@server
+--@include lkl/hitbox.txt
+--@include lkl/global_whitelist.txt
+--@include lkl/prop_buffer.txt
+
+--[[
+    - TODO
+--]]
+
+if Rocket then return end
+
+glist = glist or {}
+glist.groupName = glist.groupName or "turret"
+glist.startupSyncDelay = glist.startupSyncDelay or 1
+
+require( "lkl/global_whitelist.txt" )
+
+
+propBuffer = propBuffer or {}
+propBuffer.storePos = propBuffer.storePos or Vector( 0, 0, -4000 )
+
+require( "lkl/hitbox.txt" )
+require( "lkl/prop_buffer.txt" )
+
+
+
+Rocket = class( "Rocket", Hitbox )
+
+-- These static vars can be overridden by subclasses.
+Rocket.static.EXPLOSIVE_MODEL = "models/props_c17/oildrum001_explosive.mdl"
+Rocket.static.EXPLOSIVE_BUFFER_SIZE = 5
+Rocket.static.AUTO_TARGET_INTERVAL = 0.5 -- How often the rocket should auto target.
+Rocket.static.IMPACT_INTERVAL = 0 -- How often the rocket should check for impacts. If 0, will be done in :think().
+
+-- These can be overridden by subclasses, as well as set on a per-instance basis.
+Rocket.static.ROCKET_GRAVITY = Vector( 0, 0, -400 )
+Rocket.static.ROCKET_SPEED = 2000
+Rocket.static.ROCKET_TURN_SPEED = 90 -- Max degrees per second per each axis when trying to turn towards a target.
+Rocket.static.ROCKET_ARMING_DELAY = 0 -- How long after the rocket is launched before it can explode (other than from 'dying'). 0 Will still incur a one-tick delay.
+Rocket.static.ROCKET_EXPLODE_ON_IMPACT = true -- Explode if the rocket collides with something.
+Rocket.static.ROCKET_EXPLODE_ON_DEATH = true -- Explode if the rocket 'dies' (i.e. its hitbox prop is destroyed. Doesn't occur when Rocket:destroy() is called directly).
+Rocket.static.ROCKET_EXPLODE_PROXIMITY = 100 -- Explode if the rocket comes this close to its target. 0 to disable.
+
+Rocket.static.AUTO_TARGET_CONE = 2 -- 0-2 fraction, corresponds to 0-360 degrees, i.e. a hemisphere at 1 cone. Set to 2 to force a full sphere.
+Rocket.static.AUTO_TARGET_RANGE = 4000 -- How far the rocket can see for auto targeting.
+Rocket.static.AUTO_TARGET_VEHICLES = 2 -- 0 = don't target vehicles, 1 = only target vehicles, 2 = target vehicles and players.
+Rocket.static.AUTO_TARGET_BEFORE_ARMED = false -- If true, the rocket will be able to automatically find targets before it's armed.
+
+Rocket.static.EXPLOSIVE_COUNT = 1 -- The number of explosive props to use when exploding.
+Rocket.static.TARGET_VEL_ACCOUNT = 0 -- Multiplier for adding the target's velocity when following them. Also gets affected by distance and rocket speed.
+Rocket.static.TARGET_USE_ANGLE_EX = true -- Whether or not to use :getAngleEx() when calculating the angle to the target. If false, :getAngle() will be used instead.
+
+-- These are overrides from Hitbox.
+Rocket.static.HITBOX_PROP_MODEL = "models/hunter/blocks/cube025x1x025.mdl"
+Rocket.static.HITBOX_PTH_STRING = [===[[{"RenderMode":4.0,"Skin":0.0,"Pos":"[0.0249 0.0062 -5.9404]","Ang":"{-0 0 0}","SubMaterials":{"0":"","1":""},"Model":"models/props_phx/ww2bomb.mdl","Material":""}]]===]
+
+Rocket.static.HITBOX_PROP_OFFSET_POS = Vector( 0, 0, 0 )
+Rocket.static.HITBOX_PROP_OFFSET_POS_SCALED = Vector( 0, 0, 0 )
+Rocket.static.HITBOX_PROP_OFFSET_ANG = Angle( 0, 90, 0 )
+Rocket.static.HITBOX_PROP_OFFSET_FROM_PROP_CENTER = true
+Rocket.static.HITBOX_PROP_OFFSET_SCALE_ROTATE = true
+Rocket.static.HITBOX_PROP_MASS = 500
+Rocket.static.HITBOX_PROP_COLOR = Color( 0, 0, 0, 0 )
+Rocket.static.HITBOX_PROP_MATERIAL = ""
+
+Rocket.static.HITBOX_PTH_OFFSET_POS = Vector( 0, 0, 0 )
+Rocket.static.HITBOX_PTH_OFFSET_POS_SCALED = Vector( 0, 0, 0 )
+Rocket.static.HITBOX_PTH_OFFSET_ANG = Angle( 0, 0, 0 )
+Rocket.static.HITBOX_PTH_OFFSET_FROM_PROP_CENTER = false
+Rocket.static.HITBOX_PTH_OFFSET_SCALE_ROTATE = true
+Rocket.static.HITBOX_PTH_OFFSET_FROM_HITBOX = true
+
+
+local COLLISION_GROUP_IN_VEHICLE = COLLISION_GROUP.IN_VEHICLE
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local startupSyncComplete = false
+local allRockets = {}
+local rocketsByClass = {}
+local explosiveModelLookup = {}
+local rocketClasses = {}
+local rocketClassLookup = {}
+local registerRocketClass
+local getRootParent
+
+local mClamp = math.clamp
+
+
+----- STATIC FUNCTIONS -----
+
+function Rocket:initialize( pos, ang, hitboxModel, pthString, pthScale )
+    Rocket.super.initialize( self, pos, ang, hitboxModel, pthString, pthScale )
+
+    if not rocketClassLookup[self.class] then
+        registerRocketClass( self.class )
+    end
+
+    local explosiveModel = self:getExplosiveModel()
+    propBuffer.registerModel( explosiveModel, self.class.EXPLOSIVE_BUFFER_SIZE )
+    explosiveModelLookup[explosiveModel] = true
+
+    table.insert( allRockets, self )
+    table.insert( rocketsByClass[self.class], self )
+
+    self._registeredProps = {}
+    self._registeredPropLookup = {}
+    self._activeExplosives = {}
+    self._launched = false
+    self._armed = false
+
+    self:setAutoTarget( true )
+    self:setTargetNPCs( false )
+end
+
+function Rocket.static:getAll()
+    return allRockets
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Rocket:doesAutoTarget()
+    return self._autoTarget
+end
+
+function Rocket:canAutoTarget()
+    return self:getAutoTargetBeforeArmed() or self:isArmed()
+end
+
+function Rocket:getTarget()
+    return self._target
+end
+
+function Rocket:setAutoTarget( enabled )
+    if type( enabled ) ~= "boolean" then error( "Expected enabled to be a boolean" ) end
+    if self._autoTarget == enabled then return end
+
+    self._autoTarget = enabled
+    self:onAutoTargetChanged()
+
+    if self:isReplicatedOnClient() then
+        net.start( "LKL_Rocket_SetAutoTarget" )
+        net.writeUInt( self:getID(), 16 )
+        net.writeBool( enabled )
+        net.send()
+    end
+end
+
+function Rocket:setTarget( target )
+    if target ~= nil and not isValid( target ) then error( "Expected target to be nil or valid" ) end
+
+    local prevTarget = self._target
+    if prevTarget == target then return end
+
+    self._target = target
+    self:onSetTarget( prevTarget )
+
+    if self:isReplicatedOnClient() then
+        net.start( "LKL_Rocket_SetTarget" )
+        net.writeUInt( self:getID(), 16 )
+        net.writeEntity( target or game.getWorld() )
+        net.send()
+    end
+end
+
+-- Target NPCs instead of players.
+function Rocket:setTargetNPCs( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._targetNPCs = state
+end
+
+function Rocket:doesTargetNPCs()
+    return self._targetNPCs
+end
+
+function Rocket:launch()
+    if self:hasLaunched() then return end
+
+    if not self:isReady() then
+        self._launchOnReady = true
+
+        return
+    end
+
+    self._launched = true
+    self._launchTime = timer.curtime()
+    self._rocketVel = self:getAngles():getForward() * self:getRocketSpeed()
+end
+
+function Rocket:hasLaunched()
+    return self._launched
+end
+
+function Rocket:getRocketVelocity()
+    return self._rocketVel
+end
+
+function Rocket:isArmed()
+    if self._armed then return true end
+
+    local launchTime = self._launchTime
+    if not launchTime then return false end
+
+    local armingDelay = self:getArmingDelay()
+
+    if timer.curtime() - armingDelay >= launchTime then
+        self._armed = true
+        self:onArmed()
+
+        return true
+    end
+
+    return false
+end
+
+function Rocket:getRocketLength()
+    return self._rocketLength or 0.1
+end
+
+function Rocket:getRocketLengthHalf()
+    return self._rocketLengthHalf or 0.05
+end
+
+function Rocket:explode()
+    if not self:canExplode() then return end
+
+    self._exploded = true
+
+    local explosiveModel = self:getExplosiveModel()
+    local hitboxProp = self:getHitboxProp()
+    local pos = isValid( hitboxProp ) and hitboxProp:obbCenterW() or self:getPos()
+    local explosives = {}
+
+    for i = 1, self:getExplosiveCount() do
+        local explosive = propBuffer.takeProp( explosiveModel )
+        if not explosive then continue end
+
+        explosives[i] = explosive
+
+        explosive:setColor( COLOR_EMPTY )
+        explosive:setCollisionGroup( COLLISION_GROUP_IN_VEHICLE )
+        explosive:setPos( pos )
+        explosive:applyDamage( 50000, owner() )
+    end
+
+    timer.simple( 0.1, function()
+        for _, explosive in ipairs( explosives ) do
+            if isValid( explosive ) then
+                explosive:breakEnt()
+            end
+        end
+    end )
+
+    self:onExplode()
+    self:destroy()
+end
+
+function Rocket:getAimPosForTargetWithVel( target )
+    local velAccount = self:getTargetVelAccount()
+    local targetPos = self:getAimPosForTarget( target )
+    if velAccount == 0 then return targetPos end
+
+    local curPos = self:getPos()
+    local targetVel = target:getVelocity()
+
+    if target.inVehicle and target:inVehicle() then
+        targetVel = getRootParent( target:getVehicle() ):getVelocity()
+    end
+
+    local dist = curPos:getDistance( targetPos )
+
+    return targetPos + targetVel * velAccount * dist / self:getRocketSpeed()
+end
+
+--[[
+    - Returns a sorted list of valid targets in a cone/sphere from the Rocket's head depending on its settings.
+    - Line of sight is not checked.
+--]]
+function Rocket:getTargetsInCone()
+    local cone = self:getAutoTargetCone()
+    if cone == 2 then return self:getTargetsInSphere() end
+
+    local sphereTargets = self:getTargetsInSphere()
+    local targets = {}
+    local targetCount = 0
+    local dotThreshold = 1 - cone
+    local pos = self:getPos()
+    local dir = self:getAngles():getForward()
+
+    for _, target in ipairs( sphereTargets ) do
+        local toTarget = target:obbCenterW() - pos
+        local dot = toTarget:getNormalized():dot( dir )
+
+        if dot >= dotThreshold then
+            targetCount = targetCount + 1
+            targets[targetCount] = target
+        end
+    end
+
+    return targets
+end
+
+--[[
+    - Returns a sorted list of valid targets in a sphere from the Rocket's head depending on its settings.
+    - Ignores the AUTO_TARGET_CONE setting.
+    - Line of sight is not checked.
+--]]
+function Rocket:getTargetsInSphere()
+    local pos = self:getPos()
+    local rangeSqr = self:getAutoTargetRange() ^ 2
+    local filter = self.targetFilter
+    local selfObj = self
+
+    local function filterFunc( ent )
+        if not ent.getPos or ent:getPos():getDistanceSqr( pos ) > rangeSqr then return false end
+
+        return filter( selfObj, ent )
+    end
+
+    local targets
+
+    -- Use find.allPlayers() and find.byClass() instead of find.inSphere() due to its internal 512 ent limit prior to getting the lua filter.
+    if self:doesTargetNPCs() then
+        targets = find.all( filterFunc )
+    else
+        targets = find.allPlayers( filterFunc )
+    end
+
+    targets = find.sortByClosest( targets, pos )
+
+    return targets
+end
+
+--[[
+    - Returns whether or not the Rocket can see the given entity.
+
+    ent: (Entity)
+        - The Entity to check.
+--]]
+function Rocket:canSee( ent )
+    if not isValid( ent ) then return false end
+
+    local startPos = self:getPos()
+    local endPos = ent:obbCenterW()
+
+    local filter = { self:getHitboxProp() }
+    table.add( filter, self:getProps() )
+    table.add( filter, propBuffer.getProps( self:getExplosiveModel() ) )
+    table.add( filter, self:getExtraTraceFilterEnts() )
+
+    for _, rocket in ipairs( allRockets ) do
+        table.insert( filter, rocket:getHitboxProp() )
+    end
+
+    -- Trace for the player's vehicle if they're in one.
+    if ent.isPlayer and ent:isPlayer() and ent:inVehicle() then
+        local vehicle = ent:getVehicle()
+
+        table.add( filter, vehicle:getAllConstrained() )
+    end
+
+    local tr = trace.line( startPos, endPos, filter )
+
+    return not tr.Hit or tr.Entity == ent
+end
+
+--[[
+    - Returns the list of entities that have been registered as being part of the Rocket.
+    - This is used for filtering the props from line of sight traces.
+    - Register entities with :registerProp() and deregister them with :deregisterProp().
+--]]
+function Rocket:getProps()
+    return self._registeredProps
+end
+
+--[[
+    - Registers an entity as being part of the Rocket.
+    - This is used for filtering the props from line of sight traces.
+    - If Rocket.REDUCE_CONSTRAINTS is true, then be sure to not change the entity's collision group after registering it.
+--]]
+function Rocket:registerProp( ent )
+    if not isValid( ent ) then return end
+    if self._registeredPropLookup[ent] then return end
+
+    self._registeredPropLookup[ent] = true
+    table.insert( self._registeredProps, ent )
+end
+
+--[[
+    - Deregisters an entity as being part of the Rocket.
+    - This is used for filtering the props from line of sight traces.
+--]]
+function Rocket:deregisterProp( ent )
+    if not isValid( ent ) then return end
+    if not self._registeredPropLookup[ent] then return end
+
+    self._registeredPropLookup[ent] = nil
+    table.removeByValue( self._registeredProps, ent )
+end
+
+function Rocket:setAutoTargetCone( coneFraction )
+    if coneFraction == nil then
+        self._autoTargetCone = nil
+
+        return
+    end
+
+    if type( coneFraction ) ~= "number" then error( "Expected coneFraction to be a number or nil" ) end
+    if coneFraction < 0 or coneFraction > 2 then error( "coneFraction must be between 0 and 2" ) end
+
+    self._autoTargetCone = coneFraction
+end
+
+function Rocket:getAutoTargetCone()
+    return self._autoTargetCone or self.class.AUTO_TARGET_CONE
+end
+
+function Rocket:setAutoTargetRange( range )
+    if range == nil then
+        self._autoTargetRange = nil
+
+        return
+    end
+
+    if type( range ) ~= "number" then error( "Expected range to be a number or nil" ) end
+    if range <= 0 then error( "range must be > 0" ) end
+
+    self._autoTargetRange = range
+end
+
+function Rocket:getAutoTargetRange()
+    return self._autoTargetRange or self.class.AUTO_TARGET_RANGE
+end
+
+function Rocket:setAutoTargetBeforeArmed( state )
+    if state == nil then
+        self._autoTargetBeforeArmed = nil
+
+        return
+    end
+
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._autoTargetBeforeArmed = state
+end
+
+function Rocket:getAutoTargetBeforeArmed()
+    local val = self._autoTargetBeforeArmed
+    if val ~= nil then return val end
+
+    return self.class.AUTO_TARGET_BEFORE_ARMED
+end
+
+function Rocket:setVehicleTargetMode( mode )
+    if mode == nil then
+        self._vehicleTargetMode = nil
+
+        return
+    end
+
+    if type( mode ) ~= "number" then error( "Expected mode to be a number or nil" ) end
+    if mode ~= 0 and mode ~= 1 and mode ~= 2 then error( "mode must be 0, 1, or 2" ) end
+
+    self._vehicleTargetMode = mode
+end
+
+function Rocket:getVehicleTargetMode()
+    return self._vehicleTargetMode or self.class.AUTO_TARGET_VEHICLES
+end
+
+function Rocket:setRocketGravity( grav )
+    if grav == nil then
+        self._rocketGravity = nil
+
+        return
+    end
+
+    if type( grav ) ~= "Vector" then error( "Expected grav to be a Vector or nil" ) end
+
+    self._rocketGravity = grav
+end
+
+function Rocket:getRocketGravity()
+    return self._rocketGravity or self.class.ROCKET_GRAVITY
+end
+
+function Rocket:setRocketSpeed( speed )
+    if speed == nil then
+        self._rocketSpeed = nil
+
+        return
+    end
+
+    if type( speed ) ~= "number" then error( "Expected speed to be a number or nil" ) end
+    if speed <= 0 then error( "speed must be > 0" ) end
+
+    self._rocketSpeed = speed
+end
+
+function Rocket:getRocketSpeed()
+    return self._rocketSpeed or self.class.ROCKET_SPEED
+end
+
+function Rocket:setRocketTurnSpeed( speed )
+    if speed == nil then
+        self._rocketTurnSpeed = nil
+
+        return
+    end
+
+    if type( speed ) ~= "number" then error( "Expected speed to be a number or nil" ) end
+    if speed <= 0 then error( "speed must be > 0" ) end
+
+    self._rocketTurnSpeed = speed
+end
+
+function Rocket:getRocketTurnSpeed()
+    return self._rocketTurnSpeed or self.class.ROCKET_TURN_SPEED
+end
+
+function Rocket:setArmingDelay( delay )
+    if type( delay ) ~= "number" then error( "Expected delay to be a number" ) end
+    if delay < 0 then error( "delay must be >= 0" ) end
+
+    self._armingDelay = delay
+end
+
+function Rocket:getArmingDelay()
+    return self._armingDelay or self.class.ROCKET_ARMING_DELAY
+end
+
+function Rocket:setExplodeOnImpact( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._explodeOnImpact = state
+end
+
+function Rocket:doesExplodeOnImpact()
+    local val = self._explodeOnImpact
+    if val ~= nil then return val end
+
+    return self.class.ROCKET_EXPLODE_ON_IMPACT
+end
+
+function Rocket:setExplodeOnDeath( state )
+    if state == nil then
+        self._explodeOnDeath = nil
+
+        return
+    end
+
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._explodeOnDeath = state
+end
+
+function Rocket:doesExplodeOnDeath()
+    local val = self._explodeOnDeath
+    if val ~= nil then return val end
+
+    return self.class.ROCKET_EXPLODE_ON_DEATH
+end
+
+function Rocket:setExplodeProximity( dist )
+    if dist == nil then
+        self._explodeProximity = nil
+        self._explodeProximitySqr = nil
+
+        return
+    end
+
+    if type( dist ) ~= "number" then error( "Expected dist to be a number or nil" ) end
+    if dist < 0 then error( "dist must be >= 0" ) end
+
+    self._explodeProximity = dist
+    self._explodeProximitySqr = dist ^ 2
+end
+
+function Rocket:getExplodeProximity()
+    local val = self._explodeProximity
+    if val ~= nil then return val end
+
+    return self.class.ROCKET_EXPLODE_PROXIMITY
+end
+
+function Rocket:getExplodeProximitySqr()
+    local val = self._explodeProximitySqr
+    if val ~= nil then return val end
+
+    return self:getExplodeProximity() ^ 2
+end
+
+function Rocket:setExplosiveCount( count )
+    if count == nil then
+        self._explosiveCount = nil
+
+        return
+    end
+
+    if type( count ) ~= "number" then error( "Expected count to be a number or nil" ) end
+    if math.floor( count ) ~= count then error( "count must be an integer" ) end
+    if count <= 0 then error( "count must be > 0" ) end
+
+    self._explosiveCount = math.min( count, 100 )
+end
+
+function Rocket:getExplosiveCount()
+    return self._explosiveCount or self.class.EXPLOSIVE_COUNT
+end
+
+function Rocket:getExplosiveModel()
+    return self.class.EXPLOSIVE_MODEL
+end
+
+function Rocket:setTargetVelAccount( multiplier )
+    if multiplier == nil then
+        self._targetVelAccount = nil
+
+        return
+    end
+
+    if type( multiplier ) ~= "number" then error( "Expected multiplier to be a number or nil" ) end
+
+    self._targetVelAccount = multiplier
+end
+
+function Rocket:getTargetVelAccount()
+    return self._targetVelAccount or self.class.TARGET_VEL_ACCOUNT
+end
+
+function Rocket:setTargetUseAngleEx( state )
+    if state == nil then
+        self._targetUseAngleEx = nil
+
+        return
+    end
+
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._targetUseAngleEx = state
+end
+
+function Rocket:getTargetUseAngleEx()
+    local val = self._targetUseAngleEx
+    if val ~= nil then return val end
+
+    return self.class.TARGET_USE_ANGLE_EX
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+--[[
+    - Callback for when the auto target of the Rocket is changed.
+    - Used for updating props, holograms, etc.
+--]]
+function Rocket:onAutoTargetChanged()
+
+end
+
+--[[
+    - Callback for when the target of the Rocket is changed.
+    - Used for updating props, holograms, etc.
+    - Note that prevTarget will always be nil on the first call.
+--]]
+function Rocket:onSetTarget( _prevTarget )
+
+end
+
+-- Called when the rocket becomes armed.
+function Rocket:onArmed()
+
+end
+
+-- Callback for when the Rocket explodes.
+function Rocket:onExplode()
+
+end
+
+-- Return the position that the Rocket should aim at for the given target. Do not account for target velocity here.
+function Rocket:getAimPosForTarget( target )
+    return target:obbCenterW()
+end
+
+-- Filter for auto targetting.
+function Rocket:targetFilter( ent )
+    if not isValid( ent ) then return false end
+
+    if self:doesTargetNPCs() then
+        if not ent.isNPC or not ent:isNPC() then return false end
+
+        return true
+    end
+
+    if not ent.isPlayer or not ent:isPlayer() then return false end
+    if not ent:isAlive() then return false end
+    if glist.filterPlayer( ent ) then return false end -- Ignore players in the whitelist.
+    if pvp and not pvp.playerIsInPvp( ent ) then return false end
+    if ent:getColor().a ~= 255 then return false end -- Ignore cloaked and (on CFC) spawn-protected players.
+
+    local vehiclePref = self:getVehicleTargetMode()
+    local isInVehicle = ent:inVehicle()
+    if vehiclePref == 0 and isInVehicle then return false end
+    if vehiclePref == 1 and not isInVehicle then return false end
+
+    return true
+end
+
+--[[
+    - Return a sequential table of additional entities which should not block line of sight.
+    - Explosives and registered props are already filtered out.
+--]]
+function Rocket:getExtraTraceFilterEnts()
+    return {}
+end
+
+--[[
+    - Returns whether or not the Rocket can explode.
+    - If you override this function in subclasses, it's recommended to put the following at the top of your version:
+        if not ClassNameGoesHere.super.canExplode( self ) then return false end
+--]]
+function Rocket:canExplode()
+    if not self:isReady() then return false end
+    if not self:isArmed() and not self:isHitboxPropDestroyed() then return false end
+    if propBuffer.getReadyCount( self:getExplosiveModel() ) == 0 then return false end
+
+    return true
+end
+
+-- This should return the Entity that the Rocket should auto-target, or nil if it shouldn't target anything.
+function Rocket:handleAutoTarget()
+    local targets = self:getTargetsInCone()
+
+    for _, target in ipairs( targets ) do
+        if self:canSee( target ) then
+            return target
+        end
+    end
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Rocket:onDestroyed()
+    table.removeByValue( allRockets, self )
+    table.removeByValue( rocketsByClass[self.class], self )
+
+    Rocket.super.onDestroyed( self )
+end
+
+function Rocket:think()
+    self:_handleRocketMovement()
+end
+
+function Rocket:onReady()
+    Rocket.super.onReady( self )
+
+    local obbSize = self:getHitboxPropOBBSize()
+    local length = math.max( math.max( obbSize[1], obbSize[2] ), obbSize[3] )
+
+    self._rocketLength = length
+    self._rocketLengthHalf = length / 2
+
+    if self._launchOnReady then
+        self:launch()
+    end
+end
+
+function Rocket:onHitboxPropDestroyed()
+    if self:doesExplodeOnDeath() then
+        self:explode()
+
+        if self:isValid() then
+            self:destroy()
+        end
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+registerRocketClass = function( classObj )
+    rocketClassLookup[classObj] = true
+    table.insert( rocketClasses, classObj )
+    rocketsByClass[classObj] = {}
+
+    timer.create( "LKL_Rocket_AutoTargetThink_" .. classObj.name, classObj.AUTO_TARGET_INTERVAL, 0, function()
+        if not startupSyncComplete then return end
+
+        for _, rocket in ipairs( rocketsByClass[classObj] ) do
+            if rocket:doesAutoTarget() and rocket:canAutoTarget() then
+                rocket:setTarget( rocket:handleAutoTarget() )
+            end
+        end
+    end )
+
+    if classObj.IMPACT_INTERVAL <= 0 then return end
+
+    timer.create( "LKL_Rocket_ImpactCheck_" .. classObj.name, classObj.IMPACT_INTERVAL, 0, function()
+        for _, rocket in ipairs( rocketsByClass[classObj] ) do
+            if rocket:doesExplodeOnImpact() and rocket:isArmed() then
+                rocket:_handleImpactTrace()
+            end
+        end
+    end )
+end
+
+getRootParent = function( ent )
+    local parent = ent:getParent()
+    if not isValid( parent ) then return ent end
+
+    return getRootParent( parent )
+end
+
+
+function Rocket:_handleImpactTrace()
+    local lengthHalf = self:getRocketLengthHalf()
+    local curPos = self:getPos()
+    local curAng = self:getAngles()
+    local dir = curAng:getForward()
+
+    local startPos = curPos - dir * lengthHalf
+    local endPos = curPos + dir * lengthHalf
+
+    local filter = {}
+    table.add( filter, self:getProps() )
+    table.add( filter, propBuffer.getProps( self:getExplosiveModel() ) )
+    table.add( filter, self:getExtraTraceFilterEnts() )
+
+    for _, rocket in ipairs( allRockets ) do
+        table.insert( filter, rocket:getHitboxProp() )
+    end
+
+    local tr = trace.line( startPos, endPos, filter )
+
+    if tr.Hit then
+        self:explode()
+
+        if self:isValid() then
+            self:destroy()
+        end
+
+        return true
+    end
+end
+
+function Rocket:_handleRocketMovement()
+    if not self:hasLaunched() then return end
+
+    if self.class.IMPACT_INTERVAL <= 0 then
+        local didExplode = self:_handleImpactTrace()
+
+        if didExplode then return end
+    end
+
+    local curPos = self:getPos()
+    local curAng = self:getAngles()
+
+    local dt = self:getThinkDelta()
+    local speed = self:getRocketSpeed()
+    local target = self:getTarget()
+    local newAng
+    local newVel
+
+    if isValid( target ) then
+        local turnSpeed = self:getRocketTurnSpeed()
+        local targetPos = self:getAimPosForTargetWithVel( target )
+        local toTarget = targetPos - curPos
+
+        local explodeProximitySqr = self:getExplodeProximitySqr()
+
+        if explodeProximitySqr ~= 0 and toTarget:getLengthSqr() <= explodeProximitySqr then
+            self:explode()
+
+            return
+        end
+
+        local toTargetAng = self:getTargetUseAngleEx() and toTarget:getAngleEx( curAng:getUp() ) or toTarget:getAngle( toTarget )
+        local toTargetAngLocal = self:worldToLocalAngles( toTargetAng )
+
+        local turnSpeedEff = turnSpeed * dt
+        local turnSpeedEffMinus = -turnSpeedEff
+
+        toTargetAngLocal = Angle(
+            mClamp( toTargetAngLocal[1], turnSpeedEffMinus, turnSpeedEff ),
+            mClamp( toTargetAngLocal[2], turnSpeedEffMinus, turnSpeedEff ),
+            mClamp( toTargetAngLocal[3], turnSpeedEffMinus, turnSpeedEff )
+        )
+
+        newAng = self:localToWorldAngles( toTargetAngLocal )
+        newVel = newAng:getForward() * speed
+    else
+        local gravity = self:getRocketGravity()
+        local curVel = self:getRocketVelocity()
+
+        newVel = curVel + gravity * dt
+        newAng = newVel:getAngleEx( curAng:getUp() )
+    end
+
+    self._rocketVel = newVel
+
+    self:setPos( curPos + newVel * dt )
+    self:setAngles( newAng )
+end
+
+
+----- SETUP -----
+
+hook.add( "LKL_GList_StartupSync_Complete", "LKL_Rocket_StartThinking", function()
+    -- Don't allow Rockets to think or auto-target until glist is ready.
+    startupSyncComplete = true
+end )

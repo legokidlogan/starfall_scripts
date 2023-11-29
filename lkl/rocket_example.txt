@@ -1,0 +1,37 @@
+--@name Rocket Example
+--@author legokidlogan
+--@server
+--@include lkl/rocket.txt
+--@include lkl/math/vector_math.txt
+
+require( "lkl/rocket.txt" )
+require( "lkl/math/vector_math.txt" )
+
+
+local pos = chip():getPos()
+local ang = chip():getAngles()
+
+ang = ang:rotateAroundAxis( ang:getRight(), 90 )
+pos = pos + ang:getForward() * 50
+
+
+local rockets = {}
+local up = ang:getForward()
+
+for i = 1, 10 do
+    local posEff = pos + vectorMath.randomInsideCircle( 50, up )
+    local rocket = Rocket:new( posEff, ang )
+
+    rockets[i] = rocket
+
+    timer.simple( 1 + i * 0.5, function()
+        rocket:launch()
+    end )
+end
+
+
+hook.add( "LKL_GList_StartupSync_Complete", "LKL_Rocket_AddOwnerToWhitelist", function()
+    timer.simple( 0, function()
+        glist.whitelistAdd( owner() )
+    end )
+end )
