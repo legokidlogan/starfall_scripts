@@ -359,18 +359,22 @@ if SERVER then
         local cone = self:getAutoTargetCone()
         if cone == 2 then return self:getTargetsInSphere() end
 
-        local coneRadius = math.cos( math.rad( math.max( cone * 180, 360 ) ) )
-        local pos = self:getHeadWorldPos()
-        local range = self:getAutoTargetRange()
-        local filter = self.targetFilter
-        local selfObj = self
+        local sphereTargets = self:getTargetsInSphere()
+        local targets = {}
+        local targetCount = 0
+        local dotThreshold = 1 - cone
+        local pos = self:getShootWorldPos()
+        local dir = self:getHeadWorldAngles():getForward()
 
-        local function filterFunc( ent ) -- Workaround since we can't directly pass self.class.targetFilter as an argument.
-            return filter( selfObj, ent )
+        for _, target in ipairs( sphereTargets ) do
+            local toTarget = self:getAimPosForTarget( target ) - pos
+            local dot = toTarget:getNormalized():dot( dir )
+
+            if dot >= dotThreshold then
+                targetCount = targetCount + 1
+                targets[targetCount] = target
+            end
         end
-
-        local targets = find.inCone( pos, self:getHeadWorldAngles():getForward(), range, coneRadius, filterFunc )
-        targets = find.sortByClosest( targets, pos )
 
         return targets
     end
