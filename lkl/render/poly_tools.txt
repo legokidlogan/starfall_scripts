@@ -15,6 +15,8 @@ local tableInsert = table.insert
 local renderDrawPoly = render.drawPoly
 
 
+-- Poly drawing:
+
 --[[
     - Similar to render.drawPoly(), but scales and positions relative to the given values.
     - For the poly coords, 0 is far top/left, 1 is far bottom/right.
@@ -69,6 +71,23 @@ function polyTools.drawPolysUnscaled( polys, xPos, yPos )
     for _, poly in ipairs( polys ) do
         drawPolyUnscaled( poly, xPos, yPos )
     end
+end
+
+
+-- Poly transformations:
+
+--[[
+    - Applies a transformation onto a list of polys.
+    - ex: polyTools.polyApplyMultiple( polyTools.polyRotate, { poly1, poly2, poly3 }, 45 )
+--]]
+function polyTools.polyApplyMultiple( func, polys, ... )
+    local newPolys = {}
+
+    for _, poly in ipairs( polys ) do
+        tableInsert( newPolys, func( poly, ... ) )
+    end
+
+    return newPolys
 end
 
 function polyTools.polyFlipHorizontal( points )
@@ -176,6 +195,9 @@ function polyTools.polyScale( points, xMult, yMult )
 
     return newPoints
 end
+
+
+-- Poly creation:
 
 --[[
     - Creates a poly for a filled semicircle.
