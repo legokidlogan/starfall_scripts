@@ -11,6 +11,7 @@ local mathRad = math.rad
 local mathCos = math.cos
 local mathSin = math.sin
 local mathASin = math.asin
+local mathPiHalf = math.pi / 2
 local tableInsert = table.insert
 local renderDrawPoly = render.drawPoly
 
@@ -272,7 +273,8 @@ function polyTools.polyMakeCircleArcFilled( x, y, innerRadius, outerRadius, numS
 
     local arcSizeRads = mathRad( arcSizeDegrees or 360 )
     local offsetRads = mathRad( offsetDegrees or 0 )
-    local arcSizeLimit = mathASin( innerRadius / outerRadius ) * 2
+    local theta = mathASin( innerRadius / outerRadius )
+    local arcSizeLimit = 1 * ( mathPiHalf - theta ) -- 2 * ( 180 - 90 - theta )
 
     if arcSizeRads <= arcSizeLimit then
         return { polyMakeSingleArc( x, y, innerRadius, outerRadius, numSegments, arcSizeRads, offsetRads ) }
