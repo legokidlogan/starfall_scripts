@@ -176,17 +176,40 @@ function polyTools.polyScale( points, xMult, yMult )
     return newPoints
 end
 
-function polyTools.polyMakeCircleFilled( x, y, radius, numSegments, numDegrees, degreeOffset )
+--[[
+    - Creates a poly for a filled semicircle.
+
+    x: (number)
+        - The x position of the center of the semicircle.
+    y: (number)
+        - The y position of the center of the semicircle.
+    radius: (number)
+        - The radius of the semicircle.
+    numSegments: (integer number)
+        - The number of segments to use to draw the semicircle.
+        - Larger numbers means smoother curves.
+    arcSizeDegrees: (optional) (number)
+        - The arc size of the semicircle, in degrees.
+        - Defaults to 360, a full circle.
+        - Expands counter-clockwise.
+    offsetDegrees: (optional) (number)
+        - The offset of the semicircle, in degrees.
+        - Defaults to 0, the far right edge.
+        - Moves counter-clockwise.
+--]]
+function polyTools.polyMakeCircleFilled( x, y, radius, numSegments, arcSizeDegrees, offsetDegrees )
     local circle = {}
+    local arcSizeRads = -mathRad( arcSizeDegrees or 360 )
+    local offsetRads = -mathRad( offsetDegrees or 0 )
 
     circle[1] = { x = x, y = y, u = 0.5, v = 0.5 }
 
-    numDegrees = numDegrees or 360
-    degreeOffset = degreeOffset or 0
-
     for i = 0, numSegments do
-        local a = mathRad( ( i / numSegments ) * -numDegrees + degreeOffset )
-        circle[i + 2] = { x = x + mathSin( a ) * radius, y = y + mathCos( a ) * radius, u = mathSin( a ) / 2 + 0.5, v = mathCos( a ) / 2 + 0.5 }
+        local t = ( i / numSegments ) * arcSizeRads + offsetRads
+        local tCos = mathCos( t )
+        local tSin = mathSin( t )
+
+        circle[numSegments - i + 2] = { x = x + tCos * radius, y = y + tSin * radius, u = tCos / 2 + 0.5, v = tSin / 2 + 0.5 }
     end
 
     return circle
