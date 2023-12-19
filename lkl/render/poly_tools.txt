@@ -10,6 +10,7 @@ if polyTools.drawPoly then return end
 local mathRad = math.rad
 local mathCos = math.cos
 local mathSin = math.sin
+local mathASin = math.asin
 local tableInsert = table.insert
 local renderDrawPoly = render.drawPoly
 
@@ -198,19 +199,101 @@ end
         - Moves counter-clockwise.
 --]]
 function polyTools.polyMakeCircleFilled( x, y, radius, numSegments, arcSizeDegrees, offsetDegrees )
-    local circle = {}
-    local arcSizeRads = -mathRad( arcSizeDegrees or 360 )
-    local offsetRads = -mathRad( offsetDegrees or 0 )
+    local points = {}
+    local arcSizeRads = mathRad( arcSizeDegrees or 360 )
+    local offsetRads = mathRad( offsetDegrees or 0 )
 
-    circle[1] = { x = x, y = y, u = 0.5, v = 0.5 }
+    points[1] = { x = x, y = y, u = 0.5, v = 0.5 }
 
     for i = 0, numSegments do
-        local t = ( i / numSegments ) * arcSizeRads + offsetRads
+        local t = ( i / numSegments ) * -arcSizeRads - offsetRads
         local tCos = mathCos( t )
         local tSin = mathSin( t )
 
-        circle[numSegments - i + 2] = { x = x + tCos * radius, y = y + tSin * radius, u = tCos / 2 + 0.5, v = tSin / 2 + 0.5 }
+        points[numSegments - i + 2] = { x = x + tCos * radius, y = y + tSin * radius, u = tCos / 2 + 0.5, v = tSin / 2 + 0.5 }
     end
 
-    return circle
+    return points
+end
+
+--[[
+    - Creates a table of polys for a semicircular arc between two radii.
+    - Due to limits with poly drawing, some setups will require multiple polys to reach the desired shape.
+        - For the sake of consistency, this will always output a table of polys, even if only one is needed.
+
+    x: (number)
+        - The x position of the center of the arc.
+    y: (number)
+        - The y position of the center of the arc.
+    innerRadius: (number)
+        - The inner radius of the arc.
+    outerRadius: (number)
+        - The outer radius of the arc.
+    numSegments: (integer number)
+        - The number of segments to use to draw the arc.
+        - Larger numbers means smoother curves.
+    arcSizeDegrees: (optional) (number)
+        - The size of the arc, in degrees.
+        - Defaults to 360, a full circle.
+        - Expands counter-clockwise.
+    offsetDegrees: (optional) (number)
+        - The offset of the arc, in degrees.
+        - Defaults to 0, the far right edge.
+        - Moves counter-clockwise.
+--]]
+function polyTools.polyMakeCircleArcFilled( x, y, innerRadius, outerRadius, numSegments, arcSizeDegrees, offsetDegrees )
+    if innerRadius > outerRadius then
+        innerRadius, outerRadius = outerRadius, innerRadius
+    end
+
+    if innerRadius == 0 then return polyTools.polyMakeCircleFilled( x, y, outerRadius, numSegments, arcSizeDegrees, offsetDegrees ) end
+
+    local arcSizeRads = mathRad( arcSizeDegrees or 360 )
+    local offsetRads = mathRad( offsetDegrees or 0 )
+    local arcSizeLimit = mathASin( innerRadius / outerRadius ) * 2
+
+    if arcSizeRads <= arcSizeLimit then
+        return { polyMakeSingleArc( x, y, innerRadius, outerRadius, numSegments, arcSizeRads, offsetRads ) }
+    end
+
+    local polys = {}
+    local numPolys = 0
+    local arcSizeRemaining = arcSizeRads
+    local offsetAccum = offsetRads
+    local segmentsPerUnitArcSize = numSegments / arcSizeRads
+
+    while arcSizeRemaining > 0 do
+        local chunkArcSize = math.min( arcSizeRemaining, arcSizeLimit )
+        local chunkSegments = math.ceil( chunkArcSize * segmentsPerUnitArcSize )
+
+        numPolys = numPolys + 1
+
+        polys[numPolys] = polyMakeSingleArc( x, y, innerRadius, outerRadius, chunkSegments, chunkArcSize, offsetAccum )
+
+        arcSizeRemaining = arcSizeRemaining - chunkArcSize
+        offsetAccum = offsetAccum + chunkArcSize
+    end
+
+    return polys
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+polyMakeSingleArc = function( x, y, innerRadius, outerRadius, numSegments, arcSize, offset )
+    local points = {}
+
+    for i = 0, numSegments do
+        local t = ( i / numSegments ) * -arcSize - offset
+        local tCos = mathCos( t )
+        local tSin = mathSin( t )
+
+        local u = tCos / 2 + 0.5
+        local v = tSin / 2 + 0.5
+
+        points[numSegments - i + 1] = { x = x + tCos * outerRadius, y = y + tSin * outerRadius, u = u, v = v }
+        points[numSegments + i + 2] = { x = x + tCos * innerRadius, y = y + tSin * innerRadius, u = u, v = v }
+    end
+
+    return points
 end
