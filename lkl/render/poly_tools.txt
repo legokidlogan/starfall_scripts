@@ -35,6 +35,15 @@ function polyTools.drawPoly( points, xPos, yPos, width, height )
     renderDrawPoly( newPoints )
 end
 
+-- Same as polyTools.drawPoly() but for drawing multiple separate polys in one call.
+function polyTools.drawPolys( polys, xPos, yPos, width, height )
+    local drawPoly = polyTools.drawPoly
+
+    for _, poly in ipairs( polys ) do
+        drawPoly( poly, xPos, yPos, width, height )
+    end
+end
+
 -- Same as polyTools.drawPoly() but without width/height scaling, which is faster.
 function polyTools.drawPolyUnscaled( points, xPos, yPos )
     local newPoints = {}
@@ -50,6 +59,15 @@ function polyTools.drawPolyUnscaled( points, xPos, yPos )
     end
 
     renderDrawPoly( newPoints )
+end
+
+-- Same as polyTools.drawPolyUnscaled() but for drawing multiple separate polys in one call.
+function polyTools.drawPolysUnscaled( polys, xPos, yPos )
+    local drawPolyUnscaled = polyTools.drawPolyUnscaled
+
+    for _, poly in ipairs( polys ) do
+        drawPolyUnscaled( poly, xPos, yPos )
+    end
 end
 
 function polyTools.polyFlipHorizontal( points )
