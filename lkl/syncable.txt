@@ -1,0 +1,336 @@
+--@name Syncable
+--@author legokidlogan
+--@shared
+--@include lkl/destroyable.txt
+
+if Syncable then return end -- Don't run twice
+
+require( "lkl/destroyable.txt" )
+
+
+Syncable = class( "Syncable", Destroyable )
+Syncable.static.REPLICATION_DELAY = 0
+Syncable.static.INIT_SYNC_DELAY = 1
+
+
+local TYPE_TO_NET_LOOKUP = {
+    boolean = net.writeBool,
+    string = net.writeString,
+    table = net.writeTable,
+    Vector = net.writeVector,
+    Angle = net.writeAngle,
+
+    Entity = net.writeEntity,
+    Hologram = net.writeEntity,
+    Player = net.writeEntity,
+    Vehicle = net.writeEntity,
+    Npc = net.writeEntity,
+    PhysObj = net.writeEntity,
+    Weapon = net.writeEntity,
+}
+
+local allSyncables = {}
+local syncablesByID = {}
+local syncableIncrement = 0
+local netWriteArbitrary
+
+
+----- STATIC FUNCTIONS -----
+
+if SERVER then
+    --[[
+        - Serverside init for Syncable.
+
+        replicateOnClient: (boolean)
+            - Whether or not this Syncable should be replicated to clients.
+        ...: (varargs: any)
+            - Will get passed to :sharedInitialize( ... )
+            - If this Syncable will be replicated to clients, this will also be passed to :writeCreationData( ... )
+    --]]
+    function Syncable:initialize( replicateOnClient, ... )
+        local args = { ... }
+        local replicationDelay = self.class.REPLICATION_DELAY
+        local initSyncDelay = self.class.INIT_SYNC_DELAY
+
+        syncableIncrement = syncableIncrement + 1
+        syncablesByID[syncableIncrement] = self
+        table.insert( allSyncables, self )
+
+        self._id = syncableIncrement
+        self._replicateOnClient = replicateOnClient and true or false
+
+        self:sharedInitialize( ... )
+
+        if self:isReplicatedOnClient() then
+            self._initSyncingProperties = {}
+            self._liveSyncingReady = false
+
+            timer.simple( replicationDelay, function()
+                if not self:isValid() then return end
+
+                net.start( "LKL_Syncable_Create" )
+                net.writeUInt( self:getID(), 16 )
+                net.writeString( self.class.name )
+                self:writeCreationData( unpack( args ) )
+                net.send()
+            end )
+
+            timer.simple( replicationDelay + initSyncDelay, function()
+                if not self:isValid() then return end
+
+                self._liveSyncingReady = true
+
+                for name, data in pairs( self._initSyncingProperties ) do
+                    self:syncProperty( name, data[1], data[2], data[3] )
+                end
+
+                self._initSyncingProperties = nil
+            end )
+        end
+    end
+else
+    --[[
+        - Clientside init for Syncable.
+        - Client-only Syncables can be made with this.
+
+        _unusedArg: (any)
+            - Does nothing. Only here to match the serverside arguments for simplicity.
+        ...: (varargs: any)
+            - Will get passed to :sharedInitialize( ... )
+    --]]
+    function Syncable:initialize( _unusedArg, ... )
+        syncableIncrement = syncableIncrement + 1
+        syncablesByID[syncableIncrement] = self
+        table.insert( allSyncables, self )
+
+        self._id = syncableIncrement
+
+        self:sharedInitialize( ... )
+    end
+end
+
+function Syncable.static:getAll()
+    return allSyncables
+end
+
+function Syncable.static:getByID( id )
+    return syncablesByID[id]
+end
+
+
+if CLIENT then
+    --[[
+        - Handles net.read___() calls for the creation of replicated Syncables on the client.
+            - Return a sequential table of arguments to be passed to :initialize( nil, ... )
+        - This should not be called manually.
+        - If you implement :writeCreationData( ... ), you must implement this as well!
+    --]]
+    function Syncable.static:readCreationData()
+        return {}
+    end
+
+    --[[
+        - Reads in the replicated Syncable for the current net message.
+        - For use with net.receive( "LKL_Syncable_Set__" .. name, function() ... end ) as the first line.
+    --]]
+    function Syncable.static:readSyncedCopy()
+        local id = -net.readUInt( 16 )
+
+        return Syncable:getByID( id )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+-- Will be negative if this is a synced copy.
+function Syncable:getID()
+    return self._id
+end
+
+function Syncable:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+function Syncable:isReplicatedOnClient()
+    if CLIENT then return false end
+
+    return self._replicateOnClient
+end
+
+function Syncable:isSyncedCopy()
+    if SERVER then return false end
+
+    return self._id < 0
+end
+
+--[[
+    - Syncs a property from the server to all clients.
+    - Does nothing on client.
+
+    name: (string)
+        - The name of the property to sync.
+        - To avoid conflicts with other subclasses, it's recommended to prefis this with your subclass name.
+            - ex: "MySyncable_MyProperty"
+        - For each synced property, you must also implement a net reader on the client as well.
+            - ex: net.receive( "LKL_Syncable_Set__MySyncable_MyProperty", function() ... end )
+            - The first line of the reader should be  local myObj = Syncable:readSyncedCopy()
+    value: (any)
+        - The value of the property to sync.
+    bits: (optional) (number or string)
+        - If writing an integer, the number of bits to write.
+        - If writing a float, provide "float".
+    isUnsigned: (optional) (boolean)
+        - If writing an integer, whether or not to write it as unsigned.
+--]]
+function Syncable:syncProperty( name, value, bits, isUnsigned )
+    if not self:isReplicatedOnClient() then return end
+
+    if not self._liveSyncingReady then
+        self._initSyncingProperties[name] = { value, bits, isUnsigned }
+
+        return
+    end
+
+    net.start( "LKL_Syncable_Set__" .. name )
+    net.writeUInt( self:getID(), 16 )
+    netWriteArbitrary( value, bits, isUnsigned )
+    net.send()
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+-- If you have initialization code that's identical on both realms, put it in here.
+function Syncable:sharedInitialize( ... )
+
+end
+
+
+if SERVER then
+    --[[
+        - Handles net.write___() calls for the creation of replicated Syncables.
+        - If you have initialization arguments that need to be sent to the client immediately, write them here.
+
+        ...: (varargs: any)
+            - Varargs received from :initialize( isReplicatedOnClient, ... )
+    --]]
+    function Syncable:writeCreationData( ... )
+
+    end
+
+    -- Called when a synced serverside Syncable fails to replicate to a client.
+    function Syncable:onReplicationFailed( _ply, _err )
+
+    end
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Syncable:tostringInner()
+    return "ID " .. self:getID()
+end
+
+function Syncable:destroy()
+    if self:isSyncedCopy() then error( "Synced Syncables cannot be destroyed manually in the client realm" ) end
+
+    syncablesByID[self:getID()] = nil
+    table.removeByValue( allSyncables, self )
+
+    if self:isReplicatedOnClient() then
+        net.start( "LKL_Syncable_Destroy" )
+        net.writeUInt( self:getID(), 16 )
+        net.send()
+    end
+
+    Syncable.super.destroy( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+netWriteArbitrary = function( value, bits, isUnsigned )
+    local typeStr = type( value )
+
+    if typeStr == "number" then
+        if bits == nil then error( "Expected bits to be provided when writing a number" ) end
+
+        if bits == "float" then
+            net.writeFloat( value )
+        else
+            if isUnsigned then
+                net.writeUInt( value, bits )
+            else
+                net.writeInt( value, bits )
+            end
+        end
+
+        return
+    end
+
+    local writeFunc = TYPE_TO_NET_LOOKUP[typeStr]
+
+    if writeFunc then
+        writeFunc( value )
+    else
+        error( "Cannot auto-write type " .. typeStr )
+    end
+end
+
+
+----- SETUP -----
+
+
+if SERVER then
+    net.receive( "LKL_Syncable_FailedToReplicate", function( _, ply )
+        local id = net.readUInt( 16 )
+        local err = net.readString()
+
+        local syncable = Syncable:getByID( id )
+        if not syncable then return end
+
+        syncable:onReplicationFailed( ply, err )
+
+        print( "Failed to replicate Syncable " .. id .. " to " .. tostring( ply ) .. ": " .. err )
+    end )
+else
+    net.receive( "LKL_Syncable_Create", function()
+        local id = net.readUInt( 16 )
+        local classObj = _G[net.readString()]
+        local args = classObj:readCreationData()
+
+        local syncable
+        local success, err = pcall( function()
+            syncable = classObj:new( nil, unpack( args ) )
+        end )
+
+        if not success then
+            err = type( err ) == "table" and tostring( err.message ) or tostring( err )
+
+            net.start( "LKL_Syncable_FailedToReplicate" )
+            net.writeUInt( id, 16 )
+            net.writeString( err )
+            net.send()
+
+            return
+        end
+
+        syncablesByID[syncable._id] = nil
+        syncableIncrement = syncableIncrement - 1
+        id = -id
+        syncablesByID[id] = syncable
+        syncable._id = id
+    end )
+
+    net.receive( "LKL_Syncable_Destroy", function()
+        local id = -net.readUInt( 16 )
+
+        local syncable = Syncable:getByID( id )
+        if not syncable then return end
+
+        syncable:destroy()
+    end )
+end

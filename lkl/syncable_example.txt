@@ -1,0 +1,48 @@
+--@name Syncable Example
+--@author legokidlogan
+--@shared
+--@include lkl/syncable.txt
+
+require( "lkl/syncable.txt" )
+
+
+MySyncable = class( "MySyncable", Syncable )
+
+
+function MySyncable:sharedInitialize( arg1 )
+    print( ( SERVER and "SERVER" or "CLIENT" ) .. " sharedInitialize( " .. arg1 .. " )" )
+end
+
+function MySyncable:setThing( val )
+    self._thing = val
+    self:syncProperty( "MySyncable_Thing", val, 10, false )
+
+    print( ( SERVER and "SERVER" or "CLIENT" ) .. " set thing to " .. tostring( val ) )
+end
+
+
+if SERVER then
+    function MySyncable:writeCreationData( arg1 )
+        net.writeString( arg1 )
+    end
+else
+    function MySyncable.static:readCreationData()
+        return {
+            net.readString(),
+        }
+    end
+end
+
+
+
+if SERVER then
+    timer.simple( 2, function()
+        local syncable = MySyncable:new( true, "blah" )
+        syncable:setThing( 123 )
+    end )
+else
+    net.receive( "LKL_Syncable_Set__MySyncable_Thing", function()
+        local syncable = Syncable:readSyncedCopy()
+        syncable:setThing( net.readInt( 10 ) )
+    end )
+end
