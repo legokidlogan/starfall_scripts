@@ -58,13 +58,12 @@ if SERVER then
 
         self._id = syncableIncrement
         self._replicateOnClient = replicateOnClient and true or false
+        self._initSyncingProperties = {}
+        self._liveSyncingReady = false
 
         self:sharedInitialize( ... )
 
         if self:isReplicatedOnClient() then
-            self._initSyncingProperties = {}
-            self._liveSyncingReady = false
-
             timer.simple( replicationDelay, function()
                 if not self:isValid() then return end
 
