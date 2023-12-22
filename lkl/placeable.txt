@@ -377,35 +377,6 @@ function Placeable.static:readCreationData()
 end
 
 
-net.receive( "LKL_Placeable_Create", function()
-    local id = net.readUInt( 16 )
-    local classObj = _G[net.readString()]
-    local pos = net.readVector()
-    local ang = net.readAngle()
-
-    local placeable
-    local success, err = pcall( function()
-        placeable = classObj:new( pos, ang )
-    end )
-
-    if not success then
-        err = type( err ) == "table" and tostring( err.message ) or tostring( err )
-
-        net.start( "LKL_Placeable_FailedToReplicate" )
-        net.writeUInt( id, 16 )
-        net.writeString( err )
-        net.send()
-
-        return
-    end
-
-    placeablesByID[placeable._id] = nil
-    placeableIncrement = placeableIncrement - 1
-    id = -id
-    placeablesByID[id] = placeable
-    placeable._id = id
-end )
-
 net.receive( "LKL_Syncable_Set__Placeable_Pos", function()
     local placeable = Syncable:readSyncedCopy()
     local pos = net.readVector()
