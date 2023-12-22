@@ -20,7 +20,7 @@ local cubeModel = "models/hunter/blocks/cube025x025x025.mdl"
 
 
 function TestTurret:initialize( pos, ang )
-    TestTurret.super.initialize( self, pos, ang, Vector( 0, 0, 50 ), Angle() )
+    TestTurret.super.initialize( self, false, pos, ang, Vector( 0, 0, 50 ), Angle() )
 
     local baseHolo = hologram.create( pos, ang, cubeModel, Vector( 1.5, 1, 0.25 ) )
     self._baseHolo = baseHolo

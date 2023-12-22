@@ -70,7 +70,7 @@ local mAbs = math.abs
             - This expectation is needed for :respawn() to work.
 --]]
 function Hitbox:initialize( pos, ang, hitboxModel, pthString, pthScale )
-    Hitbox.super.initialize( self, pos, ang )
+    Hitbox.super.initialize( self, false, pos, ang )
 
     hitboxModel = hitboxModel or self.class.HITBOX_PROP_MODEL
     if type( hitboxModel ) ~= "string" then error( "Expected hitboxModel to resolve to a string" ) end

@@ -111,8 +111,8 @@ function PropTurret.static:getAll()
 end
 
 if SERVER then
-    function PropTurret:initialize( pos, ang, headPos, headAng )
-        PropTurret.super.initialize( self, pos, ang )
+    function PropTurret:initialize( replicatedOnClient, pos, ang, headPos, headAng )
+        PropTurret.super.initialize( self, replicatedOnClient, pos, ang )
 
         if not turretClassLookup[self.class] then
             registerTurretClass( self.class )
@@ -139,8 +139,16 @@ if SERVER then
         self:setTargetNPCs( false )
     end
 else
-    function PropTurret:initialize()
+    function PropTurret:initialize( _, pos, ang, headPos, headAng )
+        PropTurret.super.initialize( self, _, pos, ang )
+
         table.insert( allTurrets, self )
+
+        self:setHeadAngleLimits( -89.9, 89.9, -180, 180 )
+        self:setHeadPos( headPos )
+        self:setHeadAngles( headAng )
+        self:setShootPos( Vector() )
+        self:setAutoTarget( true )
     end
 end
 
@@ -193,14 +201,8 @@ if SERVER then
         if self._autoTarget == enabled then return end
 
         self._autoTarget = enabled
+        self:syncProperty( "PropTurret_AutoTarget", enabled )
         self:onAutoTargetChanged()
-
-        if self:isReplicatedOnClient() then
-            net.start( "LKL_PropTurret_SetAutoTarget" )
-            net.writeUInt( self:getID(), 16 )
-            net.writeBool( enabled )
-            net.send()
-        end
     end
 
     function PropTurret:setTarget( target )
@@ -210,14 +212,8 @@ if SERVER then
         if prevTarget == target then return end
 
         self._target = target
+        self:syncProperty( "PropTurret_Target", target or game.getWorld() )
         self:onSetTarget( prevTarget )
-
-        if self:isReplicatedOnClient() then
-            net.start( "LKL_PropTurret_SetTarget" )
-            net.writeUInt( self:getID(), 16 )
-            net.writeEntity( target or game.getWorld() )
-            net.send()
-        end
     end
 
     function PropTurret:setAutoShoot( state )
@@ -493,14 +489,8 @@ if SERVER then
         if prevHeadPos == pos then return end
 
         self._headPos = pos
+        self:syncProperty( "PropTurret_HeadPos", pos )
         self:onSetHeadPos( prevHeadPos )
-
-        if self:isReplicatedOnClient() then
-            net.start( "LKL_PropTurret_SetHeadPos" )
-            net.writeUInt( self:getID(), 16 )
-            net.writeVector( pos )
-            net.send()
-        end
     end
 
     --[[
@@ -521,14 +511,8 @@ if SERVER then
         if prevHeadAng == ang then return end
 
         self._headAng = ang
+        self:syncProperty( "PropTurret_HeadAngles", ang )
         self:onSetHeadAngles( prevHeadAng )
-
-        if self:isReplicatedOnClient() then
-            net.start( "LKL_PropTurret_SetHeadAngles" )
-            net.writeUInt( self:getID(), 16 )
-            net.writeAngle( ang )
-            net.send()
-        end
     end
 
     --[[
@@ -555,14 +539,8 @@ if SERVER then
         if prevShootPos == pos then return end
 
         self._shootPos = pos
+        self:syncProperty( "PropTurret_ShootPos", pos )
         self:onSetShootPos( prevShootPos )
-
-        if self:isReplicatedOnClient() then
-            net.start( "LKL_PropTurret_SetShootPos" )
-            net.writeUInt( self:getID(), 16 )
-            net.writeVector( pos )
-            net.send()
-        end
     end
 
     --[[
@@ -1028,6 +1006,28 @@ if SERVER then
 
         PropTurret.super.onDestroyed( self )
     end
+
+    function PropTurret:writeCreationData( pos, ang, headPos, headAng )
+        net.writeVector( pos )
+        net.writeAngle( ang )
+        net.writeVector( headPos )
+        net.writeAngle( headAng )
+    end
+else
+    function PropTurret:onDestroyed()
+        table.removeByValue( allTurrets, self )
+
+        PropTurret.super.onDestroyed( self )
+    end
+
+    function PropTurret.static:readCreationData()
+        return {
+            net.readVector(),
+            net.readAngle(),
+            net.readVector(),
+            net.readAngle()
+        }
+    end
 end
 
 
@@ -1137,73 +1137,71 @@ if SERVER then
         end
     end )
 else
-    net.receive( "LKL_PropTurret_SetAutoTarget", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :setAutoTarget() on an invalid PropTurret id " .. id ) return end
+    net.receive( "LKL_Syncable_Set__PropTurret_AutoTarget", function()
+        local turret = Syncable:readSyncedCopy()
+        local state = net.readBool()
 
-        local enabled = net.readBool()
+        if not turret then return end
 
-        turret._autoTarget = enabled
-        turret:onAutoTargetChanged()
+        turret:setAutoTarget( state )
     end )
 
-    net.receive( "LKL_PropTurret_SetTarget", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :setTarget() on an invalid PropTurret id " .. id ) return end
-
+    net.receive( "LKL_Syncable_Set__PropTurret_Target", function()
+        local turret = Syncable:readSyncedCopy()
         local target = net.readEntity()
-        local prevTarget = turret._target
 
-        if isValid( target ) then
-            turret._target = target
+        if not turret then return end
+
+        if target == game.getWorld() then
+            turret:setTarget()
         else
-            turret._target = nil
+            turret:setTarget( target )
         end
-
-        turret:onSetTarget( prevTarget )
     end )
 
-    net.receive( "LKL_PropTurret_SetHeadPos", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :setHeadPos() on an invalid PropTurret id " .. id ) return end
+    net.receive( "LKL_Syncable_Set__PropTurret_HeadPos", function()
+        local turret = Syncable:readSyncedCopy()
+        local pos = net.readVector()
 
-        local prevHeadPos = turret._headPos
+        if not turret then return end
 
-        turret._headPos = net.readVector()
-        turret:onSetHeadPos( prevHeadPos )
+        turret:setHeadPos( pos )
     end )
 
-    net.receive( "LKL_PropTurret_SetHeadAngles", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :setHeadAngles() on an invalid PropTurret id " .. id ) return end
+    net.receive( "LKL_Syncable_Set__PropTurret_HeadAngles", function()
+        local turret = Syncable:readSyncedCopy()
+        local ang = net.readAngle()
 
-        local prevHeadAng = turret._headAng
+        if not turret then return end
 
-        turret._headAng = net.readAngle()
-        turret:onSetHeadAngles( prevHeadAng )
+        turret:setHeadAngles( ang )
     end )
 
-    net.receive( "LKL_PropTurret_SetShootPos", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :setShootPos() on an invalid PropTurret id " .. id ) return end
+    net.receive( "LKL_Syncable_Set__PropTurret_ShootPos", function()
+        local turret = Syncable:readSyncedCopy()
+        local pos = net.readVector()
 
-        local prevShootPos = turret._shootPos
+        if not turret then return end
 
-        turret._shootPos = net.readVector()
-        turret:onSetShootPos( prevShootPos )
+        turret:setShootPos( pos )
     end )
+
+    net.receive( "LKL_Syncable_Set__PropTurret_AutoTarget", function()
+        local turret = Syncable:readSyncedCopy()
+        local state = net.readBool()
+
+        if not turret then return end
+
+        turret:setAutoTarget( state )
+    end )
+
 
     net.receive( "LKL_PropTurret_Shoot", function()
-        local id = net.readUInt( 16 )
-        local turret = PropTurret:getByID( id )
-        if not turret then print( "Tried to :shoot() on an invalid PropTurret id " .. id ) return end
-
+        local turret = Syncable:readSyncedCopy()
         local bullets = net.readTable()
+
+        if not turret then return end
+
         turret:onShoot( bullets )
     end )
 end
