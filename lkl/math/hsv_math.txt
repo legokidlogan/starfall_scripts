@@ -12,6 +12,8 @@
 
 hsvMath = hsvMath or {}
 
+if hsvMath.hsvToRGB then return end
+
 
 local mathLerp = math.lerp
 
