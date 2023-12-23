@@ -1,0 +1,503 @@
+--@name Holo HoloAnimation
+--@author legokidlogan
+--@shared
+--@include lkl/animation.txt
+--@include lkl/queue.txt
+--@include lkl/submaterial.txt
+
+--[[
+    - A variant of Animation designed for animating with lots of holograms.
+    - If you replicate a HoloAnimation from server to client, it WILL NOT sync the serverside holograms.
+        - This is because serverside holos are already visible to all clients.
+--]]
+
+
+if HoloHoloAnimation then return end
+
+require( "lkl/animation.txt" )
+require( "lkl/queue.txt" )
+require( "lkl/submaterial.txt" )
+
+
+HoloAnimation = class( "HoloAnimation", Animation )
+
+
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local allHoloAnimations = {}
+local holoLookup = {}
+
+
+----- STATIC FUNCTIONS -----
+
+function HoloAnimation.static:getAll()
+    return allHoloAnimations
+end
+
+
+function HoloAnimation:initialize( replicateOnClient, pos, ang )
+    HoloAnimation.super.initialize( self, replicateOnClient, pos, ang )
+
+    local selfObj = self
+
+    table.insert( allHoloAnimations, self )
+
+    self._holosSpawned = false
+    self._unnamedHolos = {}
+    self._namedHolos = {}
+    self._groupedHolos = {}
+    self._allHolos = {}
+    self._holoQueue = Queue:new(
+        function( _, entry )
+            if not hologram.canSpawn() then return true end
+
+            local holo = selfObj:_spawnHolo( entry )
+            if not holo then return true end
+
+            local name = entry.Name
+            local groupName = entry.GroupName
+
+            if name then
+                if selfObj._namedHolos[name] then
+                    error( tostring( selfObj ) .. " encountered duplicate holos named " .. name .. " in its queue." )
+                end
+
+                selfObj._namedHolos[name] = holo
+                holoLookup[holo] = {
+                    HoloAnimation = selfObj,
+                    Name = name,
+                }
+            elseif groupName then
+                table.insert( selfObj._groupedHolos[groupName], holo )
+                holoLookup[holo] = {
+                    HoloAnimation = selfObj,
+                    GroupName = groupName,
+                }
+            else
+                table.insert( selfObj._unnamedHolos, holo )
+                holoLookup[holo] = {
+                    HoloAnimation = selfObj,
+                }
+            end
+
+            table.insert( selfObj._allHolos, holo )
+        end,
+        function()
+            selfObj._holosSpawned = true
+            selfObj:onHolosSpawned()
+        end,
+        {},
+        0.1,
+        0,
+        0.9,
+        "HoloAnimation_HoloSpawnQueue"
+    )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Whether or not all holograms have been spawned.
+    - Best used when implementing :handlePlayback().
+    - If you queue a new batch of holos after having finished spawning others, this will return false again.
+        - Ideally, you should frontload all of your holo queueing on init or within the same tick as init.
+--]]
+function HoloAnimation:areHolosSpawned()
+    return self._holosSpawned
+end
+
+--[[
+    - Queues up a holo to be spawned for this HoloAnimation.
+    - The holo can be retrieved via :getUnnamedHolo( index ) or found in :getUnnamedHolos().
+        - The index is determined by the order in which the holos are queued.
+        - If the holo is later removed, the indices of all holos after it will be shifted down by one.
+
+    entry: (table)
+        - Defines the holo's properties as such: {
+            Model: (string) The model of the holo. Unlike the others below, it is required and has no default.
+
+            Pos: (Vector) The position of the holo. Defaults to Vector( 0, 0, 0 ).
+            Ang: (Angle) The angle of the holo. Defaults to Angle( 0, 0, 0 ).
+            Scale: (Vector) The scale of the holo. Defaults to Vector( 1, 1, 1 ).
+            Size: (Vector) The full size of the holo in hammer units. Overrides Scale if present.
+            AutoScale: (boolean) Whether or not to scale the holo based on the HoloAnimation's scale. Defaults to false.
+            Material: (string) The material of the holo. Defaults to "".
+            SubMaterials: (table) The submaterials of the holo. Defaults to nil. See lkl/submaterial.txt for more info.
+            Color: (Color) The color of the holo. Defaults to Color( 255, 255, 255, 255 ).
+            StartHidden: (boolean) Whether or not to set the holo's alpha to 0 upon spawning. Defaults to false.
+            RenderMode: (number) The render mode of the holo. Defaults to 0.
+            Skin: (number) The skin of the holo. Defaults to 0.
+            Clips: (table) The clips of the holo. Defaults to nil. Each clip is defined as such: {
+                Origin: (Vector) The origin of the clip, relative to the holo.
+                Normal: (Vector) The normal of the clip, relative to the holo.
+            }
+        }
+        - The contents of entry will be modified, so avoid re-using it.
+        - If Size or Scale are used, the value will be stored in holo._holoAnimation_OriginalSize and holo._holoAnimation_OriginalScale respectively.
+            - This is for if your animation resizes the holo, and you want to reset it back to its original size.
+            - This is also used by AutoScale, if enabled.
+            - holo._holoAnimation_AutoScale is also set to true if AutoScale is enabled.
+        - The original value oh Color will be stored in holo._holoAnimation_OriginalColor for use with :setAllHoloColors().
+--]]
+function HoloAnimation:queueUnnamedHolo( entry )
+    self:_validateHoloEntry( entry )
+
+    self._holosSpawned = false
+    self._holoQueue:addEntryAndStart( entry )
+end
+
+--[[
+    - Queues up a named holo to be spawned for this HoloAnimation. Useful for easily referencing the holo later.
+    - The holo can be retrieved via :getNamedHolo( name ) or found in :getNamedHolos().
+        - If two holos are given the same name, an error will occur during spawning.
+
+    entry: (table)
+        - Same as in :queueUnnamedHolo()
+    name: (string)
+        - The name of the holo.
+--]]
+function HoloAnimation:queueNamedHolo( entry, name )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+
+    self:_validateHoloEntry( entry )
+    entry.Name = name
+
+    self._holosSpawned = false
+    self._holoQueue:addEntryAndStart( entry )
+end
+
+--[[
+    - Queues up a grouped holo to be spawned for this HoloAnimation. Useful for easily referencing the holos later as a group.
+    - The holos can be retrieved via :getGroupedHolo( groupName, index ), or found in :getHoloGroup( groupName ) or :getHoloGroups().
+        - The index is determined by the order in which the holos are queued within the group.
+        - If the holo is later removed, the indices of all holos after it will be shifted down by one.
+
+    entry: (table)
+        - Same as in :queueUnnamedHolo()
+    groupName: (string)
+        - The name of the holo group.
+--]]
+function HoloAnimation:queueGroupedHolo( entry, groupName )
+    if type( groupName ) ~= "string" then error( "Expected groupName to be a string" ) end
+
+    self:_validateHoloEntry( entry )
+    entry.GroupName = groupName
+
+    if not self._groupedHolos[groupName] then
+        self._groupedHolos[groupName] = {}
+    end
+
+    self._holosSpawned = false
+    self._holoQueue:addEntryAndStart( entry )
+end
+
+-- Get all unnamed holos spawned by this HoloAnimation. Returns by reference, do not modify the table.
+function HoloAnimation:getUnnamedHolos()
+    return self._unnamedHolos
+end
+
+function HoloAnimation:getUnnamedHolo( index )
+    return self._unnamedHolos[index]
+end
+
+-- Get all named holos spawned by this HoloAnimation. Returns by reference, do not modify the table.
+function HoloAnimation:getNamedHolos()
+    return self._namedHolos
+end
+
+function HoloAnimation:getNamedHolo( name )
+    return self._namedHolos[name]
+end
+
+-- Get all grouped holos spawned by this HoloAnimation. Returns by reference, do not modify the table.
+function HoloAnimation:getHoloGroups()
+    return self._groupedHolos
+end
+
+-- Gets the holos in a named group spawned by this HoloAnimation. Returns by reference, do not modify the table.
+function HoloAnimation:getHoloGroup( groupName )
+    return self._groupedHolos[groupName]
+end
+
+function HoloAnimation:getGroupedHolo( groupName, index )
+    return self._groupedHolos[groupName][index]
+end
+
+-- Gets a sequential list of ALL holos spawned by this HoloAnimation. Returns by reference, do not modify the table.
+function HoloAnimation:getAllHolos()
+    return self._allHolos
+end
+
+--[[
+    - Sets the color of all holos spawned by this HoloAnimation.
+    - If color is nil, the holos will be reset to their original colors as defined when queueing them.
+    - This is mainly used for quickly showing/hiding the holos when starting/stopping the animation.
+--]]
+function HoloAnimation:setAllHoloColors( color )
+    if color ~= nil then
+        if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+        for _, holo in ipairs( self._allHolos ) do
+            if holo:isValid() then
+                holo:setColor( color )
+            end
+        end
+
+        return
+    end
+
+    for _, holo in ipairs( self._allHolos ) do
+        if holo:isValid() then
+            local originalColor = holo._holoAnimation_OriginalColor
+
+            if originalColor then
+                holo:setColor( originalColor )
+            end
+        end
+    end
+end
+
+-- Returns the name of a holo spawned by this HoloAnimation, or nil if not applicable.
+function HoloAnimation:getHoloName( holo )
+    local holoInfo = holoLookup[holo]
+    if not holoInfo then return end
+    if holoInfo.HoloAnimation ~= self then return end
+
+    return holoInfo.Name
+end
+
+-- Returns the name of the group that a holo belongs to in this HoloAnimation, or nil if not applicable.
+function HoloAnimation:getHoloGroupName( holo )
+    local holoInfo = holoLookup[holo]
+    if not holoInfo then return end
+    if holoInfo.HoloAnimation ~= self then return end
+
+    return holoInfo.GroupName
+end
+
+-- Changes the group of a holo spawned by this HoloAnimation. Only works if the holo is currently in a group.
+function HoloAnimation:changeHoloGroup( holo, newGroupName )
+    if type( newGroupName ) ~= "string" then error( "Expected newGroupName to be a string" ) end
+
+    local holoInfo = holoLookup[holo]
+    if not holoInfo or holoInfo.HoloAnimation ~= self then error( "The given holo is not part of this HoloAnimation" ) end
+
+    local groupName = holoInfo.GroupName
+    if groupName == newGroupName then return end
+    if not groupName then error( "The given holo is not part of a group" ) end
+
+    local group = self._groupedHolos[groupName]
+    local newGroup = self._groupedHolos[newGroupName]
+
+    if not newGroup then
+        newGroup = {}
+        self._groupedHolos[newGroupName] = newGroup
+    end
+
+    table.removeByValue( group, holo )
+    table.insert( newGroup, holo )
+
+    holoInfo.GroupName = newGroupName
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+-- See Animation for overriding :onStartPlaying(), :onStopPlaying(), and :handlePlayback().
+
+-- Called when the holos are done being spawned. Can call multiple times if new holos are queued up afterwards.
+function HoloAnimation:onHolosSpawned()
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function HoloAnimation:onDestroyed()
+    table.removeByValue( allHoloAnimations, self )
+
+    for _, holo in pairs( self._allHolos ) do
+        if isValid( holo ) then
+            holoLookup[holo] = nil
+            holo:remove()
+        end
+    end
+
+    self._unnamedHolos = nil
+    self._namedHolos = nil
+    self._groupedHolos = nil
+    self._allHolos = nil
+
+    local holoQueue = self._holoQueue
+
+    if isValid( holoQueue ) then
+        holoQueue:destroy()
+    end
+
+    HoloAnimation.super.onDestroyed( self )
+end
+
+function HoloAnimation:setScale( scale )
+    HoloAnimation.super.setScale( self, scale )
+
+    local holos = self._allHolos
+    if not holos then return end
+
+    for _, holo in ipairs( holos ) do
+        if holo._holoAnimation_AutoScale and holo:isValid() then
+            local originalSize = holo._holoAnimation_OriginalSize
+            local originalScale = holo._holoAnimation_OriginalScale
+
+            if originalSize then
+                holo:setSize( originalSize * scale )
+            elseif originalScale then
+                holo:setScale( originalScale * scale )
+            end
+        end
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+function HoloAnimation:_validateHoloEntry( entry )
+    if type( entry ) ~= "table" then error( "Expected entry to be a table" ) end
+
+    local pos = entry.Pos
+    if pos ~= nil and type( pos ) ~= "Vector" then error( "Expected entry.Pos to be a Vector or nil" ) end
+
+    local ang = entry.Ang
+    if ang ~= nil and type( ang ) ~= "Angle" then error( "Expected entry.Ang to be an Angle or nil" ) end
+
+    local model = entry.Model
+    if type( model ) ~= "string" then error( "Expected entry.Model to be a string" ) end
+
+    local scale = entry.Scale
+    if scale ~= nil and type( scale ) ~= "Vector" then error( "Expected entry.Scale to be a Vector or nil" ) end
+
+    local subMaterials = entry.SubMaterials
+    if subMaterials ~= nil then
+        if type( subMaterials ) ~= "table" then error( "Expected entry.SubMaterials to be a table or nil" ) end
+
+        for _, subMat in pairs( subMaterials ) do
+            if type( subMat ) ~= "string" then error( "Expected entry.SubMaterials to be a table of strings" ) end
+        end
+    end
+
+    local clips = entry.Clips
+    if clips ~= nil then
+        if type( clips ) ~= "table" then error( "Expected entry.Clips to be a table or nil" ) end
+
+        for i, clip in ipairs( clips ) do
+            if type( clip ) ~= "table" then error( "Expected entry.Clips to be a table of tables" ) end
+
+            local origin = clip.Origin
+            if type( origin ) ~= "Vector" then error( "Expected entry.Clips[" .. i .. "].Origin to be a Vector" ) end
+
+            local normal = clip.Normal
+            if type( normal ) ~= "Vector" then error( "Expected entry.Clips[" .. i .. "].Normal to be a Vector" ) end
+        end
+    end
+
+    entry.Name = nil
+    entry.GroupName = nil
+    entry.Pos = pos or Vector( 0, 0, 0 )
+    entry.Ang = ang or Angle( 0, 0, 0 )
+    entry.Model = model
+    entry.Scale = scale or Vector( 1, 1, 1 )
+    entry.Size = entry.Size or nil
+    entry.AutoScale = entry.AutoScale or false
+    entry.Material = entry.Material or ""
+    entry.SubMaterials = subMaterials
+    entry.Color = entry.Color or Color( 255, 255, 255, 255 )
+    entry.StartHidden = entry.StartHidden or false
+    entry.RenderMode = entry.RenderMode or 0
+    entry.Skin = entry.Skin or 0
+    entry.Clips = clips
+
+    if entry.Size then
+        entry.Scale = nil
+    end
+end
+
+function HoloAnimation:_spawnHolo( entry )
+    local scale = entry.Scale
+    local size = entry.Size
+    local doAutoScale = entry.AutoScale
+    local scaleEff = nil
+    local sizeEff = nil
+
+    if size then
+        sizeEff = doAutoScale and ( size * self:getScale() ) or size
+    else
+        scaleEff = doAutoScale and ( scale * self:getScale() ) or scale
+    end
+
+    local holo
+    local success = pcall( function()
+        holo = hologram.create( entry.Pos, entry.Ang, entry.Model, scaleEff )
+    end )
+
+    if not success then return end
+
+    local clips = entry.Clips
+    local color = entry.Color
+    local colorEff = entry.StartHidden and COLOR_EMPTY or color
+    local renderModeEff = entry.RenderMode
+
+    if colorEff.a ~= 255 and renderModeEff == 0 then
+        renderModeEff = 4
+    end
+
+    if sizeEff then
+        holo:setSize( sizeEff )
+        holo._holoAnimation_OriginalSize = size
+    else
+        holo._holoAnimation_OriginalScale = scale
+    end
+
+    holo._holoAnimation_AutoScale = doAutoScale
+    holo._holoAnimation_OriginalColor = color
+
+    holo:setMaterial( entry.Material )
+    submaterial.setSubMaterials( holo, entry.SubMaterials )
+    holo:setColor( colorEff )
+    holo:setRenderMode( renderModeEff )
+    holo:setSkin( entry.Skin )
+
+    if clips then
+        for i, clip in ipairs( clips ) do
+            holo:setClip( i, true, clip.Origin, clip.Normal, holo )
+        end
+    end
+
+    return holo
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_HoloAnimation_RemoveHolo", function( ent )
+    if not ent or not ent:isValid() then return end
+
+    local holoInfo = holoLookup[ent]
+    if not holoInfo then return end
+
+    local holoAnimation = holoInfo.HoloAnimation
+    if not holoAnimation:isValid() then return end
+
+    local name = holoInfo.Name
+    local groupName = holoInfo.GroupName
+
+    if name then
+        holoAnimation._namedHolos[name] = nil
+    elseif groupName then
+        table.removeByValue( holoAnimation._groupedHolos[groupName] or {}, ent )
+    else
+        table.removeByValue( holoAnimation._unnamedHolos, ent )
+    end
+
+    table.removeByValue( holoAnimation._allHolos, ent )
+    holoLookup[ent] = nil
+end )
