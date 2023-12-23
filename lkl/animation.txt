@@ -1,0 +1,390 @@
+--@name Animation
+--@author legokidlogan
+--@shared
+--@include lkl/placeable.txt
+
+if Animation then return end
+
+require( "lkl/placeable.txt" )
+
+
+Animation = class( "Animation", Placeable )
+Animation.static.UPDATE_INTERVAL_DEFAULT = 0
+Animation.static.DURATION_DEFAULT = 1
+Animation.static.LOOP_DEFAULT = false
+Animation.static.PING_PONG_DEFAULT = false
+Animation.static.REVERSED_DEFAULT = false
+Animation.static.SPEED_DEFAULT = 1
+Animation.static.SCALE_DEFAULT = Vector( 1, 1, 1 )
+
+
+local allAnimations = {}
+
+
+----- STATIC FUNCTIONS -----
+
+function Animation.static:getAll()
+    return allAnimations
+end
+
+
+function Animation:initialize( replicateOnClient, pos, ang )
+    Animation.super.initialize( self, replicateOnClient, pos, ang )
+
+    table.insert( allAnimations, self )
+
+    self._playing = false
+    self._duration = 0
+    self._time = 0
+
+    self:setUpdateInterval( self.class.UPDATE_INTERVAL_DEFAULT )
+    self:setDuration( self.class.DURATION_DEFAULT )
+    self:setLoop( self.class.LOOP_DEFAULT )
+    self:setPingPong( self.class.PING_PONG_DEFAULT )
+    self:setReversed( self.class.REVERSED_DEFAULT )
+    self:setSpeed( self.class.SPEED_DEFAULT )
+    self:setScale( self.class.SCALE_DEFAULT )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function Animation:setPlaying( state )
+    if self._playing == state then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._playing = state
+    self:syncProperty( "Animation_Playing", state )
+
+    if state then
+        self:onStartPlaying()
+    else
+        self:onStopPlaying()
+    end
+end
+
+function Animation:isPlaying()
+    return self._playing
+end
+
+function Animation:start()
+    self:setPlaying( true )
+end
+
+function Animation:stop()
+    self:setPlaying( false )
+end
+
+function Animation:setUpdateInterval( interval )
+    if self._updateInterval == interval then return end
+    if type( interval ) ~= "number" then error( "Expected interval to be a number" ) end
+    if interval < 0 then error( "Expected interval to be >= 0" ) end
+
+    self._updateInterval = interval
+    self:syncProperty( "Animation_UpdateInterval", interval, "float" )
+end
+
+function Animation:getUpdateInterval()
+    return self._updateInterval
+end
+
+function Animation:setDuration( duration )
+    if type( duration ) ~= "number" then error( "Expected duration to be a number" ) end
+
+    self._duration = duration
+    self:syncProperty( "Animation_Duration", duration, "float" )
+end
+
+function Animation:getDuration()
+    return self._duration
+end
+
+function Animation:setTime( time )
+    if type( time ) ~= "number" then error( "Expected time to be a number" ) end
+    if time < 0 then error( "Expected time to be >= 0" ) end
+
+    local duration = self:getDuration()
+
+    if duration ~= 0 and time ~= duration then
+        if self:doesLoop() then
+            time = time % duration
+        else
+            time = math.min( time, duration )
+        end
+    end
+
+    self._time = time
+    self:syncProperty( "Animation_Time", time, "float" )
+end
+
+function Animation:getTime()
+    return self._time
+end
+
+function Animation:setTimeFractional( timeFrac )
+    if type( timeFrac ) ~= "number" then error( "Expected timeFrac to be a number" ) end
+
+    self:setTime( timeFrac * self:getDuration() )
+end
+
+function Animation:getTimeFractional()
+    local duration = self:getDuration()
+    if duration == 0 then return 0 end
+
+    return self:getTime() / duration
+end
+
+function Animation:setLoop( state )
+    if self._loop == state then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._loop = state
+    self:syncProperty( "Animation_Loop", state )
+end
+
+function Animation:doesLoop()
+    return self._loop
+end
+
+function Animation:setPingPong( state )
+    if self._pingPong == state then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._pingPong = state
+    self:syncProperty( "Animation_PingPong", state )
+end
+
+function Animation:doesPingPong()
+    return self._pingPong
+end
+
+function Animation:setReversed( state )
+    if self._reversed == state then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+
+    self._reversed = state
+    self:syncProperty( "Animation_Reversed", state )
+end
+
+function Animation:isReversed()
+    return self._reversed
+end
+
+function Animation:setSpeed( speed )
+    if self._speed == speed then return end
+    if type( speed ) ~= "number" then error( "Expected speed to be a number" ) end
+    if speed < 0 then error( "Expected speed to be >= 0" ) end
+
+    self._speed = speed
+    self:syncProperty( "Animation_Speed", speed, "float" )
+end
+
+function Animation:getSpeed()
+    return self._speed
+end
+
+function Animation:setScale( scale )
+    if type( scale ) ~= "Vector" then error( "Expected scale to be a Vector" ) end
+
+    self._scale = scale
+    self:syncProperty( "Animation_Scale", scale )
+end
+
+function Animation:getScale()
+    return self._scale
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+-- Called when the Animation starts playing.
+function Animation:onStartPlaying()
+
+end
+
+-- Called when the Animation stops playing.
+function Animation:onStopPlaying()
+
+end
+
+-- Defines how to display the Animation at the given time.
+function Animation:handlePlayback( _time )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Animation:onDestroyed()
+    table.removeByValue( allAnimations, self )
+
+    Animation.super.onDestroyed( self )
+end
+
+function Animation:think()
+    if not self:isPlaying() then return end
+    if self:isReplicatedOnClient() and not self._liveSyncingReady then return end
+
+    local now = timer.curtime()
+    local lastTime = self._lastAnimTime or now
+    local updateInterval = self:getUpdateInterval()
+    local timeSinceLast = now - lastTime
+
+    if updateInterval ~= 0 and timeSinceLast < updateInterval then return end
+
+    local speed = self:getSpeed()
+    if speed == 0 then return end
+
+    local isReversed = self:isReversed()
+    local duration = self:getDuration()
+    local animTime
+    local hitTheEnd = false
+
+    if isReversed then
+        animTime = self:getTime() - timeSinceLast * speed
+
+        if animTime <= 0 then
+            hitTheEnd = true
+            animTime = 0
+        end
+    else
+        animTime = self:getTime() + timeSinceLast * speed
+
+        if duration ~= 0 and animTime >= duration then
+            hitTheEnd = true
+            animTime = duration
+        end
+    end
+
+    self._lastAnimTime = now
+    self._time = animTime -- Set directly to reduce net spam
+
+    self:handlePlayback( animTime )
+
+    if hitTheEnd then
+        if self:doesLoop() then
+            if self:doesPingPong() then
+                self:setReversed( not isReversed )
+                self:setTime( animTime ) -- Sync client
+            elseif isReversed then
+                self:setTime( duration ) -- Sync client
+            else
+                self:setTime( 0 ) -- Sync client
+            end
+        else
+            self:stop()
+
+            if self:isReversed() then
+                self:setTime( duration ) -- Sync client
+            else
+                self:setTime( 0 ) -- Sync client
+            end
+        end
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+if SERVER then
+    function Animation:writeCreationData( pos, ang )
+        net.writeVector( pos )
+        net.writeAngle( ang )
+    end
+
+    return
+end
+
+
+function Animation.static:readCreationData()
+    return {
+        net.readVector(),
+        net.readAngle(),
+    }
+end
+
+
+net.receive( "LKL_Syncable_Set__Animation_Playing", function()
+    local anim = Syncable:readSyncedCopy()
+    local state = net.readBool()
+
+    if not anim then return end
+
+    anim:setPlaying( state )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_UpdateInterval", function()
+    local anim = Syncable:readSyncedCopy()
+    local interval = net.readFloat()
+
+    if not anim then return end
+
+    anim:setUpdateInterval( interval )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_Duration", function()
+    local anim = Syncable:readSyncedCopy()
+    local duration = net.readFloat()
+
+    if not anim then return end
+
+    anim:setDuration( duration )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_Time", function()
+    local anim = Syncable:readSyncedCopy()
+    local time = net.readFloat()
+
+    if not anim then return end
+
+    anim:setTime( time )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_Loop", function()
+    local anim = Syncable:readSyncedCopy()
+    local state = net.readBool()
+
+    if not anim then return end
+
+    anim:setLoop( state )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_PingPong", function()
+    local anim = Syncable:readSyncedCopy()
+    local state = net.readBool()
+
+    if not anim then return end
+
+    anim:setPingPong( state )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_Reversed", function()
+    local anim = Syncable:readSyncedCopy()
+    local state = net.readBool()
+
+    if not anim then return end
+
+    anim:setReversed( state )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_Speed", function()
+    local anim = Syncable:readSyncedCopy()
+    local speed = net.readFloat()
+
+    if not anim then return end
+
+    anim:setSpeed( speed )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_Scale", function()
+    local anim = Syncable:readSyncedCopy()
+    local scale = net.readVector()
+
+    if not anim then return end
+
+    anim:setScale( scale )
+end )

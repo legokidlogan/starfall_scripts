@@ -1,0 +1,33 @@
+--@name Animation Test
+--@author
+--@shared
+--@include lkl/animation.txt
+
+require( "lkl/animation.txt" )
+
+
+MyAnimation = class( "MyAnimation", Animation )
+MyAnimation.DURATION_DEFAULT = 5
+
+
+local holo1 = hologram.create( chip():getPos() + Vector( 0, 0, SERVER and 10 or 20 ), Angle(), "models/hunter/blocks/cube025x025x025.mdl" )
+holo1:setMaterial( "models/debug/debugwhite" )
+
+
+function MyAnimation:handlePlayback( time )
+    local timeFrac = self:getTimeFractional()
+    local color = Color( math.lerp( timeFrac, 0, 180 ), 1, 1 ):hsvToRGB()
+    color.a = 255
+    
+    holo1:setColor( color )
+end
+
+
+if SERVER then
+    timer.simple( 2, function()
+        local anim1 = MyAnimation:new( true, Vector(), Angle() )
+        anim1:setLoop( true )
+        anim1:setPingPong( true )
+        anim1:start()
+    end )
+end
