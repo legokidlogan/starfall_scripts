@@ -10,7 +10,7 @@ require( "lkl/placeable.txt" )
 
 Animation = class( "Animation", Placeable )
 Animation.static.UPDATE_INTERVAL_DEFAULT = 0
-Animation.static.DURATION_DEFAULT = 1
+Animation.static.DURATION_DEFAULT = 0
 Animation.static.LOOP_DEFAULT = false
 Animation.static.PING_PONG_DEFAULT = false
 Animation.static.REVERSED_DEFAULT = false
@@ -88,6 +88,7 @@ function Animation:getUpdateInterval()
     return self._updateInterval
 end
 
+-- A duration of 0 means the Animation will never end.
 function Animation:setDuration( duration )
     if type( duration ) ~= "number" then error( "Expected duration to be a number" ) end
 
@@ -121,12 +122,14 @@ function Animation:getTime()
     return self._time
 end
 
+-- Sets time based on a fraction of the duration. Poorly defined if duration is 0.
 function Animation:setTimeFractional( timeFrac )
     if type( timeFrac ) ~= "number" then error( "Expected timeFrac to be a number" ) end
 
     self:setTime( timeFrac * self:getDuration() )
 end
 
+-- Returns time as a fraction of the duration. Poorly defined if duration is 0.
 function Animation:getTimeFractional()
     local duration = self:getDuration()
     if duration == 0 then return 0 end
