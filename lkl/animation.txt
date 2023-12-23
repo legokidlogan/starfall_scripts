@@ -29,8 +29,8 @@ function Animation.static:getAll()
 end
 
 
-function Animation:initialize( replicateOnClient, pos, ang )
-    Animation.super.initialize( self, replicateOnClient, pos, ang )
+function Animation:initialize( replicateOnClient, pos, ang, ... )
+    Animation.super.initialize( self, replicateOnClient, pos, ang, ... )
 
     table.insert( allAnimations, self )
 

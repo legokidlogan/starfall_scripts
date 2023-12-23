@@ -64,16 +64,16 @@ local updateHoloSizes
 ----- STATIC FUNCTIONS -----
 
 if SERVER then
-    function HealthBar:initialize( replicateOnClient, ent, doBorder )
+    function HealthBar:initialize( replicateOnClient, ent, doBorder, ... )
         doBorder = doBorder and true or false
 
-        HealthBar.super.initialize( self, replicateOnClient, ent, doBorder )
+        HealthBar.super.initialize( self, replicateOnClient, ent, doBorder, ... )
     end
 else
-    function HealthBar:initialize( _, ent, doBorder )
+    function HealthBar:initialize( _, ent, doBorder, ... )
         doBorder = doBorder and true or false
 
-        HealthBar.super.initialize( self, replicateOnClient, ent, doBorder )
+        HealthBar.super.initialize( self, replicateOnClient, ent, doBorder, ... )
         syncedHoloBuffer = {}
     end
 end

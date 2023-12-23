@@ -28,8 +28,8 @@ local checkForPosAngChanges
 
 ----- STATIC FUNCTIONS -----
 
-function Placeable:initialize( replicateOnClient, pos, ang )
-    Placeable.super.initialize( self, replicateOnClient, pos, ang )
+function Placeable:initialize( replicateOnClient, pos, ang, ... )
+    Placeable.super.initialize( self, replicateOnClient, pos, ang, ... )
 
     table.insert( allPlaceables, self )
 

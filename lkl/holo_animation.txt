@@ -35,8 +35,8 @@ function HoloAnimation.static:getAll()
 end
 
 
-function HoloAnimation:initialize( replicateOnClient, pos, ang )
-    HoloAnimation.super.initialize( self, replicateOnClient, pos, ang )
+function HoloAnimation:initialize( replicateOnClient, pos, ang, ... )
+    HoloAnimation.super.initialize( self, replicateOnClient, pos, ang, ... )
 
     local selfObj = self
 

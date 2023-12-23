@@ -111,8 +111,8 @@ function PropTurret.static:getAll()
 end
 
 if SERVER then
-    function PropTurret:initialize( replicatedOnClient, pos, ang, headPos, headAng )
-        PropTurret.super.initialize( self, replicatedOnClient, pos, ang )
+    function PropTurret:initialize( replicatedOnClient, pos, ang, headPos, headAng, ... )
+        PropTurret.super.initialize( self, replicatedOnClient, pos, ang, headPos, headAng, ... )
 
         if not turretClassLookup[self.class] then
             registerTurretClass( self.class )
@@ -139,8 +139,8 @@ if SERVER then
         self:setTargetNPCs( false )
     end
 else
-    function PropTurret:initialize( _, pos, ang, headPos, headAng )
-        PropTurret.super.initialize( self, _, pos, ang )
+    function PropTurret:initialize( _, pos, ang, headPos, headAng, ... )
+        PropTurret.super.initialize( self, _, pos, ang, headPos, headAng, ... )
 
         table.insert( allTurrets, self )
 
@@ -1025,7 +1025,7 @@ else
             net.readVector(),
             net.readAngle(),
             net.readVector(),
-            net.readAngle()
+            net.readAngle(),
         }
     end
 end

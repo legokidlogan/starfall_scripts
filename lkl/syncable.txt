@@ -47,6 +47,7 @@ if SERVER then
         ...: (varargs: any)
             - Will get passed to :sharedInitialize( ... )
             - If this Syncable will be replicated to clients, this will also be passed to :writeCreationData( ... )
+            - Syncable subclasses should always end their init args with ... and pass it to their super.init call to allow further subclasses to trickle down additional args.
     --]]
     function Syncable:initialize( replicateOnClient, ... )
         local args = { ... }
