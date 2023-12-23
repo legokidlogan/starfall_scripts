@@ -32,6 +32,7 @@ local TYPE_TO_NET_LOOKUP = {
 local allSyncables = {}
 local syncablesByID = {}
 local syncableIncrement = 0
+local creatingSyncedCopy = false
 local netWriteArbitrary
 
 
@@ -98,11 +99,19 @@ else
             - Will get passed to :sharedInitialize( ... )
     --]]
     function Syncable:initialize( _unusedArg, ... )
-        syncableIncrement = syncableIncrement + 1
-        syncablesByID[syncableIncrement] = self
-        table.insert( allSyncables, self )
+        local id
 
-        self._id = syncableIncrement
+        if creatingSyncedCopy then
+            id = creatingSyncedCopy
+            creatingSyncedCopy = false
+        else
+            syncableIncrement = syncableIncrement + 1
+            id = syncableIncrement
+        end
+
+        table.insert( allSyncables, self )
+        syncablesByID[id] = self
+        self._id = id
 
         self:sharedInitialize( ... )
     end
@@ -135,7 +144,7 @@ if CLIENT then
     function Syncable.static:readSyncedCopy()
         local id = -net.readUInt( 16 )
 
-        return Syncable:getByID( id )
+        return syncablesByID[id]
     end
 end
 
@@ -298,13 +307,18 @@ if SERVER then
 else
     net.receive( "LKL_Syncable_Create", function()
         local id = net.readUInt( 16 )
+        local clientID = -id
         local classObj = _G[net.readString()]
         local args = classObj:readCreationData()
+
+        creatingSyncedCopy = clientID
 
         local syncable
         local success, err = pcall( function()
             syncable = classObj:new( nil, unpack( args ) )
         end )
+
+        creatingSyncedCopy = false
 
         if not success then
             err = type( err ) == "table" and tostring( err.message ) or tostring( err )
@@ -317,11 +331,10 @@ else
             return
         end
 
-        syncablesByID[syncable._id] = nil
-        syncableIncrement = syncableIncrement - 1
-        id = -id
-        syncablesByID[id] = syncable
-        syncable._id = id
+        if syncable._id ~= clientID then
+            error( "ID mismatch on " .. tostring( syncable ) .. "! Expected " .. clientID .. ", got " .. tostring( syncable._id ) )
+            -- If you get this error, that likely means you didn't immediately call ___.super.initialize( self, ... ) at the start of your subclass's :initialize() function.
+        end
     end )
 
     net.receive( "LKL_Syncable_Destroy", function()
