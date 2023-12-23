@@ -111,7 +111,7 @@ function Animation:setTime( time )
         if self:doesLoop() then
             time = time % duration
         else
-            time = math.min( time, duration )
+            time = math.clamp( time, 0, duration )
         end
     end
 
