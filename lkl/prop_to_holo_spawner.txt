@@ -13,7 +13,6 @@ require( "lkl/submaterial.txt" )
 pthSpawner = pthSpawner or {}
 
 local COLOR_DEFAULT = Color( 255, 255, 255, 255 )
-local RENDER_MODE_DEFAULT = 0
 
 local holoGroups = {}
 local holoGroupCallbacks = {}
@@ -151,11 +150,18 @@ spawnQueue = Queue:new(
 
         local holoGroup = holoGroups[groupID]
         local clips = entry.Clips
+        local color = entry.Color or COLOR_DEFAULT
+        local renderMode = entry.RenderMode or 0
+
+        -- Handle transparency for holos with default render mode
+        if color.a ~= 255 and renderMode == 0 then
+            renderMode = 4
+        end
 
         holo:setMaterial( entry.Material )
         submaterial.setSubMaterials( holo, entry.SubMaterials )
-        holo:setColor( entry.Color or COLOR_DEFAULT )
-        holo:setRenderMode( entry.RenderMode or RENDER_MODE_DEFAULT )
+        holo:setColor( color )
+        holo:setRenderMode( renderMode )
         holo:setSkin( entry.Skin or 0 )
         table.insert( holoGroup, holo )
 
