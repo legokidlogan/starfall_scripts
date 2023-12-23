@@ -102,11 +102,12 @@ end
 
 function Animation:setTime( time )
     if type( time ) ~= "number" then error( "Expected time to be a number" ) end
-    if time < 0 then error( "Expected time to be >= 0" ) end
 
     local duration = self:getDuration()
 
-    if duration ~= 0 and time ~= duration then
+    if duration == 0 then
+        if time < 0 then error( "Expected time to be >= 0 when duration is 0" ) end -- Can't wrap around to the end of an infinite duration
+    elseif time ~= duration and time ~= 0 then
         if self:doesLoop() then
             time = time % duration
         else
