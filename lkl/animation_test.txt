@@ -14,11 +14,11 @@ local holo1 = hologram.create( chip():getPos() + Vector( 0, 0, SERVER and 10 or 
 holo1:setMaterial( "models/debug/debugwhite" )
 
 
-function MyAnimation:handlePlayback( time )
+function MyAnimation:handlePlayback( _time )
     local timeFrac = self:getTimeFractional()
     local color = Color( math.lerp( timeFrac, 0, 180 ), 1, 1 ):hsvToRGB()
     color.a = 255
-    
+
     holo1:setColor( color )
 end
 
@@ -28,6 +28,6 @@ if SERVER then
         local anim1 = MyAnimation:new( true, Vector(), Angle() )
         anim1:setLoop( true )
         anim1:setPingPong( true )
-        anim1:start()
+        anim1:play()
     end )
 end
