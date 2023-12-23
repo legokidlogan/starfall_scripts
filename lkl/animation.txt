@@ -100,6 +100,11 @@ function Animation:getDuration()
     return self._duration
 end
 
+--[[
+    - Sets time directly.
+    - If the Animation isn't infinite, the resulting time will wrap around if the Animation loops, or clamp between 0 and duration otherwise.
+        - It will not account for ping pong state.
+--]]
 function Animation:setTime( time )
     if type( time ) ~= "number" then error( "Expected time to be a number" ) end
 
