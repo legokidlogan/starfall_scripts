@@ -15,7 +15,8 @@ hsvMath = hsvMath or {}
 if hsvMath.hsvToRGB then return end
 
 
-local mathLerp = math.lerp
+local lerpClamped
+local lerpUnclamped
 
 
 -- Converts an HSV Color to an RGB Color, while properly preserving the alpha.
@@ -34,38 +35,58 @@ function hsvMath.rgbToHSV( rgb )
     return hsv
 end
 
--- Lerps between HSV Colors and yields an HSV Color.
-function hsvMath.lerpHSVToHSV( frac, fromHSV, toHSV )
-    local h = mathLerp( frac, fromHSV.r, toHSV.r )
-    local s = mathLerp( frac, fromHSV.g, toHSV.g )
-    local v = mathLerp( frac, fromHSV.b, toHSV.b )
-    local a = mathLerp( frac, fromHSV.a, toHSV.a )
+-- Lerps between HSV Colors and yields an HSV Color. doClamp is optional, defaults to true.
+function hsvMath.lerpHSVToHSV( frac, fromHSV, toHSV, doClamp )
+    local lerpFunc = ( doClamp == false ) and lerpUnclamped or lerpClamped
+
+    local h = lerpFunc( frac, fromHSV.r, toHSV.r )
+    local s = lerpFunc( frac, fromHSV.g, toHSV.g )
+    local v = lerpFunc( frac, fromHSV.b, toHSV.b )
+    local a = lerpFunc( frac, fromHSV.a, toHSV.a )
 
     return Color( h, s, v, a )
 end
 
--- Lerps between HSV Colors and yields an RGB Color.
-function hsvMath.lerpHSVToRGB( frac, fromHSV, toHSV )
-    local hsv = hsvMath.lerpHSVToHSV( frac, fromHSV, toHSV )
+-- Lerps between HSV Colors and yields an RGB Color. doClamp is optional, defaults to true.
+function hsvMath.lerpHSVToRGB( frac, fromHSV, toHSV, doClamp )
+    local hsv = hsvMath.lerpHSVToHSV( frac, fromHSV, toHSV, doClamp )
     local rgb = hsv:hsvToRGB()
     rgb.a = hsv.a
 
     return rgb
 end
 
--- Converts to HSV, lerps, then converts back to RGB.
-function hsvMath.lerpRGBToRGB( frac, fromRGB, toRGB )
+-- Converts to HSV, lerps, then converts back to RGB. doClamp is optional, defaults to true.
+function hsvMath.lerpRGBToRGB( frac, fromRGB, toRGB, doClamp )
+    local lerpFunc = ( doClamp == false ) and lerpUnclamped or lerpClamped
     local fromHSV = fromRGB:rgbToHSV()
     local toHSV = toRGB:rgbToHSV()
 
     -- Lerp in HSV space manually to avoid redundant alpha set/get calls.
-    local h = mathLerp( frac, fromHSV.r, toHSV.r )
-    local s = mathLerp( frac, fromHSV.g, toHSV.g )
-    local v = mathLerp( frac, fromHSV.b, toHSV.b )
-    local a = mathLerp( frac, fromRGB.a, toRGB.a )
+    local h = lerpFunc( frac, fromHSV.r, toHSV.r )
+    local s = lerpFunc( frac, fromHSV.g, toHSV.g )
+    local v = lerpFunc( frac, fromHSV.b, toHSV.b )
+    local a = lerpFunc( frac, fromRGB.a, toRGB.a )
 
     local rgb = Color( h, s, v ):hsvToRGB()
     rgb.a = a
 
     return rgb
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+lerpClamped = function( frac, from, to )
+    if from == to then return from end
+    if frac >= 1 then return to end
+    if frac <= 0 then return from end
+
+    return from + ( to - from ) * frac
+end
+
+lerpUnclamped = function( frac, from, to )
+    if from == to then return from end
+
+    return from + ( to - from ) * frac
 end
