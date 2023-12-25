@@ -19,6 +19,7 @@ local TYPE_TO_NET_LOOKUP = {
     table = net.writeTable,
     Vector = net.writeVector,
     Angle = net.writeAngle,
+    Color = net.writeColor,
 
     Entity = net.writeEntity,
     Hologram = net.writeEntity,
