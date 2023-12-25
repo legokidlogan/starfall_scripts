@@ -206,7 +206,7 @@ function Syncable:syncProperty( name, value, bits, isUnsigned )
 
     net.start( "LKL_Syncable_Set__" .. name )
     net.writeUInt( self:getID(), 16 )
-    netWriteArbitrary( value, bits, isUnsigned )
+    netWriteArbitrary( name, value, bits, isUnsigned )
     net.send()
 end
 
@@ -262,11 +262,11 @@ end
 
 ----- PRIVATE FUNCTIONS -----
 
-netWriteArbitrary = function( value, bits, isUnsigned )
+netWriteArbitrary = function( name, value, bits, isUnsigned )
     local typeStr = type( value )
 
     if typeStr == "number" then
-        if bits == nil then error( "Expected bits to be provided when writing a number" ) end
+        if bits == nil then error( "Expected bits to be provided when writing a number (name = " .. name .. ")" ) end
 
         if bits == "float" then
             net.writeFloat( value )
@@ -286,7 +286,7 @@ netWriteArbitrary = function( value, bits, isUnsigned )
     if writeFunc then
         writeFunc( value )
     else
-        error( "Cannot auto-write type " .. typeStr )
+        error( "Cannot auto-write type " .. typeStr .. " (name = " .. name .. ")" )
     end
 end
 
