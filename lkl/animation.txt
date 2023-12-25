@@ -403,7 +403,7 @@ net.receive( "LKL_Syncable_Set__Animation_Playing", function()
 
     anim._playing = true
     anim._stopped = false
-    anim._time = timeElapsed * anim:getSpeed()
+    anim._time = anim._time + timeElapsed * anim:getSpeed()
     anim._lastAnimTime = startTime + timeElapsed
 
     anim:onStartPlaying( wasStopped )
