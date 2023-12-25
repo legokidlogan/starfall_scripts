@@ -63,6 +63,7 @@ function Animation:setPlaying( state )
         local wasStopped = self._stopped
 
         self._stopped = false
+        self._lastAnimTime = timer.curtime()
         self:onStartPlaying( wasStopped )
     else
         self:onStopPlaying( false )
@@ -287,7 +288,7 @@ function Animation:think()
     if self:isReplicatedOnClient() and not self._liveSyncingReady then return end
 
     local now = timer.curtime()
-    local lastTime = self._lastAnimTime or now
+    local lastTime = self._lastAnimTime
     local updateInterval = self:getUpdateInterval()
     local timeSinceLast = now - lastTime
 
