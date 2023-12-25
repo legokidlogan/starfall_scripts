@@ -9,14 +9,14 @@ require( "lkl/placeable.txt" )
 
 
 Animation = class( "Animation", Placeable )
-Animation.static.UPDATE_INTERVAL_DEFAULT = 0
-Animation.static.DURATION_DEFAULT = 0
-Animation.static.STOP_ON_FINISHED_DEFAULT = true
-Animation.static.LOOP_DEFAULT = false
-Animation.static.PING_PONG_DEFAULT = false
-Animation.static.REVERSED_DEFAULT = false
-Animation.static.SPEED_DEFAULT = 1
-Animation.static.SCALE_DEFAULT = Vector( 1, 1, 1 )
+Animation.static.UPDATE_INTERVAL = 0
+Animation.static.DURATION = 0
+Animation.static.STOP_ON_FINISHED = true
+Animation.static.LOOP = false
+Animation.static.PING_PONG = false
+Animation.static.REVERSED = false
+Animation.static.SPEED = 1
+Animation.static.SCALE = Vector( 1, 1, 1 )
 
 
 local allAnimations = {}
@@ -39,14 +39,14 @@ function Animation:initialize( replicateOnClient, pos, ang, ... )
     self._duration = 0
     self._time = 0
 
-    self:setUpdateInterval( self.class.UPDATE_INTERVAL_DEFAULT )
-    self:setDuration( self.class.DURATION_DEFAULT )
-    self:setStopOnFinished( self.class.STOP_ON_FINISHED_DEFAULT )
-    self:setLoop( self.class.LOOP_DEFAULT )
-    self:setPingPong( self.class.PING_PONG_DEFAULT )
-    self:setReversed( self.class.REVERSED_DEFAULT )
-    self:setSpeed( self.class.SPEED_DEFAULT )
-    self:setScale( self.class.SCALE_DEFAULT )
+    self:setUpdateInterval( self.class.UPDATE_INTERVAL )
+    self:setDuration( self.class.DURATION )
+    self:setStopOnFinished( self.class.STOP_ON_FINISHED )
+    self:setLoop( self.class.LOOP )
+    self:setPingPong( self.class.PING_PONG )
+    self:setReversed( self.class.REVERSED )
+    self:setSpeed( self.class.SPEED )
+    self:setScale( self.class.SCALE )
 end
 
 
@@ -106,7 +106,8 @@ end
 
 function Animation:setUpdateInterval( interval )
     if self._updateInterval == interval then return end
-    if type( interval ) ~= "number" then error( "Expected interval to be a number" ) end
+    if interval == nil then interval = self.class.UPDATE_INTERVAL end
+    if type( interval ) ~= "number" then error( "Expected interval to be a number or nil" ) end
     if interval < 0 then error( "Expected interval to be >= 0" ) end
 
     self._updateInterval = interval
@@ -119,7 +120,8 @@ end
 
 -- A duration of 0 means the Animation will never end.
 function Animation:setDuration( duration )
-    if type( duration ) ~= "number" then error( "Expected duration to be a number" ) end
+    if duration == nil then duration = self.class.DURATION end
+    if type( duration ) ~= "number" then error( "Expected duration to be a number or nil" ) end
     if duration < 0 then error( "Expected duration to be >= 0" ) end
 
     self._duration = duration
@@ -176,7 +178,8 @@ end
 -- If true, the Animation will :stop() when it reaches the end. Otherwise it will :pause(). Neither will occur if the animation loops.
 function Animation:setStopOnFinished( state )
     if self._stopOnFinished == state then return end
-    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if state == nil then state = self.class.STOP_ON_FINISHED end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
 
     self._stopOnFinished = state
     self:syncProperty( "Animation_StopOnFinished", state )
@@ -188,7 +191,8 @@ end
 
 function Animation:setLoop( state )
     if self._loop == state then return end
-    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if state == nil then state = self.class.LOOP end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
 
     self._loop = state
     self:syncProperty( "Animation_Loop", state )
@@ -200,7 +204,8 @@ end
 
 function Animation:setPingPong( state )
     if self._pingPong == state then return end
-    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if state == nil then state = self.class.PING_PONG end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
 
     self._pingPong = state
     self:syncProperty( "Animation_PingPong", state )
@@ -212,7 +217,8 @@ end
 
 function Animation:setReversed( state )
     if self._reversed == state then return end
-    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if state == nil then state = self.class.REVERSED end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
 
     self._reversed = state
     self:syncProperty( "Animation_Reversed", state )
@@ -224,7 +230,8 @@ end
 
 function Animation:setSpeed( speed )
     if self._speed == speed then return end
-    if type( speed ) ~= "number" then error( "Expected speed to be a number" ) end
+    if speed == nil then speed = self.class.SPEED end
+    if type( speed ) ~= "number" then error( "Expected speed to be a number or nil" ) end
     if speed < 0 then error( "Expected speed to be >= 0" ) end
 
     self._speed = speed
@@ -236,9 +243,10 @@ function Animation:getSpeed()
 end
 
 function Animation:setScale( scale )
-    if type( scale ) ~= "Vector" then error( "Expected scale to be a Vector" ) end
+    if scale == nil then scale = self.class.SCALE end
+    if type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
 
-    self._scale = scale
+    self._scale = scale:clone()
     self:syncProperty( "Animation_Scale", scale )
 end
 
