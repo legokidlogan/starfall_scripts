@@ -56,14 +56,16 @@ function Animation:setPlaying( state )
     if self._playing == state then return end
     if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
 
+    local now = timer.curtime()
+
     self._playing = state
-    self:syncProperty( "Animation_Playing", state )
+    self:syncProperty( "Animation_Playing", state and now or 0, "float" )
 
     if state then
         local wasStopped = self._stopped
 
         self._stopped = false
-        self._lastAnimTime = timer.curtime()
+        self._lastAnimTime = now
         self:onStartPlaying( wasStopped )
     else
         self:onStopPlaying( false )
@@ -376,11 +378,35 @@ end
 
 net.receive( "LKL_Syncable_Set__Animation_Playing", function()
     local anim = Syncable:readSyncedCopy()
-    local state = net.readBool()
+    local startTime = net.readFloat()
 
     if not anim then return end
 
-    anim:setPlaying( state )
+    if startTime == 0 then
+        anim:setPlaying( false )
+
+        return
+    end
+
+    if anim._playing then return end
+
+    -- Start playing anim and account for any time loss due to networking.
+    local now = timer.curtime()
+    local timeElapsed = now - startTime
+    local updateInterval = anim:getUpdateInterval()
+
+    if updateInterval ~= 0 then
+        timeElapsed = timeElapsed - ( timeElapsed % updateInterval )
+    end
+
+    local wasStopped = anim._stopped
+
+    anim._playing = true
+    anim._stopped = false
+    anim._time = timeElapsed * anim:getSpeed()
+    anim._lastAnimTime = startTime + timeElapsed
+
+    anim:onStartPlaying( wasStopped )
 end )
 
 net.receive( "LKL_Syncable_Set__Animation_Stopped", function()
