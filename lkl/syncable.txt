@@ -345,6 +345,10 @@ else
         local syncable = Syncable:getByID( id )
         if not syncable then return end
 
+        function syncable:isSyncedCopy()
+            return false
+        end
+
         syncable:destroy()
     end )
 end
