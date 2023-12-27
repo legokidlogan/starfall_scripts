@@ -167,6 +167,21 @@ function HoloAnimation:queueNamedHolo( entry, name )
     self._holoQueue:addEntryAndStart( entry )
 end
 
+-- Removes the yet-to-be-spawned holo with the given name from the spawn queue. Does nothing if it already made it through the queue.
+function HoloAnimation:unqueueNamedHolo( name )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+
+    local queue = self._holoQueue
+
+    for i, entry in ipairs( queue:getEntries() ) do
+        if entry.Name == name then
+            queue:removeEntry( i )
+
+            return -- Technically the queue could have more with the same name, but such a condition is already considered erroneous and not worth handling.
+        end
+    end
+end
+
 --[[
     - Queues up a grouped holo to be spawned for this HoloAnimation. Useful for easily referencing the holos later as a group.
     - The holos can be retrieved via :getGroupedHolo( groupName, index ), or found in :getHoloGroup( groupName ) or :getHoloGroups().
@@ -190,6 +205,20 @@ function HoloAnimation:queueGroupedHolo( entry, groupName )
 
     self._holosSpawned = false
     self._holoQueue:addEntryAndStart( entry )
+end
+
+-- Removes the yet-to-be-spawned holos with the given group name from the spawn queue. Does nothing if they already made it through the queue.
+function HoloAnimation:unqueueGroupedHolos( groupName )
+    if type( groupName ) ~= "string" then error( "Expected groupName to be a string" ) end
+
+    local queue = self._holoQueue
+    local entries = queue:getEntries()
+
+    for i = #entries, 1, -1 do
+        if entries[i].GroupName == groupName then
+            queue:removeEntry( i )
+        end
+    end
 end
 
 -- Get all unnamed holos spawned by this HoloAnimation. Returns by reference, do not modify the table.
