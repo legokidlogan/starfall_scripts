@@ -331,6 +331,30 @@ function HoloAnimation:changeHoloGroup( holo, newGroupName )
     holoInfo.GroupName = newGroupName
 end
 
+-- Removes a spawned holo immediately. This is preferable to holo:remove() which doesn't get detected until the next physics tick.
+function HoloAnimation:removeHolo( holo )
+    if not isValid( holo ) then return end
+
+    local holoInfo = holoLookup[holo]
+    if not holoInfo or holoInfo.HoloAnimation ~= self then error( "The given holo is not part of this HoloAnimation" ) end
+
+    local name = holoInfo.Name
+    local groupName = holoInfo.GroupName
+
+    if name then
+        self._namedHolos[name] = nil
+    elseif groupName then
+        table.removeByValue( self._groupedHolos[groupName] or {}, holo )
+    else
+        table.removeByValue( self._unnamedHolos, holo )
+    end
+
+    table.removeByValue( self._allHolos, holo )
+    holoLookup[holo] = nil
+
+    holo:remove()
+end
+
 
 ----- OVERRIDABLE FUNCTIONS -----
 
