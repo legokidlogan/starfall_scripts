@@ -128,6 +128,7 @@ end
             StartHidden: (boolean) Whether or not to set the holo's alpha to 0 upon spawning. Defaults to false.
             RenderMode: (number) The render mode of the holo. Defaults to 0.
             Skin: (number) The skin of the holo. Defaults to 0.
+            Fullbright: (boolean) Whether or not to make the holo fullbright. Defaults to false.
             Clips: (table) The clips of the holo. Defaults to nil. Each clip is defined as such: {
                 Origin: (Vector) The origin of the clip, relative to the holo.
                 Normal: (Vector) The normal of the clip, relative to the holo.
@@ -443,6 +444,7 @@ function HoloAnimation:_validateHoloEntry( entry )
     entry.StartHidden = entry.StartHidden or false
     entry.RenderMode = entry.RenderMode or 0
     entry.Skin = entry.Skin or 0
+    entry.Fullbright = entry.Fullbright or false
     entry.Clips = clips
 
     if entry.Size then
@@ -494,6 +496,7 @@ function HoloAnimation:_spawnHolo( entry )
     holo:setColor( colorEff )
     holo:setRenderMode( renderModeEff )
     holo:setSkin( entry.Skin )
+    holo:suppressEngineLighting( entry.Fullbright )
 
     if clips then
         for i, clip in ipairs( clips ) do

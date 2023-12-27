@@ -163,6 +163,7 @@ spawnQueue = Queue:new(
         holo:setColor( color )
         holo:setRenderMode( renderMode )
         holo:setSkin( entry.Skin or 0 )
+        holo:suppressEngineLighting( entry.Fullbright or false )
         table.insert( holoGroup, holo )
 
         if clips then

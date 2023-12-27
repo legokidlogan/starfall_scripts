@@ -125,6 +125,7 @@ else
                 Skin = prop:getSkin(),
                 Clips = #clips > 0 and clips or nil, -- Note that clips in PtH will always be made relative to the hologram they're on.
                 --Scale = nil, -- Scale can't be set on props, and currently we can't get the scale from E2/SF holos from a different serverside chip from the creating one.
+                Fullbright = false,
             }
         end
 
