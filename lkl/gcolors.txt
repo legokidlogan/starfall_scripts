@@ -89,6 +89,7 @@ COLORS.ply_console = Color( 50, 50, 65, 255 )
 COLORS.realm_server = Color( 3, 169, 244, 255 )
 COLORS.realm_client = Color( 222, 169, 9, 255 )
 COLORS.realm_menu = Color( 76, 175, 80, 255 )
+COLORS.realm_current = SERVER and COLORS.realm_server or COLORS.realm_client
 
 
 -- Code colors (based off of default colors for the Visual Studio Code glua extension by aStonedPenguin )
