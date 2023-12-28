@@ -20,6 +20,18 @@ Placeable = class( "Placeable", Syncable )
 Placeable.static.THINK_PERF_LIMIT = 0.9 -- :think() calls will be skipped when the chip's fractional quota exceeds this amount.
 
 
+local ENTITY_TYPES = {
+    Entity = true,
+    Player = true,
+    Hologram = true,
+    Vehicle = true,
+    Npc = true,
+    NextBot = true,
+    Weapon = true,
+    PhysObj = true,
+    Effect = true,
+}
+
 local allPlaceables = {}
 local placeableParents = {}
 local placeableParentLookup = {}
@@ -164,6 +176,15 @@ end
 function Placeable:setParent( ent )
     if ent ~= nil and not isValid( ent ) then error( "Expected ent to be valid or nil" ) end
 
+    local entType = type( ent )
+    local isPlaceable = false
+
+    if ent ~= nil and not ENTITY_TYPES[entType] then
+        if entType ~= "table" or not ent.isInstanceOf or not ent:isInstanceOf( Placeable ) then error( "Expected ent to be an Entity, nil, or a subclass of Placeable" ) end
+
+        isPlaceable = true
+    end
+
     local prevParent = self:getParent()
     if prevParent == ent then return end
 
@@ -200,11 +221,13 @@ function Placeable:setParent( ent )
         placeableParentLookup[ent] = true
     end
 
-    self:syncProperty( "Placeable_Parent", {
-        ent = ent or game.getWorld(),
-        localPos = localPos or Vector(),
-        localAng = localAng or Angle(),
-    } )
+    if SERVER then
+        self:syncProperty( "Placeable_Parent", {
+            ent = isPlaceable and ent:getID() or ent,
+            localPos = localPos or Vector(),
+            localAng = localAng or Angle(),
+        } )
+    end
 
     self:onSetParent( prevParent )
     self:onPosAngChanged( worldPos, worldAng )
@@ -402,7 +425,14 @@ net.receive( "LKL_Syncable_Set__Placeable_Parent", function()
     if not placeable then return end
 
     local parent = data.ent
-    parent = isValid( parent ) and parent or nil
+
+    if type( parent ) == "number" then
+        parent = Syncable:getByID( -parent )
+
+        if not parent then error( "The serverside parent (id " .. parent .. " ) in " .. tostring( placeable ) .. ":setParent( parent ) is not synced clientside" ) end
+    else
+        parent = isValid( parent ) and parent or nil
+    end
 
     if not parent then
         placeable:setParent( nil )
