@@ -231,6 +231,18 @@ function Placeable:getParent()
     return self._parent
 end
 
+-- Returns by reference, do not modify.
+function Placeable:getChildren()
+    local children = self._placeable_Children
+
+    if not children then
+        children = {}
+        self._placeable_Children = children
+    end
+
+    return children
+end
+
 -- Acts similarly to timer.frametime(), but accounts for any time the Placeable's :think() gets skipped due to cpu usage.
 function Placeable:getThinkDelta()
     return self._thinkDelta
