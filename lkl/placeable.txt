@@ -33,8 +33,6 @@ local ENTITY_TYPES = {
 }
 
 local allPlaceables = {}
-local placeableParents = {}
-local placeableParentLookup = {}
 local checkForPosAngChanges
 
 
@@ -204,9 +202,7 @@ function Placeable:setParent( ent )
         self._ang = worldAng
 
         if isValid( prevParent ) then
-            table.removeByValue( prevParent._placeable_Children, self )
-            table.removeByValue( placeableParents, prevParent )
-            placeableParentLookup[prevParent] = nil
+            table.removeByValue( prevParent._placeable_Children or {}, self )
         end
     else
         local children = ent._placeable_Children
@@ -217,8 +213,6 @@ function Placeable:setParent( ent )
         end
 
         table.insert( children, self )
-        table.insert( placeableParents, ent )
-        placeableParentLookup[ent] = true
     end
 
     if SERVER then
@@ -315,6 +309,12 @@ end
 function Placeable:onDestroyed()
     table.removeByValue( allPlaceables, self )
 
+    local parent = self:getParent()
+
+    if isValid( parent ) then
+        table.removeByValue( parent._placeable_Children or {}, self )
+    end
+
     local children = self._placeable_Children
 
     if children then
@@ -367,12 +367,12 @@ hook.add( "think", "LKL_Placeable_Think", function()
 end )
 
 hook.add( "EntityRemoved", "LKL_Placeable_DestroyChildren", function( ent )
-    if not placeableParentLookup[ent] then return end
-
-    table.removeByValue( placeableParents, ent )
-    placeableParentLookup[ent] = nil
+    if not ent then return end -- Can sometimes be nil somehow
 
     local children = ent._placeable_Children
+    if not children then return end
+
+    ent._placeable_Children = nil
 
     for _, placeable in ipairs( children ) do
         if isValid( placeable ) and not placeable:isSyncedCopy() then
