@@ -1,0 +1,10 @@
+--@name Jump Pad Example
+--@author legokidlogan
+--@server
+--@include lkl/jump_pad.txt
+
+require( "lkl/jump_pad.txt" )
+
+
+local jumpPad1 = JumpPad:new( chip():getPos(), chip():getAngles() )
+jumpPad1:setParent( chip() )

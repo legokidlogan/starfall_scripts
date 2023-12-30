@@ -1,0 +1,664 @@
+--@name Jump Pad
+--@author legokidlogan
+--@server
+--@include lkl/placeable.txt
+--@include lkl/queue.txt
+--@include lkl/table_clone_deep.txt
+--@include lkl/sound_emitter.txt
+--@include lkl/e2_applytorque.txt
+--@include lkl/math/vector_math.txt
+
+if JumpPad then return end
+
+require( "lkl/placeable.txt" )
+require( "lkl/queue.txt" )
+require( "lkl/table_clone_deep.txt" )
+require( "lkl/sound_emitter.txt" )
+require( "lkl/e2_applytorque.txt" )
+require( "lkl/math/vector_math.txt" )
+
+
+JumpPad = class( "JumpPad", Placeable )
+
+-- These cannot be changed by subclasses.
+JumpPad.static.DETECTION_INTERVAL = 0.1
+
+-- These can be set on a per-class basis.
+JumpPad.static.MUTE_SOUNDS = false
+
+-- These can be set on a per-instance basis.
+JumpPad.static.LAUNCH_SPEED = 1000
+JumpPad.static.LAUNCH_DURATION = 0.25
+JumpPad.static.LAUNCH_COOLDOWN = 0
+JumpPad.static.LAUNCH_MASS = 50000
+JumpPad.static.LAUNCH_ALT_ENABLED = false -- false = simply apply an upawrds velocity every tick, true = apply velocity per tick to follow a fixed path.
+JumpPad.static.LAUNCH_ALT_STRENGTH = 7
+JumpPad.static.DETECTION_RADIUS = 45
+JumpPad.static.DETECTION_HEIGHT = 20
+JumpPad.static.TORQUE_STRENGTH = 300 -- Disabled if 0 or if USE_KEEP_UPRIGHT is true
+JumpPad.static.TORQUE_STABILIZATION = 100
+JumpPad.static.USE_KEEP_UPRIGHT = true
+
+-- These can be set on a per-instance basis, but only by modifying the class table before initialization.
+JumpPad.static.RIM_PROP_INFO = {
+    Pos = Vector( 0, 0, 47.95 ),
+    Ang = Angle( 0, 0, 0 ),
+    Model = "models/hunter/tubes/tube4x4x1to2x2.mdl",
+    Material = "phoenix_storms/window",
+    Color = Color( 0, 255, 255, 255 ),
+}
+
+JumpPad.static.TOP_PROP_INFO = {
+    Pos = Vector( 0, 0, 46.2 ),
+    Ang = Angle( 0, 0, 0 ),
+    Model = "models/hunter/tubes/circle2x2.mdl",
+    Material = "phoenix_storms/bluemetal",
+    Color = Color( 0, 255, 255, 255 ),
+}
+
+JumpPad.static.LAUNCH_PROP_INFO = {
+    Pos = Vector( 0, 0, 46.2 - 3 ),
+    Ang = Angle( 0, 0, 0 ),
+    Model = "models/hunter/tubes/circle2x2.mdl",
+    Material = "",
+    Color = Color( 255, 255, 255, 0 ),
+}
+
+--[[
+    - Sounds for use with :startSound()
+    - If you modify this in a subclass, you need to disconnect the table reference first:
+        MyClass = class( "MyClass", JumpPad )
+        MyClass.SOUNDS = table.copy( JumpPad.SOUNDS )
+
+        MyClass.SOUNDS.SHOOT.PATH = "path/to/sound.wav"
+        -- etc
+--]]
+JumpPad.static.SOUNDS = {
+    LAUNCH = {
+        PATH = "npc/dog/dog_pneumatic2.wav", -- Set to false to disable
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = function() return math.rand( 0.9, 1.1 ) end,
+        LEVEL = 75,
+        DELAY = nil,
+    },
+
+    COOLDOWN_FINISHED = {
+        PATH = "npc/dog/dog_servo5.wav", -- Set to false to disable
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 1,
+        LEVEL = 75,
+        DELAY = nil,
+    },
+}
+
+
+local allJumpPads = {}
+local propQueue = nil
+local queueProps
+local queueTopProp
+local queueRimProp
+local queueLaunchProp
+
+
+----- STATIC FUNCTIONS -----
+
+function JumpPad:initialize( pos, ang, ... )
+    JumpPad.super.initialize( self, false, pos, ang, ... )
+
+    table.insert( allJumpPads, self )
+
+    self._hasNotReadiedYet = true
+    self._ready = false
+    self._rimPropInfo = table.cloneDeep( self.class.RIM_PROP_INFO )
+    self._topPropInfo = table.cloneDeep( self.class.TOP_PROP_INFO )
+    self._launchPropInfo = table.cloneDeep( self.class.LAUNCH_PROP_INFO )
+
+    local soundEmitter = SoundEmitter:new()
+    self._soundEmitter = soundEmitter
+    soundEmitter:setSoundReplacements( self.class.SOUNDS )
+
+    queueProps( self )
+end
+
+function JumpPad.static:getAll()
+    return allJumpPads
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function JumpPad:isReady()
+    return self._ready
+end
+
+function JumpPad:launch()
+    if not self:isReady() then return end
+    if self:isOnCooldown() then return end
+
+    local selfObj = self
+    local launchDir = self:getAngles():getUp()
+    local launchPropPos, launchPropAng = self:localToWorldPosAng( self._launchPropInfo.Pos, self._launchPropInfo.Ang )
+
+    self:getLaunchProp():enableMotion( true )
+    self:startSound( nil, "LAUNCH" )
+
+    self._launching = true
+    self._onCooldown = true
+    self._launching_LaunchDistAccum = 0
+    self._launching_LaunchDir = launchDir
+    self._launching_LaunchPropPos = launchPropPos
+    self._launching_LaunchPropAng = launchPropAng
+
+    local keepUprightConstraint
+
+    if self:getUseKeepUpright() then
+        keepUprightConstraint = constraint.keepupright( self:getLaunchProp(), launchPropAng )
+    end
+
+    timer.create( self:getTimerName( "LKL_JumpPad_EndLaunch" ), self:getLaunchDuration(), 1, function()
+        local launchProp = selfObj:getLaunchProp()
+
+        selfObj._launching = false
+
+        if isValid( launchProp ) then
+            local propInfo = selfObj._launchPropInfo
+            local pos, ang = selfObj:localToWorldPosAng( propInfo.Pos, propInfo.Ang )
+
+            launchProp:enableMotion( false )
+            launchProp:setPos( pos )
+            launchProp:setAngles( ang )
+        end
+
+        if isValid( keepUprightConstraint ) then
+            keepUprightConstraint:remove()
+        end
+
+        timer.create( selfObj:getTimerName( "LKL_JumpPad_EndCooldown" ), selfObj:getLaunchCooldown(), 1, function()
+            local topProp = selfObj:getTopProp()
+
+            selfObj._onCooldown = false
+
+            if isValid( topProp ) then
+                selfObj:startSound( topProp, "COOLDOWN_FINISHED" )
+            end
+        end )
+    end )
+end
+
+function JumpPad:isLaunching()
+    return self._launching
+end
+
+function JumpPad:isOnCooldown()
+    return self._onCooldown
+end
+
+function JumpPad:getTopProp()
+    return self._topProp
+end
+
+function JumpPad:getRimProp()
+    return self._rimProp
+end
+
+function JumpPad:getLaunchProp()
+    return self._launchProp
+end
+
+function JumpPad:setLaunchSpeed( speed )
+    if speed ~= nil and type( speed ) ~= "number" then error( "Expected speed to be a number or nil" ) end
+
+    self._launchSpeed = speed
+end
+
+function JumpPad:getLaunchSpeed()
+    return self._launchSpeed or self.class.LAUNCH_SPEED
+end
+
+function JumpPad:setLaunchDuration( duration )
+    if duration ~= nil and type( duration ) ~= "number" then error( "Expected duration to be a number or nil" ) end
+
+    self._launchDuration = duration
+end
+
+function JumpPad:getLaunchDuration()
+    return self._launchDuration or self.class.LAUNCH_DURATION
+end
+
+function JumpPad:setLaunchCooldown( cooldown )
+    if cooldown ~= nil and type( cooldown ) ~= "number" then error( "Expected cooldown to be a number or nil" ) end
+
+    self._launchCooldown = cooldown
+end
+
+function JumpPad:getLaunchCooldown()
+    return self._launchCooldown or self.class.LAUNCH_COOLDOWN
+end
+
+function JumpPad:setLaunchMass( mass )
+    if mass ~= nil and type( mass ) ~= "number" then error( "Expected mass to be a number or nil" ) end
+
+    local launchProp = self:getLaunchProp()
+
+    if isValid( launchProp ) then
+        launchProp:setMass( mass )
+    end
+
+    self._launchMass = mass
+end
+
+function JumpPad:getLaunchMass()
+    return self._launchMass or self.class.LAUNCH_MASS
+end
+
+function JumpPad:setLaunchAltEnabled( state )
+    if state ~= nil and type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._launchAltEnabled = state
+end
+
+function JumpPad:getLaunchAltEnabled()
+    local state = self._launchAltEnabled
+    if state == nil then return self.class.LAUNCH_ALT_ENABLED end
+
+    return state
+end
+
+function JumpPad:setLaunchAltStrength( strength )
+    if strength ~= nil and type( strength ) ~= "number" then error( "Expected strength to be a number or nil" ) end
+
+    self._launchAltStrength = strength
+end
+
+function JumpPad:getLaunchAltStrength()
+    return self._launchAltStrength or self.class.LAUNCH_ALT_STRENGTH
+end
+
+function JumpPad:setDetectionRadius( radius )
+    if radius ~= nil and type( radius ) ~= "number" then error( "Expected radius to be a number or nil" ) end
+
+    self._detectionRadius = radius
+end
+
+function JumpPad:getDetectionRadius()
+    return self._detectionRadius or self.class.DETECTION_RADIUS
+end
+
+function JumpPad:setDetectionHeight( height )
+    if height ~= nil and type( height ) ~= "number" then error( "Expected height to be a number or nil" ) end
+
+    self._detectionHeight = height
+end
+
+function JumpPad:getDetectionHeight()
+    return self._detectionHeight or self.class.DETECTION_HEIGHT
+end
+
+function JumpPad:setTorqueStrength( strength )
+    if strength ~= nil and type( strength ) ~= "number" then error( "Expected strength to be a number or nil" ) end
+
+    self._torqueStrength = strength
+end
+
+function JumpPad:getTorqueStrength()
+    return self._torqueStrength or self.class.TORQUE_STRENGTH
+end
+
+function JumpPad:setTorqueStabilization( stabilization )
+    if stabilization ~= nil and type( stabilization ) ~= "number" then error( "Expected stabilization to be a number or nil" ) end
+
+    self._torqueStabilization = stabilization
+end
+
+function JumpPad:getTorqueStabilization()
+    return self._torqueStabilization or self.class.TORQUE_STABILIZATION
+end
+
+function JumpPad:setUseKeepUpright( state )
+    if state ~= nil and type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._useKeepUpright = state
+end
+
+function JumpPad:getUseKeepUpright()
+    local state = self._useKeepUpright
+    if state == nil then return self.class.USE_KEEP_UPRIGHT end
+
+    return state
+end
+
+function JumpPad:getSoundEmitter()
+    return self._soundEmitter
+end
+
+function JumpPad:startSound( ent, soundName, overrides )
+    if self.class.MUTE_SOUNDS then return end
+
+    return self:getSoundEmitter():startSound( ent or self:getTopProp(), soundName, overrides )
+end
+
+function JumpPad:stopSound( ent, soundName )
+    return self:getSoundEmitter():stopSound( ent or self:getTopProp(), soundName )
+end
+
+function JumpPad:stopAllSounds()
+    return self:getSoundEmitter():stopAllSounds()
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function JumpPad:canLaunchPlayer( ply )
+    if not self:isReady() then return false end
+    if self:isOnCooldown() then return false end
+    if ply:isNoclipped() then return false end
+    if ply:isFrozen() then return false end
+    --if ply:inVehicle() then return false end
+    if not ply:isAlive() then return false end
+
+    local radius = self:getDetectionRadius()
+    local height = self:getDetectionHeight()
+    local bottomPos = self:getTopProp():obbCenterW()
+    local dir = self:getAngles():getUp()
+
+    return vectorMath.isPointWithinCylinder( ply:getNearestPoint( bottomPos ), bottomPos, radius, height, dir, true )
+end
+
+-- Override this if you need to add more conditions for the JumpPad to be considered ready.
+function JumpPad:becomeReady()
+    if self:isReady() then return end
+    if not isValid( self:getTopProp() ) then return end
+    if not isValid( self:getRimProp() ) then return end
+    if not isValid( self:getLaunchProp() ) then return end
+
+    local isFirstReady = self._hasNotReadiedYet
+
+    self._ready = true
+    self._hasNotReadiedYet = false
+
+    self:onReady( isFirstReady )
+    self:onPosAngChanged( self:getPos(), self:getAngles() )
+end
+
+-- Called once when the JumpPad is ready to be used.
+function JumpPad:onReady( _isFirstReady )
+
+end
+
+function JumpPad:onTopPropSpawned( _prop )
+
+end
+
+function JumpPad:onRimPropSpawned( _prop )
+
+end
+
+function JumpPad:onLaunchPropSpawned( _prop )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function JumpPad:onDestroyed()
+    local soundEmitter = self:getSoundEmitter()
+    if isValid( soundEmitter ) then
+        soundEmitter:destroy()
+    end
+
+    local topProp = self:getTopProp()
+    if isValid( topProp ) then
+        topProp._JumpPad_Object = nil
+        topProp._JumpPad_PropName = nil
+        topProp:remove()
+    end
+
+    local rimProp = self:getRimProp()
+    if isValid( rimProp ) then
+        rimProp._JumpPad_Object = nil
+        rimProp._JumpPad_PropName = nil
+        rimProp:remove()
+    end
+
+    local launchProp = self:getLaunchProp()
+    if isValid( launchProp ) then
+        launchProp._JumpPad_Object = nil
+        launchProp._JumpPad_PropName = nil
+        launchProp:remove()
+    end
+
+    timer.remove( self:getTimerName( "LKL_JumpPad_EndLaunch" ) )
+    timer.remove( self:getTimerName( "LKL_JumpPad_EndCooldown" ) )
+
+    table.removeByValue( allJumpPads, self )
+
+    JumpPad.super.onDestroyed( self )
+end
+
+function JumpPad:think()
+    if not self:isReady() then return end
+    if not self:isLaunching() then return end
+
+    local launchProp = self:getLaunchProp()
+    local launchPhysObj = launchProp:getPhysicsObject()
+    local launchSpeed = self:getLaunchSpeed()
+    local launchDir = self._launching_LaunchDir
+
+    if not self:getUseKeepUpright() then
+        local torqueStrength = self:getTorqueStrength()
+
+        if torqueStrength > 0 then
+            torqueAlign( launchProp, self._launching_LaunchPropAng, torqueStrength, self:getTorqueStabilization() )
+        end
+    end
+
+    if not self:getLaunchAltEnabled() then
+        launchPhysObj:setVelocity( launchDir * launchSpeed )
+
+        return
+    end
+
+    local strength = self:getLaunchAltStrength()
+    local dt = self:getThinkDelta()
+    local distAccum = self._launching_LaunchDistAccum + launchSpeed * dt
+    local launchPropPos = self._launching_LaunchPropPos
+
+    self._launching_LaunchDistAccum = distAccum
+
+    local desPos = launchPropPos + launchDir * distAccum
+
+    launchPhysObj:setVelocity( ( desPos - launchPropPos ) * strength )
+end
+
+function JumpPad:onPosAngChanged()
+    local topProp = self:getTopProp()
+
+    if isValid( topProp ) then
+        local propInfo = self._topPropInfo
+        local pos, ang = self:localToWorldPosAng( propInfo.Pos, propInfo.Ang )
+
+        topProp:setPos( pos )
+        topProp:setAngles( ang )
+    end
+
+    local rimProp = self:getRimProp()
+
+    if isValid( rimProp ) then
+        local propInfo = self._rimPropInfo
+        local pos, ang = self:localToWorldPosAng( propInfo.Pos, propInfo.Ang )
+
+        rimProp:setPos( pos )
+        rimProp:setAngles( ang )
+    end
+
+    local launchProp = self:getLaunchProp()
+
+    if isValid( launchProp ) and not self:isLaunching() then
+        local propInfo = self._launchPropInfo
+        local pos, ang = self:localToWorldPosAng( propInfo.Pos, propInfo.Ang )
+
+        launchProp:setPos( pos )
+        launchProp:setAngles( ang )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+queueProps = function( jumpPad )
+    queueTopProp( jumpPad )
+    queueRimProp( jumpPad )
+    queueLaunchProp( jumpPad )
+
+    propQueue:processBatch( 3 )
+end
+
+queueTopProp = function( jumpPad )
+    propQueue:addEntryAndStart( {
+        JumpPad = jumpPad,
+        PropInfo = jumpPad._topPropInfo,
+        PropName = "Top",
+    } )
+end
+
+queueRimProp = function( jumpPad )
+    propQueue:addEntryAndStart( {
+        JumpPad = jumpPad,
+        PropInfo = jumpPad._rimPropInfo,
+        PropName = "Rim",
+    } )
+end
+
+queueLaunchProp = function( jumpPad )
+    propQueue:addEntryAndStart( {
+        JumpPad = jumpPad,
+        PropInfo = jumpPad._launchPropInfo,
+        PropName = "Launch",
+    } )
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_JumpPad_EntityRemoved", function( ent )
+    if not ent then return end
+
+    local jumpPad = ent._JumpPad_Object
+    if not jumpPad then return end
+
+    local propName = ent._JumpPad_PropName
+
+    ent._JumpPad_Object = nil
+
+    if propName == "Top" then
+        jumpPad._topProp = nil
+        queueTopProp( jumpPad )
+    elseif propName == "Rim" then
+        jumpPad._rimProp = nil
+        queueRimProp( jumpPad )
+    elseif propName == "Launch" then
+        jumpPad._launchProp = nil
+        queueLaunchProp( jumpPad )
+    end
+
+    jumpPad._ready = false
+end )
+
+
+timer.simple( 0, function()
+    timer.create( "LKL_JumpPad_DetectPlayers", JumpPad.DETECTION_INTERVAL, 0, function()
+        local plys = find.allPlayers()
+
+        for _, jumpPad in ipairs( allJumpPads ) do
+            for _, ply in ipairs( plys ) do
+                if jumpPad:canLaunchPlayer( ply ) then
+                    jumpPad:launch()
+
+                    break
+                end
+            end
+        end
+    end )
+end )
+
+
+propQueue = Queue:new(
+    function( _, entry )
+        if not prop.canSpawn() then return true end
+
+        local jumpPad = entry.JumpPad
+        if not isValid( jumpPad ) then return nil end
+
+        local propInfo = entry.PropInfo
+        local propName = entry.PropName
+        local pos, ang = jumpPad:localToWorldPosAng( propInfo.Pos, propInfo.Ang )
+
+        local ent
+        pcall( function()
+            ent = prop.create( pos, ang, propInfo.Model, true )
+        end )
+
+        if not ent then return true end
+
+        ent._JumpPad_Object = jumpPad
+        ent._JumpPad_PropName = propName
+
+        ent:setMaterial( propInfo.Material )
+        ent:setColor( propInfo.Color )
+        ent:getPhysicsObject():addGameFlags( FVPHYSICS.NO_IMPACT_DMG )
+        ent:doNotDuplicate()
+
+        if propName == "Top" then
+            ent:setMass( 50000 )
+
+            local launchProp = jumpPad:getLaunchProp()
+
+            if isValid( launchProp ) then
+                constraint.nocollide( ent, launchProp )
+            end
+
+            jumpPad._topProp = ent
+            jumpPad:onTopPropSpawned( ent )
+        elseif propName == "Rim" then
+            ent:setMass( 50000 )
+
+            local launchProp = jumpPad:getLaunchProp()
+
+            if isValid( launchProp ) then
+                constraint.nocollide( ent, launchProp )
+            end
+
+            jumpPad._rimProp = ent
+            jumpPad:onRimPropSpawned( ent )
+        elseif propName == "Launch" then
+            ent:setMass( jumpPad:getLaunchMass() )
+            ent:setCollisionGroup( COLLISION_GROUP.INTERACTIVE_DEBRIS )
+            ent:enableGravity( false )
+
+            local topProp = jumpPad:getTopProp()
+
+            if isValid( topProp ) then
+                constraint.nocollide( ent, topProp )
+            end
+
+            local rimProp = jumpPad:getRimProp()
+
+            if isValid( rimProp ) then
+                constraint.nocollide( ent, rimProp )
+            end
+
+            jumpPad._launchProp = ent
+            jumpPad:onLaunchPropSpawned( ent )
+        end
+
+        jumpPad:becomeReady()
+    end,
+    nil,
+    {},
+    0.25,
+    4,
+    0.9,
+    "LKL_JumpPad_PropQueue"
+)
