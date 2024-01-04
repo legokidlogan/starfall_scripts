@@ -4,6 +4,11 @@
 --@include lkl/camo_holo.txt
 --@include lkl/queue.txt
 
+camoify = camoify or {}
+
+if camoify.applyCamo then return end
+
+
 require( "lkl/camo_holo.txt" )
 require( "lkl/queue.txt" )
 
@@ -11,8 +16,8 @@ if CLIENT then return end
 
 
 -- CONFIG:
-local numArrays = 3
-local numSingleEnts = 5
+local numArrays = camoify.numArrays or 3
+local numSingleEnts = camoify.numSingleEnts or 5
 -- END CONFIG
 
 
@@ -20,7 +25,8 @@ local camoTargetLists = {}
 local camoTargetListLookups = {}
 local camoTargetSingles = {}
 local camoQueue = nil
-
+local applyCamo
+local removeCamo
 
 inputNames = inputNames or {}
 inputTypes = inputTypes or {}
@@ -29,7 +35,23 @@ outputNames = outputNames or {}
 outputTypes = outputTypes or {}
 
 
-local function applyCamo( ent )
+function camoify.applyCamo( ent )
+    applyCamo( ent )
+end
+
+function camoify.removeCamo( ent )
+    removeCamo( ent )
+end
+
+function camoify.hasCamo( ent )
+    return ent._camoify_HasCamo or false
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+applyCamo = function( ent )
     if not isValid( ent ) then return end
     if isValid( ent._camoify_CamoObject ) then return end
 
@@ -43,11 +65,12 @@ local function applyCamo( ent )
 
     ent._camoify_OldColor = ent:getColor()
     ent._camoify_Scale = scale
+    ent._camoify_HasCamo = true
 
     camoQueue:addEntryAndStart( ent )
 end
 
-local function removeCamo( ent )
+removeCamo = function( ent )
     if not isValid( ent ) then return end
 
     local camo = ent._camoify_CamoObject
@@ -56,6 +79,7 @@ local function removeCamo( ent )
     ent._camoify_CamoObject = nil
     ent._camoify_OldColor = nil
     ent._camoify_Scale = nil
+    ent._camoify_HasCamo = nil
 
     if not isValid( camo ) then
         camoQueue:removeEntryByValue( ent )
@@ -67,6 +91,7 @@ local function removeCamo( ent )
 
     ent:setColor( color )
 end
+
 
 local function wireInput( name, value )
     local splitResult = string.split( name, "__" )
