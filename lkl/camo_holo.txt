@@ -14,8 +14,9 @@ CamoHolo = class( "CamoHolo", Syncable )
 
 -- These apply to all instances and subclasses
 CamoHolo.static.BLOB_COUNT = 50 -- Note: dynamic blob camo will only be visible if connected to a HUD
+CamoHolo.static.BLOB_INTERVAL = 0 -- 0 To update every render frame
 CamoHolo.static.BLOB_SIZE = 6 * 200
-CamoHolo.static.BLOB_AREA_MULT = 1.1
+CamoHolo.static.BLOB_AREA_MULT = 1.25
 CamoHolo.static.BLOB_SCALE_WITH_HOLO = true
 CamoHolo.static.BLOB_HOLO_COMPARE_SIZE = Vector( 48 ):getLength()
 CamoHolo.static.PERF_LIMIT = 0.75
@@ -28,6 +29,7 @@ local COLOR_WHITE = Color( 255, 255, 255, 255 )
 local RENDERMODE_WORLDGLOW = RENDERMODE.WORLDGLOW
 
 local allCamoHolos = {}
+local nextBlobTime = 0
 local rtNameMain = "LKL_CamoHolo_Main"
 local resetStencil
 
@@ -255,6 +257,15 @@ end
 --hook.add( "drawhud", "LKL_CamoHolo_DrawBlobs", function()
 hook.add( "renderoffscreen", "LKL_CamoHolo_DrawBlobs", function()
     if not render.isHUDActive() then return end
+
+    local blobInterval = CamoHolo.BLOB_INTERVAL
+
+    if blobInterval ~= 0 then
+        local now = timer.curtime()
+        if now < nextBlobTime then return end
+
+        nextBlobTime = now + blobInterval
+    end
 
     local blobCount = CamoHolo.BLOB_COUNT
     local blobSize = CamoHolo.BLOB_SIZE
