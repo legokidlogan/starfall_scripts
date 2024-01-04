@@ -1,0 +1,440 @@
+--@name Sphere Inside Animation
+--@author legokidlogan
+--@shared
+--@include lkl/anims/holo_animation.txt
+--@include lkl/table_clone_deep.txt
+
+--[[
+    - Draws multiple materials on the screens of people whose eyes are inside a spherical hologram.
+    - Used for enhanced visual effects on the inside of an (outwardly) opqaue spherical animation.
+        - Works best in conjunction with a SphereAnimation.
+--]]
+
+
+if SphereInsideAnimation then return end
+
+require( "lkl/anims/holo_animation.txt" )
+require( "lkl/table_clone_deep.txt" )
+
+
+SphereInsideAnimation = class( "SphereInsideAnimation", HoloAnimation )
+local ThisClass = SphereInsideAnimation -- For readability
+
+ThisClass.static.INSIDE_MODEL = "models/sprops/geometry/sphere_48.mdl"
+ThisClass.static.INSIDE_RADIUS = 7
+ThisClass.static.INSIDE_FOLOW_EYE_ANG = false
+ThisClass.static.INSIDE_MATRERIALS = { "models/debug/debugwhite" }
+ThisClass.static.INSIDE_COLORS = { Color( 255, 255, 255, 255 ) }
+ThisClass.static.INSIDE_ANGS = { Angle( 0, 0, 0 ) }
+ThisClass.static.INSIDE_COUNT = 1
+
+ThisClass.DURATION = 0
+ThisClass.INIT_SYNC_DELAY = 0.1
+
+
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+
+local showHolos
+local stowHolos
+
+
+----- STATIC FUNCTIONS -----
+
+function ThisClass:initialize( replicateOnClient, pos, ang, ... )
+    ThisClass.super.initialize( self, replicateOnClient, pos, ang, ... )
+
+    self._groupedHolos.SphereInside = {}
+
+    self:setInsideModel( ThisClass.static.INSIDE_MODEL )
+    self:setInsideRadius( ThisClass.static.INSIDE_RADIUS )
+    self:setInsideFollowEyeAng( ThisClass.static.INSIDE_FOLOW_EYE_ANG )
+    self:setInsideMaterials( ThisClass.static.INSIDE_MATRERIALS )
+    self:setInsideColors( ThisClass.static.INSIDE_COLORS )
+    self:setInsideAngs( ThisClass.static.INSIDE_ANGS )
+    self._insideHolosAreReadyToSpawn = true
+    self:setInsideCount( ThisClass.static.INSIDE_COUNT )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - The reference holo to use for determining whether or not a player's eyes are inside the animation.
+    - Must be a starfall hologram or nil.
+    - Should be a perfectly spherical model where its scale is equal across all axes, and is not negative.
+--]]
+function ThisClass:setReferenceHolo( holo )
+    if holo ~= nil and type( holo ) ~= "Hologram" then error( "Expected holo to be a Hologram or nil" ) end
+
+    self._referenceHolo = holo
+    self:syncProperty( "SphereInsideAnimation_ReferenceHolo", holo or game.getWorld() )
+end
+
+function ThisClass:getReferenceHolo()
+    return self._referenceHolo
+end
+
+function ThisClass:refreshHolos()
+    self:syncProperty( "SphereInsideAnimation_RefreshHolos", true )
+
+    if CLIENT then
+        local count = self:getInsideCount()
+
+        self:setInsideCount( 0 )
+        self:setInsideCount( count )
+    end
+end
+
+function ThisClass:setInsideModel( model )
+    if model == nil then model = self.class.INSIDE_MODEL end
+    if type( model ) ~= "string" then error( "Expected model to be a string or nil" ) end
+
+    self._insideModel = model
+    self:syncProperty( "SphereInsideAnimation_InsideModel", model )
+
+    if CLIENT then
+        self:refreshHolos()
+    end
+end
+
+function ThisClass:getInsideModel()
+    return self._insideModel
+end
+
+function ThisClass:setInsideRadius( radius )
+    if radius == nil then radius = self.class.INSIDE_RADIUS end
+    if type( radius ) ~= "number" then error( "Expected radius to be a number or nil" ) end
+    if radius <= 0 then error( "Expected radius to be > 0" ) end
+
+    self._insideRadius = radius
+    self:syncProperty( "SphereInsideAnimation_InsideRadius", radius, "float" )
+
+    if CLIENT then
+        self:refreshHolos()
+    end
+end
+
+function ThisClass:getInsideRadius()
+    return self._insideRadius
+end
+
+function ThisClass:setInsideFollowEyeAng( state )
+    if state == nil then state = self.class.INSIDE_FOLOW_EYE_ANG end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._insideFollowEyeAng = state
+    self:syncProperty( "SphereInsideAnimation_InsideFollowEyeAng", state )
+
+    if CLIENT and not state then
+        self:refreshHolos()
+    end
+end
+
+function ThisClass:getInsideFollowEyeAng()
+    return self._insideFollowEyeAng
+end
+
+function ThisClass:setInsideMaterials( mats )
+    if mats == nil then mats = self.class.INSIDE_MATRERIALS end
+    if type( mats ) ~= "table" then error( "Expected mats to be a table or nil" ) end
+
+    mats = table.cloneDeep( mats )
+    self._insideMaterials = mats
+    self:syncProperty( "SphereInsideAnimation_InsideMaterials", mats )
+
+    if CLIENT then
+        self:refreshHolos()
+    end
+end
+
+function ThisClass:getInsideMaterials()
+    return self._insideMaterials
+end
+
+function ThisClass:setInsideColors( colors )
+    if colors == nil then colors = self.class.INSIDE_COLORS end
+    if type( colors ) ~= "table" then error( "Expected colors to be a table or nil" ) end
+
+    colors = table.cloneDeep( colors )
+    self._insideColors = colors
+    self:syncProperty( "SphereInsideAnimation_InsideColors", colors )
+
+    if CLIENT then
+        self:refreshHolos()
+    end
+end
+
+function ThisClass:getInsideColors()
+    return self._insideColors
+end
+
+function ThisClass:setInsideAngs( angs )
+    if angs == nil then angs = self.class.INSIDE_ANGS end
+    if type( angs ) ~= "table" then error( "Expected angs to be a table or nil" ) end
+
+    angs = table.cloneDeep( angs )
+    self._insideAngs = angs
+    self:syncProperty( "SphereInsideAnimation_InsideAngs", angs )
+
+    if CLIENT and not self:getInsideFollowEyeAng() then
+        self:refreshHolos()
+    end
+end
+
+function ThisClass:getInsideAngs()
+    return self._insideAngs
+end
+
+function ThisClass:setInsideCount( count )
+    if not self._insideHolosAreReadyToSpawn then return end
+    if count == nil then count = self.class.INSIDE_COUNT end
+    if count == self:getInsideCount() then return end
+    if type( count ) ~= "number" then error( "Expected count to be a number or nil" ) end
+    if math.floor( count ) ~= count then error( "Expected count to be an integer" ) end
+    if count < 0 then error( "Expected count to be >= 0" ) end
+
+    self._insideCount = count
+    self:syncProperty( "SphereInsideAnimation_InsideCount", count, 10, true )
+
+    if CLIENT then
+        self:unqueueGroupedHolos( "SphereInside" )
+
+        local holos = self:getHoloGroup( "SphereInside" )
+        local oldCount = #holos
+
+        if count > oldCount then
+            local model = self:getInsideModel()
+            local size = Vector( -2 * self:getInsideRadius() )
+            local startHidden = not self:isPlaying()
+
+            local mats = self:getInsideMaterials()
+            local prevMat = "models/debug/debugwhite"
+
+            local colors = self:getInsideColors()
+            local prevColor = Color( 255, 255, 255, 255 )
+
+            local angs = self:getInsideAngs()
+            local prevAng = Angle( 0, 0, 0 )
+
+            for i = oldCount + 1, count do
+                prevMat = mats[i] or prevMat
+                prevColor = colors[i] or prevColor
+                prevAng = angs[i] or prevAng
+
+                self:queueGroupedHolo(
+                    {
+                        Model = model,
+                        Pos = Vector( 0, 0, 0 ),
+                        Ang = prevAng,
+                        Size = size,
+                        Material = prevMat,
+                        Color = prevColor,
+                        StartHidden = startHidden,
+                        Fullbright = true,
+                    },
+                    "SphereInside"
+                )
+            end
+        elseif count < oldCount then
+            for i = oldCount, count + 1, -1 do
+                self:removeHolo( holos[i] )
+            end
+        end
+    end
+end
+
+function ThisClass:getInsideCount()
+    return self._insideCount
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ThisClass:onDestroyed()
+    if CLIENT then
+        hook.remove( "RenderScene", self:getTimerName( "LKL_SphereInsideAnimation_FollowEyes" ) )
+    end
+
+    ThisClass.super.onDestroyed( self )
+end
+
+function ThisClass:onStartPlaying( wasFullStopped )
+    if SERVER then return end
+
+    local colors = self:getInsideColors()
+    local prevColor = Color( 255, 255, 255, 255 )
+
+    for i, holo in ipairs( self:getHoloGroup( "SphereInside" ) ) do
+        prevColor = colors[i] or prevColor
+
+        holo:setPos( VECTOR_ZERO )
+        holo:setColor( prevColor )
+    end
+
+    if not wasFullStopped then return end
+
+    local selfObj = self
+
+    hook.add( "RenderScene", self:getTimerName( "LKL_SphereInsideAnimation_FollowEyes" ), function( eyePos, eyeAng )
+        if not selfObj:isValid() then return end
+
+        local refHolo = selfObj:getReferenceHolo()
+        if not isValid( refHolo ) then
+            stowHolos( selfObj )
+            return
+        end
+
+        local refPos = refHolo:getPos()
+        local refRadius = refHolo:obbSize()[3] * refHolo:getScale()[3] / 2
+
+        if ( eyePos - refPos ):getLengthSqr() > refRadius ^ 2 then
+            stowHolos( selfObj )
+            return
+        end
+
+        showHolos( selfObj, eyePos, eyeAng )
+    end )
+end
+
+function ThisClass:onStopPlaying( isFullStop )
+    if SERVER then return end
+
+    if isFullStop then
+        hook.remove( "RenderScene", self:getTimerName( "LKL_SphereInsideAnimation_FollowEyes" ) )
+    end
+
+    for _, holo in ipairs( self:getHoloGroup( "SphereInside" ) ) do
+        holo:setPos( VECTOR_ZERO )
+        holo:setColor( COLOR_EMPTY )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+showHolos = function( anim, eyePos, eyeAng )
+    anim._insideHolosAreStowed = false
+
+    if anim:getInsideFollowEyeAng() then
+        local angs = anim:getInsideAngs()
+        local prevAng = eyeAng
+
+        for i, holo in ipairs( anim:getHoloGroup( "SphereInside" ) ) do
+            local newAng = angs[i]
+
+            if newAng then
+                local _
+                _, prevAng = localToWorld( VECTOR_ZERO, newAng, VECTOR_ZERO, eyeAng )
+            end
+
+            holo:setPos( eyePos )
+            holo:setAngles( prevAng )
+        end
+    else
+        for _, holo in ipairs( anim:getHoloGroup( "SphereInside" ) ) do
+            holo:setPos( eyePos )
+        end
+    end
+end
+
+stowHolos = function( anim )
+    if anim._insideHolosAreStowed then return end
+
+    anim._insideHolosAreStowed = true
+
+    for _, holo in ipairs( anim:getHoloGroup( "SphereInside" ) ) do
+        holo:setPos( VECTOR_ZERO )
+    end
+end
+
+
+----- SETUP -----
+
+if SERVER then return end
+
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_ReferenceHolo", function()
+    local anim = Syncable:readSyncedCopy()
+    local ent = net.readEntity()
+
+    if not anim then return end
+
+    anim:setReferenceHolo( isValid( ent ) and ent:toHologram() or nil )
+end )
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_RefreshHolos", function()
+    local anim = Syncable:readSyncedCopy()
+    local _ = net.readBool()
+
+    if not anim then return end
+
+    anim:refreshHolos()
+end )
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_InsideModel", function()
+    local anim = Syncable:readSyncedCopy()
+    local model = net.readString()
+
+    if not anim then return end
+
+    anim:setInsideModel( model )
+end )
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_InsideRadius", function()
+    local anim = Syncable:readSyncedCopy()
+    local radius = net.readFloat()
+
+    if not anim then return end
+
+    anim:setInsideRadius( radius )
+end )
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_InsideFollowEyeAng", function()
+    local anim = Syncable:readSyncedCopy()
+    local state = net.readBool()
+
+    if not anim then return end
+
+    anim:setInsideFollowEyeAng( state )
+end )
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_InsideMaterials", function()
+    local anim = Syncable:readSyncedCopy()
+    local mats = net.readTable()
+
+    if not anim then return end
+
+    anim:setInsideMaterials( mats )
+end )
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_InsideColors", function()
+    local anim = Syncable:readSyncedCopy()
+    local colors = net.readTable()
+
+    if not anim then return end
+
+    anim:setInsideColors( colors )
+end )
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_InsideAngs", function()
+    local anim = Syncable:readSyncedCopy()
+    local angs = net.readTable()
+
+    if not anim then return end
+
+    anim:setInsideAngs( angs )
+end )
+
+net.receive( "LKL_Syncable_Set__SphereInsideAnimation_InsideCount", function()
+    local anim = Syncable:readSyncedCopy()
+    local count = net.readUInt( 10 )
+
+    if not anim then return end
+
+    anim:setInsideCount( count )
+end )
