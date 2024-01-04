@@ -80,6 +80,12 @@ function CamoHolo:initialize( replicateOnClient, pos, ang, model, scale, ... )
         if render.isHUDActive() then
             holo:setNoDraw( true )
             holo:setMaterial( "tools/toolsblack_cheap" )
+
+            if CamoHolo.BLOB_ENABLED then
+                holo:setMaterial( "tools/toolsblack_cheap" )
+            else
+                holo:setMaterial( "black_outline" )
+            end
         else
             holo:setMaterial( "models/shadertest/predator" )
         end
@@ -567,7 +573,12 @@ local function hudChanged( state )
 
         if state then
             holo:setNoDraw( true )
-            holo:setMaterial( "tools/toolsblack_cheap" )
+
+            if CamoHolo.BLOB_ENABLED then
+                holo:setMaterial( "tools/toolsblack_cheap" )
+            else
+                holo:setMaterial( "black_outline" )
+            end
         else
             holo:setNoDraw( false )
             holo:setMaterial( "models/shadertest/predator" )
