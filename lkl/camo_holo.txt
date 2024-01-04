@@ -379,7 +379,7 @@ hook.add( "EntityRemoved", "LKL_CamoHolo_TrackDestryoedHolos", function( ent )
     if not ent then return end
 
     local camoHolo = ent._camoHolo_Object
-    if not camoHolo then return end
+    if not isValid( camoHolo ) then return end
 
     if camoHolo:isSyncedCopy() then
         if not ent._camoHolo_IsReferenceHolo then error( tostring( camoHolo ) .. " had its holo destroyed manually, which is not allowed!" ) end
