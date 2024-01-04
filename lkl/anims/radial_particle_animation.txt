@@ -1,0 +1,890 @@
+--@name Radial Particle Animation
+--@author legokidlogan
+--@shared
+--@include lkl/anims/holo_animation.txt
+--@include lkl/math/hsv_math.txt
+--@include lkl/math/vector_math.txt
+
+--[[
+    - A HoloAnimation which spawns holos which move radially inwards/outwards from the center.
+    - Variables with 'start' or 'end' at the end of their names are values which will be interpolated between the start and end of the animation.
+        - Due to how this operates, this class cannot have infinite-duration animations. Duration must be >= 0.
+        - The interpolated value will be retrieved upon particle creation, and will not change afterwards for said particle.
+    - Variables with 'begin' or 'finish' in their names are values which will be interpolated between the beginning and end of each particle's lifetime.
+    - To reduce entity netowrking and server cpu usage, all particles will be created and simulated clientside.
+        - This means that server-created anims will show nothing if replicateOnClient is false.
+    - Cannot have an infinite duration.
+--]]
+
+
+if RadialParticleAnimation then return end
+
+require( "lkl/anims/holo_animation.txt" )
+require( "lkl/math/hsv_math.txt" )
+require( "lkl/math/vector_math.txt" )
+
+
+math.easeLinear = math.easeLinear or function( frac ) return frac end
+
+
+RadialParticleAnimation = class( "RadialParticleAnimation", HoloAnimation )
+local ThisClass = RadialParticleAnimation -- For readability
+
+-- These can be changed on a per-instance basis, but only during initialization.
+ThisClass.static.PARTICLE_LIMIT = 30
+
+-- These can be changed on a per-instance basis. They have set/get functions, but the sheer quantity has led me to auto-generate them.
+ThisClass.static.PARTICLE_ACTIVE_MIN_START = 1
+ThisClass.static.PARTICLE_ACTIVE_MIN_END = 5
+ThisClass.static.PARTICLE_ACTIVE_MAX_START = 15
+ThisClass.static.PARTICLE_ACTIVE_MAX_END = 30
+ThisClass.static.PARTICLE_ACTIVE_CHANCE_START = 0.05
+ThisClass.static.PARTICLE_ACTIVE_CHANCE_END = 0.3
+ThisClass.static.PARTICLE_DISTANCE_BEGIN_START = 20
+ThisClass.static.PARTICLE_DISTANCE_BEGIN_END = 20
+ThisClass.static.PARTICLE_DISTANCE_FINISH_START = -10
+ThisClass.static.PARTICLE_DISTANCE_FINISH_END = -20
+ThisClass.static.PARTICLE_DISTANCE_BEGIN_VARIANCE_START = 5 -- The beginning distance will be offset randomly by (-this, this)
+ThisClass.static.PARTICLE_DISTANCE_BEGIN_VARIANCE_END = 5
+ThisClass.static.PARTICLE_LIFETIME_START = 2
+ThisClass.static.PARTICLE_LIFETIME_END = 0.25
+ThisClass.static.PARTICLE_SCALE_BEGIN_START = Vector( 1, 1, 0.1 )
+ThisClass.static.PARTICLE_SCALE_BEGIN_END = Vector( 1, 1, 0.1 )
+ThisClass.static.PARTICLE_SCALE_FINISH_START = Vector( 1, 1, 1 )
+ThisClass.static.PARTICLE_SCALE_FINISH_END = Vector( 1, 1, 4 )
+ThisClass.static.PARTICLE_COLOR_BEGIN_START = Color( 255, 255, 255, 0 )
+ThisClass.static.PARTICLE_COLOR_BEGIN_END = Color( 255, 255, 255, 0 )
+ThisClass.static.PARTICLE_COLOR_FINISH_START = Color( 255, 255, 255, 255 )
+ThisClass.static.PARTICLE_COLOR_FINISH_END = Color( 255, 255, 255, 255 )
+ThisClass.static.PARTICLE_MODEL = "models/sprops/cylinders/size_2/cylinder_3x3.mdl"
+ThisClass.static.PARTICLE_MATERIAL = "models/debug/debugwhite"
+ThisClass.static.PARTICLE_FULLBRIGHT = true
+ThisClass.static.PARTICLE_FOLLOW = true
+ThisClass.static.PARTICLE_ANGLE = Angle( 90, 180, 180 )
+ThisClass.static.INTERP_CLAMP_OVERALL = false
+ThisClass.static.INTERP_CLAMP_PARTICLE_DISTANCE = false
+ThisClass.static.INTERP_CLAMP_PARTICLE_SCALE = false
+ThisClass.static.INTERP_CLAMP_PARTICLE_COLOR = false
+
+-- These can be changed on a per-instance basis. They have manually-made set/get functions due to being more complex.
+ThisClass.static.INTERP_EASE_OVERALL = "easeInOutQuad"
+ThisClass.static.INTERP_EASE_PARTICLE_DISTANCE = "easeInCubic"
+ThisClass.static.INTERP_EASE_PARTICLE_SCALE = "easeInCubic"
+ThisClass.static.INTERP_EASE_PARTICLE_COLOR = "easeInCubic"
+
+-- Default value overrides from parent classes
+ThisClass.DURATION = 10
+ThisClass.INIT_SYNC_DELAY = 0.1
+
+
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+
+local autoBuildParams = {
+    {
+        StaticName = "PARTICLE_ACTIVE_MIN_START",
+        PascalName = "ParticleActiveMinStart",
+        VarName = "_particleActiveMinStart",
+        ArgName = "amount",
+        Type = "number",
+        Bits = 10,
+        IsUnsigned = true,
+        InclusiveMin = 0,
+    },
+    {
+        StaticName = "PARTICLE_ACTIVE_MIN_END",
+        PascalName = "ParticleActiveMinEnd",
+        VarName = "_particleActiveMinEnd",
+        ArgName = "amount",
+        Type = "number",
+        Bits = 10,
+        IsUnsigned = true,
+        InclusiveMin = 0,
+    },
+    {
+        StaticName = "PARTICLE_ACTIVE_MAX_START",
+        PascalName = "ParticleActiveMaxStart",
+        VarName = "_particleActiveMaxStart",
+        ArgName = "amount",
+        Type = "number",
+        Bits = 10,
+        IsUnsigned = true,
+        InclusiveMin = 0,
+    },
+    {
+        StaticName = "PARTICLE_ACTIVE_MAX_END",
+        PascalName = "ParticleActiveMaxEnd",
+        VarName = "_particleActiveMaxEnd",
+        ArgName = "amount",
+        Type = "number",
+        Bits = 10,
+        IsUnsigned = true,
+        InclusiveMin = 0,
+    },
+    {
+        StaticName = "PARTICLE_ACTIVE_CHANCE_START",
+        PascalName = "ParticleActiveChanceStart",
+        VarName = "_particleActiveChanceStart",
+        ArgName = "chance",
+        Type = "number",
+        Bits = "float",
+        InclusiveMin = 0,
+        InclusiveMax = 1,
+    },
+    {
+        StaticName = "PARTICLE_ACTIVE_CHANCE_END",
+        PascalName = "ParticleActiveChanceEnd",
+        VarName = "_particleActiveChanceEnd",
+        ArgName = "chance",
+        Type = "number",
+        Bits = "float",
+        InclusiveMin = 0,
+        InclusiveMax = 1,
+    },
+    {
+        StaticName = "PARTICLE_DISTANCE_BEGIN_START",
+        PascalName = "ParticleDistanceBeginStart",
+        VarName = "_particleDistanceBeginStart",
+        ArgName = "distance",
+        Type = "number",
+        Bits = "float",
+    },
+    {
+        StaticName = "PARTICLE_DISTANCE_BEGIN_END",
+        PascalName = "ParticleDistanceBeginEnd",
+        VarName = "_particleDistanceBeginEnd",
+        ArgName = "distance",
+        Type = "number",
+        Bits = "float",
+    },
+    {
+        StaticName = "PARTICLE_DISTANCE_FINISH_START",
+        PascalName = "ParticleDistanceFinishStart",
+        VarName = "_particleDistanceFinishStart",
+        ArgName = "distance",
+        Type = "number",
+        Bits = "float",
+    },
+    {
+        StaticName = "PARTICLE_DISTANCE_FINISH_END",
+        PascalName = "ParticleDistanceFinishEnd",
+        VarName = "_particleDistanceFinishEnd",
+        ArgName = "distance",
+        Type = "number",
+        Bits = "float",
+    },
+    {
+        StaticName = "PARTICLE_DISTANCE_BEGIN_VARIANCE_START",
+        PascalName = "ParticleDistanceBeginVarianceStart",
+        VarName = "_particleDistanceBeginVarianceStart",
+        ArgName = "distance",
+        Type = "number",
+        Bits = "float",
+    },
+    {
+        StaticName = "PARTICLE_DISTANCE_BEGIN_VARIANCE_END",
+        PascalName = "ParticleDistanceBeginVarianceEnd",
+        VarName = "_particleDistanceBeginVarianceEnd",
+        ArgName = "distance",
+        Type = "number",
+        Bits = "float",
+    },
+    {
+        StaticName = "PARTICLE_LIFETIME_START",
+        PascalName = "ParticleLifetimeStart",
+        VarName = "_particleLifetimeStart",
+        ArgName = "time",
+        Type = "number",
+        Bits = "float",
+        ExclusiveMin = 0,
+    },
+    {
+        StaticName = "PARTICLE_LIFETIME_END",
+        PascalName = "ParticleLifetimeEnd",
+        VarName = "_particleLifetimeEnd",
+        ArgName = "time",
+        Type = "number",
+        Bits = "float",
+        ExclusiveMin = 0,
+    },
+    {
+        StaticName = "PARTICLE_SCALE_BEGIN_START",
+        PascalName = "ParticleScaleBeginStart",
+        VarName = "_particleScaleBeginStart",
+        ArgName = "scale",
+        Type = "Vector",
+    },
+    {
+        StaticName = "PARTICLE_SCALE_BEGIN_END",
+        PascalName = "ParticleScaleBeginEnd",
+        VarName = "_particleScaleBeginEnd",
+        ArgName = "scale",
+        Type = "Vector",
+    },
+    {
+        StaticName = "PARTICLE_SCALE_FINISH_START",
+        PascalName = "ParticleScaleFinishStart",
+        VarName = "_particleScaleFinishStart",
+        ArgName = "scale",
+        Type = "Vector",
+    },
+    {
+        StaticName = "PARTICLE_SCALE_FINISH_END",
+        PascalName = "ParticleScaleFinishEnd",
+        VarName = "_particleScaleFinishEnd",
+        ArgName = "scale",
+        Type = "Vector",
+    },
+    {
+        StaticName = "PARTICLE_COLOR_BEGIN_START",
+        PascalName = "ParticleColorBeginStart",
+        VarName = "_particleColorBeginStart",
+        ArgName = "color",
+        Type = "Color",
+    },
+    {
+        StaticName = "PARTICLE_COLOR_BEGIN_END",
+        PascalName = "ParticleColorBeginEnd",
+        VarName = "_particleColorBeginEnd",
+        ArgName = "color",
+        Type = "Color",
+    },
+    {
+        StaticName = "PARTICLE_COLOR_FINISH_START",
+        PascalName = "ParticleColorFinishStart",
+        VarName = "_particleColorFinishStart",
+        ArgName = "color",
+        Type = "Color",
+    },
+    {
+        StaticName = "PARTICLE_COLOR_FINISH_END",
+        PascalName = "ParticleColorFinishEnd",
+        VarName = "_particleColorFinishEnd",
+        ArgName = "color",
+        Type = "Color",
+    },
+    {
+        StaticName = "PARTICLE_MODEL",
+        PascalName = "ParticleModel",
+        VarName = "_particleModel",
+        ArgName = "model",
+        Type = "string",
+    },
+    {
+        StaticName = "PARTICLE_MATERIAL",
+        PascalName = "ParticleMaterial",
+        VarName = "_particleMaterial",
+        ArgName = "material",
+        Type = "string",
+    },
+    {
+        StaticName = "PARTICLE_FULLBRIGHT",
+        PascalName = "ParticleFullbright",
+        VarName = "_particleFullbright",
+        ArgName = "state",
+        Type = "boolean",
+    },
+    {
+        StaticName = "PARTICLE_FOLLOW",
+        PascalName = "ParticleFollow",
+        VarName = "_particleFollow",
+        ArgName = "state",
+        Type = "boolean",
+    },
+    {
+        StaticName = "PARTICLE_ANGLE",
+        PascalName = "ParticleAngle",
+        VarName = "_particleAngle",
+        ArgName = "angle",
+        Type = "Angle",
+    },
+    {
+        StaticName = "INTERP_CLAMP_OVERALL",
+        PascalName = "InterpClampOverall",
+        VarName = "_interpClampOverall",
+        ArgName = "state",
+        Type = "boolean",
+    },
+    {
+        StaticName = "INTERP_CLAMP_PARTICLE_DISTANCE",
+        PascalName = "InterpClampParticleDistance",
+        VarName = "_interpClampParticleDistance",
+        ArgName = "state",
+        Type = "boolean",
+    },
+    {
+        StaticName = "INTERP_CLAMP_PARTICLE_SCALE",
+        PascalName = "InterpClampParticleScale",
+        VarName = "_interpClampParticleScale",
+        ArgName = "state",
+        Type = "boolean",
+    },
+    {
+        StaticName = "INTERP_CLAMP_PARTICLE_COLOR",
+        PascalName = "InterpClampParticleColor",
+        VarName = "_interpClampParticleColor",
+        ArgName = "state",
+        Type = "boolean",
+    },
+}
+local applyAutoBuildParams
+local resolveEaseFuncName
+local lerpUnclamped
+
+local mathClamp = math.clamp
+local mathRand = math.rand
+local mathFloor = math.floor
+local mathMin = math.min
+local mathMax = math.max
+
+
+----- STATIC FUNCTIONS -----
+
+function ThisClass:initialize( replicateOnClient, pos, ang, particleLimit, ... )
+    particleLimit = particleLimit or ThisClass.static.PARTICLE_LIMIT
+
+    ThisClass.super.initialize( self, replicateOnClient, pos, ang, particleLimit, ... )
+
+    self._particleLimit = particleLimit
+    self._groupedHolos.inactive = {}
+    self._groupedHolos.active = {}
+
+    applyAutoBuildParams( self )
+
+    self:setInterpEaseOverall( ThisClass.static.INTERP_EASE_OVERALL )
+    self:setInterpEaseParticleDistance( ThisClass.static.INTERP_EASE_PARTICLE_DISTANCE )
+    self:setInterpEaseParticleScale( ThisClass.static.INTERP_EASE_PARTICLE_SCALE )
+    self:setInterpEaseParticleColor( ThisClass.static.INTERP_EASE_PARTICLE_COLOR )
+
+    if SERVER then return end
+
+    local holoModel = self:getParticleModel()
+
+    for _ = 1, particleLimit do
+        self:queueGroupedHolo(
+            {
+                Model = holoModel,
+                StartHidden = true,
+            },
+            "inactive"
+        )
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ThisClass:getParticleLimit()
+    return self._particleLimit
+end
+
+function ThisClass:getInactiveParticleCount()
+    return #self:getHoloGroup( "inactive" )
+end
+
+function ThisClass:getActiveParticleCount()
+    return #self:getHoloGroup( "active" )
+end
+
+--[[
+    - Sets the name of the easing function used while interpolating the overall animation.
+    - Use :setInterpClampOverall() to set whether or not the easing result should be clamped between 0 and 1.
+
+    funcName: (string)
+        - The name of the function to use.
+        - Must be the name of a function on the global math table. (e.g. "easeInQuart")
+            - Has to take one argument and return one result. (e.g. "easeInOut" won't work since it has 3 args)
+            - The function will be cached, so you can put something on the math table, call this function, then remove it.
+                - Be careful with netowrking though, it has to exist on both realms.
+        - Alternatively, it can be a string starting with "ls:" to use loadstring instead.
+            - Much better for networking, but comes with the dangers of loadstring.
+            - ex: "ls:function( frac ) return frac end"
+--]]
+function ThisClass:setInterpEaseOverall( funcName )
+    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_OVERALL end
+    if funcName == self._interpEaseOverall then return end
+
+    self._interpEaseOverallFunc = resolveEaseFuncName( funcName )
+    self._interpEaseOverall = funcName
+    self:syncProperty( "RadialParticleAnimation_InterpEaseOverall", funcName )
+end
+
+-- The name of the easing function used to ease interpolation of the overall animation.
+function ThisClass:getInterpEaseOverall()
+    return self._interpEaseOverall
+end
+
+-- The function used to ease interpolation of the overall animation.
+function ThisClass:getInterpEaseOverallFunc()
+    return self._interpEaseOverallFunc
+end
+
+-- Same as :setInterpEaseOverall(), but for how each particle moves radially over their lifetime.
+function ThisClass:setInterpEaseParticleDistance( funcName )
+    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_PARTICLE_DISTANCE end
+    if funcName == self._interpEaseParticleDistance then return end
+
+    self._interpEaseParticleDistanceFunc = resolveEaseFuncName( funcName )
+    self._interpEaseParticleDistance = funcName
+    self:syncProperty( "RadialParticleAnimation_InterpEaseParticleDistance", funcName )
+end
+
+function ThisClass:getInterpEaseParticleDistance()
+    return self._interpEaseParticleDistance
+end
+
+function ThisClass:getInterpEaseParticleDistanceFunc()
+    return self._interpEaseParticleDistanceFunc
+end
+
+-- Same as :setInterpEaseOverall(), but for how each particle scales over their lifetime.
+function ThisClass:setInterpEaseParticleScale( funcName )
+    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_PARTICLE_SCALE end
+    if funcName == self._interpEaseParticleScale then return end
+
+    self._interpEaseParticleScaleFunc = resolveEaseFuncName( funcName )
+    self._interpEaseParticleScale = funcName
+    self:syncProperty( "RadialParticleAnimation_InterpEaseParticleScale", funcName )
+end
+
+function ThisClass:getInterpEaseParticleScale()
+    return self._interpEaseParticleScale
+end
+
+function ThisClass:getInterpEaseParticleScaleFunc()
+    return self._interpEaseParticleScaleFunc
+end
+
+-- Same as :setInterpEaseOverall(), but for how each particle's color changes over their lifetime.
+function ThisClass:setInterpEaseParticleColor( funcName )
+    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_PARTICLE_COLOR end
+    if funcName == self._interpEaseParticleColor then return end
+
+    self._interpEaseParticleColorFunc = resolveEaseFuncName( funcName )
+    self._interpEaseParticleColor = funcName
+    self:syncProperty( "RadialParticleAnimation_InterpEaseParticleColor", funcName )
+end
+
+function ThisClass:getInterpEaseParticleColor()
+    return self._interpEaseParticleColor
+end
+
+function ThisClass:getInterpEaseParticleColorFunc()
+    return self._interpEaseParticleColorFunc
+end
+
+-- Spawns up to one particle (ignoring active max), returning the associated holo. It is not recommended to call this manually.
+function ThisClass:spawnParticle( animTime, interpFracOverall )
+    if SERVER then
+        net.start( "LKL_RadialParticleAnimation_SpawnParticle" )
+        net.writeUInt( self:getID(), 16 )
+        net.writeFloat( animTime )
+        net.writeFloat( interpFracOverall )
+        net.send()
+
+        return
+    end
+
+    local inactiveGroup = self:getHoloGroup( "inactive" )
+    local inactiveCount = #inactiveGroup
+    if inactiveCount == 0 then return false end
+
+    local holo = inactiveGroup[inactiveCount]
+    self:changeHoloGroup( holo, "active" )
+
+    local distanceBegin = lerpUnclamped( interpFracOverall, self:getParticleDistanceBeginStart(), self:getParticleDistanceBeginEnd() )
+    local distanceBeginVariance = lerpUnclamped( interpFracOverall, self:getParticleDistanceBeginVarianceStart(), self:getParticleDistanceBeginVarianceEnd() )
+    local distanceFinish = lerpUnclamped( interpFracOverall, self:getParticleDistanceFinishStart(), self:getParticleDistanceFinishEnd() )
+    local lifetime = lerpUnclamped( interpFracOverall, self:getParticleLifetimeStart(), self:getParticleLifetimeEnd() )
+    local scaleBegin = lerpUnclamped( interpFracOverall, self:getParticleScaleBeginStart(), self:getParticleScaleBeginEnd() )
+    local scaleFinish = lerpUnclamped( interpFracOverall, self:getParticleScaleFinishStart(), self:getParticleScaleFinishEnd() )
+    local colorBeginHSV = hsvMath.lerpHSVToHSV( interpFracOverall, self._particleColorBeginStartHSV, self._particleColorBeginEndHSV, false )
+    local colorFinishHSV = hsvMath.lerpHSVToHSV( interpFracOverall, self._particleColorFinishStartHSV, self._particleColorFinishEndHSV, false )
+    local model = self:getParticleModel()
+    local material = self:getParticleMaterial()
+    local fullbright = self:getParticleFullbright()
+    local follow = self:getParticleFollow()
+    local offsetAng = self:getParticleAngle()
+
+    distanceBegin = distanceBegin + mathRand( -distanceBeginVariance, distanceBeginVariance )
+    lifetime = mathMax( lifetime, 0.01 )
+
+    local selfPos = self:getPos()
+    local dir = vectorMath.randomDirection()
+    local _, ang = localToWorld( VECTOR_ZERO, offsetAng, VECTOR_ZERO, ( -dir ):getAngle() )
+    local posBegin = selfPos + dir * distanceBegin
+    local posBeginLocal
+    local angLocal
+    local dirLocal
+
+    holo:setModel( model )
+    holo:setMaterial( material )
+    holo:suppressEngineLighting( fullbright )
+    holo:setPos( posBegin )
+    holo:setAngles( ang )
+    holo:setScale( scaleBegin )
+    holo:setColor( hsvMath.hsvToRGB( colorBeginHSV ) )
+
+    if follow then
+        local selfAng = self:getAngles()
+        posBeginLocal, angLocal = worldToLocal( posBegin, ang, selfPos, selfAng )
+        dirLocal = worldToLocal( dir, ANGLE_ZERO, VECTOR_ZERO, selfAng )
+    end
+
+    holo._ltRadialParticleAnim_ParticleData = {
+        DistanceBegin = distanceBegin,
+        DistanceFinish = distanceFinish,
+        Lifetime = lifetime,
+        ScaleBegin = scaleBegin,
+        ScaleFinish = scaleFinish,
+        ColorBeginHSV = colorBeginHSV,
+        ColorFinishHSV = colorFinishHSV,
+        TimeBegin = animTime,
+        PosBegin = posBegin,
+        Dir = dir,
+        Follow = follow,
+        PosBeginLocal = posBeginLocal,
+        AngLocal = angLocal,
+        DirLocal = dirLocal,
+    }
+
+    return holo
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ThisClass:handlePlayback( time )
+    if SERVER then return end
+    if not self:areHolosSpawned() then return end
+
+    local timeFracOverall = self:getTimeFractional( time )
+    local hasMoved = self._ltRadialParticleAnim_HasMoved
+    self._ltRadialParticleAnim_HasMoved = false
+
+    local easeFracOverall = self:getInterpEaseOverallFunc()( timeFracOverall )
+    local easeFuncParticleDistance = self:getInterpEaseParticleDistanceFunc()
+    local easeFuncParticleScale = self:getInterpEaseParticleScaleFunc()
+    local easeFuncParticleColor = self:getInterpEaseParticleColorFunc()
+    local interpClampOverall = self:getInterpClampOverall()
+    local interpClampParticleDistance = self:getInterpClampParticleDistance()
+    local interpClampParticleScale = self:getInterpClampParticleScale()
+    local interpClampParticleColor = self:getInterpClampParticleColor()
+
+    local interpFracOverall = interpClampOverall and mathClamp( easeFracOverall, 0, 1 ) or easeFracOverall
+    local activeMin = mathFloor( lerpUnclamped( interpFracOverall, self:getParticleActiveMinStart(), self:getParticleActiveMinEnd() ) )
+    local activeMax = mathFloor( lerpUnclamped( interpFracOverall, self:getParticleActiveMaxStart(), self:getParticleActiveMaxEnd() ) )
+    local activeChance = lerpUnclamped( interpFracOverall, self:getParticleActiveChanceStart(), self:getParticleActiveChanceEnd() )
+
+    activeMax = mathMin( activeMax, self:getParticleLimit() )
+    activeMin = mathMin( activeMin, activeMax )
+
+    -- Process active particles
+    local activeGroup = self:getHoloGroup( "active" )
+    local activeCount = #activeGroup
+    local selfPos = self:getPos()
+    local selfAng = self:getAngles()
+
+    for i = activeCount, 1, -1 do
+        local holo = activeGroup[i]
+        local particleData = holo._ltRadialParticleAnim_ParticleData
+        local timeFracParticle = ( time - particleData.TimeBegin ) / particleData.Lifetime
+
+        if timeFracParticle > 1 then
+            self:changeHoloGroup( holo, "inactive" )
+
+            holo._ltRadialParticleAnim_ParticleData = nil
+            holo:setColor( COLOR_EMPTY )
+            holo:setPos( VECTOR_ZERO )
+
+            activeCount = activeCount - 1
+        else
+            local easeFracParticleDistance = easeFuncParticleDistance( timeFracParticle )
+            local easeFracParticleScale = easeFuncParticleScale( timeFracParticle )
+            local easeFracParticleColor = easeFuncParticleColor( timeFracParticle )
+
+            local interpFracParticleDistance = interpClampParticleDistance and mathClamp( easeFracParticleDistance, 0, 1 ) or easeFracParticleDistance
+            local interpFracParticleScale = interpClampParticleScale and mathClamp( easeFracParticleScale, 0, 1 ) or easeFracParticleScale
+            local interpFracParticleColor = interpClampParticleColor and mathClamp( easeFracParticleColor, 0, 1 ) or easeFracParticleColor
+
+            local distance = lerpUnclamped( interpFracParticleDistance, particleData.DistanceBegin, particleData.DistanceFinish )
+            local scale = lerpUnclamped( interpFracParticleScale, particleData.ScaleBegin, particleData.ScaleFinish )
+            local color = hsvMath.lerpHSVToRGB( interpFracParticleColor, particleData.ColorBeginHSV, particleData.ColorFinishHSV, false )
+            local follow = particleData.Follow
+
+            holo:setScale( scale )
+            holo:setColor( color )
+
+            if follow and hasMoved then
+                local posLocal = particleData.PosBeginLocal + particleData.DirLocal * distance
+                local angLocal = particleData.AngLocal
+
+                local pos, ang = localToWorld( posLocal, angLocal, selfPos, selfAng )
+
+                holo:setPos( pos )
+                holo:setAngles( ang )
+            else
+                local pos = particleData.PosBegin + particleData.Dir * distance
+
+                holo:setPos( pos )
+            end
+        end
+    end
+
+    -- Create new particles
+    while activeCount < activeMin do -- Enforce minimum
+        local holo = self:spawnParticle( time, interpFracOverall )
+        if not holo then break end
+
+        activeCount = activeCount + 1
+    end
+
+    if activeCount < activeMax and mathRand( 0, 1 ) < activeChance then -- Random chance for extra particle
+        local holo = self:spawnParticle( time, interpFracOverall )
+        if holo then activeCount = activeCount + 1 end
+    end
+end
+
+function ThisClass:onStopPlaying( isFullStop )
+    if SERVER then return end
+
+    if isFullStop then
+        self:setAllHoloColors( COLOR_EMPTY )
+
+        local groupActive = self:getHoloGroup( "active" )
+
+        for i = #groupActive, 1, -1 do
+            local holo = groupActive[i]
+
+            self:changeHoloGroup( holo, "inactive" )
+            holo._ltRadialParticleAnim_ParticleData = nil
+        end
+    end
+end
+
+-- Dissallow infinite-duration animations, since it will break start/end calculations.
+function ThisClass:setDuration( duration )
+    if duration == 0 then error( "This class does not support infinite-length durations, duration must be > 0" ) end
+
+    ThisClass.super.setDuration( self, duration )
+end
+
+function ThisClass:onPosAngChanged( ... )
+    self._ltRadialParticleAnim_HasMoved = true
+
+    ThisClass.super.onPosAngChanged( self, ... )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+applyAutoBuildParams = function( anim )
+    for _, paramInfo in ipairs( autoBuildParams ) do
+        local paramPascalName = paramInfo.PascalName
+        local paramFunctionNameSet = "set" .. paramPascalName
+
+        anim[paramFunctionNameSet]( anim )
+    end
+end
+
+resolveEaseFuncName = function( funcName )
+    if type( funcName ) ~= "string" then error( "Expected funcName to be a string" ) end
+
+    local func
+
+    if funcName:sub( 1, 3 ) == "ls:" then
+        loadstring( "func = " .. funcName:sub( 4 ) )()
+    else
+        func = math[funcName]
+    end
+
+    if type( func ) ~= "function" then error( "Expected funcName to resolve to a function" ) end
+
+    return func
+end
+
+lerpUnclamped = function( frac, from, to )
+    if from == to then return from end
+    if frac == 1 then return to end
+    if frac == 0 then return from end
+
+    return from + ( to - from ) * frac
+end
+
+
+----- SETUP -----
+
+do -- Auto-build set/get functions and net receivers for class variables
+    for _, paramInfo in ipairs( autoBuildParams ) do
+        local paramStaticName = paramInfo.StaticName
+        local paramPascalName = paramInfo.PascalName
+        local paramVarName = paramInfo.VarName
+        local paramArgName = paramInfo.ArgName
+        local paramType = paramInfo.Type
+        local paramBits = paramInfo.Bits
+        local paramIsUnsigned = paramInfo.IsUnsigned
+        local paramInclusiveMin = paramInfo.InclusiveMin
+        local paramExclusiveMin = paramInfo.ExclusiveMin
+        local paramInclusiveMax = paramInfo.InclusiveMax
+        local paramExclusiveMax = paramInfo.ExclusiveMax
+
+        local paramFunctionNameSet = "set" .. paramPascalName
+        local paramFunctionNameGet = "get" .. paramPascalName
+        local paramBitsStr = tostring( paramBits )
+        local paramIsUnsignedStr = tostring( paramIsUnsigned )
+
+        if paramBitsStr == "float" then paramBitsStr = "\"float\"" end
+
+        -- Extra conditionals
+        local intCheckStr = ( paramType ~= "number" or paramBits == "float" ) and "" or [[
+            if math.floor( ]] .. paramArgName .. [[ ) ~= ]] .. paramArgName .. [[ then error( "Expected ]] .. paramArgName .. [[ to be an integer" ) end
+        ]]
+
+        local inclusiveMinCheckStr = paramInclusiveMin == nil and "" or [[
+            if ]] .. paramArgName .. [[ < ]] .. paramInclusiveMin .. [[ then error( "Expected ]] .. paramArgName .. [[ to be >= ]] .. paramInclusiveMin .. [[" ) end
+        ]]
+
+        local exclusiveMinCheckStr = paramExclusiveMin == nil and "" or [[
+            if ]] .. paramArgName .. [[ <= ]] .. paramExclusiveMin .. [[ then error( "Expected ]] .. paramArgName .. [[ to be > ]] .. paramExclusiveMin .. [[" ) end
+        ]]
+
+        local inclusiveMaxCheckStr = paramInclusiveMax == nil and "" or [[
+            if ]] .. paramArgName .. [[ > ]] .. paramInclusiveMax .. [[ then error( "Expected ]] .. paramArgName .. [[ to be <= ]] .. paramInclusiveMax .. [[" ) end
+        ]]
+
+        local exclusiveMaxCheckStr = paramExclusiveMax == nil and "" or [[
+            if ]] .. paramArgName .. [[ >= ]] .. paramExclusiveMax .. [[ then error( "Expected ]] .. paramArgName .. [[ to be < ]] .. paramExclusiveMax .. [[" ) end
+        ]]
+
+        -- Cache HSV for color interpolation
+        local hsvCacheStr = paramType ~= "Color" and "" or [[
+            self.]] .. paramVarName .. "HSV" .. [[ = hsvMath.rgbToHSV( ]] .. paramArgName .. [[ )
+        ]]
+
+        --ThisClass[paramFunctionNameSet] = function( self, value )
+
+        -- Create setter
+        loadstring( [[
+            function RadialParticleAnimation:]] .. paramFunctionNameSet .. [[( ]] .. paramArgName .. [[ )
+                if ]] .. paramArgName .. [[ == nil then ]] .. paramArgName .. [[ = self.class.]] .. paramStaticName .. [[ end
+                if ]] .. paramArgName .. [[ == self.]] .. paramVarName .. [[ then return end
+                if type( ]] .. paramArgName .. [[ ) ~= "]] .. paramType .. [[" then error( "Expected ]] .. paramArgName .. [[ to be a ]] .. paramType .. [[ or nil" ) end]] ..
+                intCheckStr .. inclusiveMinCheckStr .. exclusiveMinCheckStr .. inclusiveMaxCheckStr .. exclusiveMaxCheckStr .. [[
+
+                self.]] .. paramVarName .. [[ = ]] .. paramArgName ..
+                hsvCacheStr .. [[
+                self:syncProperty( "RadialParticleAnimation_]] .. paramPascalName .. [[", ]] .. paramArgName .. [[, ]] .. paramBitsStr .. [[, ]] .. paramIsUnsignedStr .. [[ )
+            end
+        ]] )()
+
+        -- Create getter
+        loadstring( [[
+            function RadialParticleAnimation:]] .. paramFunctionNameGet .. [[()
+                return self.]] .. paramVarName .. [[
+            end
+        ]] )()
+
+        -- Create net receiver
+        if CLIENT then
+            local readFuncStr = ""
+
+            if paramType == "boolean" then
+                readFuncStr = "readBool()"
+            elseif paramType == "number" then
+                if paramBits == "float" then
+                    readFuncStr = "readFloat()"
+                elseif paramIsUnsigned then
+                    readFuncStr = "readUInt( " .. paramBits .. " )"
+                else
+                    readFuncStr = "readInt( " .. paramBits .. " )"
+                end
+            else
+                readFuncStr = "read" .. string.upper( paramType:sub( 1, 1 ) ) .. paramType:sub( 2 ) .. "()"
+            end
+
+
+            loadstring( [[
+                net.receive( "LKL_Syncable_Set__RadialParticleAnimation_]] .. paramPascalName .. [[", function()
+                    local anim = Syncable:readSyncedCopy()
+                    local value = net.]] .. readFuncStr .. [[
+
+                    if not anim then return end
+
+                    anim:]] .. paramFunctionNameSet .. [[( value )
+                end )
+            ]] )()
+        end
+    end
+end
+
+
+if SERVER then
+    function ThisClass:writeCreationData( pos, ang, particleLimit )
+        net.writeVector( pos )
+        net.writeAngle( ang )
+        net.writeUInt( particleLimit, 10 )
+    end
+
+    return
+end
+
+
+function ThisClass.static:readCreationData()
+    return {
+        net.readVector(),
+        net.readAngle(),
+        net.readUInt( 10 ),
+    }
+end
+
+
+net.receive( "LKL_RadialParticleAnimation_SpawnParticle", function()
+    local anim = Syncable:readSyncedCopy()
+    local animTime = net.readFloat()
+    local interpFracOverall = net.readFloat()
+
+    if not anim then return end
+
+    anim:spawnParticle( animTime, interpFracOverall )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpEaseOverall", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readString()
+
+    if not anim then return end
+
+    anim:setInterpEaseOverall( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpEaseParticleDistance", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readString()
+
+    if not anim then return end
+
+    anim:setInterpEaseParticleDistance( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpEaseParticleScale", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readString()
+
+    if not anim then return end
+
+    anim:setInterpEaseParticleScale( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpEaseParticleColor", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readString()
+
+    if not anim then return end
+
+    anim:setInterpEaseParticleColor( value )
+end )
