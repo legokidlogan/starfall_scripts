@@ -1,7 +1,7 @@
 --@name Holo Animation
 --@author legokidlogan
 --@shared
---@include lkl/animation.txt
+--@include lkl/anims/animation.txt
 --@include lkl/queue.txt
 --@include lkl/submaterial.txt
 
@@ -14,7 +14,7 @@
 
 if HoloAnimation then return end
 
-require( "lkl/animation.txt" )
+require( "lkl/anims/animation.txt" )
 require( "lkl/queue.txt" )
 require( "lkl/submaterial.txt" )
 
