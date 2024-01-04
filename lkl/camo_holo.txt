@@ -30,6 +30,9 @@ CamoHolo.static.BLOB_SCALE_WITH_HOLO = true
 CamoHolo.static.BLOB_HOLO_COMPARE_SIZE = Vector( 48 ):getLength()
 CamoHolo.static.PERF_LIMIT = 0.75
 
+CamoHolo.REPLICATION_DELAY = 1
+CamoHolo.INIT_SYNC_DELAY = 0.5
+
 
 local COLOR_EMPTY = Color( 0, 0, 0, 0 )
 local COLOR_NEAR_OPAQUE = Color( 255, 255, 255, 254 )
@@ -61,6 +64,7 @@ function CamoHolo:initialize( replicateOnClient, pos, ang, model, scale, ... )
 
     local holo = hologram.create( pos, ang, model, scale )
     if not isValid( holo ) then error( "Failed to intialize " .. self.class.name ) end
+
     self._holo = holo
     holo._camoHolo_Object = self
     holo:suppressEngineLighting( true )
