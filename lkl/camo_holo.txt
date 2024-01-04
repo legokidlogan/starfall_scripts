@@ -295,7 +295,7 @@ hook.add( "renderoffscreen", "LKL_CamoHolo_DrawBlobs", function()
             distMult = distMult * holoSize:getLength() / blobHoloCompareSize
         end
 
-        local blobSizeEff = blobSize * distMult
+        local blobSizeEff = math.max( blobSize * distMult, 2 )
         local blobRadiusEff = blobSizeEff * 0.5
 
         for _ = 1, blobCount do
