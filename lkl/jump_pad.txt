@@ -34,7 +34,7 @@ JumpPad.static.LAUNCH_MASS = 50000
 JumpPad.static.LAUNCH_ALT_ENABLED = false -- false = simply apply an upawrds velocity every tick, true = apply velocity per tick to follow a fixed path.
 JumpPad.static.LAUNCH_ALT_STRENGTH = 7
 JumpPad.static.DETECTION_RADIUS = 45
-JumpPad.static.DETECTION_HEIGHT = 20
+JumpPad.static.DETECTION_HEIGHT = 30
 JumpPad.static.TORQUE_STRENGTH = 300 -- Disabled if 0 or if USE_KEEP_UPRIGHT is true
 JumpPad.static.TORQUE_STABILIZATION = 100
 JumpPad.static.USE_KEEP_UPRIGHT = true
