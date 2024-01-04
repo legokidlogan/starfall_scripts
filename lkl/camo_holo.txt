@@ -82,6 +82,7 @@ function CamoHolo:initialize( replicateOnClient, pos, ang, model, scale, ... )
 
         holo:setColor( COLOR_NEAR_OPAQUE )
         --holo:setRenderMode( RENDERMODE_WORLDGLOW )
+        holo:setRenderFX( RENDERFX.PULSESLOW )
     end
 end
 
@@ -119,6 +120,18 @@ end
 
 function CamoHolo:getAngles()
     return self:getHolo():getAngles()
+end
+
+function CamoHolo:getForward()
+    return self:getHolo():getForward()
+end
+
+function CamoHolo:getRight()
+    return self:getHolo():getRight()
+end
+
+function CamoHolo:getUp()
+    return self:getHolo():getUp()
 end
 
 -- Sets the parent of the CamoHolo. Does nothing on a synced client copy.
@@ -170,6 +183,68 @@ function CamoHolo:getSize()
     return holo:obbSize() * holo:getScale()
 end
 
+function CamoHolo:setClip( index, enabled, origin, normal, entity )
+    self:getHolo():setClip( index, enabled, origin, normal, entity )
+
+    if SERVER then
+        self:syncProperty( "CamoHolo_Clip", {
+            index = index,
+            enabled = enabled,
+            origin = origin,
+            normal = normal,
+            entity = entity,
+        } )
+    end
+end
+
+function CamoHolo:getClipping()
+    return self:getHolo():getClipping()
+end
+
+function CamoHolo:emitSound( ... )
+    self:getHolo():emitSound( ... )
+end
+
+function CamoHolo:stopSound( ... )
+    self:getHolo():stopSound( ... )
+end
+
+function CamoHolo:getClass()
+    return self:getHolo():getClass()
+end
+
+function CamoHolo:getOwner()
+    return self:getHolo():getOwner()
+end
+
+function CamoHolo:remove()
+    self:destroy()
+end
+
+function CamoHolo:obbSize()
+    return self:getHolo():obbSize()
+end
+
+function CamoHolo:obbCenter()
+    return self:getHolo():obbCenter()
+end
+
+function CamoHolo:obbCenterW()
+    return self:getHolo():obbCenterW()
+end
+
+function CamoHolo:obbMins()
+    return self:getHolo():obbMins()
+end
+
+function CamoHolo:obbMaxs()
+    return self:getHolo():obbMaxs()
+end
+
+function CamoHolo:worldSpaceAABB()
+    return self:getHolo():worldSpaceAABB()
+end
+
 function CamoHolo:localToWorld( pos )
     return self:getHolo():localToWorld( pos )
 end
@@ -193,6 +268,76 @@ end
 function CamoHolo:worldToLocalVector( vec )
     return self:getHolo():worldToLocalVector( vec )
 end
+
+-- Does nothing. Here only to prevent errors if you replace a hologram with a CamoHolo.
+function CamoHolo:setMaterial()
+    -- Do nothing
+end
+
+function CamoHolo:getMaterial()
+    return self:getHolo():getMaterial()
+end
+
+-- Does nothing. Here only to prevent errors if you replace a hologram with a CamoHolo.
+function CamoHolo:setColor()
+    -- Do nothing
+end
+
+function CamoHolo:getColor()
+    return self:getHolo():getColor()
+end
+
+-- Does nothing. Here only to prevent errors if you replace a hologram with a CamoHolo.
+function CamoHolo:setSkin()
+    -- Do nothing
+end
+
+function CamoHolo:getSkin()
+    return self:getHolo():getSkin()
+end
+
+function CamoHolo:getSkinCount()
+    return self:getHolo():getSkinCount()
+end
+
+-- Does nothing. Here only to prevent errors if you replace a hologram with a CamoHolo.
+function CamoHolo:setRenderMode()
+    -- Do nothing
+end
+
+function CamoHolo:getRenderMode()
+    return self:getHolo():getRenderMode()
+end
+
+-- Does nothing. Here only to prevent errors if you replace a hologram with a CamoHolo.
+function CamoHolo:setRenderFX()
+    -- Do nothing
+end
+
+function CamoHolo:getRenderFX()
+    return self:getHolo():getRenderFX()
+end
+
+-- Does nothing. Here only to prevent errors if you replace a hologram with a CamoHolo.
+function CamoHolo:suppressEngineLighting()
+    -- Do nothing
+end
+
+function CamoHolo:getSuppressEngineLighting()
+    return self:getHolo():getSuppressEngineLighting()
+end
+
+
+if SERVER then
+    function CamoHolo:doNotDuplicate()
+        self:getHolo():doNotDuplicate()
+    end
+else
+    function CamoHolo:setRenderMatrix( matrix )
+        self:getHolo():setRenderMatrix( matrix )
+    end
+end
+
 
 
 ----- OVERRIDABLE FUNCTIONS -----
@@ -481,6 +626,23 @@ net.receive( "LKL_Syncable_Set__CamoHolo_Size", function()
     if not camoHolo then return end
 
     camoHolo:setSize( size )
+end )
+
+net.receive( "LKL_Syncable_Set__CamoHolo_Clip", function()
+    local camoHolo = Syncable:readSyncedCopy()
+    local clipData = net.readTable()
+
+    if not camoHolo then return end
+
+    local ent = clipData.entity
+
+    if ent and ent.toHologram then
+        pcall( function()
+            ent = ent:toHologram()
+        end )
+    end
+
+    camoHolo:setClip( clipData.index, clipData.enabled, clipData.origin, clipData.normal, ent )
 end )
 
 
