@@ -13,7 +13,7 @@ require( "lkl/math/vector_math.txt" )
 CamoHolo = class( "CamoHolo", Syncable )
 
 -- These apply to all instances and subclasses
-CamoHolo.static.BLOB_COUNT = 50
+CamoHolo.static.BLOB_COUNT = 50 -- Note: dynamic blob camo will only be visible if connected to a HUD
 CamoHolo.static.BLOB_SIZE = 7 * 200
 CamoHolo.static.BLOB_AREA_MULT = 1.1
 CamoHolo.static.BLOB_SCALE_WITH_HOLO = true
