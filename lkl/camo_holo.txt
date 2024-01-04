@@ -5,6 +5,7 @@
 --@include lkl/math/vector_math.txt
 
 if CamoHolo then return end
+if SERVER then render = render or {} end
 
 require( "lkl/syncable.txt" )
 require( "lkl/math/vector_math.txt" )
@@ -32,6 +33,13 @@ local allCamoHolos = {}
 local nextBlobTime = 0
 local rtNameMain = "LKL_CamoHolo_Main"
 local resetStencil
+
+local cpuAverage = cpuAverage
+local renderSetColor = render.setColor
+local renderDrawRectFast = render.drawRectFast
+local renderTraceSurfaceColor = render.traceSurfaceColor
+local mathMax = math.max
+local vectorMathRandomInsideBox = vectorMath.randomInsideBox
 
 
 ----- STATIC FUNCTIONS -----
@@ -306,20 +314,20 @@ hook.add( "renderoffscreen", "LKL_CamoHolo_DrawBlobs", function()
             distMult = distMult * holoSize:getLength() / blobHoloCompareSize
         end
 
-        local blobSizeEff = math.max( blobSize * distMult, 2 )
+        local blobSizeEff = mathMax( blobSize * distMult, 2 )
         local blobRadiusEff = blobSizeEff * 0.5
 
         for _ = 1, blobCount do
-            local blobPos = vectorMath.randomInsideBox( aabbMin, aabbMax )
+            local blobPos = vectorMathRandomInsideBox( aabbMin, aabbMax )
             local blobScrPos = blobPos:toScreen()
 
             if blobScrPos.visible then
                 local blobX = blobScrPos.x - blobRadiusEff
                 local blobY = blobScrPos.y - blobRadiusEff
-                local color = render.traceSurfaceColor( eyePos, blobPos + ( blobPos - eyePos ) * 100 )
+                local color = renderTraceSurfaceColor( eyePos, blobPos + ( blobPos - eyePos ) * 100 )
 
-                render.setColor( color )
-                render.drawRectFast( blobX * xMult, blobY * yMult, blobSizeEff * xMult, blobSizeEff * yMult )
+                renderSetColor( color )
+                renderDrawRectFast( blobX * xMult, blobY * yMult, blobSizeEff * xMult, blobSizeEff * yMult )
             end
         end
     end
