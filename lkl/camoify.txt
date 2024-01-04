@@ -1,0 +1,197 @@
+--@name Camoify
+--@author legokidlogan
+--@shared
+--@include lkl/camo_holo.txt
+--@include lkl/queue.txt
+
+require( "lkl/camo_holo.txt" )
+require( "lkl/queue.txt" )
+
+if CLIENT then return end
+
+
+-- CONFIG:
+local numArrays = 3
+local numSingleEnts = 5
+-- END CONFIG
+
+
+local camoTargetLists = {}
+local camoTargetListLookups = {}
+local camoTargetSingles = {}
+local camoQueue = nil
+
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+
+local function applyCamo( ent )
+    if not isValid( ent ) then return end
+    if isValid( ent._camoify_CamoObject ) then return end
+
+    local scale = Vector( 1, 1, 1 )
+
+    if ent.toHologram then
+        pcall( function()
+            scale = ent:toHologram():getScale()
+        end )
+    end
+
+    ent._camoify_OldColor = ent:getColor()
+    ent._camoify_Scale = scale
+
+    camoQueue:addEntryAndStart( ent )
+end
+
+local function removeCamo( ent )
+    if not isValid( ent ) then return end
+
+    local camo = ent._camoify_CamoObject
+    local color = ent._camoify_OldColor or Color( 255, 255, 255, 255 )
+
+    ent._camoify_CamoObject = nil
+    ent._camoify_OldColor = nil
+    ent._camoify_Scale = nil
+
+    if not isValid( camo ) then
+        camoQueue:removeEntryByValue( ent )
+
+        return
+    end
+
+    camo:destroy()
+
+    ent:setColor( color )
+end
+
+local function wireInput( name, value )
+    local splitResult = string.split( name, "__" )
+    local baseName = splitResult[1]
+    local id = tonumber( splitResult[2] or "" )
+    if not id then return end
+
+    if baseName == "CamoTargetList" then
+        value = value or {}
+
+        local newLookup = {}
+
+        for _, ent in ipairs( value ) do
+            newLookup[ent] = true
+        end
+
+        local targetList = camoTargetLists[id]
+        local targetLookup = camoTargetListLookups[id]
+
+        for i = #targetList, 1, -1 do
+            local ent = targetList[i]
+
+            if not newLookup[ent] then
+                removeCamo( ent )
+                table.remove( targetList, i )
+                targetLookup[ent] = nil
+            end
+        end
+
+        for _, ent in ipairs( value ) do
+            if not targetLookup[ent] then
+                applyCamo( ent )
+                table.insert( targetList, ent )
+                targetLookup[ent] = true
+            end
+        end
+    elseif baseName == "CamoTargetSingle" then
+        value = isValid( value ) and value
+
+        local oldTarget = camoTargetSingles[id]
+        if value == oldTarget then return end
+
+        removeCamo( oldTarget )
+        applyCamo( value )
+
+        camoTargetSingles[id] = value
+    end
+end
+
+
+----- SETUP -----
+
+hook.add( "input", "LKL_Camoify_WireInput", wireInput )
+
+hook.add( "Removed", "LKL_Camoify_Revert", function()
+    for _, targetList in ipairs( camoTargetLists ) do
+        for _, ent in ipairs( targetList ) do
+            removeCamo( ent )
+        end
+    end
+
+    for _, target in ipairs( camoTargetSingles ) do
+        removeCamo( target )
+    end
+end )
+
+
+timer.simple( 3, function()
+    for i = 1, numArrays do
+        local name = "CamoTargetList__" .. i
+
+        wireInput( name, wire.ports[name] )
+    end
+
+    for i = 1, numSingleEnts do
+        local name = "CamoTargetSingle__" .. i
+
+        wireInput( name, wire.ports[name] )
+    end
+end )
+
+
+do
+    camoQueue = Queue:new(
+        function( _, ent )
+            if not isValid( ent ) then return nil end
+            if timer.getTimersLeft() < 30 then return true end
+            if not hologram.canSpawn() then return true end
+
+            local camo
+            pcall( function()
+                camo = CamoHolo:new( true, ent:getPos(), ent:getAngles(), ent:getModel(), ent._camoify_Scale )
+            end )
+
+            if not isValid( camo ) then return true end
+
+            camo:setParent( ent )
+
+            ent._camoify_CamoObject = camo
+
+            ent:setColor( Color( 0, 0, 0, 0 ) )
+        end,
+        nil,
+        {},
+        1,
+        10,
+        0.8,
+        "LKL_Camoify_CamoQueue"
+    )
+
+    for i = 1, numArrays do
+        camoTargetLists[i] = {}
+        camoTargetListLookups[i] = {}
+
+        table.insert( inputNames, "CamoTargetList__" .. i )
+        table.insert( inputTypes, "ARRAY" )
+    end
+
+    for i = 1, numSingleEnts do
+        camoTargetSingles[i] = false
+
+        table.insert( inputNames, "CamoTargetSingle__" .. i )
+        table.insert( inputTypes, "ENTITY" )
+    end
+
+    wire.adjustInputs( inputNames, inputTypes )
+    wire.adjustOutputs( outputNames, outputTypes )
+end
