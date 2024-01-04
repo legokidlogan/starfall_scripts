@@ -92,7 +92,6 @@ function CamoHolo:initialize( replicateOnClient, pos, ang, model, scale, ... )
 
         holo:setColor( COLOR_NEAR_OPAQUE )
         --holo:setRenderMode( RENDERMODE_WORLDGLOW )
-        holo:setRenderFX( RENDERFX.PULSESLOW )
     end
 end
 
