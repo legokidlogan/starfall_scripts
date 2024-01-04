@@ -1,0 +1,18 @@
+--@name Camo Holo Example
+--@author
+--@shared
+--@include lkl/camo_holo.txt
+
+require( "lkl/camo_holo.txt" )
+
+
+if SERVER then
+    timer.simple( 2, function()
+        local camo1 = CamoHolo:new( true, chip():localToWorld( Vector( 0, 0, 100 ) ), chip():getAngles(), nil, Vector( 1, 2, 3 ) )
+        camo1:setParent( chip() )
+        
+        --local camo2 = CamoHolo:new( true, chip():localToWorld( Vector( 0, 120, 100 ) ), chip():getAngles(), nil, Vector( 1, 2, 3 ) )
+    end )
+end
+
+
