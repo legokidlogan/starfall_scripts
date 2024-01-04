@@ -1,0 +1,488 @@
+--@name Sphere Animation
+--@author legokidlogan
+--@shared
+--@include lkl/anims/animation.txt
+--@include lkl/math/hsv_math.txt
+
+--[[
+    - Creates a sphere holo that changes in size and color over time.
+    - Does not inherit from HoloAnimation, meaning the holo exists in the same realm the animation was originally created in.
+        - This does not behave nicely with server/client replication, keep it to one realm.
+            - i.e. you should always set replicateOnClient to false.
+        - Some syncing functionality is maintained due to templating, though the holo itself will cause double-render issues.
+    - Cannot have an infinite duration.
+--]]
+
+if SphereAnimation then return end
+
+require( "lkl/anims/animation.txt" )
+require( "lkl/math/hsv_math.txt" )
+
+
+math.easeLinear = math.easeLinear or function( frac ) return frac end
+
+
+SphereAnimation = class( "SphereAnimation", Animation )
+local ThisClass = SphereAnimation -- For readability
+
+
+-- These can be changed on a per-instance basis. They have set/get functions, but the sheer quantity has led me to auto-generate them.
+ThisClass.static.SPHERE_SCALE_START = Vector( 0 )
+ThisClass.static.SPHERE_SCALE_END = Vector( 1 )
+ThisClass.static.SPHERE_COLOR_START = Color( 255, 255, 255, 255 )
+ThisClass.static.SPHERE_COLOR_END = Color( 255, 255, 255, 255 )
+ThisClass.static.SPHERE_MODEL = "models/sprops/geometry/sphere_48.mdl"
+ThisClass.static.SPHERE_MATERIAL = "models/debug/debugwhite"
+ThisClass.static.SPHERE_FULLBRIGHT = true
+ThisClass.static.SPHERE_FOLLOW = true
+ThisClass.static.SPHERE_ANGLE = Angle( 0, 0, 0 )
+ThisClass.static.INTERP_CLAMP_SPHERE_SCALE = false
+ThisClass.static.INTERP_CLAMP_SPHERE_COLOR = false
+
+-- These can be changed on a per-instance basis. They have manually-made set/get functions due to being more complex.
+ThisClass.static.INTERP_EASE_SPHERE_SCALE = "easeLinear"
+ThisClass.static.INTERP_EASE_SPHERE_COLOR = "easeLinear"
+
+-- Default value overrides from parent classes
+ThisClass.DURATION = 1
+ThisClass.UPDATE_INTERVAL = 0.05
+
+
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+
+local autoBuildParams = {
+    {
+        StaticName = "SPHERE_SCALE_START",
+        PascalName = "SphereScaleStart",
+        VarName = "_sphereScaleStart",
+        ArgName = "scale",
+        Type = "Vector",
+    },
+    {
+        StaticName = "SPHERE_SCALE_END",
+        PascalName = "SphereScaleEnd",
+        VarName = "_sphereScaleEnd",
+        ArgName = "scale",
+        Type = "Vector",
+    },
+    {
+        StaticName = "SPHERE_COLOR_START",
+        PascalName = "SphereColorStart",
+        VarName = "_sphereColorStart",
+        ArgName = "color",
+        Type = "Color",
+    },
+    {
+        StaticName = "SPHERE_COLOR_END",
+        PascalName = "SphereColorEnd",
+        VarName = "_sphereColorEnd",
+        ArgName = "color",
+        Type = "Color",
+    },
+    {
+        StaticName = "SPHERE_MODEL",
+        PascalName = "SphereModel",
+        VarName = "_sphereModel",
+        ArgName = "model",
+        Type = "string",
+    },
+    {
+        StaticName = "SPHERE_MATERIAL",
+        PascalName = "SphereMaterial",
+        VarName = "_sphereMaterial",
+        ArgName = "material",
+        Type = "string",
+    },
+    {
+        StaticName = "SPHERE_FULLBRIGHT",
+        PascalName = "SphereFullbright",
+        VarName = "_sphereFullbright",
+        ArgName = "state",
+        Type = "boolean",
+    },
+    {
+        StaticName = "SPHERE_FOLLOW",
+        PascalName = "SphereFollow",
+        VarName = "_sphereFollow",
+        ArgName = "state",
+        Type = "boolean",
+    },
+    {
+        StaticName = "SPHERE_ANGLE",
+        PascalName = "SphereAngle",
+        VarName = "_sphereAngle",
+        ArgName = "angle",
+        Type = "Angle",
+    },
+    {
+        StaticName = "INTERP_CLAMP_SPHERE_SCALE",
+        PascalName = "InterpClampSphereScale",
+        VarName = "_interpClampSphereScale",
+        ArgName = "state",
+        Type = "boolean",
+    },
+    {
+        StaticName = "INTERP_CLAMP_SPHERE_COLOR",
+        PascalName = "InterpClampSphereColor",
+        VarName = "_interpClampSphereColor",
+        ArgName = "state",
+        Type = "boolean",
+    },
+}
+local applyAutoBuildParams
+local resolveEaseFuncName
+local lerpUnclamped
+local getInterpSphereColor
+local getInterpSphereScale
+
+local mathClamp = math.clamp
+
+
+----- STATIC FUNCTIONS -----
+
+function ThisClass:initialize( replicateOnClient, pos, ang, ... )
+    ThisClass.super.initialize( self, replicateOnClient, pos, ang, ... )
+
+    local holo
+    pcall( function()
+        holo = hologram.create( pos, ang, ThisClass.static.SPHERE_MODEL )
+    end )
+    if not holo then error( "Failed to initialize " .. self.class.name ) end
+    self._sphereHolo = holo
+    holo:setColor( COLOR_EMPTY )
+
+    applyAutoBuildParams( self )
+
+    self:setInterpEaseSphereScale( ThisClass.static.INTERP_EASE_SPHERE_SCALE )
+    self:setInterpEaseSphereColor( ThisClass.static.INTERP_EASE_SPHERE_COLOR )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ThisClass:getSphereHolo()
+    return self._sphereHolo
+end
+
+--[[
+    - Sets the name of the easing function used while interpolating the scale of the sphere.
+    - Use :setInterpClampOverall() to set whether or not the easing result should be clamped between 0 and 1.
+
+    funcName: (string)
+        - The name of the function to use.
+        - Must be the name of a function on the global math table. (e.g. "easeInQuart")
+            - Has to take one argument and return one result. (e.g. "easeInOut" won't work since it has 3 args)
+            - The function will be cached, so you can put something on the math table, call this function, then remove it.
+                - Be careful with netowrking though, it has to exist on both realms.
+        - Alternatively, it can be a string starting with "ls:" to use loadstring instead.
+            - Much better for networking, but comes with the dangers of loadstring.
+            - ex: "ls:function( frac ) return frac end"
+--]]
+function ThisClass:setInterpEaseSphereScale( funcName )
+    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_SPHERE_SCALE end
+    if funcName == self._interpEaseSphereScale then return end
+
+    self._interpEaseSphereScaleFunc = resolveEaseFuncName( funcName )
+    self._interpEaseSphereScale = funcName
+    self:syncProperty( "SphereAnimation_InterpEaseSphereScale", funcName )
+end
+
+-- The name of the easing function used to ease interpolation of the sphere's scale.
+function ThisClass:getInterpEaseSphereScale()
+    return self._interpEaseSphereScale
+end
+
+-- The function used to ease interpolation of the sphere's scale.
+function ThisClass:getInterpEaseSphereScaleFunc()
+    return self._interpEaseSphereScaleFunc
+end
+
+-- Same as :setInterpEaseSphereScale(), but for the color of the sphere.
+function ThisClass:setInterpEaseSphereColor( funcName )
+    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_SPHERE_COLOR end
+    if funcName == self._interpEaseSphereColor then return end
+
+    self._interpEaseSphereColorFunc = resolveEaseFuncName( funcName )
+    self._interpEaseSphereColor = funcName
+    self:syncProperty( "SphereAnimation_InterpEaseSphereColor", funcName )
+end
+
+function ThisClass:getInterpEaseSphereColor()
+    return self._interpEaseSphereColor
+end
+
+function ThisClass:getInterpEaseSphereColorFunc()
+    return self._interpEaseSphereColorFunc
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ThisClass:handlePlayback( time )
+    local timeFrac = self:getTimeFractional( time )
+    local holo = self:getSphereHolo()
+
+    local colorStartHSV = self._sphereColorStartHSV
+    local colorEndHSV = self._sphereColorEndHSV
+
+    if colorStartHSV ~= colorEndHSV then
+        holo:setColor( getInterpSphereColor( self, timeFrac, colorStartHSV, colorEndHSV ) )
+    end
+
+    local scaleStart = self:getSphereScaleStart()
+    local scaleEnd = self:getSphereScaleEnd()
+
+    if scaleStart ~= scaleEnd then
+        holo:setScale( getInterpSphereScale( self, timeFrac, scaleStart, scaleEnd ) )
+    end
+end
+
+function ThisClass:onStartPlaying( wasFullStopped )
+    if wasFullStopped then
+        local holo = self:getSphereHolo()
+        local timeFrac = self:getTimeFractional()
+
+        holo:setModel( self:getSphereModel() )
+        holo:setMaterial( self:getSphereMaterial() )
+        holo:setScale( getInterpSphereScale( self, timeFrac ) )
+        holo:suppressEngineLighting( self:getSphereFullbright() )
+        holo:setPos( self:getPos() )
+        holo:setAngles( self:localToWorldAngles( self:getSphereAngle() ) )
+        holo:setColor( getInterpSphereColor( self, timeFrac ) )
+    end
+end
+
+function ThisClass:onStopPlaying( isFullStop )
+    if isFullStop then
+        local holo = self:getSphereHolo()
+
+        holo:setColor( COLOR_EMPTY )
+        holo:setPos( VECTOR_ZERO )
+    end
+end
+
+-- Dissallow infinite-duration animations, since it will break start/end calculations.
+function ThisClass:setDuration( duration )
+    if duration == 0 then error( "This class does not support infinite-length durations, duration must be > 0" ) end
+
+    ThisClass.super.setDuration( self, duration )
+end
+
+function ThisClass:onPosAngChanged( ... )
+    ThisClass.super.onPosAngChanged( self, ... )
+
+    if self:getSphereFollow() and self:isPlaying() then
+        local holo = self:getSphereHolo()
+
+        holo:setPos( self:getPos() )
+        holo:setAngles( self:localToWorldAngles( self:getSphereAngle() ) )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+applyAutoBuildParams = function( anim )
+    for _, paramInfo in ipairs( autoBuildParams ) do
+        local paramPascalName = paramInfo.PascalName
+        local paramFunctionNameSet = "set" .. paramPascalName
+
+        anim[paramFunctionNameSet]( anim )
+    end
+end
+
+resolveEaseFuncName = function( funcName )
+    if type( funcName ) ~= "string" then error( "Expected funcName to be a string" ) end
+
+    local func
+
+    if funcName:sub( 1, 3 ) == "ls:" then
+        loadstring( "func = " .. funcName:sub( 4 ) )()
+    else
+        func = math[funcName]
+    end
+
+    if type( func ) ~= "function" then error( "Expected funcName to resolve to a function" ) end
+
+    return func
+end
+
+lerpUnclamped = function( frac, from, to )
+    if from == to then return from end
+    if frac == 1 then return to end
+    if frac == 0 then return from end
+
+    return from + ( to - from ) * frac
+end
+
+getInterpSphereColor = function( anim, timeFrac, overrideStartHSV, overrideEndHSV )
+    local colorStartHSV = overrideStartHSV or anim._sphereColorStartHSV
+    local colorEndHSV = overrideEndHSV or anim._sphereColorEndHSV
+
+    local easeFuncSphereColor = anim:getInterpEaseSphereColorFunc()
+    local interpClampSphereColor = anim:getInterpClampSphereColor()
+    local easeFracSphereColor = easeFuncSphereColor( timeFrac )
+    local interpFracSphereColor = interpClampSphereColor and mathClamp( easeFracSphereColor, 0, 1 ) or easeFracSphereColor
+
+    return hsvMath.lerpHSVToRGB( interpFracSphereColor, colorStartHSV, colorEndHSV, false )
+end
+
+getInterpSphereScale = function( anim, timeFrac, overrideStart, overrideEnd )
+    local scaleStart = overrideStart or anim:getSphereScaleStart()
+    local scaleEnd = overrideEnd or anim:getSphereScaleEnd()
+
+    local easeFuncSphereScale = anim:getInterpEaseSphereScaleFunc()
+    local interpClampSphereScale = anim:getInterpClampSphereScale()
+    local easeFracSphereScale = easeFuncSphereScale( timeFrac )
+    local interpFracSphereScale = interpClampSphereScale and mathClamp( easeFracSphereScale, 0, 1 ) or easeFracSphereScale
+
+    return lerpUnclamped( interpFracSphereScale, scaleStart, scaleEnd )
+end
+
+
+----- SETUP -----
+
+do -- Auto-build set/get functions and net receivers for class variables
+    for _, paramInfo in ipairs( autoBuildParams ) do
+        local paramStaticName = paramInfo.StaticName
+        local paramPascalName = paramInfo.PascalName
+        local paramVarName = paramInfo.VarName
+        local paramArgName = paramInfo.ArgName
+        local paramType = paramInfo.Type
+        local paramBits = paramInfo.Bits
+        local paramIsUnsigned = paramInfo.IsUnsigned
+        local paramInclusiveMin = paramInfo.InclusiveMin
+        local paramExclusiveMin = paramInfo.ExclusiveMin
+        local paramInclusiveMax = paramInfo.InclusiveMax
+        local paramExclusiveMax = paramInfo.ExclusiveMax
+
+        local paramFunctionNameSet = "set" .. paramPascalName
+        local paramFunctionNameGet = "get" .. paramPascalName
+        local paramBitsStr = tostring( paramBits )
+        local paramIsUnsignedStr = tostring( paramIsUnsigned )
+
+        if paramBitsStr == "float" then paramBitsStr = "\"float\"" end
+
+        -- Extra conditionals
+        local intCheckStr = ( paramType ~= "number" or paramBits == "float" ) and "" or [[
+            if math.floor( ]] .. paramArgName .. [[ ) ~= ]] .. paramArgName .. [[ then error( "Expected ]] .. paramArgName .. [[ to be an integer" ) end
+        ]]
+
+        local inclusiveMinCheckStr = paramInclusiveMin == nil and "" or [[
+            if ]] .. paramArgName .. [[ < ]] .. paramInclusiveMin .. [[ then error( "Expected ]] .. paramArgName .. [[ to be >= ]] .. paramInclusiveMin .. [[" ) end
+        ]]
+
+        local exclusiveMinCheckStr = paramExclusiveMin == nil and "" or [[
+            if ]] .. paramArgName .. [[ <= ]] .. paramExclusiveMin .. [[ then error( "Expected ]] .. paramArgName .. [[ to be > ]] .. paramExclusiveMin .. [[" ) end
+        ]]
+
+        local inclusiveMaxCheckStr = paramInclusiveMax == nil and "" or [[
+            if ]] .. paramArgName .. [[ > ]] .. paramInclusiveMax .. [[ then error( "Expected ]] .. paramArgName .. [[ to be <= ]] .. paramInclusiveMax .. [[" ) end
+        ]]
+
+        local exclusiveMaxCheckStr = paramExclusiveMax == nil and "" or [[
+            if ]] .. paramArgName .. [[ >= ]] .. paramExclusiveMax .. [[ then error( "Expected ]] .. paramArgName .. [[ to be < ]] .. paramExclusiveMax .. [[" ) end
+        ]]
+
+        -- Cache HSV for color interpolation
+        local hsvCacheStr = paramType ~= "Color" and "" or [[
+            self.]] .. paramVarName .. "HSV" .. [[ = hsvMath.rgbToHSV( ]] .. paramArgName .. [[ )
+        ]]
+
+        --ThisClass[paramFunctionNameSet] = function( self, value )
+
+        -- Create setter
+        loadstring( [[
+            function SphereAnimation:]] .. paramFunctionNameSet .. [[( ]] .. paramArgName .. [[ )
+                if ]] .. paramArgName .. [[ == nil then ]] .. paramArgName .. [[ = self.class.]] .. paramStaticName .. [[ end
+                if ]] .. paramArgName .. [[ == self.]] .. paramVarName .. [[ then return end
+                if type( ]] .. paramArgName .. [[ ) ~= "]] .. paramType .. [[" then error( "Expected ]] .. paramArgName .. [[ to be a ]] .. paramType .. [[ or nil" ) end]] ..
+                intCheckStr .. inclusiveMinCheckStr .. exclusiveMinCheckStr .. inclusiveMaxCheckStr .. exclusiveMaxCheckStr .. [[
+
+                self.]] .. paramVarName .. [[ = ]] .. paramArgName ..
+                hsvCacheStr .. [[
+                self:syncProperty( "SphereAnimation_]] .. paramPascalName .. [[", ]] .. paramArgName .. [[, ]] .. paramBitsStr .. [[, ]] .. paramIsUnsignedStr .. [[ )
+            end
+        ]] )()
+
+        -- Create getter
+        loadstring( [[
+            function SphereAnimation:]] .. paramFunctionNameGet .. [[()
+                return self.]] .. paramVarName .. [[
+            end
+        ]] )()
+
+        -- Create net receiver
+        if CLIENT then
+            local readFuncStr = ""
+
+            if paramType == "boolean" then
+                readFuncStr = "readBool()"
+            elseif paramType == "number" then
+                if paramBits == "float" then
+                    readFuncStr = "readFloat()"
+                elseif paramIsUnsigned then
+                    readFuncStr = "readUInt( " .. paramBits .. " )"
+                else
+                    readFuncStr = "readInt( " .. paramBits .. " )"
+                end
+            else
+                readFuncStr = "read" .. string.upper( paramType:sub( 1, 1 ) ) .. paramType:sub( 2 ) .. "()"
+            end
+
+
+            loadstring( [[
+                net.receive( "LKL_Syncable_Set__SphereAnimation_]] .. paramPascalName .. [[", function()
+                    local anim = Syncable:readSyncedCopy()
+                    local value = net.]] .. readFuncStr .. [[
+
+                    if not anim then return end
+
+                    anim:]] .. paramFunctionNameSet .. [[( value )
+                end )
+            ]] )()
+        end
+    end
+end
+
+
+if SERVER then
+    function ThisClass:writeCreationData( pos, ang )
+        net.writeVector( pos )
+        net.writeAngle( ang )
+    end
+
+    return
+end
+
+
+function ThisClass.static:readCreationData()
+    return {
+        net.readVector(),
+        net.readAngle(),
+    }
+end
+
+
+net.receive( "LKL_Syncable_Set__SphereAnimation_InterpEaseSphereScale", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readString()
+
+    if not anim then return end
+
+    anim:setInterpEaseSphereScale( value )
+end )
+
+net.receive( "LKL_Syncable_Set__SphereAnimation_InterpEaseSphereColor", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readString()
+
+    if not anim then return end
+
+    anim:setInterpEaseSphereColor( value )
+end )
