@@ -11,10 +11,18 @@ require( "lkl/syncable.txt" )
 require( "lkl/math/vector_math.txt" )
 
 
+--[[
+    - Applies a rough dynamic camo to holograms.
+    - Requires a HUD to work, will show up as the predator texture otherwise.
+--]]
+
+
 CamoHolo = class( "CamoHolo", Syncable )
 
 -- These apply to all instances and subclasses
-CamoHolo.static.BLOB_COUNT = 50 -- Note: dynamic blob camo will only be visible if connected to a HUD
+CamoHolo.static.SCREEN_RESOLUTION_SCALE = 1 / 4 -- 0-1 fraction, with higher values being more presice.
+CamoHolo.static.BLOB_ENABLED = false -- Draw using blobs instead of the screenspace texture. More cpu usage and slower updates to movement, but gives a more stylized look.
+CamoHolo.static.BLOB_COUNT = 50
 CamoHolo.static.BLOB_INTERVAL = 0 -- 0 To update every render frame
 CamoHolo.static.BLOB_SIZE = 6 * 200
 CamoHolo.static.BLOB_AREA_MULT = 1.25
@@ -25,13 +33,14 @@ CamoHolo.static.PERF_LIMIT = 0.75
 
 local COLOR_EMPTY = Color( 0, 0, 0, 0 )
 local COLOR_NEAR_OPAQUE = Color( 255, 255, 255, 254 )
-local COLOR_WHITE = Color( 255, 255, 255, 255 )
+--local COLOR_WHITE = Color( 255, 255, 255, 255 )
 
-local RENDERMODE_WORLDGLOW = RENDERMODE.WORLDGLOW
+--local RENDERMODE_WORLDGLOW = RENDERMODE.WORLDGLOW
 
 local allCamoHolos = {}
 local nextBlobTime = 0
 local rtNameMain = "LKL_CamoHolo_Main"
+local screenMat = nil
 local resetStencil
 
 local cpuAverage = cpuAverage
@@ -66,12 +75,13 @@ function CamoHolo:initialize( replicateOnClient, pos, ang, model, scale, ... )
     else
         if render.isHUDActive() then
             holo:setNoDraw( true )
-            holo:setColor( COLOR_WHITE )
+            holo:setMaterial( "tools/toolsblack_cheap" )
         else
             holo:setMaterial( "models/shadertest/predator" )
-            holo:setColor( COLOR_NEAR_OPAQUE )
-            holo:setRenderMode( RENDERMODE_WORLDGLOW )
         end
+
+        holo:setColor( COLOR_NEAR_OPAQUE )
+        --holo:setRenderMode( RENDERMODE_WORLDGLOW )
     end
 end
 
@@ -262,8 +272,17 @@ function CamoHolo.static:readCreationData()
 end
 
 
+hook.add( "renderoffscreen", "LKL_CamoHolo_InitClearScreen", function()
+    render.selectRenderTarget( rtNameMain )
+    render.clear( COLOR_EMPTY )
+    render.selectRenderTarget()
+
+    hook.remove( "renderoffscreen", "LKL_CamoHolo_InitClearScreen" )
+end )
+
 --hook.add( "drawhud", "LKL_CamoHolo_DrawBlobs", function()
 hook.add( "renderoffscreen", "LKL_CamoHolo_DrawBlobs", function()
+    if not CamoHolo.BLOB_ENABLED then return end
     if not render.isHUDActive() then return end
 
     local blobInterval = CamoHolo.BLOB_INTERVAL
@@ -335,10 +354,26 @@ hook.add( "renderoffscreen", "LKL_CamoHolo_DrawBlobs", function()
     render.selectRenderTarget()
 end )
 
-hook.add( "PostDrawOpaqueRenderables", "LKL_CamoHolo_DrawHolos", function( _, skybox, skybox3D )
+--hook.add( "PostDrawOpaqueRenderables", "LKL_CamoHolo_DrawHolos", function( _, skybox, skybox3D )
+hook.add( "PreDrawTranslucentRenderables", "LKL_CamoHolo_DrawHolos", function( _, skybox, skybox3D )
     if skybox or skybox3D then return end
 
     local scrW, scrH = render.getGameResolution()
+
+    local blobEnabled = CamoHolo.BLOB_ENABLED
+    local screenResScale = CamoHolo.SCREEN_RESOLUTION_SCALE
+    local useScaledScreen = not blobEnabled and screenResScale < 1
+
+    if useScaledScreen then
+        render.pushViewMatrix( { type = "2D" } )
+        render.selectRenderTarget( rtNameMain )
+
+        render.setMaterial( screenMat )
+        render.drawTexturedRectUV( 0, 0, 1024 * screenResScale, 1024 * screenResScale, 0, 0, 1, 1 )
+
+        render.selectRenderTarget()
+        render.popViewMatrix()
+    end
 
     resetStencil()
     render.setStencilEnable( true )
@@ -356,8 +391,20 @@ hook.add( "PostDrawOpaqueRenderables", "LKL_CamoHolo_DrawHolos", function( _, sk
 
     render.pushViewMatrix( { type = "2D" } )
 
-    render.setMaterial( rtMatMain )
-    render.drawTexturedRectUV( 0, 0, scrW, scrH, 0, 0, 1, 1 )
+    if blobEnabled then
+        render.setMaterial( rtMatMain )
+        render.drawTexturedRectUV( 0, 0, scrW, scrH, 0, 0, 1, 1 )
+    else
+        render.setColor( COLOR_NEAR_OPAQUE )
+
+        if useScaledScreen then
+            render.setMaterial( rtMatMain )
+            render.drawTexturedRectUV( 0, 0, scrW, scrH, 0, 0, screenResScale, screenResScale )
+        else
+            render.setMaterial( screenMat )
+            render.drawTexturedRectUV( 0, 0, scrW, scrH, 0, 0, 1, 1 )
+        end
+    end
 
     render.popViewMatrix()
 
@@ -371,7 +418,7 @@ local function hudChanged( state )
 
         if state then
             holo:setNoDraw( true )
-            holo:setMaterial( "" )
+            holo:setMaterial( "tools/toolsblack_cheap" )
         else
             holo:setNoDraw( false )
             holo:setMaterial( "models/shadertest/predator" )
@@ -443,4 +490,7 @@ do
     rtMatMain = material.create( "UnlitGeneric" )
     rtMatMainName = "!" .. rtMatMain:getName()
     rtMatMain:setTextureRenderTarget( "$basetexture", rtNameMain )
+
+    screenMat = material.create( "UnlitGeneric" )
+    screenMat:setTexture( "$basetexture", "_rt_PowerOfTwoFB" )
 end
