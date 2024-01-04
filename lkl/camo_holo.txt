@@ -353,7 +353,7 @@ function CamoHolo:onDestroyed()
         holo:remove()
     end
 
-    table.removeValue( allCamoHolos, self )
+    table.removeByValue( allCamoHolos, self )
 
     CamoHolo.super.onDestroyed( self )
 end
