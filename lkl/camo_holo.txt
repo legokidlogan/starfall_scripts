@@ -14,7 +14,7 @@ CamoHolo = class( "CamoHolo", Syncable )
 
 -- These apply to all instances and subclasses
 CamoHolo.static.BLOB_COUNT = 50 -- Note: dynamic blob camo will only be visible if connected to a HUD
-CamoHolo.static.BLOB_SIZE = 7 * 200
+CamoHolo.static.BLOB_SIZE = 6 * 200
 CamoHolo.static.BLOB_AREA_MULT = 1.1
 CamoHolo.static.BLOB_SCALE_WITH_HOLO = true
 CamoHolo.static.BLOB_HOLO_COMPARE_SIZE = Vector( 48 ):getLength()
