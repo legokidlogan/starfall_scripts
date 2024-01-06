@@ -524,9 +524,10 @@ function vectorMath.spreadVector( dir, pitchMin, pitchMax, yawMin, yawMax )
 
     local ang = dir:getAngle()
     local right = ang:getRight()
+    local up = ang:getUp()
 
     ang = ang:rotateAroundAxis( right, pitchDeg )
-    ang = ang:rotateAroundAxis( dir, yawDeg )
+    ang = ang:rotateAroundAxis( up, yawDeg )
 
     return ang:getForward()
 end
