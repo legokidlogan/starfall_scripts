@@ -240,6 +240,8 @@ function propBuffer.getProps( model )
 
     if model ~= nil then
         model = model:lower()
+
+        if not propsByModel[model] then return {} end
     end
 
     local out = {}
