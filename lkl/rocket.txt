@@ -240,6 +240,10 @@ function Rocket:explode()
     local pos = isValid( hitboxProp ) and hitboxProp:obbCenterW() or self:getPos()
     local explosives = {}
 
+    if isValid( hitboxProp ) then
+        hitboxProp:setCollisionGroup( COLLISION_GROUP_IN_VEHICLE )
+    end
+
     for i = 1, self:getExplosiveCount() do
         local explosive = propBuffer.takeProp( explosiveModel )
         if not explosive then continue end
