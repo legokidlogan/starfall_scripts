@@ -571,6 +571,97 @@ function vectorMath.randomDirection()
 end
 
 --[[
+    - Finds the optimal launch direction for a simple projectile to hit a target.
+    - This assumes z-axis gravity and no air resistance.
+
+    startPos: (Vector)
+        - The initial position of the projectile.
+    targetPos: (Vector)
+        - The position of the target.
+    projSpeed: (number > 0)
+        - The initial speed of the projectile.
+    gravity: (optional) (number)
+        - Acceleration due to gravity.
+        - Negative values mean a downwards-facing pull of gravity.
+        - Defaults to the z-axis of physenv.getGravity().
+    doUpperAngle: (optional) (boolean)
+        - If true, will use the higher-aiming angle of the two possible solutions.
+
+    - Note that, if you use this for gmod physics objects, the Source engine still applies drag even with :enableDrag( false )
+        - You will need to disable gravity and then, every tick, set the velocity and account for gravity to maintain the correct speed.
+        - Rough example:
+            local dir = vectorMath.dirForProjectile( startPos, targetPos, projSpeed, gravity )
+            local vel = dir * projSpeed
+            local hookName = "SomeUniqueHookName_MaintainSpeed" -- Should be something unique to that projectile to prevent naming conflicts.
+
+            ent:setPos( startPos )
+            ent:setAngles( dir:getAngle() )
+
+            physObj:enableGravity( false )
+            physObj:emableMotion( true )
+            physObj:setVelocity( dir * projSpeed )
+
+            ent:addCollisionListener( function( colData )
+                if not vel then return end -- Sometimes collision listeners can trigger after being removed, due to coming from the physics thread.
+
+                vel = false
+                hook.remove( "think", hookName )
+                ent:removeCollisionListener()
+
+                doStuffOnImpact( colData )
+            end )
+
+            hook.add( "think", hookName, function()
+                if not physObj:isValid() then
+                    hook.remove( "think", hookName )
+                    return
+                end
+
+                vel[3] = vel[3] + gravity * timer.frametime()
+                physObj:setVelocity( vel )
+            end )
+--]]
+function vectorMath.dirForProjectile( startPos, targetPos, projSpeed, gravity, doUpperAngle )
+    gravity = -( gravity or physenv.getGravity()[3] )
+
+    if gravity == 0 then
+        return ( targetPos - startPos ):getNormalized()
+    end
+
+    local targetDelta = targetPos - startPos
+    local targetDeltaZ = targetDelta[3]
+    local targetDeltaHoriz = Vector( targetDelta[1], targetDelta[2], 0 )
+
+    local projSpeedSqr = projSpeed ^ 2
+    local distHoriz = targetDeltaHoriz:getLength()
+
+    if distHoriz == 0 then
+        local dir = vectormath.getDirectionAndLength( targetDelta )
+
+        return dir
+    end
+
+    local yaw = targetDelta:getAngle()[2]
+    local pitch
+    local plusMinus = doUpperAngle and 1 or -1
+
+    local theta = math.deg( math.atan(
+        ( projSpeedSqr + plusMinus * math.sqrt( projSpeedSqr ^ 2 - gravity * ( gravity * distHoriz ^ 2 + 2 * targetDeltaZ * projSpeedSqr ) ) )
+        / ( gravity * distHoriz )
+    ) )
+
+    if theta ~= theta then -- nan
+        local sign = targetDelta:getAngle()[1] > 0 and 1 or -1
+
+        theta = 89 * sign
+    end
+
+    pitch = -theta
+
+    return Angle( pitch, yaw, 0 ):getForward()
+end
+
+--[[
     - Retuns the minimal distance between a point and an infinite line.
 
     point: (Vector)
