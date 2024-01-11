@@ -287,6 +287,8 @@ spawnQueue = Queue:new(
 
         if not success then return true end
 
+        ent:doNotDuplicate()
+
         propLookup[ent] = true
         table.insert( propsByModel[model], ent )
         table.insert( readyPropsByModel[model], ent )

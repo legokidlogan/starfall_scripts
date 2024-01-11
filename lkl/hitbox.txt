@@ -775,6 +775,7 @@ function Hitbox:_spawnHitboxProp( model )
     hitboxProp:setColor( self:getHitboxPropColor() )
     hitboxProp:setMaterial( self:getHitboxPropMaterial() )
     hitboxProp:enableMotion( false )
+    hitboxProp:doNotDuplicate()
 
     self._hitboxProp = hitboxProp
     self._hitboxPropReady = true
