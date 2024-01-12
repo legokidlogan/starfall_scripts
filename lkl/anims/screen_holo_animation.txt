@@ -1,0 +1,499 @@
+--@name Screen Holo Animation
+--@author legokidlogan
+--@shared
+--@include lkl/anims/holo_animation.txt
+--@include lkl/table_clone_deep.txt
+
+--[[
+    - Requires client realm to see.
+    - Draws multiple materials on the screens of players.
+    - Will show while the animation plays, regardless of where the player is.
+        - You can set up custom conditionals by using DEFINEME.
+        - For example, SphereInsideAnimation uses this to only display if the player's camera is inside a sphere.
+--]]
+
+
+if ScreenHoloAnimation then return end
+
+require( "lkl/anims/holo_animation.txt" )
+require( "lkl/table_clone_deep.txt" )
+
+
+ScreenHoloAnimation = class( "ScreenHoloAnimation", HoloAnimation )
+local ThisClass = ScreenHoloAnimation -- For readability
+
+ThisClass.static.SCREEN_HOLO_MODEL = "models/sprops/geometry/sphere_48.mdl"
+ThisClass.static.SCREEN_HOLO_RADIUS = 7
+ThisClass.static.SCREEN_HOLO_FOLOW_EYE_ANG = false
+ThisClass.static.SCREEN_HOLO_MATRERIALS = { "models/debug/debugwhite" }
+ThisClass.static.SCREEN_HOLO_COLORS = { Color( 255, 255, 255, 255 ) }
+ThisClass.static.SCREEN_HOLO_ANGS = { Angle( 0, 0, 0 ) }
+ThisClass.static.SCREEN_HOLO_COUNT = 1
+
+ThisClass.DURATION = 0
+ThisClass.INIT_SYNC_DELAY = 0.1
+
+
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+
+local showHolos
+local showHolosInitMove
+local stowHolos
+
+
+----- STATIC FUNCTIONS -----
+
+function ThisClass:initialize( replicateOnClient, pos, ang, ... )
+    ThisClass.super.initialize( self, replicateOnClient, pos, ang, ... )
+
+    self._groupedHolos.ScreenHolo = {}
+
+    self:setScreenHoloModel( ThisClass.static.SCREEN_HOLO_MODEL )
+    self:setScreenHoloRadius( ThisClass.static.SCREEN_HOLO_RADIUS )
+    self:setScreenHoloFollowEyeAng( ThisClass.static.SCREEN_HOLO_FOLOW_EYE_ANG )
+    self:setScreenHoloMaterials( ThisClass.static.SCREEN_HOLO_MATRERIALS )
+    self:setScreenHoloColors( ThisClass.static.SCREEN_HOLO_COLORS )
+    self:setScreenHoloAngs( ThisClass.static.SCREEN_HOLO_ANGS )
+    self._screenHoloHolosAreReadyToSpawn = true
+    self:setScreenHoloCount( ThisClass.static.SCREEN_HOLO_COUNT )
+
+    self:setScreenHoloVisible( true )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Whether or not the screen holos should be displayed while this anim plays.
+        - If this anim is currently paused, nothing will change until it resumes.
+        - If playing and changing visible from false to true, then holos will become visible on the next frame.
+    - Use this for condition control with external triggers such as button presses.
+        - If you want condition control that's checked every frame, see :canShowScreenHolo()
+--]]
+function ThisClass:setScreenHoloVisible( state )
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean" ) end
+    if self._screenHoloVisible == state then return end
+
+    self._screenHoloVisible = state
+    self:syncProperty( "ScreenHoloAnimation_ScreenHoloVisible", state )
+
+    if CLIENT and self:isPlaying() then
+        if state then
+            showHolos( self, false )
+        else
+            stowHolos( self, false )
+        end
+    end
+end
+
+function ThisClass:getScreenHoloVisible()
+    return self._screenHoloVisible
+end
+
+function ThisClass:refreshScreenHolos()
+    self:syncProperty( "ScreenHoloAnimation_RefreshScreenHolos", true )
+
+    if CLIENT then
+        local count = self:getScreenHoloCount()
+
+        self:setScreenHoloCount( 0 )
+        self:setScreenHoloCount( count )
+    end
+end
+
+function ThisClass:setScreenHoloModel( model )
+    if model == nil then model = self.class.SCREEN_HOLO_MODEL end
+    if type( model ) ~= "string" then error( "Expected model to be a string or nil" ) end
+
+    self._screenHoloModel = model
+    self:syncProperty( "ScreenHoloAnimation_ScreenHoloModel", model )
+
+    if CLIENT then
+        self:refreshScreenHolos()
+    end
+end
+
+function ThisClass:getScreenHoloModel()
+    return self._screenHoloModel
+end
+
+function ThisClass:setScreenHoloRadius( radius )
+    if radius == nil then radius = self.class.SCREEN_HOLO_RADIUS end
+    if type( radius ) ~= "number" then error( "Expected radius to be a number or nil" ) end
+    if radius <= 0 then error( "Expected radius to be > 0" ) end
+
+    self._screenHoloRadius = radius
+    self:syncProperty( "ScreenHoloAnimation_ScreenHoloRadius", radius, "float" )
+
+    if CLIENT then
+        self:refreshScreenHolos()
+    end
+end
+
+function ThisClass:getScreenHoloRadius()
+    return self._screenHoloRadius
+end
+
+function ThisClass:setScreenHoloFollowEyeAng( state )
+    if state == nil then state = self.class.SCREEN_HOLO_FOLOW_EYE_ANG end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._screenHoloFollowEyeAng = state
+    self:syncProperty( "ScreenHoloAnimation_ScreenHoloFollowEyeAng", state )
+
+    if CLIENT and not state then
+        self:refreshScreenHolos()
+    end
+end
+
+function ThisClass:getScreenHoloFollowEyeAng()
+    return self._screenHoloFollowEyeAng
+end
+
+function ThisClass:setScreenHoloMaterials( mats )
+    if mats == nil then mats = self.class.SCREEN_HOLO_MATRERIALS end
+    if type( mats ) ~= "table" then error( "Expected mats to be a table or nil" ) end
+
+    mats = table.cloneDeep( mats )
+    self._screenHoloMaterials = mats
+    self:syncProperty( "ScreenHoloAnimation_ScreenHoloMaterials", mats )
+
+    if CLIENT then
+        self:refreshScreenHolos()
+    end
+end
+
+function ThisClass:getScreenHoloMaterials()
+    return self._screenHoloMaterials
+end
+
+function ThisClass:setScreenHoloColors( colors )
+    if colors == nil then colors = self.class.SCREEN_HOLO_COLORS end
+    if type( colors ) ~= "table" then error( "Expected colors to be a table or nil" ) end
+
+    colors = table.cloneDeep( colors )
+    self._screenHoloColors = colors
+    self:syncProperty( "ScreenHoloAnimation_ScreenHoloColors", colors )
+
+    if CLIENT then
+        self:refreshScreenHolos()
+    end
+end
+
+function ThisClass:getScreenHoloColors()
+    return self._screenHoloColors
+end
+
+function ThisClass:setScreenHoloAngs( angs )
+    if angs == nil then angs = self.class.SCREEN_HOLO_ANGS end
+    if type( angs ) ~= "table" then error( "Expected angs to be a table or nil" ) end
+
+    angs = table.cloneDeep( angs )
+    self._screenHoloAngs = angs
+    self:syncProperty( "ScreenHoloAnimation_ScreenHoloAngs", angs )
+
+    if CLIENT and not self:getScreenHoloFollowEyeAng() then
+        self:refreshScreenHolos()
+    end
+end
+
+function ThisClass:getScreenHoloAngs()
+    return self._screenHoloAngs
+end
+
+function ThisClass:setScreenHoloCount( count )
+    if not self._screenHoloHolosAreReadyToSpawn then return end
+    if count == nil then count = self.class.SCREEN_HOLO_COUNT end
+    if count == self:getScreenHoloCount() then return end
+    if type( count ) ~= "number" then error( "Expected count to be a number or nil" ) end
+    if math.floor( count ) ~= count then error( "Expected count to be an integer" ) end
+    if count < 0 then error( "Expected count to be >= 0" ) end
+
+    self._screenHoloCount = count
+    self:syncProperty( "ScreenHoloAnimation_ScreenHoloCount", count, 10, true )
+
+    if CLIENT then
+        self:unqueueGroupedHolos( "ScreenHolo" )
+
+        local holos = self:getHoloGroup( "ScreenHolo" )
+        local oldCount = #holos
+
+        if count > oldCount then
+            local model = self:getScreenHoloModel()
+            local size = Vector( -2 * self:getScreenHoloRadius() )
+            local startHidden = ( not self:isPlaying() ) or self._screenHoloHolosAreStowed
+
+            local mats = self:getScreenHoloMaterials()
+            local prevMat = "models/debug/debugwhite"
+
+            local colors = self:getScreenHoloColors()
+            local prevColor = Color( 255, 255, 255, 255 )
+
+            local angs = self:getScreenHoloAngs()
+            local prevAng = Angle( 0, 0, 0 )
+
+            for i = oldCount + 1, count do
+                prevMat = mats[i] or prevMat
+                prevColor = colors[i] or prevColor
+                prevAng = angs[i] or prevAng
+
+                self:queueGroupedHolo(
+                    {
+                        Model = model,
+                        Pos = Vector( 0, 0, 0 ),
+                        Ang = prevAng,
+                        Size = size,
+                        Material = prevMat,
+                        Color = prevColor,
+                        StartHidden = startHidden,
+                        Fullbright = true,
+                    },
+                    "ScreenHolo"
+                )
+            end
+        elseif count < oldCount then
+            for i = oldCount, count + 1, -1 do
+                self:removeHolo( holos[i] )
+            end
+        end
+    end
+end
+
+function ThisClass:getScreenHoloCount()
+    return self._screenHoloCount
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+if CLIENT then
+    --[[
+        - Determines whether or not screen holos can be displayed this frame.
+            - Acts as a secondary condition layer after :setScreenHoloVisible().
+            - Does not get called if the anim is currently paused, in which case it will use the last result.
+        - eyePos and eyeAng are the current camera position and angles for this frame.
+    --]]
+    function ThisClass:canShowScreenHolo( _eyePos, _eyeAng )
+        return true
+    end
+
+    --[[
+        - Runs after :canShowScreenHolo() returns true, and before screen holos get moved into place for the current frame.
+    --]]
+    function ThisClass:onScreenHoloRender( _eyePos, _eyeAng )
+
+    end
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ThisClass:onDestroyed()
+    if CLIENT then
+        hook.remove( "RenderScene", self:getTimerName( "LKL_ScreenHoloAnimation_FollowEyes" ) )
+    end
+
+    ThisClass.super.onDestroyed( self )
+end
+
+function ThisClass:onStartPlaying( _wasFullStopped )
+    if SERVER then return end
+
+    if self:getScreenHoloVisible() then
+        showHolos( self, false )
+    end
+end
+
+function ThisClass:onStopPlaying( isFullStop )
+    if SERVER then return end
+
+    if isFullStop then
+        stowHolos( self, false )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+showHolos = function( anim, isSoftChange )
+    if not anim._screenHoloHolosAreStowed then return end
+
+    anim._screenHoloHolosAreStowed = false
+
+    if isSoftChange then
+        for _, holo in ipairs( anim:getHoloGroup( "ScreenHolo" ) ) do
+            holo:setNoDraw( false )
+        end
+
+        return
+    end
+
+    showHolosInitMove( anim )
+
+    hook.add( "RenderScene", anim:getTimerName( "LKL_ScreenHoloAnimation_FollowEyes" ), function( eyePos, eyeAng )
+        --if not anim:isValid() then return end -- TODO: Is this needed?
+
+        if anim:isPlaying() then -- Not paused
+            if anim:canShowScreenHolo( eyePos, eyeAng ) then
+                showHolos( anim, true )
+            else
+                stowHolos( anim, true )
+
+                return
+            end
+        end
+
+        anim:onScreenHoloRender( eyePos, eyeAng )
+
+        if anim:getScreenHoloFollowEyeAng() then
+            local angs = anim:getScreenHoloAngs()
+            local prevAng = eyeAng
+
+            for i, holo in ipairs( anim:getHoloGroup( "ScreenHolo" ) ) do
+                local newAng = angs[i]
+
+                if newAng then
+                    local _
+                    _, prevAng = localToWorld( VECTOR_ZERO, newAng, VECTOR_ZERO, eyeAng )
+                end
+
+                holo:setPos( eyePos )
+                holo:setAngles( prevAng )
+            end
+        else
+            for _, holo in ipairs( anim:getHoloGroup( "ScreenHolo" ) ) do
+                holo:setPos( eyePos )
+            end
+        end
+    end )
+end
+
+showHolosInitMove = function( anim )
+    local doSetAng = not anim:getScreenHoloFollowEyeAng()
+    local angs = anim:getScreenHoloAngs()
+    local prevAng = eyeAng
+
+    for _, holo in ipairs( anim:getHoloGroup( "ScreenHolo" ) ) do
+        holo:setPos( VECTOR_ZERO )
+        holo:setNoDraw( false )
+
+        if doSetAng then
+            local newAng = angs[i]
+
+            if newAng then
+                local _
+                _, prevAng = localToWorld( VECTOR_ZERO, newAng, VECTOR_ZERO, eyeAng )
+            end
+
+            holo:setAngles( prevAng )
+        end
+    end
+end
+
+stowHolos = function( anim, isSoftChange )
+    if anim._screenHoloHolosAreStowed then return end
+
+    anim._screenHoloHolosAreStowed = true
+
+    if isSoftChange then
+        for _, holo in ipairs( anim:getHoloGroup( "ScreenHolo" ) ) do
+            holo:setNoDraw( true )
+        end
+
+        return
+    end
+
+    hook.remove( "RenderScene", anim:getTimerName( "LKL_ScreenHoloAnimation_FollowEyes" ) )
+
+    for _, holo in ipairs( anim:getHoloGroup( "ScreenHolo" ) ) do
+        holo:setPos( VECTOR_ZERO )
+        holo:setNoDraw( true )
+    end
+end
+
+
+----- SETUP -----
+
+if SERVER then return end
+
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_ScreenHoloVisible", function()
+    local anim = Syncable:readSyncedCopy()
+    local state = net.readBool()
+
+    if not anim then return end
+
+    anim:setScreenHoloVisible( state )
+end )
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_RefreshScreenHolos", function()
+    local anim = Syncable:readSyncedCopy()
+    local _ = net.readBool()
+
+    if not anim then return end
+
+    anim:refreshScreenHolos()
+end )
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_ScreenHoloModel", function()
+    local anim = Syncable:readSyncedCopy()
+    local model = net.readString()
+
+    if not anim then return end
+
+    anim:setScreenHoloModel( model )
+end )
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_ScreenHoloRadius", function()
+    local anim = Syncable:readSyncedCopy()
+    local radius = net.readFloat()
+
+    if not anim then return end
+
+    anim:setScreenHoloRadius( radius )
+end )
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_ScreenHoloFollowEyeAng", function()
+    local anim = Syncable:readSyncedCopy()
+    local state = net.readBool()
+
+    if not anim then return end
+
+    anim:setScreenHoloFollowEyeAng( state )
+end )
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_ScreenHoloMaterials", function()
+    local anim = Syncable:readSyncedCopy()
+    local mats = net.readTable()
+
+    if not anim then return end
+
+    anim:setScreenHoloMaterials( mats )
+end )
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_ScreenHoloColors", function()
+    local anim = Syncable:readSyncedCopy()
+    local colors = net.readTable()
+
+    if not anim then return end
+
+    anim:setScreenHoloColors( colors )
+end )
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_ScreenHoloAngs", function()
+    local anim = Syncable:readSyncedCopy()
+    local angs = net.readTable()
+
+    if not anim then return end
+
+    anim:setScreenHoloAngs( angs )
+end )
+
+net.receive( "LKL_Syncable_Set__ScreenHoloAnimation_ScreenHoloCount", function()
+    local anim = Syncable:readSyncedCopy()
+    local count = net.readUInt( 10 )
+
+    if not anim then return end
+
+    anim:setScreenHoloCount( count )
+end )
