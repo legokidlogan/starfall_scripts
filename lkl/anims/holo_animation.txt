@@ -126,7 +126,7 @@ end
             SubMaterials: (table) The submaterials of the holo. Defaults to nil. See lkl/submaterial.txt for more info.
             Color: (Color) The color of the holo. Defaults to Color( 255, 255, 255, 255 ).
             StartHidden: (boolean) Whether or not to do holo:setNoDraw( true ) upon spawning. Defaults to false.
-            StartHiddenByColor: (boolean) Whether or not to set the holo's alpha to 0 upon spawning. Defaults to false. Overrides StartHidden.
+            StartHiddenByColor: (boolean) Whether or not to set the holo's alpha to 0 upon spawning. Defaults to false.
             RenderMode: (number) The render mode of the holo. Defaults to 0.
             Skin: (number) The skin of the holo. Defaults to 0.
             Fullbright: (boolean) Whether or not to make the holo fullbright. Defaults to false.
@@ -516,6 +516,7 @@ function HoloAnimation:_validateHoloEntry( entry )
     entry.SubMaterials = subMaterials
     entry.Color = entry.Color or Color( 255, 255, 255, 255 )
     entry.StartHidden = entry.StartHidden or false
+    entry.StartHiddenByColor = entry.StartHiddenByColor or false
     entry.RenderMode = entry.RenderMode or 0
     entry.Skin = entry.Skin or 0
     entry.Fullbright = entry.Fullbright or false
@@ -548,7 +549,7 @@ function HoloAnimation:_spawnHolo( entry )
 
     local clips = entry.Clips
     local color = entry.Color
-    local colorEff = entry.StartHidden and COLOR_EMPTY or color
+    local colorEff = entry.StartHiddenByColor and COLOR_EMPTY or color
     local renderModeEff = entry.RenderMode
 
     if colorEff.a ~= 255 and renderModeEff == 0 then
@@ -571,6 +572,7 @@ function HoloAnimation:_spawnHolo( entry )
     holo:setRenderMode( renderModeEff )
     holo:setSkin( entry.Skin )
     holo:suppressEngineLighting( entry.Fullbright )
+    holo:setNoDraw( entry.StartHidden )
 
     if clips then
         for i, clip in ipairs( clips ) do
