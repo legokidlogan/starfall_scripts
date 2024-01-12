@@ -125,7 +125,8 @@ end
             Material: (string) The material of the holo. Defaults to "".
             SubMaterials: (table) The submaterials of the holo. Defaults to nil. See lkl/submaterial.txt for more info.
             Color: (Color) The color of the holo. Defaults to Color( 255, 255, 255, 255 ).
-            StartHidden: (boolean) Whether or not to set the holo's alpha to 0 upon spawning. Defaults to false.
+            StartHidden: (boolean) Whether or not to do holo:setNoDraw( true ) upon spawning. Defaults to false.
+            StartHiddenByColor: (boolean) Whether or not to set the holo's alpha to 0 upon spawning. Defaults to false. Overrides StartHidden.
             RenderMode: (number) The render mode of the holo. Defaults to 0.
             Skin: (number) The skin of the holo. Defaults to 0.
             Fullbright: (boolean) Whether or not to make the holo fullbright. Defaults to false.
@@ -260,9 +261,24 @@ function HoloAnimation:getAllHolos()
 end
 
 --[[
+    - Performs :setNoDraw( shouldNotDraw) on all holos spawned by this HoloAnimation.
+    - This is mainly used for quickly showing/hiding the holos when starting/stopping the animation.
+--]]
+function HoloAnimation:setAllHoloNoDraws( shouldNotDraw )
+    if type( shouldNotDraw ) ~= "boolean" then error( "Expected shouldNotDraw to be a boolean" ) end
+
+    for _, holo in ipairs( self._allHolos ) do
+        if holo:isValid() then
+            holo:setNoDraw( shouldNotDraw )
+        end
+    end
+end
+
+--[[
     - Sets the color of all holos spawned by this HoloAnimation.
     - If color is nil, the holos will be reset to their original colors as defined when queueing them.
-    - This is mainly used for quickly showing/hiding the holos when starting/stopping the animation.
+    - This can be used for quickly showing/hiding the holos when starting/stopping the animation.
+        - :setAllHoloNoDraws() is much better, but this is an option if your anim uses manual :draw() calls.
 --]]
 function HoloAnimation:setAllHoloColors( color )
     if color ~= nil then
