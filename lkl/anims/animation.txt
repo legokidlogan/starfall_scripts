@@ -84,6 +84,10 @@ function Animation:pause()
     self:setPlaying( false )
 end
 
+function Animation:isPaused()
+    return not ( self._playing or self._stopped )
+end
+
 function Animation:stop()
     if self._stopped then return end
 
