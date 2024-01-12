@@ -305,7 +305,7 @@ function HoloAnimation:setAllHoloColors( color )
 end
 
 --[[
-    - Similar to :setAllHoloAlphas() but only modifies the alpha of each holo.
+    - Similar to :setAllHoloColors() but only modifies the alpha of each holo.
 --]]
 function HoloAnimation:setAllHoloAlphas( alpha )
     if alpha ~= nil then
