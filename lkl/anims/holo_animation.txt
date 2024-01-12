@@ -304,6 +304,40 @@ function HoloAnimation:setAllHoloColors( color )
     end
 end
 
+--[[
+    - Similar to :setAllHoloAlphas() but only modifies the alpha of each holo.
+--]]
+function HoloAnimation:setAllHoloAlphas( alpha )
+    if alpha ~= nil then
+        if type( alpha ) ~= "number" then error( "Expected alpha to be a number or nil" ) end
+
+        for _, holo in ipairs( self._allHolos ) do
+            if holo:isValid() then
+                local color = holo:getColor()
+                color.a = alpha
+
+                holo:setColor( color )
+            end
+        end
+
+        return
+    end
+
+    -- Reset
+    for _, holo in ipairs( self._allHolos ) do
+        if holo:isValid() then
+            local originalColor = holo._holoAnimation_OriginalColor
+
+            if originalColor then
+                local color = holo:getColor()
+                color.a = originalColor.a
+
+                holo:setColor( originalColor )
+            end
+        end
+    end
+end
+
 -- Returns the name of a holo spawned by this HoloAnimation, or nil if not applicable.
 function HoloAnimation:getHoloName( holo )
     local holoInfo = holoLookup[holo]
