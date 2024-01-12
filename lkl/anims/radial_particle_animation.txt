@@ -654,7 +654,7 @@ function ThisClass:onStopPlaying( isFullStop )
     if SERVER then return end
 
     if isFullStop then
-        self:setAllHoloColors( COLOR_EMPTY )
+        self:setAllHolosColor( COLOR_EMPTY )
 
         local groupActive = self:getHoloGroup( "active" )
 

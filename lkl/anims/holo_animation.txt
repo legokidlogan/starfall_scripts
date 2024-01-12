@@ -140,7 +140,7 @@ end
             - This is for if your animation resizes the holo, and you want to reset it back to its original size.
             - This is also used by AutoScale, if enabled.
             - holo._holoAnimation_AutoScale is also set to true if AutoScale is enabled.
-        - The original value oh Color will be stored in holo._holoAnimation_OriginalColor for use with :setAllHoloColors().
+        - The original value oh Color will be stored in holo._holoAnimation_OriginalColor for use with :setAllHolosColor().
 --]]
 function HoloAnimation:queueUnnamedHolo( entry )
     self:_validateHoloEntry( entry )
@@ -264,7 +264,7 @@ end
     - Performs :setNoDraw( shouldNotDraw) on all holos spawned by this HoloAnimation.
     - This is mainly used for quickly showing/hiding the holos when starting/stopping the animation.
 --]]
-function HoloAnimation:setAllHoloNoDraws( shouldNotDraw )
+function HoloAnimation:setAllHolosNoDraw( shouldNotDraw )
     if type( shouldNotDraw ) ~= "boolean" then error( "Expected shouldNotDraw to be a boolean" ) end
 
     for _, holo in ipairs( self._allHolos ) do
@@ -278,9 +278,9 @@ end
     - Sets the color of all holos spawned by this HoloAnimation.
     - If color is nil, the holos will be reset to their original colors as defined when queueing them.
     - This can be used for quickly showing/hiding the holos when starting/stopping the animation.
-        - :setAllHoloNoDraws() is much better, but this is an option if your anim uses manual :draw() calls.
+        - :setAllHolosNoDraw() is much better, but this is an option if your anim uses manual :draw() calls.
 --]]
-function HoloAnimation:setAllHoloColors( color )
+function HoloAnimation:setAllHolosColor( color )
     if color ~= nil then
         if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
 
@@ -305,9 +305,9 @@ function HoloAnimation:setAllHoloColors( color )
 end
 
 --[[
-    - Similar to :setAllHoloColors() but only modifies the alpha of each holo.
+    - Similar to :setAllHolosColor() but only modifies the alpha of each holo.
 --]]
-function HoloAnimation:setAllHoloAlphas( alpha )
+function HoloAnimation:setAllHolosAlpha( alpha )
     if alpha ~= nil then
         if type( alpha ) ~= "number" then error( "Expected alpha to be a number or nil" ) end
 
