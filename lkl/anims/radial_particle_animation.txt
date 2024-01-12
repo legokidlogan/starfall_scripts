@@ -365,7 +365,7 @@ function ThisClass:initialize( replicateOnClient, pos, ang, particleLimit, ... )
         self:queueGroupedHolo(
             {
                 Model = holoModel,
-                StartHidden = true,
+                StartHiddenByColor = true,
             },
             "inactive"
         )

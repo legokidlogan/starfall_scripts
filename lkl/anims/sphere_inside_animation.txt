@@ -32,7 +32,6 @@ ThisClass.DURATION = 0
 ThisClass.INIT_SYNC_DELAY = 0.1
 
 
-local COLOR_EMPTY = Color( 0, 0, 0, 0 )
 local VECTOR_ZERO = Vector( 0, 0, 0 )
 
 local showHolos
@@ -266,14 +265,9 @@ end
 function ThisClass:onStartPlaying( wasFullStopped )
     if SERVER then return end
 
-    local colors = self:getInsideColors()
-    local prevColor = Color( 255, 255, 255, 255 )
-
-    for i, holo in ipairs( self:getHoloGroup( "SphereInside" ) ) do
-        prevColor = colors[i] or prevColor
-
+    for _, holo in ipairs( self:getHoloGroup( "SphereInside" ) ) do
         holo:setPos( VECTOR_ZERO )
-        holo:setColor( prevColor )
+        holo:setNoDraw( false )
     end
 
     if not wasFullStopped then return end
@@ -310,7 +304,7 @@ function ThisClass:onStopPlaying( isFullStop )
 
     for _, holo in ipairs( self:getHoloGroup( "SphereInside" ) ) do
         holo:setPos( VECTOR_ZERO )
-        holo:setColor( COLOR_EMPTY )
+        holo:setNoDraw( true )
     end
 end
 
