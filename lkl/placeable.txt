@@ -243,6 +243,29 @@ function Placeable:getChildren()
     return children
 end
 
+--[[
+    - Delays the next :think() until the given time is reached.
+    - Also delays the next pos/ang update check, which impacts parented Placeables.
+
+    time: (number)
+        - The curtime-based timestamp for when thinking should resume as normal.
+--]]
+function Placeable:setNextThinkTime( time )
+    if type( time ) ~= "number" then error( "Expected time to be a number" ) end
+
+    self._nextThinkTime = time
+end
+
+-- Same as :setNextThinkTime(), but as an amount of seconds from now, instead of a timestamp.
+function Placeable:setNextThinkTimeFromNow( delay )
+    self._nextThinkTime = timer.curtime() + delay
+end
+
+-- Will be nil if the next think is not delayed.
+function Placeable:getNextThinkTime()
+    return self._nextThinkTime
+end
+
 -- Acts similarly to timer.frametime(), but accounts for any time the Placeable's :think() gets skipped due to cpu usage.
 function Placeable:getThinkDelta()
     return self._thinkDelta
@@ -368,6 +391,14 @@ hook.add( "think", "LKL_Placeable_Think", function()
 
     for _, placeable in ipairs( allPlaceables ) do
         if not perfCheck( placeable.class.THINK_PERF_LIMIT ) then break end
+
+        local nextThinkTime = placeable:getNextThinkTime()
+
+        if nextThinkTime then
+            if now < nextThinkTime then continue end
+
+            pleaceable._nextThinkTime = nil
+        end
 
         local dt = now - placeable._lastThinkTime
         placeable._lastThinkTime = now
