@@ -81,6 +81,7 @@ function HoloAnimation:initialize( replicateOnClient, pos, ang, ... )
             end
 
             table.insert( selfObj._allHolos, holo )
+            selfObj:onHoloSpawned( holo, name, groupName )
         end,
         function()
             selfObj._holosSpawned = true
@@ -409,6 +410,11 @@ end
 ----- OVERRIDABLE FUNCTIONS -----
 
 -- See Animation for overriding :onStartPlaying(), :onStopPlaying(), and :handlePlayback().
+
+-- Called for each holo that gets spawned by this HoloAnimation. One or both of name/groupName will be nil.
+function HoloAnimation:onHoloSpawned( _holo, _name, _groupName )
+
+end
 
 -- Called when the holos are done being spawned. Can call multiple times if new holos are queued up afterwards.
 function HoloAnimation:onHolosSpawned()
