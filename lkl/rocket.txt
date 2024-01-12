@@ -35,6 +35,8 @@ Rocket.static.AUTO_TARGET_INTERVAL = 0.5 -- How often the rocket should auto tar
 Rocket.static.IMPACT_INTERVAL = 0 -- How often the rocket should check for impacts. If 0, will be done in :think().
 
 -- These can be overridden by subclasses, as well as set on a per-instance basis.
+Rocket.static.THINK_INTERVAL = 0.05 -- How often the rocket should think. If 0, will be the server's tickrate.
+
 Rocket.static.ROCKET_GRAVITY = Vector( 0, 0, -400 )
 Rocket.static.ROCKET_SPEED = 2000
 Rocket.static.ROCKET_TURN_SPEED = 90 -- Max degrees per second per each axis when trying to turn towards a target.
@@ -180,6 +182,16 @@ end
 
 function Rocket:doesTargetNPCs()
     return self._targetNPCs
+end
+
+function Rocket:setThinkInterval( interval )
+    if interval ~= nil and type( interval ) ~= "number" then error( "Expected interval to be a number or nil" ) end
+
+    self._thinkInterval = interval
+end
+
+function Rocket:getThinkInterval()
+    return self._thinkInterval or self.class.THINK_INTERVAL
 end
 
 function Rocket:launch()
@@ -874,6 +886,12 @@ function Rocket:onDestroyed()
 end
 
 function Rocket:think()
+    local thinkInterval = self:getThinkInterval()
+
+    if thinkInterval > 0 then
+        self:setNextThinkTimeFromNow( thinkInterval )
+    end
+
     self:_handleRocketMovement()
 end
 
