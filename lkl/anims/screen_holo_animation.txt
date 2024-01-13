@@ -372,7 +372,7 @@ end
 showHolosInitMove = function( anim )
     local doSetAng = not anim:getScreenHoloFollowEyeAng()
     local angs = anim:getScreenHoloAngs()
-    local prevAng = eyeAng
+    local prevAng = render.getAngles()
 
     for _, holo in ipairs( anim:getHoloGroup( "ScreenHolo" ) ) do
         holo:setPos( VECTOR_ZERO )
