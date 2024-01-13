@@ -35,7 +35,7 @@ Rocket.static.AUTO_TARGET_INTERVAL = 0.5 -- How often the rocket should auto tar
 Rocket.static.IMPACT_INTERVAL = 0 -- How often the rocket should check for impacts. If 0, will be done in :think().
 
 -- These can be overridden by subclasses, as well as set on a per-instance basis.
-Rocket.static.THINK_INTERVAL = 0.05 -- How often the rocket should think. If 0, will be the server's tickrate.
+Rocket.static.THINK_INTERVAL = 0.03 -- How often the rocket should think. If 0, will be the server's tickrate.
 
 Rocket.static.ROCKET_GRAVITY = Vector( 0, 0, -400 )
 Rocket.static.ROCKET_SPEED = 2000
