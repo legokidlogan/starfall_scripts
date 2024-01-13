@@ -47,6 +47,7 @@ function ThisClass:initialize( replicateOnClient, pos, ang, ... )
     ThisClass.super.initialize( self, replicateOnClient, pos, ang, ... )
 
     self._groupedHolos.ScreenHolo = {}
+    self._screenHoloHolosAreStowed = true
 
     self:setScreenHoloModel( ThisClass.static.SCREEN_HOLO_MODEL )
     self:setScreenHoloRadius( ThisClass.static.SCREEN_HOLO_RADIUS )
