@@ -397,7 +397,7 @@ hook.add( "think", "LKL_Placeable_Think", function()
         if nextThinkTime then
             if now < nextThinkTime then continue end
 
-            pleaceable._nextThinkTime = nil
+            placeable._nextThinkTime = nil
         end
 
         local dt = now - placeable._lastThinkTime
