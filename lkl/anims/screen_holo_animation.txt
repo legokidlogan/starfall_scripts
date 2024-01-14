@@ -25,7 +25,7 @@ local ThisClass = ScreenHoloAnimation -- For readability
 ThisClass.static.SCREEN_HOLO_MODEL = "models/sprops/geometry/sphere_48.mdl"
 ThisClass.static.SCREEN_HOLO_RADIUS = 7
 ThisClass.static.SCREEN_HOLO_FOLOW_EYE_ANG = false
-ThisClass.static.SCREEN_HOLO_MATRERIALS = { "models/debug/debugwhite" }
+ThisClass.static.SCREEN_HOLO_MATERIALS = { "models/debug/debugwhite" }
 ThisClass.static.SCREEN_HOLO_COLORS = { Color( 255, 255, 255, 255 ) }
 ThisClass.static.SCREEN_HOLO_ANGS = { Angle( 0, 0, 0 ) }
 ThisClass.static.SCREEN_HOLO_COUNT = 1
@@ -52,7 +52,7 @@ function ThisClass:initialize( replicateOnClient, pos, ang, ... )
     self:setScreenHoloModel( ThisClass.static.SCREEN_HOLO_MODEL )
     self:setScreenHoloRadius( ThisClass.static.SCREEN_HOLO_RADIUS )
     self:setScreenHoloFollowEyeAng( ThisClass.static.SCREEN_HOLO_FOLOW_EYE_ANG )
-    self:setScreenHoloMaterials( ThisClass.static.SCREEN_HOLO_MATRERIALS )
+    self:setScreenHoloMaterials( ThisClass.static.SCREEN_HOLO_MATERIALS )
     self:setScreenHoloColors( ThisClass.static.SCREEN_HOLO_COLORS )
     self:setScreenHoloAngs( ThisClass.static.SCREEN_HOLO_ANGS )
     self._screenHoloHolosAreReadyToSpawn = true
@@ -152,7 +152,7 @@ function ThisClass:getScreenHoloFollowEyeAng()
 end
 
 function ThisClass:setScreenHoloMaterials( mats )
-    if mats == nil then mats = self.class.SCREEN_HOLO_MATRERIALS end
+    if mats == nil then mats = self.class.SCREEN_HOLO_MATERIALS end
     if type( mats ) ~= "table" then error( "Expected mats to be a table or nil" ) end
 
     mats = table.cloneDeep( mats )
