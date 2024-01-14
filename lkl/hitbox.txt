@@ -134,6 +134,13 @@ function Hitbox:initialize( pos, ang, hitboxModel, pthString, pthScale )
     self:_spawnHitboxProp( hitboxModel )
 end
 
+function Hitbox.static:getHitboxFromProp( ent )
+    if not ent then return nil end
+    if not ent._hitbox_IsHitboxProp then return nil end
+
+    return ent._hitbox_HitboxObject
+end
+
 
 ----- INSTANCE FUNCTIONS -----
 
