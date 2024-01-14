@@ -288,6 +288,11 @@ function Animation:handlePlayback( _time )
 
 end
 
+-- Called when the Animation reaches the end naturally, after auto-stop, loop, ping-pong, etc has been handled.
+function Animation:onHitTheEnd( _isFromSync )
+
+end
+
 
 ----- IMPLEMENTED FUNCTIONS -----
 
@@ -359,6 +364,12 @@ function Animation:think()
                     self:setTime( 0 ) -- Sync client
                 end
             end
+        end
+
+        self:onHitTheEnd( false )
+
+        if self:isReplicatedOnClient() then
+            self:syncProperty( "Animation_OnHitTheEnd", true )
         end
     end
 end
@@ -441,6 +452,15 @@ net.receive( "LKL_Syncable_Set__Animation_Stopped", function()
     end
 
     anim:onStopPlaying( true )
+end )
+
+net.receive( "LKL_Syncable_Set__Animation_OnHitTheEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local _ = net.readBool()
+
+    if not anim then return end
+
+    anim:onHitTheEnd( true )
 end )
 
 net.receive( "LKL_Syncable_Set__Animation_UpdateInterval", function()
