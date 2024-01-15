@@ -248,6 +248,7 @@ function ThisClass:setScreenHoloCount( count )
                         Color = prevColor,
                         StartHidden = startHidden,
                         Fullbright = true,
+                        RenderMode = RENDERMODE.WORLDGLOW,
                     },
                     "ScreenHolo"
                 )
