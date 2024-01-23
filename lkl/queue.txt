@@ -4,20 +4,19 @@
 --@include lkl/middleclass_extras.txt
 --@include lkl/destroyable.txt
 --@include lkl/table_clone_deep.txt
---@include lkl/perf_check.txt
 
 if Queue then return end
 
 require( "lkl/middleclass_extras.txt" )
 require( "lkl/destroyable.txt" )
 require( "lkl/table_clone_deep.txt" )
-require( "lkl/perf_check.txt" )
 
 
 Queue = class( "Queue", Destroyable )
 
 
 local allQueues = {}
+local getPerfLimit
 
 local tableInsert = table.insert
 local tableRemove = table.remove
@@ -422,12 +421,12 @@ function Queue:processBatch( batchSize )
     batchSize = batchSize or self:getBatchSize()
     batchSize = batchSize == 0 and math.huge or batchSize
     local now = timer.realtime()
-    local perfLimit = self:getPerfLimit()
+    local perfLimit = getPerfLimit( self:getPerfLimit() )
 
     self._nextBatchTime = now + self:getInterval()
 
     for _ = 1, batchSize do
-        if not perfCheck( perfLimit ) then
+        if cpuAverage() > perfLimit then
             self:pause( self:getPerfCooldown() )
 
             return
@@ -492,6 +491,21 @@ end
 
 function Queue:tostringInner()
     return self:getName()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+-- Account for cpu usage of other owned chips, allowing for use of cpuAverage() over the slow cpuTotalAverage() in future loop iterations.
+getPerfLimit = function( frac )
+    local perfLimit = cpuMax() * frac
+    local totalPerf = cpuTotalAverage()
+    if totalPerf >= perfLimit then return 0 end
+
+    local otherPerf = totalPerf - cpuAverage()
+    perfLimit = perfLimit - otherPerf
+
+    return perfLimit
 end
 
 
