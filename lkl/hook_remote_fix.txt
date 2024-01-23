@@ -72,7 +72,7 @@ function hookRunRemoteFixed( targets, hookName, ... )
     targets = targets or find.byClass( "starfall_processor" )
 
     if type( targets ) ~= "table" then
-        return _hookRunRemote( { [1] = targets }, hookName, unpack( args ) )
+        return _hookRunRemote( targets, hookName, unpack( args ) )
     end
 
     local results = {}
