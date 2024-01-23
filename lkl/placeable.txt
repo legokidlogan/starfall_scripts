@@ -2,7 +2,6 @@
 --@author legokidlogan
 --@shared
 --@include lkl/syncable.txt
---@include lkl/perf_check.txt
 
 --[[
     - TODO
@@ -11,7 +10,6 @@
 if Placeable then return end
 
 require( "lkl/syncable.txt" )
-require( "lkl/perf_check.txt" )
 
 
 Placeable = class( "Placeable", Syncable )
@@ -387,11 +385,28 @@ end
 ----- SETUP -----
 
 hook.add( "think", "LKL_Placeable_Think", function()
+    local perfTotalLimit = cpuMax()
+    local totalPerf = cpuTotalAverage()
+    if totalPerf >= perfTotalLimit then return end
+
+    local otherPerf = totalPerf - cpuAverage() -- cpu usage from owner's other chips
+    local skippedClasses = {}
     local now = timer.curtime()
 
     for _, placeable in ipairs( allPlaceables ) do
-        if not perfCheck( placeable.class.THINK_PERF_LIMIT ) then break end
+        local classObj = placeable.class
+        if skippedClasses[classObj] then continue end
 
+        -- Check perf limit. Each class could have a different limit, so unfortunately this gets a bit ugly.
+        local perfLimitFrac = placeable.class.THINK_PERF_LIMIT
+
+        if cpuAverage() > perfTotalLimit * perfLimitFrac - otherPerf then
+            skippedClasses[classObj] = true -- Ignore this class for the rest of the tick.
+
+            continue
+        end
+
+        -- Handle next think time.
         local nextThinkTime = placeable:getNextThinkTime()
 
         if nextThinkTime then
