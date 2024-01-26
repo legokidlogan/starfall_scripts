@@ -99,6 +99,8 @@ if CLIENT then
     end
 
     local function tryLoadData()
+        timer.remove( "LKL_MapData_TryLoad" )
+
         if not file.exists( dataFilePath ) then
             requestDataGeneration()
 
@@ -174,7 +176,11 @@ if CLIENT then
         local folder = string.getPathFromFilename( dataFilePath )
         file.createDir( folder )
 
-        tryLoadData()
+        if mapData.OWNERONLY then
+            tryLoadData()
+        else
+            timer.create( "LKL_MapData_TryLoad", 3, 0, tryLoadData ) -- Delay in case other players have bad ping
+        end
     end
 
 
