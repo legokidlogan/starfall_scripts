@@ -197,7 +197,10 @@ end
 ----- PRIVATE FUNCTIONS -----
 
 getScaledRotatedWorldSpaceAABB = function( holo )
-    return holo:getPos() + vectorMath.getAABB( holo:obbMins(), holo:obbMaxs(), holo:getAngles(), holo:getScale() )
+    local pos = holo:getPos()
+    local aabbMin, aabbMax = vectorMath.getAABB( holo:obbMins(), holo:obbMaxs(), holo:getAngles(), holo:getScale() )
+
+    return pos + aabbMin, pos + aabbMax
 end
 
 getScaledRotatedOBBCenterW = function( holo )
