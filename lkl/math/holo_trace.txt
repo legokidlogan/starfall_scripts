@@ -307,7 +307,11 @@ getNearbyHolos = function( holos, startPos, endPos, traceDir, traceLength )
     local traceLengthHalf = traceLength / 2
 
     for _, holo in ipairs( holos ) do
-        holo = holo:toHologram()
+        local success = pcall( function()
+            holo = holo:toHologram()
+        end )
+
+        if not success then continue end
 
         local holoCenter = getScaledRotatedOBBCenterW( holo )
         local holoRadius = getScaledBoundingRadius( holo )
