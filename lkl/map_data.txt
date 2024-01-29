@@ -17,6 +17,7 @@ libMapData.OWNER_ONLY = libMapData.OWNER_ONLY or false -- If true, then the owne
 
 require( "lkl/gcolors.txt" )
 
+local data = nil
 local dataIsReady = false
 local versionID = "v1"
 local hasSentReadyHook = false
