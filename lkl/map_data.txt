@@ -12,6 +12,7 @@ libMapData._alreadyRequired = true
 
 -- CONFIG:
 libMapData.OWNER_ONLY = libMapData.OWNER_ONLY or false -- If true, then the owner will be the only client to receive map data.
+libMapData.FORCE_REGENERATE = libMapData.FORCE_REGENERATE or false -- If true, then this version's map data will be cleared and regenerated.
 -- END CONFIG
 
 
@@ -131,6 +132,19 @@ if CLIENT then
         end )
     end
 
+    -- Only works on startup before tryLoadData() is called.
+    -- The generator code is currently not designed to handle resetting itself.
+    local function clearVersionData()
+        if not file.exists( dataFilePath ) then return end
+
+        local fileData = json.decode( file.read( dataFilePath ) )
+        if fileData[versionID] == nil then return end -- Already cleared
+
+        fileData[versionID] = nil
+
+        file.write( dataFilePath, json.encode( fileData ) )
+    end
+
 
     net.receive( "LKL_MapData_DataReceived", function()
         if hasSentReadyHook then return end
@@ -176,6 +190,10 @@ if CLIENT then
     do
         local folder = string.getPathFromFilename( dataFilePath )
         file.createDir( folder )
+
+        if libMapData.FORCE_REGENERATE then
+            clearVersionData()
+        end
 
         if libMapData.OWNERONLY then
             tryLoadData()
