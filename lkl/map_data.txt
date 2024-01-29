@@ -4,14 +4,14 @@
 --@include lkl/global_data_manager.txt
 --@include lkl/gcolors.txt
 
-mapData = mapData or {}
+libMapData = libMapData or {}
 
-if mapData._alreadyRequired then return end
-mapData._alreadyRequired = true
+if libMapData._alreadyRequired then return end
+libMapData._alreadyRequired = true
 
 
 -- CONFIG:
-mapData.OWNER_ONLY = mapData.OWNER_ONLY or false -- If true, then the owner will be the only client to receive map data.
+libMapData.OWNER_ONLY = libMapData.OWNER_ONLY or false -- If true, then the owner will be the only client to receive map data.
 -- END CONFIG
 
 
@@ -29,7 +29,7 @@ local acknowledgementTimeout = 5
     - Whether or not the map's data has been loaded/generated yet and is ready to be used.
     - Upon data becoming ready, server and client will run the LKL_MapData_DataReady hook.
 --]]
-function mapData.isDataReady()
+function libMapData.isDataReady()
     return dataIsReady
 end
 
@@ -59,13 +59,13 @@ end
         },
     }
 --]]
-function mapData.getData()
+function libMapData.getData()
     if not dataIsReady then return end
 
     return data
 end
 
-function mapData.getVersionID()
+function libMapData.getVersionID()
     return versionID
 end
 
@@ -176,7 +176,7 @@ if CLIENT then
         local folder = string.getPathFromFilename( dataFilePath )
         file.createDir( folder )
 
-        if mapData.OWNERONLY then
+        if libMapData.OWNERONLY then
             tryLoadData()
         else
             timer.create( "LKL_MapData_TryLoad", 3, 0, tryLoadData ) -- Delay in case other players have bad ping
@@ -657,7 +657,7 @@ local function unmarkGeneratingChip()
 end
 
 local function sendDataToNonOwners()
-    if mapData.OWNER_ONLY then return end
+    if libMapData.OWNER_ONLY then return end
 
     local allButOwner = find.allPlayers( function( ply )
         return ply ~= owner()
