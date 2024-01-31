@@ -213,7 +213,19 @@ if CLIENT then
         local alreadyHadHUD = render.isHUDActive()
 
         if not alreadyHadHUD then
+            print(
+                c_white, "[MapData] ",
+                c_pend_orange, "    Getting skybox scale...",
+                c_white, " (HUD will temporarily be enabled)"
+            )
+
             enableHud( player(), true )
+        else
+            print(
+                c_white, "[MapData] ",
+                c_pend_orange, "    Getting skybox scale..."
+            )
+
         end
 
         hook.add( "setupskyboxfog", "LKL_MapData_DataGen_GetSkyboxScale", function( scale )
@@ -395,7 +407,7 @@ end
 local function startGettingMapBounds()
     print(
         c_white, "[MapData] ",
-        c_pend_orange, "Getting map bounds..."
+        c_pend_orange, "  Getting map bounds..."
     )
 
     gettingMapBounds = true
@@ -408,7 +420,7 @@ local function startGettingPlayableRegion()
     if not tracingPlayableRegion then
         print(
             c_white, "[MapData] ",
-            c_pend_orange, "Tracing playable region..."
+            c_pend_orange, "  Tracing playable region..."
         )
     end
 
@@ -426,7 +438,7 @@ local function startGettingSkybox()
     if not tracingSkybox then
         print(
             c_white, "[MapData] ",
-            c_pend_orange, "Tracing skybox..."
+            c_pend_orange, "  Getting skybox info..."
         )
     end
 
@@ -441,7 +453,7 @@ local function startGettingSkybox()
     if not skyCam or #skyboxBounceOrigins == 0 then
         print(
             c_white, "[MapData] ",
-            alert_red, "Couldn't find a ",
+            alert_red, "    Couldn't find a ",
             c_yellow, "sky_camera ",
             alert_red, "entity! This map likely has no skybox."
         )
@@ -461,6 +473,11 @@ net.receive( "LKL_MapData_DataGen_DefineSkyboxScale", function( _, ply )
     if ply ~= owner() then return end
 
     skyboxScale = net.readFloat()
+
+    print(
+        c_white, "[MapData] ",
+        c_pend_orange, "    Tracing skybox..."
+    )
 
     tracingSkybox = true
     skyboxBouncesRemaining = skyboxBouncesPerChain
@@ -623,7 +640,7 @@ local function generateMapData()
     -- Find spawn points
     print(
         c_white, "[MapData] ",
-        c_pend_orange, "Getting spawn points..."
+        c_pend_orange, "  Getting spawn points..."
     )
 
     local spawnPoints = find.byClass( "info_player_start" )
