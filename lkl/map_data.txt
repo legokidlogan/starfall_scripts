@@ -13,6 +13,7 @@ libMapData._alreadyRequired = true
 -- CONFIG:
 libMapData.OWNER_ONLY = libMapData.OWNER_ONLY or false -- If true, then the owner will be the only client to receive map data.
 libMapData.FORCE_REGENERATE = libMapData.FORCE_REGENERATE or false -- If true, then this version's map data will be cleared and regenerated.
+libMapData.HIDE_PROGRESS_PRINTS = libMapData.HIDE_PROGRESS_PRINTS or false -- If true, then while generating new data, per-step progress prints will be hidden.
 -- END CONFIG
 
 
@@ -208,12 +209,19 @@ end
 
 ----- DATA GENERATION -----
 
+local function printIf( shouldPrint, ... )
+    if not shouldPrint then return end
+
+    print( ... )
+end
+
+
 if CLIENT then
     net.receive( "LKL_MapData_DataGen_RequestSkyboxScale", function()
         local alreadyHadHUD = render.isHUDActive()
 
         if not alreadyHadHUD then
-            print(
+            printIf( not libMapData.HIDE_PROGRESS_PRINTS,
                 c_white, "[MapData] ",
                 c_pend_orange, "    Getting skybox scale...",
                 c_white, " (HUD will temporarily be enabled)"
@@ -221,7 +229,7 @@ if CLIENT then
 
             enableHud( player(), true )
         else
-            print(
+            printIf( not libMapData.HIDE_PROGRESS_PRINTS,
                 c_white, "[MapData] ",
                 c_pend_orange, "    Getting skybox scale..."
             )
@@ -405,7 +413,7 @@ local function addOriginToSkyboxBounces( origin )
 end
 
 local function startGettingMapBounds()
-    print(
+    printIf( not libMapData.HIDE_PROGRESS_PRINTS,
         c_white, "[MapData] ",
         c_pend_orange, "  Getting map bounds..."
     )
@@ -418,7 +426,7 @@ end
 
 local function startGettingPlayableRegion()
     if not tracingPlayableRegion then
-        print(
+        printIf( not libMapData.HIDE_PROGRESS_PRINTS,
             c_white, "[MapData] ",
             c_pend_orange, "  Tracing playable region..."
         )
@@ -436,7 +444,7 @@ end
 
 local function startGettingSkybox()
     if not tracingSkybox then
-        print(
+        printIf( not libMapData.HIDE_PROGRESS_PRINTS,
             c_white, "[MapData] ",
             c_pend_orange, "  Getting skybox info..."
         )
@@ -451,9 +459,13 @@ local function startGettingSkybox()
     end
 
     if not skyCam or #skyboxBounceOrigins == 0 then
+        local indent = libMapData.HIDE_PROGRESS_PRINTS and
+            "  " or
+            "    "
+
         print(
             c_white, "[MapData] ",
-            alert_red, "    Couldn't find a ",
+            alert_red, indent .. "Couldn't find a ",
             c_yellow, "sky_camera ",
             alert_red, "entity! This map likely has no skybox."
         )
@@ -474,7 +486,7 @@ net.receive( "LKL_MapData_DataGen_DefineSkyboxScale", function( _, ply )
 
     skyboxScale = net.readFloat()
 
-    print(
+    printIf( not libMapData.HIDE_PROGRESS_PRINTS,
         c_white, "[MapData] ",
         c_pend_orange, "    Tracing skybox..."
     )
@@ -638,7 +650,7 @@ local function generateMapData()
     data = {}
 
     -- Find spawn points
-    print(
+    printIf( not libMapData.HIDE_PROGRESS_PRINTS,
         c_white, "[MapData] ",
         c_pend_orange, "  Getting spawn points..."
     )
@@ -682,6 +694,7 @@ require( "lkl/global_data_manager.txt" )
 
 local generatingData = false
 local waitingToGenerateData = false
+local generationStartTime = nil
 
 
 local function getWaitingChips()
@@ -764,9 +777,30 @@ finishGeneratingData = function()
     generatingData = false
     dataIsReady = true
 
+    local now = timer.systime()
+    local timeElapsed = now - generationStartTime
+    local timeElapsedStr = ""
+
+    if timeElapsed < 0.01 then
+        timeElapsedStr = "< 0.01 seconds"
+    elseif timeElapsed >= 60 then
+        local minutes = math.floor( timeElapsed / 60 )
+        local seconds = math.round( timeElapsed - ( minutes * 60 ) )
+
+        timeElapsedStr = minutes .. " minutes"
+
+        if seconds > 0 then
+            timeElapsedStr = timeElapsedStr .. " and " .. seconds .. " seconds"
+        end
+    else
+        timeElapsedStr = math.round( timeElapsed, 2 ) .. " seconds"
+    end
+
     print(
         c_white, "[MapData] ",
-        c_pale_green, "Data generated! ",
+        c_pale_green, "Data generated in ",
+        c_yellow, timeElapsedStr,
+        c_pale_green, "! ",
         c_pend_orange, "Saving data..."
     )
 
@@ -795,6 +829,7 @@ local function startGeneratingData()
         return
     end
 
+    generationStartTime = timer.systime()
     generatingData = true
     waitingToGenerateData = false
     markAsGeneratingChip( chip() )
