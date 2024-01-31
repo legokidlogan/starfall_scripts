@@ -85,10 +85,10 @@ if CLIENT and player() ~= owner() then
             hook.run( "LKL_MapData_DataReady" )
         end )
     end )
-
-
-    return
 end
+
+
+if CLIENT and player() ~= owner() then return end
 
 
 ----- DATA STORAGE -----
