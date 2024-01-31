@@ -682,6 +682,8 @@ local function sendDataToNonOwners()
         return ply ~= owner()
     end )
 
+    if #allButOwner == 0 then return end -- Starfall throws an error if the table is empty
+
     net.start( "LKL_MapData_SendData_NonOwner" )
     net.writeStream( json.encode( data ), false )
     net.send( allButOwner )
