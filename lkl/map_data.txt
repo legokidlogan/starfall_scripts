@@ -74,6 +74,131 @@ function libMapData.getVersionID()
     return versionID
 end
 
+--[[
+    - Returns whether or not the given position is within the full map's bounds.
+    - Returns nil if map data is not ready.
+    - Note that this uses the aabb bounds, so a point in the empty void might still yield true.
+        - See Vector:isInWorld() for checking if a point is not in the void.
+--]]
+function libMapData.isInMapBounds( pos )
+    if not dataIsReady then return end
+
+    -- Cache values and redefine the function once to improve performance.
+    local minBounds = data.MinBounds
+    local maxBounds = data.MaxBounds
+
+    -- The true function definition.
+    libMapData.isInMapBounds = function( pos_ )
+        return pos_:withinAABox( minBounds, maxBounds )
+    end
+
+    return libMapData.isInMapBounds( pos )
+end
+
+--[[
+    - Returns whether or not the given position is within the bound of the playable region.
+    - Returns nil if map data is not ready.
+    - Note that this uses the aabb bounds, so a point in the empty void might still yield true.
+        - See Vector:isInWorld() for checking if a point is not in the void.
+--]]
+function libMapData.isInPlayableRegionBounds( pos )
+    if not dataIsReady then return end
+
+    -- Cache values and redefine the function once to improve performance.
+    local minBounds = data.PlayableRegion.MinBounds
+    local maxBounds = data.PlayableRegion.MaxBounds
+
+    -- The true function definition.
+    libMapData.isInPlayableRegionBounds = function( pos_ )
+        return pos_:withinAABox( minBounds, maxBounds )
+    end
+
+    return libMapData.isInPlayableRegionBounds( pos )
+end
+
+--[[
+    - Returns whether or not the given position is within the bound of the skybox.
+    - Returns nil if map data is not ready.
+    - Returns false if the map has no 3D skybox.
+    - Note that this uses the aabb bounds, so a point in the empty void might still yield true.
+        - See Vector:isInWorld() for checking if a point is not in the void.
+--]]
+function libMapData.isInSkyboxBounds( pos )
+    if not dataIsReady then return end
+
+    -- No skybox, redefine to always return false.
+    if not data.Skybox then
+        libMapData.isInSkyboxBounds = function() return false end
+
+        return false
+    end
+
+    -- Cache values and redefine the function once to improve performance.
+    local minBounds = data.Skybox.MinBounds
+    local maxBounds = data.Skybox.MaxBounds
+
+    -- The true function definition.
+    libMapData.isInSkyboxBounds = function( pos_ )
+        return pos_:withinAABox( minBounds, maxBounds )
+    end
+
+    return libMapData.isInSkyboxBounds( pos )
+end
+
+--[[
+    - Converts a position in the world to a position in the skybox.
+    - Returns nil if map data is not ready.
+    - Returns false if the map has no 3D skybox.
+--]]
+function libMapData.worldPosToSkyPos( pos )
+    if not dataIsReady then return end
+
+    -- No skybox, redefine to always return false.
+    if not data.Skybox then
+        libMapData.worldPosToSkyPos = function() return false end
+
+        return false
+    end
+
+    -- Cache values and redefine the function once to improve performance.
+    local skyOrigin = data.Skybox.Origin
+    local skyScale = data.Skybox.Scale
+
+    -- The true function definition.
+    libMapData.worldPosToSkyPos = function( pos_ )
+        return pos_ * skyScale + skyOrigin
+    end
+
+    return libMapData.worldPosToSkyPos( pos )
+end
+
+--[[
+    - Converts a position in the skybox to a position in the world.
+    - Returns nil if map data is not ready.
+    - Returns false if the map has no 3D skybox.
+--]]
+function libMapData.skyPosToWorldPos( pos )
+    if not dataIsReady then return end
+
+    -- No skybox, redefine to always return false.
+    if not data.Skybox then
+        libMapData.skyPosToWorldPos = function() return false end
+
+        return false
+    end
+
+    -- Cache values and redefine the function once to improve performance.
+    local skyOrigin = data.Skybox.Origin
+    local skyScale = data.Skybox.Scale
+
+    -- The true function definition.
+    libMapData.skyPosToWorldPos = function( pos_ )
+        return ( pos_ - skyOrigin ) / skyScale
+    end
+
+    return libMapData.skyPosToWorldPos( pos )
+end
+
 
 ----- NON-OWNER DATA RECEIVING -----
 
