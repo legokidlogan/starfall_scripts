@@ -20,7 +20,7 @@ require( "lkl/gcolors.txt" )
 
 local data = nil
 local dataIsReady = false
-local versionID = "v1"
+local versionID = "v2"
 local hasSentReadyHook = false
 local acknowledgementTimeout = 5
 
@@ -58,6 +58,8 @@ end
             Center = VECTOR,
             MinBounds = VECTOR,
             MaxBounds = VECTOR,
+            Origin = VECTOR, -- The origin of the skybox. Equivalent to the world's origin (0,0,0) if no 3D skybox.
+            Scale = NUMBER, -- The scale of the skybox compared to the world.
         },
     }
 --]]
@@ -201,13 +203,36 @@ if CLIENT then
             timer.create( "LKL_MapData_TryLoad", 3, 0, tryLoadData ) -- Delay in case other players have bad ping
         end
     end
-
-
-    return
 end
 
 
 ----- DATA GENERATION -----
+
+if CLIENT then
+    net.receive( "LKL_MapData_DataGeneration_RequestSkyboxScale", function()
+        local alreadyHadHUD = render.isHUDActive()
+
+        if not alreadyHadHUD then
+            enableHud( player(), true )
+        end
+
+        hook.add( "setupskyboxfog", "LKL_MapData_DataGeneration_GetSkyboxScale", function( scale )
+            hook.remove( "setupskyboxfog", "LKL_MapData_DataGeneration_GetSkyboxScale" )
+
+            if not alreadyHadHUD then
+                enableHud( player(), false )
+            end
+
+            net.start( "LKL_MapData_DataGeneration_DefineSkyboxScale" )
+            net.writeFloat( scale )
+            net.send()
+        end )
+    end )
+end
+
+
+if CLIENT then return end
+
 
 local finishGeneratingData
 
@@ -269,6 +294,8 @@ local skyboxBounceOrigins = {}
 local skyboxBounceOffsets = {}
 local skyboxBounceLastPos = nil
 local skyboxBounceLastOffset = nil
+local skyboxOrigin = nil
+local skyboxScale = nil
 
 local tableInsert = table.insert
 local tableRemove = table.remove
@@ -407,7 +434,8 @@ local function startGettingSkybox()
     skyCam = isValid( skyCam ) and skyCam
 
     if skyCam then
-        addOriginToSkyboxBounces( skyCam:getPos() )
+        skyboxOrigin = skyCam:getPos()
+        addOriginToSkyboxBounces( skyboxOrigin )
     end
 
     if not skyCam or #skyboxBounceOrigins == 0 then
@@ -424,11 +452,21 @@ local function startGettingSkybox()
         return
     end
 
+    net.start( "LKL_MapData_DataGeneration_RequestSkyboxScale" )
+    net.send( owner() )
+end
+
+
+net.receive( "LKL_MapData_DataGeneration_DefineSkyboxScale", function( _, ply )
+    if ply ~= owner() then return end
+
+    skyboxScale = net.readFloat()
+
     tracingSkybox = true
     skyboxBouncesRemaining = skyboxBouncesPerChain
     skyboxBounceLastPos = tableRemove( skyboxBounceOrigins )
     skyboxBounceLastOffset = tableRemove( skyboxBounceOffsets )
-end
+end )
 
 
 timer.create( "LKL_MapData_GetMapBounds", iterationInterval, 0, function()
@@ -548,6 +586,8 @@ timer.create( "LKL_MapData_TraceSkybox", iterationInterval, 0, function()
                         Center = ( skyboxMin + skyboxMax ) / 2,
                         MinBounds = skyboxMin,
                         MaxBounds = skyboxMax,
+                        Origin = skyboxOrigin,
+                        Scale = skyboxScale,
                     }
 
                     tracingSkybox = false
