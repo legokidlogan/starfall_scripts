@@ -193,6 +193,7 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
                 return self._volume or 1
             end
 
+            -- Sets the effective volume without changing the desired volume. Used by distance clipping.
             function bassObj:setVolumeEffective( vol )
                 if self._volumeEffective == vol then return end
                 if self._isDistanceClipped and vol ~= 0 then return end
