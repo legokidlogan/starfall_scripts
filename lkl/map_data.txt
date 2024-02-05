@@ -567,6 +567,42 @@ local function startGettingPlayableRegion()
     end
 end
 
+local function findSuitableSkyboxTraceOrigin()
+    for i = 1, 10 do
+        local adjustedTraceOrigin = skyboxOrigin + Vector( 20 * i, 0, 0 )
+        if adjustedTraceOrigin:isInWorld() then
+            return addOriginToSkyboxBounces( adjustedTraceOrigin )
+        end
+
+        adjustedTraceOrigin = skyboxOrigin + Vector( -20 * i, 0, 0 )
+        if adjustedTraceOrigin:isInWorld() then
+            return addOriginToSkyboxBounces( adjustedTraceOrigin )
+        end
+
+        adjustedTraceOrigin = skyboxOrigin + Vector( 0, 20 * i, 0 )
+        if adjustedTraceOrigin:isInWorld() then
+            return addOriginToSkyboxBounces( adjustedTraceOrigin )
+        end
+
+        adjustedTraceOrigin = skyboxOrigin + Vector( 0, -20 * i, 0 )
+        if adjustedTraceOrigin:isInWorld() then
+            return addOriginToSkyboxBounces( adjustedTraceOrigin )
+        end
+
+        adjustedTraceOrigin = skyboxOrigin + Vector( 0, 0, 20 * i )
+        if adjustedTraceOrigin:isInWorld() then
+            return addOriginToSkyboxBounces( adjustedTraceOrigin )
+        end
+
+        adjustedTraceOrigin = skyboxOrigin + Vector( 0, 0, -20 * i )
+        if adjustedTraceOrigin:isInWorld() then
+            return addOriginToSkyboxBounces( adjustedTraceOrigin )
+        end
+    end
+
+    error( "Couldn't find a suitable trace origin for the skybox!" )
+end
+
 local function startGettingSkybox()
     if not tracingSkybox then
         printIf( not libMapData.HIDE_PROGRESS_PRINTS,
@@ -580,7 +616,12 @@ local function startGettingSkybox()
 
     if skyCam then
         skyboxOrigin = skyCam:getPos()
-        addOriginToSkyboxBounces( skyboxOrigin )
+
+        if skyboxOrigin:isInWorld() then
+            addOriginToSkyboxBounces( skyboxOrigin )
+        else
+            findSuitableSkyboxTraceOrigin()
+        end
     end
 
     if not skyCam or #skyboxBounceOrigins == 0 then
@@ -753,7 +794,11 @@ timer.create( "LKL_MapData_DataGen_TraceSkybox", iterationInterval, 0, function(
             end
 
             local nextPos, nextOffset = mapTraceSingleBounce( skyboxBounceLastPos, skyboxBounceLastOffset )
-            if not nextPos then break end
+            if not nextPos then
+                skyboxBouncesRemaining = 0
+
+                break
+            end
 
             expandSkybox( nextPos )
             skyboxBounceLastPos = nextPos
