@@ -1,0 +1,572 @@
+--@name Interactive 3D Map
+--@author
+--@shared
+--@ owneronly
+--@include lkl/map_mesh.txt
+--@include lkl/math/holo_trace.txt
+--@include lkl/anims/screen_holo_animation.txt
+
+libMapMesh = libMapMesh or {}
+
+-- DEFAULT OVERRIDES TO map_mesh
+if libMapMesh.LOAD_IMMEDIATELY == nil then libMapMesh.LOAD_IMMEDIATELY = false end
+if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = true end
+-- END DEFAULT OVERRIDES
+
+require( "lkl/map_mesh.txt" )
+
+
+libI3DMap = libI3DMap or {}
+
+-- CONFIG DEFAULTS
+if libI3DMap.DO_RECURSION == nil then libI3DMap.DO_RECURSION = true end
+libI3DMap.OFFSET_POS = libI3DMap.OFFSET_POS or Vector( 0, 0, 0 )
+libI3DMap.OFFSET_ANG = libI3DMap.OFFSET_ANG or Angle( 0, 0, 0 )
+libI3DMap.START_LOADING_DIST = libI3DMap.START_LOADING_DIST or libMapMesh.MESH_WIDTH * 2
+
+if libI3DMap.SHOW_PLAYERS == nil then libI3DMap.SHOW_PLAYERS = true end
+libI3DMap.PLAYER_INTERVAL = libI3DMap.PLAYER_INTERVAL or 0.1
+libI3DMap.PLAYER_SCALE = libI3DMap.PLAYER_SCALE or 5
+if libI3DMap.SHOW_PLAYER_NAMES == nil then libI3DMap.SHOW_PLAYER_NAMES = true end
+libI3DMap.PLAYER_NAME_FONT_SIZE = libI3DMap.PLAYER_NAME_FONT_SIZE or 30
+
+if libI3DMap.DO_PINGS == nil then libI3DMap.DO_PINGS = true end
+libI3DMap.PING_SIZE = libI3DMap.PING_SIZE or Vector( 2, 2, 0.5 )
+libI3DMap.PING_LINGER = libI3DMap.PING_LINGER or 3
+-- END CONFIG DEFAULTS
+
+
+local holoMapOffsetPos = libI3DMap.OFFSET_POS:clone()
+local holoMapOffsetAng = libI3DMap.OFFSET_ANG:clone()
+local holoMapDoRecursion = libI3DMap.DO_RECURSION
+local holoMapStartLoadingDist = libI3DMap.START_LOADING_DIST
+
+local holoMapShowPlayers = libI3DMap.SHOW_PLAYERS
+local holoMapPlayerInterval = libI3DMap.PLAYER_INTERVAL
+local holoMapPlayerScale = libI3DMap.PLAYER_SCALE
+local holoMapShowPlayerNames = holoMapShowPlayers and libI3DMap.SHOW_PLAYER_NAMES
+local holoMapPlayerNameFontSize = libI3DMap.PLAYER_NAME_FONT_SIZE
+
+local holoMapPingSize = libI3DMap.PING_SIZE:clone()
+local holoMapPingLinger = libI3DMap.PING_LINGER
+
+local TRACE_LENGTH = 50000
+local TRACE_COLLISION_GROUP = COLLISION_GROUP.DEBRIS
+local TRACE_MASK = MASK.SOLID_BRUSHONLY
+
+local MAP_MIN_BOUNDS = nil
+local MAP_MAX_BOUNDS = nil
+
+local MESH_SCALE = nil
+local MESH_OFFSET = nil
+
+local mapDataReady = false
+
+
+local function meshPosToWorldPos( meshPos )
+    return ( meshPos - MESH_OFFSET ) / MESH_SCALE
+end
+
+local function worldPosToMeshPos( worldPos )
+    return worldPos * MESH_SCALE + MESH_OFFSET
+end
+
+local function worldToMeshThroughHoloMap( worldPos, worldAng )
+    local meshOriginPos, meshOriginAng = localToWorld( holoMapOffsetPos, holoMapOffsetAng, chip():getPos(), chip():getAngles() )
+    local meshPos, meshAng = worldToLocal( worldPos, worldAng, meshOriginPos, meshOriginAng )
+
+    return meshPos, meshAng
+end
+
+local function meshToHoloMap( meshPos, meshAng )
+    local meshOriginPos, meshOriginAng = localToWorld( holoMapOffsetPos, holoMapOffsetAng, chip():getPos(), chip():getAngles() )
+
+    return localToWorld( meshPos, meshAng, meshOriginPos, meshOriginAng )
+end
+
+--[[
+    - Uses a player's eye position and angles relative to the holo map to do a trace on the world.
+    - Can provide a player for eyePos to auto-get the eye info.
+    - Returns a trace result.
+--]]
+local function holoMapTrace( eyePos, eyeAng )
+    if type( eyePos ) == "Player" then
+        eyeAng = eyePos:getEyeAngles()
+        eyePos = eyePos:getShootPos()
+    end
+
+    local startMeshPos, startMeshAng = worldToMeshThroughHoloMap( eyePos, eyeAng )
+    local startPos = meshPosToWorldPos( startMeshPos )
+    local dir = startMeshAng:getForward()
+
+    local tr = trace.line( startPos, startPos + dir * TRACE_LENGTH, nil, TRACE_COLLISION_GROUP, TRACE_MASK, false )
+
+    if startPos:withinAABox( MAP_MIN_BOUNDS, MAP_MAX_BOUNDS ) then
+        return tr
+    end
+
+    startPos = tr.HitPos + dir * 1
+
+    return trace.line( startPos, startPos + dir * TRACE_LENGTH, nil, TRACE_COLLISION_GROUP, TRACE_MASK, false )
+end
+
+-- Similar to holoMapTrace(), but returns worldHitPos, worldHitNormal, holoMapHitPos, holoMapHitNormal instead of a full trace table.
+local function holoMapTraceAlt( eyePos, eyeAng )
+    local tr = holoMapTrace( eyePos, eyeAng )
+    if not tr.Hit then return end
+
+    local worldHitPos = tr.HitPos
+    local worldHitNormal = tr.HitNormal
+
+    local meshHitPos = worldPosToMeshPos( worldHitPos )
+    local meshHitNormalAng = worldHitNormal:getAngle()
+    local holoMapHitPos, holoMapHitNormalAng = meshToHoloMap( meshHitPos, meshHitNormalAng )
+    local holoMapHitNormal = holoMapHitNormalAng:getForward()
+
+    return worldHitPos, worldHitNormal, holoMapHitPos, holoMapHitNormal
+end
+
+
+hook.add( "LKL_MapMesh_AddExtraData", "LKL_I3DMap_GetMeshConstants", function()
+    local mapData = libMapData.getData()
+
+    MAP_MIN_BOUNDS = mapData.PlayableRegion.MinBounds:clone()
+    MAP_MAX_BOUNDS = mapData.PlayableRegion.MaxBounds + Vector( 0, 0, -libMapMesh.CEILING_CLIP )
+
+    MESH_SCALE = libMapMesh.getMeshScale()
+    MESH_OFFSET = libMapMesh.getMeshOffset()
+
+    mapDataReady = true
+end )
+
+
+if SERVER then
+    local playerHolos = {}
+    local playerHoloPlys = {}
+    local playerPingHolos = {}
+    local validModelLookup = {}
+    local modelToIdleAnimLookup = {}
+
+    do
+        for _, model in pairs( game.getPlayerModels() ) do
+            validModelLookup[model] = true
+        end
+    end
+
+
+    local function isModelValid( model )
+        if validModelLookup[model] then return true end
+
+        if string.startWith( model, "models/pac3_cache/" ) then
+            validModelLookup[model] = true
+
+            return true
+        end
+
+        return false
+    end
+
+    local function getSafeModel( model )
+        if isModelValid( model ) then return model end
+
+        --return "models/player/kleiner.mdl"
+        --return "models/zombie/classic_legs.mdl"
+        return "models/error.mdl"
+    end
+
+    local function getIdleAnim( ply )
+        local model = ply:getModel()
+        local anim = modelToIdleAnimLookup[model]
+        if anim then return anim end
+
+        local sequences = ply:getSequenceList()
+        anim = table.keyFromValue( sequences, "idle_all_01" ) or table.keyFromValue( sequences, "idle" ) or 0
+
+        modelToIdleAnimLookup[model] = anim
+
+        return anim
+    end
+
+    local function doHoloMapPing( ply )
+        local worldHitPos, _, holoMapHitPos, holoMapHitNormal = holoMapTraceAlt( ply )
+        if not worldHitPos then return end
+
+        local pingHolo = playerPingHolos[ply]
+
+        if not isValid( pingHolo ) then
+            pcall( function()
+                pingHolo = hologram.create( Vector(), Angle(), "models/hunter/tubes/circle2x2.mdl" )
+            end )
+
+            if not isValid( pingHolo ) then return end
+
+            pingHolo:setMaterial( "model_color" )
+            pingHolo:setSize( holoMapPingSize )
+            pingHolo:setColor( team.getColor( ply:getTeam() ) )
+
+            playerPingHolos[ply] = pingHolo
+        end
+
+        local ang = holoMapHitNormal:getAngle()
+        ang = ang:rotateAroundAxis( ang:getRight(), 90 )
+
+        pingHolo:setPos( holoMapHitPos )
+        pingHolo:setAngles( ang )
+
+        timer.create( "LKL_I3DMap_PingLinger_" .. ply:getSteamID(), holoMapPingLinger, 1, function()
+            if not isValid( pingHolo ) then return end
+
+            pingHolo:remove()
+            playerPingHolos[ply] = nil
+        end )
+    end
+
+
+    hook.add( "KeyPress", "LKL_I3DMap_KeyPress", function( ply, key )
+        if not mapDataReady then return end
+
+        if key == IN_KEY.USE then
+            doHoloMapPing( ply )
+        end
+    end )
+
+
+    timer.create( "LKL_I3DMap_UpdatePlayerHolos", holoMapPlayerInterval, 0, function()
+        if not holoMapShowPlayers then
+            timer.remove( "LKL_I3DMap_UpdatePlayerHolos" )
+
+            return
+        end
+
+        if not mapDataReady then return end
+
+        local plys = find.allPlayers( function( ply )
+            return not ply._i3dmap_IsDisconnecting
+        end )
+
+        local plyCount = #plys
+        local holoCount = #playerHolos
+
+        if plyCount ~= holoCount then
+            if plyCount > holoCount then
+                for i = holoCount + 1, plyCount do
+                    local ply = plys[i]
+
+                    local holo
+                    local _ = pcall( function()
+                        holo = hologram.create( Vector(), Angle(), getSafeModel( ply:getModel() ), Vector( MESH_SCALE * holoMapPlayerScale ) )
+                    end )
+
+                    if not holo then return end
+
+                    holo:setPlayerColor( ply:getPlayerColor() )
+                    holo:setAnimation( getIdleAnim( ply ) )
+
+                    playerHolos[i] = holo
+                    playerHoloPlys[i] = ply
+                end
+            else
+                for i = holoCount, plyCount + 1, -1 do
+                    playerHolos[i]:remove()
+                    playerHolos[i] = nil
+                end
+            end
+
+            holoCount = #playerHolos
+
+            timer.create( "LKL_I3DMap_SetPlayerHolos", 0.25, 1, function()
+                net.start( "LKL_I3DMap_SetPlayerHolos" )
+                net.writeUInt( holoCount, 8 )
+
+                for i = 1, holoCount do
+                    net.writeEntity( playerHolos[i] )
+                    net.writeEntity( plys[i] )
+                end
+
+                net.send()
+            end )
+        end
+
+        local meshOriginPos, meshOriginAng = localToWorld( holoMapOffsetPos, holoMapOffsetAng, chip():getPos(), chip():getAngles() )
+
+        for i = 1, holoCount do
+            local ply = plys[i]
+            local holo = playerHolos[i]
+
+            if playerHoloPlys[i] ~= ply then
+                holo:setModel( getSafeModel( ply:getModel() ) )
+                holo:setPlayerColor( ply:getPlayerColor() )
+                holo:setAnimation( getIdleAnim( ply ) )
+
+                net.start( "LKL_I3DMap_ChangePlayerHoloPlayer" )
+                net.writeUInt( i, 8 )
+                net.writeEntity( ply )
+                net.send()
+
+                playerHoloPlys[i] = ply
+            elseif ply:getModel() ~= holo:getModel() then
+                -- Update the model in case the player changed it.
+                pcall( function() -- Starfall throws an error if we use a model from an unmounted game. Funnily enough, the client still receives the update anyway.
+                    holo:setModel( ply:getModel() )
+                    holo:setAnimation( getIdleAnim( ply ) )
+                end )
+            end
+
+            local pos = worldPosToMeshPos( ply:getPos() )
+            local ang = ply:getAngles()
+
+            pos, ang = localToWorld( pos, ang, meshOriginPos, meshOriginAng )
+
+            holo:setPos( pos )
+            holo:setAngles( ang )
+        end
+    end )
+
+
+    return
+end
+
+
+require( "lkl/math/holo_trace.txt" )
+require( "lkl/anims/screen_holo_animation.txt" )
+
+
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local meshesReady = false
+local holoMapStartLoadingDistSqr = holoMapStartLoadingDist ^ 2
+local rtNameScratch = "lkl_i3dmap_scratch"
+local rtMatScratch = nil
+local mapHoloBase = nil
+--local mapHolos = nil
+local recursiveHoloBase = nil
+--local recursiveHolos = nil
+local playerHolos = {}
+local playerHoloPlys = {}
+local playerHoloLookup = {}
+
+
+local function invertAlpha()
+    render.clear( COLOR_WHITE, true )
+    render.setMaterial( rtMatScratch )
+
+    render.overrideBlend( true, BLEND.ONE, BLEND.ZERO, BLENDFUNC.ADD, BLEND.ONE, BLEND.ONE, BLENDFUNC.REVERSE_SUBTRACT )
+
+    render.setColor( COLOR_WHITE )
+    render.drawTexturedRect( 0, 0, 1024, 1024 )
+
+    render.overrideBlend( false )
+end
+
+
+hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
+    meshesReady = true
+
+    -- Spawn map holos
+    timer.create( "LKL_I3DMap_SpawnMapHolos", 0.5, 0, function()
+        local mapPos, mapAng = localToWorld( holoMapOffsetPos, holoMapOffsetAng, chip():getPos(), chip():getAngles() )
+
+        mapHoloBase, mapHolos = libMapMesh.createMeshHolos( mapPos, mapAng, nil )
+        if not mapHoloBase then return end
+
+        timer.remove( "LKL_I3DMap_SpawnMapHolos" )
+
+        mapHoloBase:setParent( chip() )
+    end )
+
+    -- Spawn recursive map holos
+    if not holoMapDoRecursion then return end
+
+    timer.create( "LKL_I3DMap_SpawnRecursiveMapHolos", 0.5, 0, function()
+        recursiveHoloBase, recursiveHolos = libMapMesh.createMeshHolos( Vector(), Angle(), Vector( MESH_SCALE ) )
+        if not recursiveHoloBase then return end
+
+        timer.remove( "LKL_I3DMap_SpawnRecursiveMapHolos" )
+    end )
+end )
+
+
+net.receive( "LKL_I3DMap_SetPlayerHolos", function()
+    local count = net.readUInt( 8 )
+
+    playerHolos = {}
+    playerHoloPlys = {}
+
+    for i = 1, count do
+        local holo = net.readEntity()
+        local ply = net.readEntity()
+
+        if isValid( holo ) and isValid( ply ) then
+            pcall( function()
+                holo = holo:toHologram()
+            end )
+
+            playerHolos[i] = holo
+            playerHoloPlys[i] = ply
+            playerHoloLookup[holo] = i
+        end
+    end
+end )
+
+net.receive( "LKL_I3DMap_ChangePlayerHoloPlayer", function()
+    local ind = net.readUInt( 8 )
+    local ply = net.readEntity()
+
+    if not isValid( ply ) then return end
+
+    playerHoloPlys[ind] = ply
+end )
+
+
+timer.create( "LKL_I3DMap_StartLoading", 0.2, 0, function()
+    if not mapDataReady then return end
+    if render.getEyePos():getDistanceSqr( chip():getPos() ) > holoMapStartLoadingDistSqr then return end
+
+    if libMapMesh.startLoadingMeshes() then
+        timer.remove( "LKL_I3DMap_StartLoading" )
+    end
+end )
+
+
+do
+    render.createRenderTarget( rtNameScratch )
+
+    rtMatScratch = material.create( "UnlitGeneric" )
+    rtMatScratch:setTextureRenderTarget( "$basetexture", rtNameScratch )
+end
+
+if holoMapDoRecursion then
+    local lastChipPos = nil
+    local lastChipAng = nil
+
+    timer.create( "LKL_I3DMap_UpdateRecursiveHolos", 0.1, 0, function()
+        if not recursiveHoloBase then return end
+        if not isValid( chip() ) then return end
+
+        local chipPos = chip():getPos()
+        local chipAng = chip():getAngles()
+
+        if chipPos == lastChipPos and chipAng == lastChipAng then return end
+
+        lastChipPos = chipPos
+        lastChipAng = chipAng
+
+        local meshPos = worldPosToMeshPos( chipPos )
+        local pos, ang = meshToHoloMap( meshPos, chipAng )
+
+        recursiveHoloBase:setPos( pos )
+        recursiveHoloBase:setAngles( ang )
+    end )
+end
+
+if holoMapShowPlayerNames then
+    local plyFont = render.createFont( "Roboto Mono", holoMapPlayerNameFontSize, 600, true, false, false, false, false, false )
+    local rtPlayerNamesNeedsUpdate = false
+    local curAimedPly = nil
+
+    local rtNamePlayerNames = "lkl_i3dmap_player_names"
+    render.createRenderTarget( rtNamePlayerNames )
+
+    local rtMatPlayerNames = material.create( "Refract_DX90" )
+    local rtMatPlayerNamesName = "!" .. rtMatPlayerNames:getName()
+    rtMatPlayerNames:setTextureRenderTarget( "$basetexture", rtNamePlayerNames )
+    rtMatPlayerNames:setInt( "$flags", 2048 + 32768 )
+    rtMatPlayerNames:setInt( "$bluramount", 0 )
+    rtMatPlayerNames:setInt( "$masked", 1 )
+    rtMatPlayerNames:setInt( "$mostlyopaque", 1 )
+    rtMatPlayerNames:setVector( "$refracttint", Vector( 1, 1, 1 ) )
+
+    local screenAnim = ScreenHoloAnimation:new( false, Vector(), Angle() )
+    screenAnim:setScreenHoloVisible( true )
+    screenAnim:setScreenHoloMaterials( { rtMatPlayerNamesName } )
+
+
+    local function setAimedPlayer( ply )
+        if curAimedPly == ply then return end
+
+        curAimedPly = ply
+        rtPlayerNamesNeedsUpdate = true
+
+        if ply then
+            screenAnim:play()
+        else
+            screenAnim:stop()
+        end
+    end
+
+    local function holoFilter( holo )
+        return playerHoloLookup[holo] ~= nil
+    end
+
+    timer.create( "LKL_I3DMap_DisplayPlayerNames", 0.2, 0, function()
+        if not meshesReady then return end
+        local startPos = render.getEyePos()
+        if startPos:getDistanceSqr( chip():getPos() ) > holoMapStartLoadingDistSqr then return end
+
+        local eyeAng = render.getAngles()
+        local _, _, holoMapHitPos = holoMapTraceAlt( startPos, eyeAng )
+
+        if not holoMapHitPos then
+            setAimedPlayer( nil )
+
+            return
+        end
+
+        local dir = eyeAng:getForward()
+        local trHolo = {}
+
+        pcall( function()
+            trHolo = holoTrace.traceLineBlockedByEnts( startPos, startPos + dir * holoMapStartLoadingDist, holoFilter, { player(), chip() } )
+        end )
+
+        local holo = trHolo.Entity
+        local holoInd = playerHoloLookup[holo or false]
+
+        if not holoInd then
+            setAimedPlayer( nil )
+
+            return
+        end
+
+        -- If we hit the map before the holo, then the player doesn't have line of sight.
+        if holoMapHitPos:getDistanceSqr( startPos ) < trHolo.HitPos:getDistanceSqr( startPos ) then
+            setAimedPlayer( nil )
+
+            return
+        end
+
+        local ply = playerHoloPlys[holoInd]
+
+        if not isValid( ply ) then
+            setAimedPlayer( nil )
+
+            return
+        end
+
+        setAimedPlayer( ply )
+    end )
+
+
+    hook.add( "renderoffscreen", "LKL_I3DMap_DrawPlayerName", function()
+        if not rtPlayerNamesNeedsUpdate then return end
+
+        render.selectRenderTarget( rtNameScratch )
+
+        render.clear( COLOR_EMPTY )
+
+        if isValid( curAimedPly ) then
+            render.setMaterial()
+            render.setColor( team.getColor( curAimedPly:getTeam() ) )
+            render.setFont( plyFont )
+
+            render.drawSimpleText( 512, 512 + holoMapPlayerNameFontSize, curAimedPly:getName(), 1, 3 )
+        end
+
+        render.selectRenderTarget()
+
+        render.selectRenderTarget( rtNamePlayerNames )
+        invertAlpha()
+        render.selectRenderTarget()
+    end )
+end
