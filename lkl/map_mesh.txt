@@ -1,0 +1,676 @@
+--@name Map Mesh
+--@author
+--@shared
+--@include lkl/map_data.txt
+--@include lkl/queue.txt
+--@include lkl/linked_create.txt
+
+require( "lkl/map_data.txt" )
+
+libMapMesh = libMapMesh or {}
+if libMapMesh._alreadyLoaded then return end
+libMapMesh._alreadyLoaded = true
+
+-- CONFIG DEFAULTS
+libMapMesh.MESH_WIDTH = libMapMesh.MESH_WIDTH or 200
+libMapMesh.CEILING_CLIP = libMapMesh.CEILING_CLIP or 50 -- TODO: Verify that this is needed
+if libMapMesh.LOAD_IMMEDIATELY == nil then libMapMesh.LOAD_IMMEDIATELY = true end
+if libMapMesh.DO_WIREFRAME == nil then libMapMesh.DO_WIREFRAME = false end
+if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = false end
+if libMapMesh.HIDE_SKYBOX == nil then libMapMesh.ADD_FLOOR = true end -- Hide the skybox region.
+libMapMesh.MESH_SCALE_OVERRIDE = libMapMesh.MESH_SCALE_OVERRIDE or nil -- Set to a number to override the mesh scale, instead of using map bounds and mesh width.
+libMapMesh.MESH_OFFSET_OVERRIDE = libMapMesh.MESH_OFFSET_OVERRIDE or nil -- Set to a vector to override the mesh offset, instead of using map bounds.
+
+if libMapMesh.HIDE_NO_DRAW == nil then libMapMesh.ADD_FLOOR = true end -- Hide surfaces with nodraw.
+libMapMesh.NO_DRAW_COLOR = libMapMesh.NO_DRAW_COLOR or Color( 255, 255, 0, 255 ) -- Color to use for nodraw surfaces if they aren't hidden.
+if libMapMesh.HIDE_SKY == nil then libMapMesh.HIDE_SKY = true end -- Hide surfaces with sky.
+libMapMesh.SKY_COLOR = libMapMesh.SKY_COLOR or Color( 0, 255, 255, 255 ) -- Color to use for sky surfaces if they aren't hidden.
+
+libMapMesh.FALLBACK_COLOR = libMapMesh.FALLBACK_COLOR or Color( 0, 0, 0, 255 )
+libMapMesh.WATER_COLOR = libMapMesh.WATER_COLOR or Color( 0, 110, 255 )
+libMapMesh.FLOOR_COLOR = libMapMesh.FLOOR_COLOR or Color( 0, 0, 0, 255 )
+libMapMesh.ALPHA = libMapMesh.ALPHA or 255
+
+libMapMesh.COLOR_MODE = libMapMesh.COLOR_MODE or 2 -- 0 = no vertex coloring, 1 = map color, 2 = map color from material, 3 = solid color (uses fallback color), 4 = color by surface ID, 5 = random per surface
+libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE = libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE or 1 / 8 -- When using color mode 2, downscales the texture before sampling it. Helps with noisy textures like grass.
+libMapMesh.COLOR_MODE_2_NUM_SAMPLES = libMapMesh.COLOR_MODE_2_NUM_SAMPLES or 50 -- When using color mode 2, how many pixels to sample per material.
+libMapMesh.COLOR_MODE_4_NUM_CYCLES = libMapMesh.COLOR_MODE_4_NUM_CYCLES or 1 -- When using color mode 4, how many cycles of the color wheel to go through.
+libMapMesh.HSV_SATURATION = libMapMesh.HSV_SATURATION or 1 -- Used by color modes 4 and 5.
+libMapMesh.HSV_VALUE = libMapMesh.HSV_VALUE or 1 -- Used by color modes 4 and 4.
+-- END CONFIG DEFAULTS
+
+
+local meshMapWidth = libMapMesh.MESH_WIDTH
+local meshMapCeilingClip = libMapMesh.CEILING_CLIP
+local meshMapLoadImmediately = libMapMesh.LOAD_IMMEDIATELY
+local meshMapDoWireframe = libMapMesh.DO_WIREFRAME
+local meshMapAddFloor = libMapMesh.ADD_FLOOR
+local meshMapHideSkybox = libMapMesh.HIDE_SKYBOX
+
+local meshMapHideNoDraw = libMapMesh.HIDE_NO_DRAW
+local meshMapNoDrawColor = libMapMesh.NO_DRAW_COLOR
+local meshMapHideSky = libMapMesh.HIDE_SKY
+local meshMapSkyColor = libMapMesh.SKY_COLOR
+
+local meshMapFallbackColor = libMapMesh.FALLBACK_COLOR
+local meshMapWaterColor = libMapMesh.WATER_COLOR
+local meshMapFloorColor = libMapMesh.FLOOR_COLOR
+local meshMapAlpha = libMapMesh.ALPHA
+
+local meshMapColorMode = libMapMesh.COLOR_MODE
+local meshMapColorMode2CompressionScale = libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE
+local meshMapColorMode2NumSamples = libMapMesh.COLOR_MODE_2_NUM_SAMPLES
+local meshMapColorMode4NumCycles = libMapMesh.COLOR_MODE_4_NUM_CYCLES
+local meshMapHSVSaturation = libMapMesh.HSV_SATURATION
+local meshMapHSVValue = libMapMesh.HSV_VALUE
+
+local MODEL_CUBE = "models/hunter/blocks/cube025x025x025.mdl"
+
+local MAP_MIN_BOUNDS = nil
+local MAP_MAX_BOUNDS = nil
+local MAP_HAS_SKYBOX = nil
+local MAP_SKYBOX_MIN_BOUNDS = nil
+local MAP_SKYBOX_MAX_BOUNDS = nil
+
+local MESH_SCALE = nil
+local MESH_OFFSET = nil
+local MESH_MIN_BOUNDS = nil
+local MESH_MAX_BOUNDS = nil
+
+local meshes = {}
+local meshesStartedLoading = false
+local mapMatStartedCachingColors = false
+local meshesReady = false
+local meshMat = nil
+local mapDataReady = false
+local recordVertsQueue = nil
+
+
+function libMapMesh.meshPosToWorldPos( meshPos )
+    return ( meshPos - MESH_OFFSET ) / MESH_SCALE
+end
+
+function libMapMesh.worldPosToMeshPos( worldPos )
+    return worldPos * MESH_SCALE + MESH_OFFSET
+end
+
+function libMapMesh.getMeshScale()
+    return MESH_SCALE -- number, not vector
+end
+
+function libMapMesh.getMeshOffset()
+    return MESH_OFFSET:clone()
+end
+
+function libMapMesh.getMeshMinBounds()
+    return MESH_MIN_BOUNDS:clone()
+end
+
+function libMapMesh.getMeshMaxBounds()
+    return MESH_MAX_BOUNDS:clone()
+end
+
+if CLIENT then
+    require( "lkl/linked_create.txt" )
+
+
+    -- Tries to start loading the map meshes. Returns true if they are in the process of loading or have already loaded.
+    function libMapMesh.startLoadingMeshes()
+        if meshesStartedLoading then return true end
+        if not mapDataReady then return end
+
+        meshesStartedLoading = true
+
+        if meshMapColorMode == 2 then
+            mapMatStartedCachingColors = true
+        else
+            recordVertsQueue:start()
+        end
+
+        return true
+    end
+
+    --[[
+        - Whether or not the map mesh (consisting of multiple sub-meshes) is fully ready.
+        - This varies per client, depending on cpu speed and when the meshes start loading.
+        - The LKL_MapMesh_MeshesReady hook is called when this becomes true.
+    --]]
+    function libMapMesh.areMeshesReady()
+        return meshesReady
+    end
+
+    function libMapMesh.getMeshes()
+        return meshes
+    end
+
+    function libMapMesh.createMeshHolos( pos, ang, scale )
+        if not meshesReady then return false end
+
+        local linkedEnts = {}
+        local meshHolos = {}
+
+        local baseHolo = linkedCreate.holo( pos, ang, MODEL_CUBE, scale, linkedEnts )
+        if not baseHolo then return false end
+
+        local minBounds = scale and MESH_MIN_BOUNDS * scale or MESH_MIN_BOUNDS
+        local maxBounds = scale and MESH_MAX_BOUNDS * scale or MESH_MAX_BOUNDS
+
+        for i, meshObj in ipairs( meshes ) do
+            local meshHolo = linkedCreate.holo( pos, ang, MODEL_CUBE, scale, linkedEnts )
+            if not meshHolo then return false end
+
+            meshHolo:setMesh( meshObj )
+            meshHolo:setMeshMaterial( meshMat )
+            meshHolo:setRenderBounds( minBounds, maxBounds )
+            meshHolo:setColor( Color( 255, 255, 255, meshMapAlpha ) )
+            meshHolo:setParent( baseHolo )
+
+            meshHolos[i] = meshHolo
+        end
+
+        baseHolo:setColor( Color( 0, 0, 0, 0 ) )
+        baseHolo:setMaterial( "engine/writestencil" )
+
+        return baseHolo, meshHolos
+    end
+end
+
+
+hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
+    local mapData = libMapData.getData()
+    local mapOBB = mapData.MaxBounds - mapData.MinBounds
+    local mapWidth = math.max( mapOBB[1], mapOBB[2] )
+    local mapCenter = mapData.Center:clone()
+    local mapBottom = Vector( mapCenter[1], mapCenter[2], mapData.PlayableRegion.MinBounds[3] )
+
+    MAP_MIN_BOUNDS = mapData.PlayableRegion.MinBounds:clone()
+    MAP_MAX_BOUNDS = mapData.PlayableRegion.MaxBounds + Vector( 0, 0, -meshMapCeilingClip )
+
+    MAP_HAS_SKYBOX = mapData.Skybox ~= false
+
+    if MAP_HAS_SKYBOX then
+        MAP_SKYBOX_MIN_BOUNDS = mapData.Skybox.MinBounds:clone()
+        MAP_SKYBOX_MAX_BOUNDS = mapData.Skybox.MaxBounds:clone()
+    end
+
+    if libMapMesh.MESH_SCALE_OVERRIDE then
+        MESH_SCALE = libMapMesh.MESH_SCALE_OVERRIDE
+    else
+        MESH_SCALE = meshMapWidth / mapWidth
+    end
+
+    if libMapMesh.MESH_OFFSET_OVERRIDE then
+        MESH_OFFSET = libMapMesh.MESH_OFFSET_OVERRIDE
+    else
+        MESH_OFFSET = ( Vector() - mapBottom ) * MESH_SCALE
+    end
+
+    MESH_MIN_BOUNDS = mapData.MinBounds * MESH_SCALE + MESH_OFFSET
+    MESH_MAX_BOUNDS = mapData.MaxBounds * MESH_SCALE + MESH_OFFSET
+
+    hook.run( "LKL_MapMesh_AddExtraData" )
+    mapDataReady = true
+
+    if CLIENT and meshMapLoadImmediately then
+        libMapMesh.startLoadingMeshes()
+    end
+end )
+
+
+if SERVER then return end
+
+
+require( "lkl/queue.txt" )
+
+
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+local COLOR_BLACK = Color( 0, 0, 0, 255 )
+
+local VERT_GROUP_SIZE_LIMIT = 65535
+local VERT_GROUP_SIZE_LIMIT_SOFT = VERT_GROUP_SIZE_LIMIT - 3 * 100
+local MESH_LOAD_PERF_LIMIT = 0.6
+
+local world = game.getWorld()
+local curVertGroup = {}
+local curVertGroupSize = 0
+local vertGroups = { curVertGroup }
+local rtNameMesh = "lkl_mapmesh_holo_map"
+local rtNameCopyMat = "lkl_mapmesh_copy_mat"
+local textureCopyMat = nil
+local mapMatsByName = {}
+local mapMatColors = {}
+
+local renderTraceSurfaceColor = render.traceSurfaceColor
+local mathRand = math.rand
+
+local isSurfaceInBounds
+local getMapColor
+
+
+-- Starfall returns a new wrapped object every time a surface's material is accessed, so cache by name to avoid duplicates.
+local function getCachedSurfaceMat( surface )
+    local surfaceMat = surface:getMaterial()
+    local surfaceMatName = istable( surfaceMat ) and surfaceMat:getName() or surfaceMat
+    local surfaceMapCached = mapMatsByName[surfaceMatName]
+
+    if surfaceMapCached then
+        return surfaceMapCached
+    end
+
+    mapMatsByName[surfaceMatName] = surfaceMat
+
+    return surfaceMat
+end
+
+local function onFinishLoadingMeshes()
+    meshesReady = true
+
+    hook.run( "LKL_MapMesh_MeshesReady" )
+end
+
+local function startCreatingMesh()
+    curVertGroup = table.remove( vertGroups, 1 )
+
+    if not curVertGroup then
+        onFinishLoadingMeshes()
+
+        return
+    end
+
+    curVertGroupSize = #curVertGroup
+
+    local curMesh = nil
+    local loadMesh = coroutine.wrap( function() curMesh = mesh.createFromTable( curVertGroup, true ) return true end )
+
+    hook.add( "think", "LKL_MapMesh_LoadMesh", function()
+        local perfLimit = quotaMax() * MESH_LOAD_PERF_LIMIT
+
+        while quotaAverage() < perfLimit do
+            if loadMesh() == true then
+                table.insert( meshes, curMesh )
+                hook.remove( "think", "LKL_MapMesh_LoadMesh" )
+
+                startCreatingMesh()
+
+                return
+            end
+        end
+    end )
+end
+
+
+local recordVerts_surfaceInd = -1
+recordVertsQueue = Queue:new(
+    function( _, surface )
+        recordVerts_surfaceInd = recordVerts_surfaceInd + 1
+
+        if meshMapHideNoDraw and surface:isNoDraw() then return end
+        if meshMapHideSky and surface:isSky() then return end
+
+        local surfaceVerts = surface:getVertices()
+        local surfaceVertCount = #surfaceVerts
+        if surfaceVertCount < 3 then return end
+
+        local isInBounds = isSurfaceInBounds( surfaceVerts, surfaceVertCount )
+        if not isInBounds then return end
+
+        local surfaceInd = recordVerts_surfaceInd
+        local _, surfaceNormal = world:getBrushPlane( surfaceInd )
+        local isWater = surface:isWater()
+        local overrideColor = surface.overrideColor
+        local surfaceMat = getCachedSurfaceMat( surface )
+
+        if not overrideColor then
+            if isWater then
+                overrideColor = meshMapWaterColor
+            elseif surface:isSky() then
+                overrideColor = meshMapSkyColor
+            elseif surface:isNoDraw() then
+                overrideColor = meshMapNoDrawColor
+            end
+        end
+
+        if curVertGroupSize >= VERT_GROUP_SIZE_LIMIT_SOFT then
+            curVertGroup = {}
+            curVertGroupSize = 0
+            table.insert( vertGroups, curVertGroup )
+        end
+
+        local surfaceCenter = Vector()
+
+        for i = 1, surfaceVertCount do
+            surfaceCenter = surfaceCenter + surfaceVerts[i]
+        end
+
+        surfaceCenter = surfaceCenter / surfaceVertCount
+
+        if surfaceVertCount == 3 then
+            for i = 1, surfaceVertCount do
+                local pos = surfaceVerts[i]
+
+                curVertGroupSize = curVertGroupSize + 1
+                curVertGroup[curVertGroupSize] = {
+                    pos = pos * MESH_SCALE + MESH_OFFSET,
+                    color = overrideColor or getMapColor( pos, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat ),
+                }
+            end
+        else
+            local firstVert = surfaceVerts[1]
+            local prevVert = surfaceVerts[3]
+
+            local firstColor = overrideColor or getMapColor( firstVert, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat )
+            local prevColor = overrideColor or getMapColor( prevVert, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat )
+
+            firstVert = firstVert * MESH_SCALE + MESH_OFFSET
+            prevVert = prevVert * MESH_SCALE + MESH_OFFSET
+
+            curVertGroupSize = curVertGroupSize + 1
+            curVertGroup[curVertGroupSize] = {
+                pos = firstVert,
+                color = firstColor,
+            }
+
+            local vert2 = surfaceVerts[2]
+            local color2 = overrideColor or getMapColor( vert2, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat )
+            vert2 = vert2 * MESH_SCALE + MESH_OFFSET
+
+            curVertGroupSize = curVertGroupSize + 1
+            curVertGroup[curVertGroupSize] = {
+                pos = vert2,
+                color = color2,
+            }
+
+            curVertGroupSize = curVertGroupSize + 1
+            curVertGroup[curVertGroupSize] = {
+                pos = prevVert,
+                color = prevColor,
+            }
+
+            for i = 4, surfaceVertCount do
+                local vert = surfaceVerts[i]
+                local color = overrideColor or getMapColor( vert, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat )
+                vert = vert * MESH_SCALE + MESH_OFFSET
+
+                curVertGroupSize = curVertGroupSize + 1
+                curVertGroup[curVertGroupSize] = {
+                    pos = firstVert,
+                    color = firstColor,
+                }
+
+                curVertGroupSize = curVertGroupSize + 1
+                curVertGroup[curVertGroupSize] = {
+                    pos = prevVert,
+                    color = prevColor,
+                }
+
+                curVertGroupSize = curVertGroupSize + 1
+                curVertGroup[curVertGroupSize] = {
+                    pos = vert,
+                    color = color,
+                }
+
+                prevVert = vert
+                prevColor = color
+            end
+        end
+    end,
+    function()
+        curVertGroupSize = 0
+        startCreatingMesh()
+    end,
+    world:getBrushSurfaces(),
+    0.1,
+    1000,
+    0.7,
+    "RecordVerts"
+)
+
+
+hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddFloor", function()
+    if not meshMapAddFloor then return end
+
+    local mapData = libMapData.getData()
+    local minBounds = mapData.PlayableRegion.MinBounds
+    local maxBounds = mapData.PlayableRegion.MaxBounds
+
+    local floorSurface = {
+        getVertices = function()
+            return {
+                Vector( maxBounds[1], minBounds[2], minBounds[3] ),
+                Vector( minBounds[1], minBounds[2], minBounds[3] ),
+                Vector( minBounds[1], maxBounds[2], minBounds[3] ),
+                Vector( maxBounds[1], maxBounds[2], minBounds[3] ),
+            }
+        end,
+
+        isNoDraw = function()
+            return false
+        end,
+
+        isWater = function()
+            return false
+        end,
+
+        isSky = function()
+            return false
+        end,
+
+        getMaterial = function()
+            return "none"
+        end,
+
+        overrideColor = meshMapFloorColor,
+    }
+
+    recordVertsQueue:addEntry( floorSurface )
+end )
+
+hook.add( "renderoffscreen", "LKL_MapMesh_SetUpMeshMat", function()
+    render.selectRenderTarget( rtNameMesh )
+    render.clear( Color( 255, 255, 255, 255 ) )
+    render.selectRenderTarget()
+
+    hook.remove( "renderoffscreen", "LKL_MapMesh_SetUpMeshMat" )
+end )
+
+
+do
+    render.createRenderTarget( rtNameMesh )
+    meshMat = material.create( "UnlitGeneric" )
+    meshMat:setTextureRenderTarget( "$basetexture", rtNameMesh )
+    meshMat:setInt( "$flags", 16 + 2048 + ( meshMapDoWireframe and 268435456 or 0 ) )
+end
+
+
+if meshMapHideSkybox then
+    isSurfaceInBounds = function( verts, vertCount )
+        -- Disallow if any verts are in the skybox.
+        for i = 1, vertCount do
+            if verts[i]:withinAABox( MAP_SKYBOX_MIN_BOUNDS, MAP_SKYBOX_MAX_BOUNDS ) then
+                return true
+            end
+        end
+
+        -- Allow if any verts are in the playable region.
+        for i = 1, vertCount do
+            if verts[i]:withinAABox( MAP_MIN_BOUNDS, MAP_MAX_BOUNDS ) then
+                return true
+            end
+        end
+
+        return false
+    end
+else
+    isSurfaceInBounds = function( verts, vertCount )
+        -- Allow if any verts are in the playable region.
+        for i = 1, vertCount do
+            if verts[i]:withinAABox( MAP_MIN_BOUNDS, MAP_MAX_BOUNDS ) then
+                return true
+            end
+        end
+
+        return false
+    end
+end
+
+
+if meshMapColorMode == 0 then
+    getMapColor = function()
+        -- Do nothing.
+    end
+elseif meshMapColorMode == 1 then
+    getMapColor = function( pos, surfaceCenter, surfaceNormal, _surfaceInd, _surfaceMat )
+        if not surfaceNormal then return meshMapFallbackColor end
+
+        local posToCenter = ( surfaceCenter - pos ) * 0.01
+
+        --local color = renderTraceSurfaceColor( pos + surfaceNormal, pos - surfaceNormal )
+        --local color = renderTraceSurfaceColor( pos + surfaceNormal * 2, pos - surfaceNormal * 2 )
+        local color = renderTraceSurfaceColor( pos + surfaceNormal, pos - surfaceNormal + posToCenter )
+
+        if color == COLOR_WHITE then
+            return meshMapFallbackColor
+        end
+
+        return color
+    end
+elseif meshMapColorMode == 2 then
+    textureCopyMat = material.create( "UnlitGeneric" )
+    render.createRenderTarget( rtNameCopyMat )
+
+    getMapColor = function( pos, surfaceCenter, surfaceNormal, _surfaceInd, surfaceMat )
+        pos = surfaceCenter + surfaceNormal * 5
+
+        local vertLight = render.computeLighting( pos, surfaceNormal )
+        --local vertLight = render.getLightColor( pos )
+
+        local color = mapMatColors[surfaceMat] or meshMapFallbackColor
+
+        --[[
+        return Color(
+            color.r * vertLight[1],
+            color.g * vertLight[2],
+            color.b * vertLight[3],
+            255
+        )
+        --]]
+
+        local combinedBrightness = math.clamp( vertLight:getLength() / 3, 0, 1 ) ^ 0.35
+
+        return Color(
+            color.r * combinedBrightness,
+            color.g * combinedBrightness,
+            color.b * combinedBrightness,
+            255
+        )
+    end
+
+    local surfaces = world:getBrushSurfaces()
+
+
+    local function cacheNextMapMatColor()
+        local surface = table.remove( surfaces )
+
+        if not surface then
+            hook.remove( "renderoffscreen", "LKL_MapMesh_CacheMapMatColors" )
+            recordVertsQueue:start()
+
+            return
+        end
+
+        local surfaceMat = getCachedSurfaceMat( surface )
+        if mapMatColors[surfaceMat] then return true end -- Already cached.
+
+        textureCopyMat:setTexture( "$basetexture", surfaceMat:getTexture( "$basetexture" ) )
+
+        local width = math.ceil( ( surfaceMat:getWidth() - 1 ) * meshMapColorMode2CompressionScale )
+        local height = math.ceil( ( surfaceMat:getHeight() - 1 ) * meshMapColorMode2CompressionScale )
+        local rSum = 0
+        local gSum = 0
+        local bSum = 0
+
+        render.selectRenderTarget( rtNameCopyMat )
+
+        -- Draw material onto render target.
+        render.clear( COLOR_BLACK )
+        render.setMaterial( textureCopyMat )
+
+        if meshMapColorMode2CompressionScale == 1 then
+            render.drawTexturedRectFast( 0, 0, width, height )
+        else
+            render.drawTexturedRectUVFast( 0, 0, width, height, 0, 0, 1, 1 )
+        end
+
+        -- Read pixels from render target. Unfortunately, this is the only option, as material:getColor() doesn't work on vtf textures.
+        render.capturePixels()
+
+        for _ = 1, meshMapColorMode2NumSamples do
+            local x = mathRand( 0, width )
+            local y = mathRand( 0, height )
+            local color = render.readPixel( x, y )
+
+            rSum = rSum + color.r
+            gSum = gSum + color.g
+            bSum = bSum + color.b
+        end
+
+        render.selectRenderTarget()
+
+        local avgColor = Color(
+            rSum / meshMapColorMode2NumSamples,
+            gSum / meshMapColorMode2NumSamples,
+            bSum / meshMapColorMode2NumSamples,
+            255
+        )
+
+        mapMatColors[surfaceMat] = avgColor
+
+        return true
+    end
+
+
+    hook.add( "renderoffscreen", "LKL_MapMesh_CacheMapMatColors", function()
+        if not mapMatStartedCachingColors then return end
+
+        local otherUsage = cpuTotalAverage() - cpuAverage()
+        local perfLimit = quotaMax() * MESH_LOAD_PERF_LIMIT - otherUsage
+
+        for _ = 1, 100 do
+            if cpuAverage() > perfLimit then return end
+            if not cacheNextMapMatColor() then return end
+        end
+    end )
+elseif meshMapColorMode == 3 then
+    getMapColor = function( _pos, _surfaceCenter, _surfaceNormal, _surfaceInd, _surfaceMat )
+        return meshMapFallbackColor
+    end
+elseif meshMapColorMode == 4 then
+    local surfaceCount = world:getBrushPlaneCount()
+    local hueMult = meshMapColorMode4NumCycles * 360 / surfaceCount
+
+    getMapColor = function( _pos, _surfaceCenter, _surfaceNormal, surfaceInd, _surfaceMat )
+        local hue = surfaceInd * hueMult
+        local color = Color( hue, meshMapHSVSaturation, meshMapHSVValue ):hsvToRGB()
+
+        return color
+    end
+elseif meshMapColorMode == 5 then
+    local prevSurfaceColor = nil
+    local prevSurfaceInd = nil
+
+    getMapColor = function( _pos, _surfaceCenter, _surfaceNormal, surfaceInd, _surfaceMat )
+        if surfaceInd == prevSurfaceInd then
+            return prevSurfaceColor
+        end
+
+        local hue = mathRand( 0, 360 )
+
+        prevSurfaceColor = Color( hue, meshMapHSVSaturation, meshMapHSVValue ):hsvToRGB()
+        prevSurfaceInd = surfaceInd
+
+        return prevSurfaceColor
+    end
+else
+    error( "Invalid COLOR_MODE in libMapMesh" )
+end
+
