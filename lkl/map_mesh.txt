@@ -181,7 +181,11 @@ if CLIENT then
 
     ----- OVERRIDABLE FUNCTIONS -----
 
-    -- Override this to edit the positions of the vertices if you so choose. surfaceInd is the index used by world:getBrushPlane().
+    --[[
+        - Override this to edit the positions of the vertices if you so choose.
+        - Unlike with the config variables, this must be overridden AFTER require()'ing this library.
+        - surfaceInd is the index used by world:getBrushPlane().
+    --]]
     function libMapMesh.nudgeSurfaceVerts( _surfaceVerts, _surfaceNormal, _surfaceInd )
 
     end
