@@ -5,6 +5,7 @@
 --@include lkl/map_mesh.txt
 --@include lkl/math/holo_trace.txt
 --@include lkl/anims/screen_holo_animation.txt
+--@include lkl/render/screen_mat.txt
 
 libMapMesh = libMapMesh or {}
 
@@ -329,15 +330,11 @@ end
 
 require( "lkl/math/holo_trace.txt" )
 require( "lkl/anims/screen_holo_animation.txt" )
+require( "lkl/render/screen_mat.txt" )
 
-
-local COLOR_WHITE = Color( 255, 255, 255, 255 )
-local COLOR_EMPTY = Color( 0, 0, 0, 0 )
 
 local meshesReady = false
 local holoMapStartLoadingDistSqr = holoMapStartLoadingDist ^ 2
-local rtNameScratch = "lkl_i3dmap_scratch"
-local rtMatScratch = nil
 local mapHoloBase = nil
 --local mapHolos = nil
 local recursiveHoloBase = nil
@@ -345,19 +342,6 @@ local recursiveHoloBase = nil
 local playerHolos = {}
 local playerHoloPlys = {}
 local playerHoloLookup = {}
-
-
-local function invertAlpha()
-    render.clear( COLOR_WHITE, true )
-    render.setMaterial( rtMatScratch )
-
-    render.overrideBlend( true, BLEND.ONE, BLEND.ZERO, BLENDFUNC.ADD, BLEND.ONE, BLEND.ONE, BLENDFUNC.REVERSE_SUBTRACT )
-
-    render.setColor( COLOR_WHITE )
-    render.drawTexturedRect( 0, 0, 1024, 1024 )
-
-    render.overrideBlend( false )
-end
 
 
 hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
@@ -429,13 +413,6 @@ timer.create( "LKL_I3DMap_StartLoading", 0.2, 0, function()
 end )
 
 
-do
-    render.createRenderTarget( rtNameScratch )
-
-    rtMatScratch = material.create( "UnlitGeneric" )
-    rtMatScratch:setTextureRenderTarget( "$basetexture", rtNameScratch )
-end
-
 if holoMapDoRecursion then
     local lastChipPos = nil
     local lastChipAng = nil
@@ -467,15 +444,7 @@ if holoMapShowPlayerNames then
 
     local rtNamePlayerNames = "lkl_i3dmap_player_names"
     render.createRenderTarget( rtNamePlayerNames )
-
-    local rtMatPlayerNames = material.create( "Refract_DX90" )
-    local rtMatPlayerNamesName = "!" .. rtMatPlayerNames:getName()
-    rtMatPlayerNames:setTextureRenderTarget( "$basetexture", rtNamePlayerNames )
-    rtMatPlayerNames:setInt( "$flags", 2048 + 32768 )
-    rtMatPlayerNames:setInt( "$bluramount", 0 )
-    rtMatPlayerNames:setInt( "$masked", 1 )
-    rtMatPlayerNames:setInt( "$mostlyopaque", 1 )
-    rtMatPlayerNames:setVector( "$refracttint", Vector( 1, 1, 1 ) )
+    local _, rtMatPlayerNamesName = screenMatLib.createScreenMaterial( rtNamePlayerNames )
 
     local screenAnim = ScreenHoloAnimation:new( false, Vector(), Angle() )
     screenAnim:setScreenHoloVisible( true )
@@ -551,9 +520,7 @@ if holoMapShowPlayerNames then
     hook.add( "renderoffscreen", "LKL_I3DMap_DrawPlayerName", function()
         if not rtPlayerNamesNeedsUpdate then return end
 
-        render.selectRenderTarget( rtNameScratch )
-
-        render.clear( COLOR_EMPTY )
+        screenMatLib.startScratchWork()
 
         if isValid( curAimedPly ) then
             render.setMaterial()
@@ -563,10 +530,7 @@ if holoMapShowPlayerNames then
             render.drawSimpleText( 512, 512 + holoMapPlayerNameFontSize, curAimedPly:getName(), 1, 3 )
         end
 
-        render.selectRenderTarget()
-
-        render.selectRenderTarget( rtNamePlayerNames )
-        invertAlpha()
-        render.selectRenderTarget()
+        screenMatLib.unstretchScratchWork()
+        screenMatLib.updateScreenMaterial( rtNamePlayerNames )
     end )
 end
