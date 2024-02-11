@@ -58,28 +58,19 @@ local TRACE_MASK = MASK.SOLID_BRUSHONLY
 local MAP_MIN_BOUNDS = nil
 local MAP_MAX_BOUNDS = nil
 
-local MESH_SCALE = nil
-local MESH_OFFSET = nil
-
 local mapDataReady = false
 
 
-local function meshPosToWorldPos( meshPos )
-    return ( meshPos - MESH_OFFSET ) / MESH_SCALE
-end
-
-local function worldPosToMeshPos( worldPos )
-    return worldPos * MESH_SCALE + MESH_OFFSET
-end
-
-local function worldToMeshThroughHoloMap( worldPos, worldAng )
+-- Takes a world pos and ang, then uses its relation to the holo map to convert to mesh pos and ang.
+function libI3DMap.worldToMeshThroughHoloMap( worldPos, worldAng )
     local meshOriginPos, meshOriginAng = localToWorld( holoMapOffsetPos, holoMapOffsetAng, chip():getPos(), chip():getAngles() )
     local meshPos, meshAng = worldToLocal( worldPos, worldAng, meshOriginPos, meshOriginAng )
 
     return meshPos, meshAng
 end
 
-local function meshToHoloMap( meshPos, meshAng )
+-- Takes a mesh pos and ang, then converts it into world coordinates that line up in the holo map.
+function libI3DMap.meshToHoloMap( meshPos, meshAng )
     local meshOriginPos, meshOriginAng = localToWorld( holoMapOffsetPos, holoMapOffsetAng, chip():getPos(), chip():getAngles() )
 
     return localToWorld( meshPos, meshAng, meshOriginPos, meshOriginAng )
@@ -90,14 +81,14 @@ end
     - Can provide a player for eyePos to auto-get the eye info.
     - Returns a trace result.
 --]]
-local function holoMapTrace( eyePos, eyeAng )
+function libI3DMap.holoMapTrace( eyePos, eyeAng )
     if type( eyePos ) == "Player" then
         eyeAng = eyePos:getEyeAngles()
         eyePos = eyePos:getShootPos()
     end
 
-    local startMeshPos, startMeshAng = worldToMeshThroughHoloMap( eyePos, eyeAng )
-    local startPos = meshPosToWorldPos( startMeshPos )
+    local startMeshPos, startMeshAng = libI3DMap.worldToMeshThroughHoloMap( eyePos, eyeAng )
+    local startPos = libMapMesh.meshPosToWorldPos( startMeshPos )
     local dir = startMeshAng:getForward()
 
     local tr = trace.line( startPos, startPos + dir * TRACE_LENGTH, nil, TRACE_COLLISION_GROUP, TRACE_MASK, false )
@@ -112,16 +103,16 @@ local function holoMapTrace( eyePos, eyeAng )
 end
 
 -- Similar to holoMapTrace(), but returns worldHitPos, worldHitNormal, holoMapHitPos, holoMapHitNormal instead of a full trace table.
-local function holoMapTraceAlt( eyePos, eyeAng )
-    local tr = holoMapTrace( eyePos, eyeAng )
+function libI3DMap.holoMapTraceAlt( eyePos, eyeAng )
+    local tr = libI3DMap.holoMapTrace( eyePos, eyeAng )
     if not tr.Hit then return end
 
     local worldHitPos = tr.HitPos
     local worldHitNormal = tr.HitNormal
 
-    local meshHitPos = worldPosToMeshPos( worldHitPos )
+    local meshHitPos = libMapMesh.worldPosToMeshPos( worldHitPos )
     local meshHitNormalAng = worldHitNormal:getAngle()
-    local holoMapHitPos, holoMapHitNormalAng = meshToHoloMap( meshHitPos, meshHitNormalAng )
+    local holoMapHitPos, holoMapHitNormalAng = libI3DMap.meshToHoloMap( meshHitPos, meshHitNormalAng )
     local holoMapHitNormal = holoMapHitNormalAng:getForward()
 
     return worldHitPos, worldHitNormal, holoMapHitPos, holoMapHitNormal
@@ -133,9 +124,6 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_I3DMap_GetMeshConstants", function()
 
     MAP_MIN_BOUNDS = mapData.PlayableRegion.MinBounds:clone()
     MAP_MAX_BOUNDS = mapData.PlayableRegion.MaxBounds + Vector( 0, 0, -libMapMesh.CEILING_CLIP )
-
-    MESH_SCALE = libMapMesh.getMeshScale()
-    MESH_OFFSET = libMapMesh.getMeshOffset()
 
     mapDataReady = true
 end )
@@ -189,7 +177,7 @@ if SERVER then
     end
 
     local function doHoloMapPing( ply )
-        local worldHitPos, _, holoMapHitPos, holoMapHitNormal = holoMapTraceAlt( ply )
+        local worldHitPos, _, holoMapHitPos, holoMapHitNormal = libI3DMap.holoMapTraceAlt( ply )
         if not worldHitPos then return end
 
         local pingHolo = playerPingHolos[ply]
@@ -255,7 +243,7 @@ if SERVER then
 
                     local holo
                     local _ = pcall( function()
-                        holo = hologram.create( Vector(), Angle(), getSafeModel( ply:getModel() ), Vector( MESH_SCALE * holoMapPlayerScale ) )
+                        holo = hologram.create( Vector(), Angle(), getSafeModel( ply:getModel() ), Vector( libMapMesh.getMeshScale() * holoMapPlayerScale ) )
                     end )
 
                     if not holo then return end
@@ -313,7 +301,7 @@ if SERVER then
                 end )
             end
 
-            local pos = worldPosToMeshPos( ply:getPos() )
+            local pos = libMapMesh.worldPosToMeshPos( ply:getPos() )
             local ang = ply:getAngles()
 
             pos, ang = localToWorld( pos, ang, meshOriginPos, meshOriginAng )
@@ -363,7 +351,7 @@ hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
     if not holoMapDoRecursion then return end
 
     timer.create( "LKL_I3DMap_SpawnRecursiveMapHolos", 0.5, 0, function()
-        recursiveHoloBase, recursiveHolos = libMapMesh.createMeshHolos( Vector(), Angle(), Vector( MESH_SCALE ) )
+        recursiveHoloBase, recursiveHolos = libMapMesh.createMeshHolos( Vector(), Angle(), Vector( libMapMesh.getMeshScale() ) )
         if not recursiveHoloBase then return end
 
         timer.remove( "LKL_I3DMap_SpawnRecursiveMapHolos" )
@@ -429,8 +417,8 @@ if holoMapDoRecursion then
         lastChipPos = chipPos
         lastChipAng = chipAng
 
-        local meshPos = worldPosToMeshPos( chipPos )
-        local pos, ang = meshToHoloMap( meshPos, chipAng )
+        local meshPos = libMapMesh.worldPosToMeshPos( chipPos )
+        local pos, ang = libI3DMap.meshToHoloMap( meshPos, chipAng )
 
         recursiveHoloBase:setPos( pos )
         recursiveHoloBase:setAngles( ang )
@@ -474,7 +462,7 @@ if holoMapShowPlayerNames then
         if startPos:getDistanceSqr( chip():getPos() ) > holoMapStartLoadingDistSqr then return end
 
         local eyeAng = render.getAngles()
-        local _, _, holoMapHitPos = holoMapTraceAlt( startPos, eyeAng )
+        local _, _, holoMapHitPos = libI3DMap.holoMapTraceAlt( startPos, eyeAng )
 
         if not holoMapHitPos then
             setAimedPlayer( nil )
