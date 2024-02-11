@@ -4,6 +4,7 @@
 --@include lkl/map_data.txt
 --@include lkl/queue.txt
 --@include lkl/linked_create.txt
+--@include lkl/math/vector_math.txt
 
 require( "lkl/map_data.txt" )
 
@@ -114,6 +115,7 @@ end
 
 if CLIENT then
     require( "lkl/linked_create.txt" )
+    require( "lkl/math/vector_math.txt" )
 
 
     -- Tries to start loading the map meshes. Returns true if they are in the process of loading or have already loaded.
@@ -351,13 +353,7 @@ recordVertsQueue = Queue:new(
 
         libMapMesh.nudgeSurfaceVerts( surfaceVerts, surfaceNormal, surfaceInd )
 
-        local surfaceCenter = Vector()
-
-        for i = 1, surfaceVertCount do
-            surfaceCenter = surfaceCenter + surfaceVerts[i]
-        end
-
-        surfaceCenter = surfaceCenter / surfaceVertCount
+        local surfaceCenter = vectorMath.getCenter( surfaceVerts )
 
         if surfaceVertCount == 3 then
             for i = 1, surfaceVertCount do
