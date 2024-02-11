@@ -41,6 +41,13 @@ local COLOR_WHITE = Color( 255, 255, 255, 255 )
 local COLOR_EMPTY = Color( 0, 0, 0, 0 )
 
 local screenMats = {}
+local rtNameSquash = nil
+local rtMatSquash = nil
+local squashX = nil
+local squashY = nil
+local squashWidth = nil
+local squashHeight = nil
+local prepareSquashInfo
 
 local rtNameScratch = "lkl_screenmat_scratch"
 render.createRenderTarget( rtNameScratch )
@@ -123,4 +130,69 @@ function screenMatLib.updateScreenMaterial( rtName )
     render.overrideBlend( false )
 
     render.selectRenderTarget()
+end
+
+--[[
+    - Un-stretches the scratch render target to counteract stretching due to player screen resolution.
+    - This will result in everything being scaled correctly, but will cut off the far edges of the screen.
+    - If you use this, do it immediately before running screenMatLib.updateScreenMaterial().
+--]]
+function screenMatLib.unstretchScratchWork()
+    if prepareSquashInfo() then return end
+
+    -- Remove preparation function to avoid unnecessary overhead.
+    screenMatLib.unstretchScratchWork = function()
+        -- Squash the scratch render target counteract the screen stretching.
+        render.selectRenderTarget( rtNameSquash )
+
+        render.clear( COLOR_EMPTY, true )
+        render.setColor( COLOR_WHITE )
+        render.setMaterial( rtMatScratch )
+        render.drawTexturedRectUV( squashX, squashY, squashWidth, squashHeight, 0, 0, 1, 1 )
+
+        render.selectRenderTarget()
+
+        -- Draw back onto the scratch material.
+        render.selectRenderTarget( rtNameScratch )
+
+        render.clear( COLOR_EMPTY, true )
+        render.setColor( COLOR_WHITE )
+        render.setMaterial( rtMatSquash )
+        render.drawTexturedRect( 0, 0, 1024, 1024 )
+
+        render.selectRenderTarget()
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+prepareSquashInfo = function()
+    rtNameSquash = "lkl_screenmat_squash"
+    render.createRenderTarget( rtNameSquash )
+
+    rtMatSquash = material.create( "UnlitGeneric" )
+    rtMatSquash:setTextureRenderTarget( "$basetexture", rtNameSquash )
+
+    local scrW, scrH = render.getGameResolution()
+
+    if scrW == scrH then
+        screenMatLib.unstretchScratchWork = function() return end -- No need to do anything if the resolution is square.
+
+        return true
+    end
+
+    if scrW < scrH then
+        squashWidth = 1024
+        squashHeight = scrW * 1024 / scrH
+
+        squashX = 0
+        squashY = ( squashWidth - squashHeight ) / 2
+    else
+        squashWidth = scrH * 1024 / scrW
+        squashHeight = 1024
+
+        squashX = ( squashHeight - squashWidth ) / 2
+        squashY = 0
+    end
 end
