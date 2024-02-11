@@ -1,0 +1,126 @@
+--@name Screen Mat
+--@author legokidlogan
+--@client
+
+--[[
+    - Used for creating screenspace materials that render on models and allow transparency.
+    - Primarily used with Screen Holo Animation, like this:
+        --@client
+        --@include lkl/render/screen_mat.txt
+        --@include lkl/anims/screen_holo_animation.txt
+
+        require( "lkl/render/screen_mat.txt" )
+        require( "lkl/anims/screen_holo_animation.txt" )
+
+
+        local myRTName = "blah"
+        render.createRenderTarget( myRTName )
+        local myMat, myMatName = screenMatLib.createScreenMaterial( myRTName )
+
+        local screenAnim = ScreenHoloAnimation:new( false, Vector(), Angle() )
+        screenAnim:setScreenHoloVisible( true )
+        screenAnim:setScreenHoloMaterials( { myMatName } )
+
+
+        hook.add( "renderoffscreen", "myRTUpdate", function()
+            screenMatLib.startScratchWork()
+            drawSomeStuff()
+            screenMatLib.updateScreenMaterial( myRTName )
+        end )
+
+        -- Use screenAnim:play() and screenAnim:stop() to control when to display the screen holo.
+--]]
+
+screenMatLib = screenMatLib or {}
+
+if screenMatLib._alreadyLoaded then return end
+screenMatLib._alreadyLoaded = true
+
+
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local screenMats = {}
+
+local rtNameScratch = "lkl_screenmat_scratch"
+render.createRenderTarget( rtNameScratch )
+
+local rtMatScratch = material.create( "UnlitGeneric" )
+rtMatScratch:setTextureRenderTarget( "$basetexture", rtNameScratch )
+
+
+--[[
+    - Creates a screen material from the associated render target.
+
+    rtName: string
+        - The name of the render target to use.
+        - Make sure to use render.createRenderTarget( rtName ) first!
+
+    RETURNS: mat, matName
+        mat: Material
+            - The created material.
+        matName: string
+            - The name of the material, for use with holo:setMaterial(), etc.
+--]]
+function screenMatLib.createScreenMaterial( rtName )
+    if type( rtName ) ~= "string" then error( "Expected rtName to be a string" ) end
+
+    local mat = material.create( "Refract_DX90" )
+    mat:setTextureRenderTarget( "$basetexture", rtName )
+    mat:setInt( "$flags", 2048 + 32768 )
+    mat:setInt( "$bluramount", 0 )
+    mat:setInt( "$masked", 1 )
+    mat:setInt( "$mostlyopaque", 1 )
+    mat:setVector( "$refracttint", Vector( 1, 1, 1 ) )
+
+    screenMats[rtName] = mat
+
+    return mat, "!" .. mat:getName()
+end
+
+-- Gets the name of the scratch rt.
+function screenMatLib.getScratchRTName()
+    return rtNameScratch
+end
+
+-- Gets the material of the scratch rt. You shouldn't need this, but it's here just in case.
+function screenMatLib.getScratchMaterial()
+    return rtMatScratch
+end
+
+-- Call this before drawing stuff for one of your screen materials, then do screenMatLib.updateScreenMaterial() after drawing.
+function screenMatLib.startScratchWork()
+    render.selectRenderTarget( rtNameScratch )
+    render.clear( COLOR_EMPTY, true )
+end
+
+--[[
+    - Applies your work from the scratch render target onto your screen material.
+        - The alpha gets inverted in the process, fixing a quirk in how masked Refract_DX90 materials handle alpha.
+    - Your workflow for updating screen materials should be as follows:
+        screenMatLib.startScratchWork()
+        drawSomeStuff()
+        screenMatLib.updateScreenMaterial( myRTName )
+    - Try to avoid using the contents of your screen material from previous frames, as the alpha will be inverted.
+    - Only draw for one screen material at a time, as they have to share the scratch render target.
+
+    rtName: string
+        - The name of the render target to update.
+        - You must use screenMatLib.createScreenMaterial( rtName ) once before calling this function.
+--]]
+function screenMatLib.updateScreenMaterial( rtName )
+    local mat = screenMats[rtName]
+    if not mat then error( "There is no screen material associated with the \"" .. rtName .. "\" render target" ) end
+
+    render.selectRenderTarget( rtName )
+
+    render.clear( COLOR_WHITE )
+    render.setColor( COLOR_WHITE )
+    render.setMaterial( rtMatScratch )
+
+    render.overrideBlend( true, BLEND.ONE, BLEND.ZERO, BLENDFUNC.ADD, BLEND.ONE, BLEND.ONE, BLENDFUNC.REVERSE_SUBTRACT )
+    render.drawTexturedRectFast( 0, 0, 1024, 1024 )
+    render.overrideBlend( false )
+
+    render.selectRenderTarget()
+end
