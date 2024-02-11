@@ -86,6 +86,8 @@ local mapDataReady = false
 local recordVertsQueue = nil
 
 
+----- PUBLIC FUNCTIONS -----
+
 function libMapMesh.meshPosToWorldPos( meshPos )
     return ( meshPos - MESH_OFFSET ) / MESH_SCALE
 end
@@ -173,7 +175,18 @@ if CLIENT then
 
         return baseHolo, meshHolos
     end
+
+
+    ----- OVERRIDABLE FUNCTIONS -----
+
+    -- Override this to edit the positions of the vertices if you so choose. surfaceInd is the index used by world:getBrushPlane().
+    function libMapMesh.nudgeSurfaceVerts( _surfaceVerts, _surfaceNormal, _surfaceInd )
+
+    end
 end
+
+
+----- PRIVATE FUNCTIONS / SETUP -----
 
 
 hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
@@ -335,6 +348,8 @@ recordVertsQueue = Queue:new(
             curVertGroupSize = 0
             table.insert( vertGroups, curVertGroup )
         end
+
+        libMapMesh.nudgeSurfaceVerts( surfaceVerts, surfaceNormal, surfaceInd )
 
         local surfaceCenter = Vector()
 
