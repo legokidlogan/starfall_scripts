@@ -430,6 +430,54 @@ function vectorMath.getOBBCenter( obbMins, obbMaxs, ang, scale )
     return center
 end
 
+-- Gets the average of a sequential table of Vectors.
+function vectorMath.getAverage( points )
+    local sumX = 0
+    local sumY = 0
+    local sumZ = 0
+    local pointCount = #points
+
+    for i = 1, pointCount do
+        local point = points[i]
+
+        sumX = sumX + point[1]
+        sumY = sumY + point[2]
+        sumZ = sumZ + point[3]
+    end
+
+    return Vector( sumX / pointCount, sumY / pointCount, sumZ / pointCount )
+end
+
+-- Returns the midpoint of a table of Vectors.
+function vectorMath.getCenter( points )
+    local pointCount = #points
+    if pointCount == 0 then return nil end
+    if pointCount == 1 then return points[1]:clone() end
+
+    local minX = math.huge
+    local minY = math.huge
+    local minZ = math.huge
+    local maxX = -math.huge
+    local maxY = -math.huge
+    local maxZ = -math.huge
+
+    for i = 1, pointCount do
+        local point = points[i]
+        local x = point[1]
+        local y = point[2]
+        local z = point[3]
+
+        if x < minX then minX = x end
+        if x > maxX then maxX = x end
+        if y < minY then minY = y end
+        if y > maxY then maxY = y end
+        if z < minZ then minZ = z end
+        if z > maxZ then maxZ = z end
+    end
+
+    return Vector( ( minX + maxX ) / 2, ( minY + maxY ) / 2, ( minZ + maxZ ) / 2 )
+end
+
 --[[
     - Returns a table of vectors fanning out from a given direction.
 
