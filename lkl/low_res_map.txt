@@ -1,0 +1,43 @@
+--@name Low Res Map
+--@author legokidlogan
+--@shared
+--@ owneronly
+--@include lkl/map_mesh.txt
+
+-- Overlays a simplified map mesh onto the map itself.
+
+-- CONFIG
+local faceExtend = 1
+-- END CONFIG
+
+
+libMapMesh = libMapMesh or {}
+libMapMesh.MESH_SCALE_OVERRIDE = 1
+libMapMesh.MESH_OFFSET_OVERRIDE = Vector()
+
+require( "lkl/map_mesh.txt" )
+
+
+function libMapMesh.nudgeSurfaceVerts( surfaceVerts, surfaceNormal, _surfaceInd )
+    local surfaceCount = #surfaceVerts
+    local surfaceCenter = vectorMath.getCenter( surfaceVerts )
+    local prevEdgeOffset = vectorMath.getDirectionAndLength(
+        ( surfaceVerts[1] + surfaceVerts[surfaceCount] ) / 2 - surfaceCenter
+    )
+
+    for i = 1, surfaceCount do
+        local vert = surfaceVerts[i]
+        local nextVert = surfaceVerts[i + 1] or surfaceVerts[1]
+        local nextEdgeOffset = vectorMath.getDirectionAndLength(
+            ( vert + nextVert ) / 2 - surfaceCenter
+        )
+
+        surfaceVerts[i] = vert + ( surfaceNormal + prevEdgeOffset + nextEdgeOffset ) * faceExtend
+        prevEdgeOffset = nextEdgeOffset
+    end
+end
+
+
+hook.add( "LKL_MapMesh_MeshesReady", "TEST_BigMesh", function()
+    local mapHoloBase, mapHolos = libMapMesh.createMeshHolos( Vector(), Angle(), nil )
+end )
