@@ -3,7 +3,7 @@
 --@server
 
 --@include lkl/gcolors.txt
---@include lkl/lib_ik.txt
+--@include lkl/lib_ik_old.txt
 --@include lkl/extra_timers.txt
 --@include lkl/simple_ratelimit.txt
 --@include lkl/table_clone_deep.txt
@@ -22,7 +22,7 @@ extraTimerPrecision = extraTimerPrecision or 2
 ikDisableWire = true
 
 require( "lkl/gcolors.txt" )
-require( "lkl/lib_ik.txt" )
+require( "lkl/lib_ik_old.txt" )
 require( "lkl/extra_timers.txt" )
 require( "lkl/simple_ratelimit.txt" )
 require( "lkl/table_clone_deep.txt" )
