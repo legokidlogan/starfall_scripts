@@ -1,0 +1,306 @@
+--@name Whitelisted Floor
+--@author legokidlogan
+--@server
+--@include lkl/global_whitelist.txt
+--@include lkl/sound_emitter.txt
+
+glist = glist or {}
+glist.groupName = glist.groupName or "floor"
+glist.startupSyncDelay = glist.startupSyncDelay or 1
+
+require( "lkl/global_whitelist.txt" )
+require( "lkl/sound_emitter.txt" )
+
+
+whitelistedFloor = whitelistedFloor or {}
+if whitelistedFloor._alreadyLoaded then return end
+whitelistedFloor._alreadyLoaded = true
+
+-- CONFIG
+whitelistedFloor.DETECTION_HEIGHT_INCREASE = whitelistedFloor.DETECTION_HEIGHT_INCREASE or 50 -- Adds to the top the aabb detection box.
+whitelistedFloor.DETECTION_WIDTH_INCREASE = whitelistedFloor.DETECTION_WIDTH_INCREASE or 32 -- Adds to all horizontal sides of the aabb detection box.
+whitelistedFloor.UPDATE_INTERVAL = whitelistedFloor.UPDATE_INTERVAL or 0.1
+whitelistedFloor.UNSOLID_MATERIAL = whitelistedFloor.UNSOLID_MATERIAL or "same" -- Set to "same" to keep whatever material the entity's solid material is.
+whitelistedFloor.UNSOLID_COLOR = whitelistedFloor.UNSOLID_COLOR or { 1, 1, 1, 0.5 } -- Per-channel color options for the unsolid color. See below for controlling how each channel is used.
+whitelistedFloor.UNSOLID_COLOR_FLAGS = whitelistedFloor.UNSOLID_COLOR_FLAGS or { 3, 3, 3, 3 } -- 1 = Set, 2 = Add, 3 = Multiply.
+whitelistedFloor.UNSOLID_RENDER_MODE = whitelistedFloor.UNSOLID_RENDER_MODE or RENDERMODE.WORLDGLOW
+whitelistedFloor.UNSOLID_COLLISION_GROUP = whitelistedFloor.UNSOLID_COLLISION_GROUP or COLLISION_GROUP.IN_VEHICLE
+whitelistedFloor.SOUNDS = whitelistedFloor.SOUNDS or {
+    BECOME_SOLID = {
+        PATH = "ambient/machines/ticktock.wav",
+        DURATION = 0.25,
+        VOLUME = 1,
+        PITCH = 1,
+        LEVEL = 75,
+        DELAY = nil,
+    },
+
+    BECOME_UNSOLID = {
+        PATH = "ambient/machines/ticktock.wav",
+        DURATION = 0.25,
+        VOLUME = 1,
+        PITCH = 0.9,
+        LEVEL = 75,
+        DELAY = nil,
+    },
+}
+-- END CONFIG
+
+local soundEmitter = SoundEmitter:new()
+
+
+----- PUBLIC FUNCTIONS -----
+
+-- Updates the sound emitter with the current values of whitelistedFloor.SOUNDS.
+function whitelistedFloor.updateSounds()
+    soundEmitter:setSoundReplacements( whitelistedFloor.SOUNDS )
+end
+
+
+----- PRIVATE FUNCTIONS / SETUP -----
+
+local startupSyncComplete = false
+local active = false
+local floorEnts = {}
+local floorEntLookup = {}
+
+whitelistedFloor.updateSounds()
+
+inputNames = inputNames or {}
+inputTypes = inputTypes or {}
+
+outputNames = outputNames or {}
+outputTypes = outputTypes or {}
+
+table.insert( inputNames, "FloorEnts" )
+table.insert( inputTypes, "ARRAY" )
+
+table.insert( inputNames, "Active" )
+table.insert( inputTypes, "NUMBER" )
+
+table.insert( outputNames, "One" )
+table.insert( outputTypes, "NUMBER" )
+
+wire.adjustInputs( inputNames, inputTypes )
+wire.adjustOutputs( outputNames, outputTypes )
+
+
+local function getWhitelistedPlayers()
+    return find.allPlayers( glist.filterPlayer )
+end
+
+local function isSolid( ent )
+    return ent._whitelistedFloor_IsSolid
+end
+
+local function solidifyEnt( ent )
+    if isSolid( ent ) then return end
+
+    ent._whitelistedFloor_IsSolid = true
+    ent:setMaterial( ent._whitelistedFloor_SolidMaterial )
+    ent:setColor( ent._whitelistedFloor_SolidColor )
+    ent:setRenderMode( ent._whitelistedFloor_SolidRenderMode )
+    ent:setCollisionGroup( ent._whitelistedFloor_SolidCollisionGroup )
+
+    soundEmitter:stopSound( ent, "BECOME_UNSOLID" )
+
+    pcall( function() -- pcall to account for emitsound burst limit.
+        soundEmitter:startSound( ent, "BECOME_SOLID" )
+    end )
+end
+
+local function unsolidifyEnt( ent )
+    if not isSolid( ent ) then return end
+
+    ent._whitelistedFloor_IsSolid = false
+    ent:setMaterial( ent._whitelistedFloor_UnsolidMaterial )
+    ent:setColor( ent._whitelistedFloor_UnsolidColor )
+    ent:setRenderMode( ent._whitelistedFloor_UnsolidRenderMode )
+    ent:setCollisionGroup( whitelistedFloor.UNSOLID_COLLISION_GROUP )
+
+    soundEmitter:stopSound( ent, "BECOME_SOLID" )
+
+    pcall( function() -- pcall to account for emitsound burst limit.
+        soundEmitter:startSound( ent, "BECOME_UNSOLID" )
+    end )
+end
+
+local function assignFloorData( ent )
+    local solidMat = ent:getMaterial()
+    local solidColor = ent:getColor()
+
+    ent._whitelistedFloor_SolidMaterial = solidMat
+    ent._whitelistedFloor_SolidColor = solidColor
+    ent._whitelistedFloor_SolidRenderMode = ent:getRenderMode()
+    ent._whitelistedFloor_SolidCollisionGroup = ent:getCollisionGroup()
+    ent._whitelistedFloor_IsSolid = true
+
+    local solidColorSequential = { solidColor.r, solidColor.g, solidColor.b, solidColor.a }
+    local unsolidMat = whitelistedFloor.UNSOLID_MATERIAL
+    local unsolidColor = whitelistedFloor.UNSOLID_COLOR
+    local unsolidColorFlags = whitelistedFloor.UNSOLID_COLOR_FLAGS
+
+    if unsolidMat == "same" then
+        ent._whitelistedFloor_UnsolidMaterial = solidMat
+    else
+        ent._whitelistedFloor_UnsolidMaterial = unsolidMat
+    end
+
+    local unsolidColorEff = {}
+
+    for i = 1, 4 do
+        local flag = unsolidColorFlags[i]
+        local solid = solidColorSequential[i]
+        local unsolid = unsolidColor[i]
+
+        if flag == 1 then
+            unsolidColorEff[i] = unsolid
+        elseif flag == 2 then
+            unsolidColorEff[i] = solid + unsolid
+        elseif flag == 3 then
+            unsolidColorEff[i] = solid * unsolid
+        end
+    end
+
+    ent._whitelistedFloor_UnsolidColor = Color( unsolidColorEff[1], unsolidColorEff[2], unsolidColorEff[3], unsolidColorEff[4] )
+    ent._whitelistedFloor_UnsolidRenderMode = whitelistedFloor.UNSOLID_RENDER_MODE
+end
+
+local function discardFloorEnt( ent )
+    ent._whitelistedFloor_IsSolid = nil
+    ent._whitelistedFloor_SolidMaterial = nil
+    ent._whitelistedFloor_SolidColor = nil
+    ent._whitelistedFloor_SolidRenderMode = nil
+    ent._whitelistedFloor_SolidCollisionGroup = nil
+    ent._whitelistedFloor_UnsolidMaterial = nil
+    ent._whitelistedFloor_UnsolidColor = nil
+    ent._whitelistedFloor_UnsolidRenderMode = nil
+
+    soundEmitter:stopSound( ent, "BECOME_SOLID" )
+    soundEmitter:stopSound( ent, "BECOME_UNSOLID" )
+
+    if floorEntLookup[ent] then
+        floorEntLookup[ent] = nil
+        table.removeByValue( floorEnts, ent )
+    end
+end
+
+local function wireInput( name, value )
+    if name == "FloorEnts" then
+        local newEntLookup = {}
+        local oldEntLookup = {}
+        local oldEnts = floorEnts
+
+        floorEnts = {}
+
+        for _, ent in ipairs( value or {} ) do
+            if isValid( ent ) then
+                table.insert( floorEnts, ent )
+                newEntLookup[ent] = true
+            end
+        end
+
+        floorEntLookup = newEntLookup
+
+        for _, ent in ipairs( oldEnts ) do
+            if isValid( ent ) then
+                oldEntLookup[ent] = true
+
+                if not newEntLookup[ent] then
+                    solidifyEnt( ent )
+                    discardFloorEnt( ent )
+                end
+            end
+        end
+
+        for _, ent in ipairs( floorEnts ) do
+            if not oldEntLookup[ent] and isValid( ent ) then
+                assignFloorData( ent )
+            end
+        end
+    elseif name == "Active" then
+        local wasActive = active
+        active = value ~= 0
+
+        if wasActive == active then return end
+
+        if not active then
+            for _, ent in ipairs( floorEnts ) do
+                solidifyEnt( ent )
+            end
+        end
+    end
+end
+
+
+hook.add( "input", "LKL_WhitlistedFloor_WireInput", wireInput )
+
+hook.add( "LKL_GList_StartupSync_Complete", "LKL_WhitlistedFloor_StartCheckingFloor", function()
+    startupSyncComplete = true
+end )
+
+hook.add( "EntityRemoved", "LKL_WhitelistedFloor_Discard", function( ent )
+    if not ent or not isValid( ent ) then return end
+
+    discardFloorEnt( ent )
+end )
+
+hook.add( "Removed", "LKL_WhitelistedFloor_RevertFloor", function()
+    for _, ent in ipairs( floorEnts ) do
+        solidifyEnt( ent )
+        floorEnts = {}
+        floorEntLookup = {}
+    end
+end )
+
+
+timer.create( "LKL_WhitelistedFloor_UpdateFloor", whitelistedFloor.UPDATE_INTERVAL, 0, function()
+    if not startupSyncComplete then return end
+    if not active then return end
+    if cpuTotalAverage() > cpuMax() * 0.75 then return end
+
+    local heightIncrease = whitelistedFloor.DETECTION_HEIGHT_INCREASE
+    local widthIncrease = whitelistedFloor.DETECTION_WIDTH_INCREASE
+    local plys = getWhitelistedPlayers()
+    local plyPoss = {}
+
+    for i, ply in ipairs( plys ) do
+        plyPoss[i] = ply:getPos()
+    end
+
+    for _, ent in ipairs( floorEnts ) do
+        if not isValid( ent ) then
+            discardFloorEnt( ent )
+        else
+            local isWhitelisted = false
+            local aabbMin, aabbMax = ent:worldSpaceAABB()
+            aabbMin[1] = aabbMin[1] - widthIncrease
+            aabbMin[2] = aabbMin[2] - widthIncrease
+
+            aabbMax[1] = aabbMax[1] + widthIncrease
+            aabbMax[2] = aabbMax[2] + widthIncrease
+            aabbMax[3] = aabbMax[3] + heightIncrease
+
+            for _, plyPos in ipairs( plyPoss ) do
+                if plyPos:withinAABox( aabbMin, aabbMax ) then
+                    isWhitelisted = true
+                    break
+                end
+            end
+
+            if isWhitelisted then
+                solidifyEnt( ent )
+            else
+                unsolidifyEnt( ent )
+            end
+        end
+    end
+end )
+
+
+timer.simple( 1, function()
+    wireInput( "FloorEnts", wire.ports.FloorEnts )
+    wireInput( "Active", wire.ports.Active )
+
+    wire.ports.One = 1
+end )
