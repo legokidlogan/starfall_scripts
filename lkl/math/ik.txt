@@ -114,7 +114,7 @@ end
 
 -- Gets the current world position of the segment's end.
 function libIK.getSegmentEnd( segment )
-    return segment.ent:localToWorld( segment._endOffset )
+    return segment._ent:localToWorld( segment._endOffset )
 end
 
 -- For a desired origin position and angle of a segment, returns the position and angle that you will need to set onto the entity.
