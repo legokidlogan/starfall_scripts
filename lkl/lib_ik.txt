@@ -4,149 +4,335 @@
 
 -- Inverse Kinematics library
 
-local tableInsert = table.insert
-local tableIsEmpty = table.isEmpty
-local tableRemove = table.remove
-local tableAdd = table.add
+libIK = libIK or {}
+if libIK._alreadyLoaded then return end
+libIK._alreadyLoaded = true
+
+
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
 
 local mSqrt = math.sqrt
 local mCos = math.cos
 local mASin = math.asin
+local mAbs = math.abs
 
--- Define these four tables in either the host starfall, xor via wire input.
--- Only needed for 'ByTilt' functions.
--- Make sure to run ikPrepareJoints() once the tables are defined. Will auto-run if defined via wire input.
-ikSegments = ikSegments or {} -- The segment entities.
-ikParents = ikParents or {} -- The parents of each segment, in mathing order.
-ikOrigins = ikOrigins or {} -- The 'IK origin' of each segment, in local coords. For ease of use, will be scaled by segment:obbSize() / 2. Defaults to Vector( -1, 0, 0 ), the back end of the prop.
-ikLengths = ikLength or {} -- The segment lengths. Defaults to segment:obbSize().x
-ikDisableWire = ikDisableWire -- Set to true if you don't want to use the wire inputs at all and want them gone from the input list
+local sanitizeIK
+local getIKBendFromTilt
+local determineSegmentEntPosAng
+
 
 --[[
-    For E2-based projects, you can use the wire input and ouput 'IKRequest' and 'IKResult' to make function calls.
-    Their formats are as follows:
+    - Generate a segment for use with 'ByTilt' IK functions.
+    - This is not needed to use the core IK functions, but will generally improve results when working with entities and makes things easier.
 
-    IKRequest = {
-        NumSegments = NUMBER,
-        ByTilt = BOOLEAN,
-        EndPos = VECTOR,
-        ExtraLengths = TABLE or ARRAY,
-        SelfReturn = ANY, -- Special info you want to be send back in the result, for easy identification or otherwise
-
-        if ByTilt:
-            Segments = TABLE or ARRAY,
-            TiltDegs = TABLE or ARRAY,
-        else
-            StartPos = VECTOR,
-            SegmentLengths = TABLE or ARRAY,
-            BendDirs = TABLE or ARRAY, or ARRAY,
-    }
-
-    IKResult = {
-        ResultID = NUMBER -- Increments by 1 for every completed request
-        SelfReturn = ANY,
-        Success = BOOLEAN,
-        NumSegments = NUMBER,
-        StartPos = VECTOR,
-        EndPos = VECTOR,
-        BendPoss = TABLE,
-    }
+    segmentData: (table)
+        {
+            Ent = ENTITY,                 --                  -- The entity representing the segment.
+            Parent = ENTITY,              --                  -- The parent entity of the segment.
+            OriginOffset = VECTOR,        -- default:  0,0,0  -- The local position of the segment's origin.
+            OriginOffsetScaled = VECTOR,  -- default: -1,0,0  -- The local position of the segment's origin, will be scaled by obbSize() / 2.
+            EndOffset = VECTOR,           -- default:  0,0,0  -- The local position of the segment's end.
+            EndOffsetScaled = VECTOR,     -- default:  1,0,0  -- The local position of the segment's end, will be scaled by obbSize() / 2.
+            UpDir = VECTOR,               -- default:  0,1,0  -- The local up direction of the segment. (top of thigh, top of the calf, back of the arm, etc.)
+        }
 --]]
+function libIK.generateSegment( segmentData )
+    local segmentEnt = segmentData.Ent
+    if not isValid( segmentEnt ) then error( "Expected segmentData.Ent to be valid" ) end
 
-local ikFuncs = {}
-local ikFuncsByTilt = {}
-local responseCount = 0
+    local parentEnt = segmentData.Parent
+    if not isValid( parentEnt ) then error( "Expected segmentData.Parent to be valid" ) end
 
+    local obbSizeHalf = segmentEnt:obbSize() / 2
+    local originOffset = segmentData.OriginOffset or Vector( 0, 0, 0 )
+    local originOffsetScaled = segmentData.OriginOffsetScaled or Vector( -1, 0, 0 )
+    local endOffset = segmentData.EndOffset or Vector( 0, 0, 0 )
+    local endOffsetScaled = segmentData.EndOffsetScaled or Vector( 1, 0, 0 )
+    local upDir = segmentData.UpDir or Vector( 0, 1, 0 )
 
-c_red = c_red or Color( 255, 0, 0, 255 )
-c_yellow = c_yellow or Color( 255, 255, 0, 255 )
-c_alert_red = c_alert_red or Color( 127, 0, 0, 255 )
-printName = printName or "[LibIK]"
+    originOffset = originOffset + originOffsetScaled * obbSizeHalf
+    endOffset = endOffset + endOffsetScaled * obbSizeHalf
 
-if SERVER and not ikDisableWire then
-    inputNames = inputNames or {}
-    inputTypes = inputTypes or {}
-    outputNames = outputNames or {}
-    outputTypes = outputTypes or {}
+    local originToEnd = endOffset - originOffset
+    local length = originToEnd:getLength()
+    if length == 0 then error( "Segments cannot have a length of zero" ) end
 
+    local forwardDir = originToEnd / length
+    local originToEntPos, originToEntAng = worldToLocal( VECTOR_ZERO, ANGLE_ZERO, originOffset, forwardDir:getAngleEx( upDir ) )
 
-    tableInsert( inputNames, "IKSegments" )
-    tableInsert( inputTypes, "TABLE" )
+    return {
+        _ent = segmentEnt,
+        _parentEnt = parentEnt,
+        _length = length,
+        _parentToOrigin = parentEnt:worldToLocal( segmentEnt:localToWorld( originOffset ) ),
+        _parentToUpDir = parentEnt:worldToLocalVector( segmentEnt:localToWorldVector( upDir ) ),
+        _parentToForwardDir = parentEnt:worldToLocalVector( segmentEnt:localToWorldVector( forwardDir ) ),
+        _originToEntPos = originToEntPos,
+        _originToEntAng = originToEntAng,
+    }
+end
 
-    tableInsert( inputNames, "IKParents" )
-    tableInsert( inputTypes, "TABLE" )
+-- Generate multiple segments at once. Doesn't need to be a sequential table.
+function libIK.generateSegments( segmentDatas )
+    local segments = {}
 
-    tableInsert( inputNames, "IKOrigins" )
-    tableInsert( inputTypes, "TABLE" )
+    for k, segmentData in pairs( segmentDatas ) do
+        segments[k] = libIK.generateSegment( segmentData )
+    end
 
-    tableInsert( inputNames, "IKLengths" )
-    tableInsert( inputTypes, "TABLE" )
+    return segments
+end
 
-    tableInsert( inputNames, "IKRequest" )
-    tableInsert( inputTypes, "TABLE" )
+--[[
+    - Calculate the bendPos (elbow, knee, etc.) for a two-segment limb.
 
+    startPos: (Vector)
+        - The start position of the limb.
+    endPos: (Vector)
+        - The target end position of the limb.
+    LA: (number)
+        - The length of the first segment.
+    LB: (number)
+        - The length of the second segment.
+    bendDir: (Vector) (optional)
+        - The direction to bend in, perpendicular to lineDir.
+        - If not provided, it will be auto-calculated but could yield unnatural results.
+    lineDir: (Vector) (optional)
+        - Equal to ( endPos - startPos ):getNormalized().
+        - Only provide this if you have the value already, to reduce redundant calculations.
+    L: (number) (optional)
+        - Equal to ( endPos - startPos ):getLength().
+        - Only provide this if you have the value already, to reduce redundant calculations.
+    
+    RETURNS: bendPos
+        bendPos: (Vector or nil)
+            - The position of the bend in the limb.
+            - May be nil if the segments have different lengths and startPos is too close to endPos.
+--]]
+function libIK.twoSeg( startPos, endPos, LA, LB, bendDir, lineDir, L )
+    endPos, bendDir, lineDir, L = sanitizeIK( startPos, endPos, LA, LB, bendDir, lineDir, L )
 
-    tableInsert( outputNames, "IKResult" )
-    tableInsert( outputTypes, "TABLE" )
+    local semiPerim = ( LA + LB + L ) / 2
+    local boundingArea = 2 * mSqrt( mAbs( semiPerim * ( semiPerim - LA ) * ( semiPerim - LB ) * ( semiPerim - L ) ) )
+    local LBend = boundingArea / L
+
+    local thetaA = mASin( LBend / LA )
+    if thetaA ~= thetaA then return end -- NaN check, happens if the segments are different length and startPos is too close to endPos.
+
+    local LAProj = mCos( thetaA ) * LA
+
+    local raiseFrom = startPos + lineDir * LAProj
+    local bendPos = raiseFrom + bendDir * LBend
+
+    return bendPos
+end
+
+--[[
+    - Similar to libIK.twoSeg(), but calculates bendPos1 and bendPos2 for a three-segment limb.
+    - Internally performs two-segment IK between segment A and a fake segment X, then again between bendPos1 and endPos with segments B and C.
+    - Required args: startPos, endPos, LA, LB, LC, LX
+    - Recommended args: bendDir1, bendDir2
+    - Optional args: lineDir, L
+--]]
+function libIK.threeSeg( startPos, endPos, LA, LB, LC, LX, bendDir1, bendDir2, lineDir, L )
+    local _
+    _, bendDir1, lineDir, L = sanitizeIK( startPos, endPos, LA, LX, bendDir1, lineDir, L )
+
+    local bendPos1 = libIK.twoSeg( startPos, endPos, LA, LX, bendDir1, lineDir, L )
+    if not bendPos1 then return end
+    local bendPos2 = libIK.twoSeg( bendPos1, endPos, LB, LC, bendDir2 )
+
+    return bendPos1, bendPos2
+end
+
+--[[
+    - Similar to libIK.threeSeg(), but calculates bendPos1, bendPos2, and bendPos3 for a four-segment limb.
+    - Required args: startPos, endPos, LA, LB, LC, LD, LX1, LX2
+    - Recommended args: bendDir1, bendDir2, bendDir3
+    - Optional args: lineDir, L
+--]]
+function libIK.fourSeg( startPos, endPos, LA, LB, LC, LD, LX1, LX2, bendDir1, bendDir2, bendDir3, lineDir, L )
+    local _
+    _, bendDir1, lineDir, L = sanitizeIK( startPos, endPos, LA, LX1, bendDir1, lineDir, L )
+
+    local bendPos1 = libIK.twoSeg( startPos, endPos, LA, LX1, bendDir1, lineDir, L )
+    if not bendPos1 then return end
+    local bendPos2, bendPos3 = libIK.threeSeg( bendPos1, endPos, LB, LC, LD, LX2, bendDir2, bendDir3 )
+
+    return bendPos1, bendPos2, bendPos3
+end
+
+--[[
+    - Similar to libIK.twoSeg(), but uses segment data which allows for more realistic IK and easer end-user implementation.
+
+    segmentA: (table)
+        - The first segment.
+        - Should be generated with libIK.generateSegment().
+    segmentB: (table)
+        - The second segment.
+        - Should be generated with libIK.generateSegment().
+    endPos: (Vector)
+        - The target end position of the limb.
+    tiltDeg: (number)
+        - How much to rotate the bendDir around lineDir.
+        - 0 points to the right of lineDir, 90 points up, 180 points left, 270 points down.
+        - For a humanoid model that starts in a T-pose, it's recommended to use 90 for legs, 0 for the right arm, and 180 for the left arm.
+    applyImmediately: (boolean) (optional) (default: false)
+        - Whether to apply the results immediately to the segment entities via :setPos() and :setAngles().
+
+    RETURNS: startPos, bendPos, bendDir, segmentPosA, segmentAngA, segmentPosB, segmentAngB
+        - May return nil if the parent entity of segmentA is invalid or endPos is unreasonable.
+--]]
+function libIK.twoSegByTilt( segmentA, segmentB, endPos, tiltDeg, applyImmediately )
+    local parentEntA = segmentA._parentEnt
+    if not isValid( parentEntA ) then return end
+
+    local startPos = parentEntA:localToWorld( segmentA._parentToOrigin )
+    local lineDir = endPos - startPos
+    local L = lineDir:getLength()
+    if L == 0 then return end
+
+    lineDir = lineDir / L
+
+    local LA = segmentA._length
+    local LB = segmentB._length
+    local bendDir = getIKBendFromTilt( segmentA, lineDir, tiltDeg )
+    local bendPos = libIK.twoSeg( startPos, endPos, LA, LB, bendDir, lineDir, L )
+    if not bendPos then return end
+
+    local segmentPosA, segmentAngA = determineSegmentEntPosAng( segmentA, startPos, bendPos, bendDir )
+    local segmentPosB, segmentAngB = determineSegmentEntPosAng( segmentB, bendPos, endPos, bendDir )
+
+    if applyImmediately then
+        local entA = segmentA._ent
+        local entB = segmentB._ent
+
+        entA:setPos( segmentPosA )
+        entA:setAngles( segmentAngA )
+        entB:setPos( segmentPosB )
+        entB:setAngles( segmentAngB )
+    end
+
+    return startPos, bendPos, bendDir, segmentPosA, segmentAngA, segmentPosB, segmentAngB
+end
+
+--[[
+    - libIK.twoSegByTilt() but for three segments.
+
+    RETURNS: startPos, bendPos1, bendPos2, bendDir1, bendDir2, segmentPosA, segmentAngA, segmentPosB, segmentAngB, segmentPosC, segmentAngC
+        - May return nil if the parent entity of segmentA is invalid or endPos is unreasonable.
+--]]
+function libIK.threeSegByTilt( segmentA, segmentB, segmentC, endPos, LX, tiltDeg1, tiltDeg2, applyImmediately )
+    if LX <= 0 then return end
+
+    local parentEntA = segmentA._parentEnt
+    if not isValid( parentEntA ) then return end
+
+    local startPos = parentEntA:localToWorld( segmentA._parentToOrigin )
+    local lineDir1 = endPos - startPos
+    local L = lineDir1:getLength()
+    if L == 0 then return end
+
+    lineDir1 = lineDir1 / L
+
+    local LA = segmentA._length
+    local LB = segmentB._length
+    local LC = segmentC._length
+    local bendDir1 = getIKBendFromTilt( segmentA, lineDir1, tiltDeg1 )
+    local bendPos1 = libIK.twoSeg( startPos, endPos, LA, LX, bendDir1, lineDir1, L )
+    if not bendPos1 then return end
+
+    local lineDir2 = ( endPos - bendPos1 ) / LX
+    local bendDir2 = getIKBendFromTilt( segmentB, lineDir2, tiltDeg2 )
+    local bendPos2 = libIK.twoSeg( bendPos1, endPos, LB, LC, bendDir2, lineDir2, LX )
+    if not bendPos2 then return end
+
+    local segmentPosA, segmentAngA = determineSegmentEntPosAng( segmentA, startPos, bendPos1, bendDir1 )
+    local segmentPosB, segmentAngB = determineSegmentEntPosAng( segmentB, bendPos1, bendPos2, bendDir2 )
+    local segmentPosC, segmentAngC = determineSegmentEntPosAng( segmentC, bendPos2, endPos, bendDir2 )
+
+    if applyImmediately then
+        local entA = segmentA._ent
+        local entB = segmentB._ent
+        local entC = segmentC._ent
+
+        entA:setPos( segmentPosA )
+        entA:setAngles( segmentAngA )
+        entB:setPos( segmentPosB )
+        entB:setAngles( segmentAngB )
+        entC:setPos( segmentPosC )
+        entC:setAngles( segmentAngC )
+    end
+
+    return startPos, bendPos1, bendPos2, bendDir1, bendDir2, segmentPosA, segmentAngA, segmentPosB, segmentAngB, segmentPosC, segmentAngC
+end
+
+--[[
+    - libIK.twoSegByTilt() but for four segments.
+
+    RETURNS: startPos, bendPos1, bendPos2, bendPos3, bendDir1, bendDir2, bendDir3, segmentPosA, segmentAngA, segmentPosB, segmentAngB, segmentPosC, segmentAngC, segmentPosD, segmentAngD
+        - May return nil if the parent entity of segmentA is invalid or endPos is unreasonable.
+--]]
+function libIK.fourSegByTilt( segmentA, segmentB, segmentC, segmentD, endPos, LX1, LX2, tiltDeg1, tiltDeg2, tiltDeg3, applyImmediately )
+    if LX1 <= 0 or LX2 <= 0 then return end
+
+    local parentEntA = segmentA._parentEnt
+    if not isValid( parentEntA ) then return end
+
+    local startPos = parentEntA:localToWorld( segmentA._parentToOrigin )
+    local lineDir1 = endPos - startPos
+    local L = lineDir1:getLength()
+    if L == 0 then return end
+
+    lineDir1 = lineDir1 / L
+
+    local LA = segmentA._length
+    local LB = segmentB._length
+    local LC = segmentC._length
+    local LD = segmentD._length
+    local bendDir1 = getIKBendFromTilt( segmentA, lineDir1, tiltDeg1 )
+    local bendPos1 = libIK.twoSeg( startPos, endPos, LA, LX1, bendDir1, lineDir1, L )
+    if not bendPos1 then return end
+
+    local lineDir2 = ( endPos - bendPos1 ) / LX1
+    local bendDir2 = getIKBendFromTilt( segmentB, lineDir2, tiltDeg2 )
+    local bendPos2 = libIK.twoSeg( bendPos1, endPos, LB, LC, bendDir2, lineDir2, LX1 )
+    if not bendPos2 then return end
+
+    local lineDir3 = ( endPos - bendPos2 ) / LX2
+    local bendDir3 = getIKBendFromTilt( segmentC, lineDir3, tiltDeg3 )
+    local bendPos3 = libIK.twoSeg( bendPos2, endPos, LC, LD, bendDir3, lineDir3, LX2 )
+    if not bendPos3 then return end
+
+    local segmentPosA, segmentAngA = determineSegmentEntPosAng( segmentA, startPos, bendPos1, bendDir1 )
+    local segmentPosB, segmentAngB = determineSegmentEntPosAng( segmentB, bendPos1, bendPos2, bendDir2 )
+    local segmentPosC, segmentAngC = determineSegmentEntPosAng( segmentC, bendPos2, bendPos3, bendDir3 )
+    local segmentPosD, segmentAngD = determineSegmentEntPosAng( segmentD, bendPos3, endPos, bendDir3 )
+
+    if applyImmediately then
+        local entA = segmentA._ent
+        local entB = segmentB._ent
+        local entC = segmentC._ent
+        local entD = segmentD._ent
+
+        entA:setPos( segmentPosA )
+        entA:setAngles( segmentAngA )
+        entB:setPos( segmentPosB )
+        entB:setAngles( segmentAngB )
+        entC:setPos( segmentPosC )
+        entC:setAngles( segmentAngC )
+        entD:setPos( segmentPosD )
+        entD:setAngles( segmentAngD )
+    end
+
+    return startPos, bendPos1, bendPos2, bendPos3, bendDir1, bendDir2, bendDir3, segmentPosA, segmentAngA, segmentPosB, segmentAngB, segmentPosC, segmentAngC, segmentPosD, segmentAngD
 end
 
 
-function ikPrepareJoints()
-    for i, segment in pairs( ikSegments ) do
-        local parent = ikParents[i]
+----- PRIVATE FUNCTIONS -----
 
-        if not isValid( segment ) or not isValid( parent ) then
-            print(
-                printName .. " ",
-                c_alert_red, "There is a missing/invalid segment or parent!"
-            )
-
-            continue
-        end
-
-        local boxSize = segment:obbSize()
-        local ikOriginWorld = segment:localToWorld( ikOrigins[i] or Vector( -1, 0, 0 ) ) * boxSize / 2
-
-        segment.ikInitUpDir = parent:worldToLocal( parent:getPos() + segment:getUp() )
-        segment.ikParent = parent
-        segment.ikOriginFromParent = parent:worldToLocal( ikOriginWorld )
-        segment.ikLength = ikLengths[i] or boxSize[1]
-    end
-end
-
-local function getIKBendFromTilt( segment, parent, lineDir, tiltDeg )
-    local initUpDir = segment.ikInitUpDir
-
-    if not initUpDir then
-        print(
-            printName .. " ",
-            c_red, "Cannot use IK ByTilt functions without defining ",
-            c_yellow, "ikSegments ",
-            c_red, "and ",
-            c_yellow, "ikParents",
-            c_red, "!"
-        )
-
-        return
-    end
-
-    tiltDeg = tiltDeg or 0
-
-    local parentPos = parent:getPos()
-    initUpDir = parent:localToWorld( segment.ikInitUpDir ) - parentPos
-
-    local ikUpDir = initUpDir:rotateAroundAxis( lineDir, -tiltDeg )
-    local bendDir = lineDir:cross( ikUpDir )
-    local bendLengthCheck = bendDir[1]^2 + bendDir[2]^2 + bendDir[3]^2
-
-    if bendLengthCheck ~= 1 then
-        bendDir = bendDir / mSqrt( bendLengthCheck )
-    end
-
-    return bendDir
-end
-
-local function sanitizeIK( startPos, endPos, LA, LB, bendDir, lineDir, L )
+sanitizeIK = function( startPos, endPos, LA, LB, bendDir, lineDir, L )
     L = L or startPos:getDistance( endPos )
     lineDir = lineDir or ( endPos - startPos ) / L
     bendDir = bendDir or lineDir:getAngle():getRight()
@@ -161,263 +347,36 @@ local function sanitizeIK( startPos, endPos, LA, LB, bendDir, lineDir, L )
     return endPos, bendDir, lineDir, L
 end
 
-if SERVER and not ikDisableWire then
-    local function wireInput( name, value )
-        if name == "IKSegments" then
-            if tableIsEmpty( value ) then return end
+getIKBendFromTilt = function( segment, lineDir, tiltDeg )
+    local parentEnt = segment._parentEnt
+    local upDir = parentEnt:localToWorldVector( segment._parentToUpDir )
+    upDir = upDir:rotateAroundAxis( lineDir, -tiltDeg )
 
-            ikSegments = value
-            ikPrepareJoints()
-        elseif name == "IKParents" then
-            if tableIsEmpty( value ) then return end
+    local bendDir = lineDir:cross( upDir )
+    local bendDirLengthSqr = bendDir:getLengthSqr()
 
-            ikParents = value
-            ikPrepareJoints()
-        elseif name == "IKOrigins" then
-            if tableIsEmpty( value ) then return end
+    -- Ensure bendDir is a unit vector.
+    if bendDirLength ~= 1 then
+        -- Fallback option if upDir == lineDir.
+        if bendDirLength == 0 then
+            local forwardDir = parentEnt:localToWorldVector( segment._parentToForwardDir )
+            forwardDir = forwardDir:rotateAroundAxis( lineDir, tiltDeg + 90 )
 
-            ikOrigins = value
-            ikPrepareJoints()
-        elseif name == "IKLengths" then
-            if tableIsEmpty( value ) then return end
-
-            ikLengths = value
-            ikPrepareJoints()
-        elseif name == "IKRequest" then
-            -----------------------------------------------------------
-            local request = value
-
-            if tableIsEmpty( request ) then return end
-
-            local segCount = request.NumSegments
-            local endPos = request.EndPos
-            responseCount = responseCount + 1
-
-            if not segCount or not endPos then
-                wire.ports.IKRequests = {
-                    ResultID = responseCount,
-                    SelfReturn = request.SelfReturn,
-                    EndPos = endPos,
-                    Success = false,
-                }
-
-                return
-            end
-
-            local startPos
-            local bendDirs
-
-            if request.ByTilt then
-                local ikFunc = ikFuncsByTilt[segCount] or function() end
-                local args = request.Segments or {}
-
-                tableInsert( args, endPos )
-                tableAdd( args, request.ExtraLengths or {} )
-                tableAdd( args, request.TiltDegs or {} )
-
-                bendDirs = { ikFunc( unpack( args ) ) }
-
-                if tableIsEmpty( bendDirs ) then
-                    wire.ports.IKRequests = {
-                        ResultID = responseCount,
-                        SelfReturn = request.SelfReturn,
-                        NumSegments = segCount,
-                        EndPos = endPos,
-                        Success = false,
-                    }
-
-                    return
-                end
-
-                startPos = bendDirs[1]
-                tableRemove( bendDirs, 1 )
-            else
-                local ikFunc = ikFuncs[segCount] or function() end
-                startPos = request.StartPos
-                local args = { startPos, endPos }
-
-                tableAdd( args, request.SegmentLengths or {} )
-                tableAdd( args, request.ExtraLengths or {} )
-                tableAdd( args, request.BendDirs or {} )
-
-                bendDirs = { ikFunc( unpack( args ) ) }
-
-                if tableIsEmpty( bendDirs ) then
-                    wire.ports.IKRequests = {
-                        ResultID = responseCount,
-                        SelfReturn = request.SelfReturn,
-                        NumSegments = segCount,
-                        StartPos = startPos,
-                        EndPos = endPos,
-                        Success = false,
-                    }
-
-                    return
-                end
-            end
-
-            wire.ports.IKRequests = {
-                ResultID = responseCount,
-                SelfReturn = request.SelfReturn,
-                NumSegments = segCount,
-                StartPos = startPos,
-                EndPos = endPos,
-                BendPoss = bendDirs,
-                Success = true,
-            }
+            -- In such cases, forwardDir and lineDir are guaranteed to be perpendicular, so crossing them is always length 1.
+            return lineDir:cross( forwardDir )
         end
+
+        bendDir = bendDir / mSqrt( bendDirLengthSqr )
     end
 
-    hook.add( "input", "LKL_LibIK_WireInput", wireInput )
+    return bendDir
 end
 
+determineSegmentEntPosAng = function( segment, targetStartPos, targetEndPos, bendDir )
+    local targetDir = targetEndPos - targetStartPos -- targetAng should point in this direction, but we need upDir as well.
+    local targetUp = targetDir:cross( bendDir ):cross( targetDir ) -- targetDir, bendDir, and upDir are all in the same plane, so cross twice to find upDir.
+    local targetAng = targetDir:getAngleEx( targetUp )
 
--- Global Functions:
-
-
--- LA and LB are the lengths of the first and second segments.
--- bendDir is optional but highly recommended, it determines which way to bend outwards. It mus be a unit vector (length 1) perpendicular to lineDir.
--- lineDir and L are optional, only give them if you happen to have the unit vector and length for endPos - startPos, to reduce redundant calculations.
-function ikTwoSeg( startPos, endPos, LA, LB, bendDir, lineDir, L )
-    endPos, bendDir, lineDir, L = sanitizeIK( startPos, endPos, LA, LB, bendDir, lineDir, L )
-
-    local semiPerim = ( LA + LB + L ) / 2
-    local boundingArea = 2 * mSqrt( semiPerim * ( semiPerim - LA ) * (semiPerim - LB ) * ( semiPerim - L ) )
-    local LBend = boundingArea / L
-
-    local thetaA = mASin( LBend / LA )
-    local LAProj = mCos( thetaA ) * LA
-    local raiseFrom = startPos + lineDir * LAProj
-    local bendPos = raiseFrom + bendDir * LBend
-
-    return bendPos
+    -- Account for ik offsets.
+    return localToWorld( segment._originToEntPos, segment._originToEntAng, targetStartPos, targetAng )
 end
-ikFuncs[2] = ikTwoSeg
-
--- LX specifies the length of a fake fourth segment, which is typically shorter than LB + LC and will determine how much they bend.
-function ikThreeSeg( startPos, endPos, LA, LB, LC, LX, bendDir1, bendDir2, lineDir, L )
-    local _
-    _, bendDir1, lineDir, L = sanitizeIK( startPos, endPos, LA, LX, bendDir1, lineDir, L )
-
-    local bendPos1 = ikTwoSeg( startPos, endPos, LA, LX, bendDir1, lineDir, L )
-    local bendPos2 = ikTwoSeg( bendPos1, endPos, LB, LC, bendDir2 )
-
-    return bendPos1, bendPos2
-end
-ikFuncs[3] = ikThreeSeg
-
-function ikFourSeg( startPos, endPos, LA, LB, LC, LD, LX1, LX2, bendDir1, bendDir2, bendDir3, lineDir, L )
-    local _
-    _, bendDir1, lineDir, L = sanitizeIK( startPos, endPos, LA, LX1, bendDir1, lineDir, L )
-
-    local bendPos1 = ikTwoSeg( startPos, endPos, LA, LX1, bendDir1, lineDir, L )
-    local bendPos2, bendPos3 = ikThreeSeg( bendPos1, endPos, LB, LC, LD, LX2, bendDir2, bendDir3 )
-
-    return bendPos1, bendPos2, bendPos3
-end
-ikFuncs[4] = ikFourSeg
-
--- ByTilt functions:
-
--- Similar to the regular IK functions, but replaces startPos, segment lengths (except for psuedo-segments i.e. LX1, LX2, ...), lineDir, L, and bendDir with segment entities and tiltDeg.
--- bendDir is (essentially) calculated as ikInitUp:rotateAroundAxis( lineDir, -tiltDeg ):cross( lineDir ):getNormalized()
---   For a human two-segment leg, tiltDeg = 90 means bending the knee forwards, as if you lifted your calf and thigh straight up.
---   For a typical 'forwards, backwards, forwards' digitigrade 3-seg leg, you'd likely use tiltDeg1 = 90, tiltDeg2 = -90
---   To visualize this, point in the direction of lineDir (startPos --> endPos) with your left finger, rest your right elbow on your hand with arm pointing up,
---     and rotate your right elbow counter-clockwise by tiltDeg many degrees. The new bendDir will be perpendicular to your left finger and right arm
-
-function ikTwoSegByTilt( segmentA, segmentB, endPos, tiltDeg )
-    if not isValid( segmentA ) or not isValid( segmentB ) then return end
-
-    local parentA = segmentA.ikParent
-    local parentB = segmentB.ikParent
-
-    if not isValid( parentA ) or not isValid( parentB ) then return end -- ALL segments should have a valid parent if you're moving them!
-
-    local startPos = parentA:localToWorld( segmentA.ikOriginFromParent )
-    local lineDir = endPos - startPos
-    local L = lineDir:getLength()
-    local LA = segmentA.ikLength
-    local LB = segmentB.ikLength
-
-    lineDir = lineDir / L
-
-    local bendDir = getIKBendFromTilt( segmentA, parentA, lineDir, tiltDeg )
-    local bendPos = ikTwoSeg( startPos, endPos, LA, LB, bendDir, lineDir, L )
-
-    return startPos, bendPos
-end
-ikFuncsByTilt[2] = ikTwoSegByTilt
-
-function ikThreeSegByTilt( segmentA, segmentB, segmentC, endPos, LX, tiltDeg1, tiltDeg2 )
-    if not isValid( segmentA ) or not isValid( segmentB ) or not isValid( segmentC ) then return end
-
-    local parentA = segmentA.ikParent
-    local parentB = segmentB.ikParent
-    local parentC = segmentC.ikParent
-
-    if not isValid( parentA ) or not isValid( parentB ) or not isValid( parentC ) then return end
-
-    local startPos = parentA:localToWorld( segmentA.ikOriginFromParent )
-    local lineDir1 = endPos - startPos
-    local L1 = lineDir1:getLength()
-    local LA = segmentA.ikLength
-    local LB = segmentB.ikLength
-    local LC = segmentC.ikLength
-
-    lineDir1 = lineDir1 / L1
-
-    local bendDir1 = getIKBendFromTilt( segmentA, parentA, lineDir1, tiltDeg1 )
-    local bendPos1 = ikTwoSeg( startPos, endPos, LA, LX, bendDir1, lineDir1, L1 )
-
-    local lineDir2 = endPos - bendPos1
-    local L2 = LX
-    lineDir2 = lineDir2 / L2
-
-    local bendDir2 = getIKBendFromTilt( segmentB, parentB, lineDir2, tiltDeg2 )
-    local bendPos2 = ikTwoSeg( bendPos1, endPos, LB, LC, bendDir2, lineDir2, L2 )
-
-    return startPos, bendPos1, bendPos2
-end
-ikFuncsByTilt[3] = ikThreeSegByTilt
-
-function ikFourSegByTilt( segmentA, segmentB, segmentC, segmentD, endPos, LX1, LX2, tiltDeg1, tiltDeg2, tiltDeg3 )
-    if not isValid( segmentA ) or not isValid( segmentB ) or not isValid( segmentC ) or not isValid( segmentD ) then return end
-
-    local parentA = segmentA.ikParent
-    local parentB = segmentB.ikParent
-    local parentC = segmentC.ikParent
-    local parentD = segmentD.ikParent
-
-    if not isValid( parentA ) or not isValid( parentB ) or not isValid( parentC ) or not isValid( parentD ) then return end
-
-    local startPos = parentA:localToWorld( segmentA.ikOriginFromParent )
-    local lineDir1 = endPos - startPos
-    local L1 = lineDir1:getLength()
-    local LA = segmentA.ikLength
-    local LB = segmentB.ikLength
-    local LC = segmentC.ikLength
-    local LD = segmentD.ikLength
-
-    lineDir1 = lineDir1 / L1
-
-    local bendDir1 = getIKBendFromTilt( segmentA, parentA, lineDir1, tiltDeg1 )
-    local bendPos1 = ikTwoSeg( startPos, endPos, LA, LX1, bendDir1, lineDir1, L1 )
-
-    local lineDir2 = endPos - bendPos1
-    local L2 = LX1
-    lineDir2 = lineDir2 / L2
-
-    local bendDir2 = getIKBendFromTilt( segmentB, parentB, lineDir2, tiltDeg2 )
-    local bendPos2 = ikTwoSeg( bendPos1, endPos, LB, LX2, bendDir2, lineDir2, L2 )
-
-    local lineDir3 = endPos - bendPos2
-    local L3 = LX2
-    lineDir3 = lineDir3 / L3
-
-    local bendDir3 = getIKBendFromTilt( segmentC, parentC, lineDir3, tiltDeg3 )
-    local bendPos3 = ikTwoSeg( bendPos2, endPos, LC, LD, bendDir3, lineDir3, L3 )
-
-    return startPos, bendPos1, bendPos2, bendPos3
-end
-ikFuncsByTilt[4] = ikFourSegByTilt
