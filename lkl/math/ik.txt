@@ -45,6 +45,11 @@ function libIK.generateSegment( segmentData )
     if not isValid( parentEnt ) then error( "Expected segmentData.Parent to be valid" ) end
 
     local obbSizeHalf = segmentEnt:obbSize() / 2
+
+    if segmentEnt.getScale then
+        obbSizeHalf = obbSizeHalf * segmentEnt:getScale()
+    end
+
     local originOffset = segmentData.OriginOffset or Vector( 0, 0, 0 )
     local originOffsetScaled = segmentData.OriginOffsetScaled or Vector( -1, 0, 0 )
     local endOffset = segmentData.EndOffset or Vector( 0, 0, 0 )
