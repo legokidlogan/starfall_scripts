@@ -22,6 +22,8 @@ local getIKBendFromTilt
 local determineSegmentEntPosAng
 
 
+----- SEGMENT SETUP -----
+
 --[[
     - Generate a segment for use with 'ByTilt' IK functions.
     - This is not needed to use the core IK functions, but will generally improve results when working with entities and makes things easier.
@@ -89,6 +91,39 @@ function libIK.generateSegments( segmentDatas )
 
     return segments
 end
+
+
+----- SEGMENT HELPERS -----
+
+function libIK.getSegmentEnt( segment )
+    return segment._ent
+end
+
+function libIK.getSegmentParentEnt( segment )
+    return segment._parentEnt
+end
+
+function libIK.getSegmentLength( segment )
+    return segment._length
+end
+
+-- Gets the current world position of the segment's origin.
+function libIK.getSegmentOrigin( segment )
+    return segment._parentEnt:localToWorld( segment._parentToOrigin )
+end
+
+-- Gets the current world position of the segment's end.
+function libIK.getSegmentEnd( segment )
+    return segment.ent:localToWorld( segment._endOffset )
+end
+
+-- For a desired origin position and angle of a segment, returns the position and angle that you will need to set onto the entity.
+function libIK.convertSegmentPosAngToEntPosAng( segment, originPos, ang )
+    return localToWorld( segment._originToEntPos, segment._originToEntAng, originPos, ang )
+end
+
+
+----- IK FUNCTIONS -----
 
 --[[
     - Calculate the bendPos (elbow, knee, etc.) for a two-segment limb.
@@ -168,6 +203,9 @@ function libIK.fourSeg( startPos, endPos, LA, LB, LC, LD, LX1, LX2, bendDir1, be
 
     return bendPos1, bendPos2, bendPos3
 end
+
+
+----- IK BY TILT FUNCTIONS -----
 
 --[[
     - Similar to libIK.twoSeg(), but uses segment data which allows for more realistic IK and easer end-user implementation.
@@ -333,33 +371,6 @@ function libIK.fourSegByTilt( segmentA, segmentB, segmentC, segmentD, endPos, LX
     end
 
     return startPos, bendPos1, bendPos2, bendPos3, bendDir1, bendDir2, bendDir3, segmentPosA, segmentAngA, segmentPosB, segmentAngB, segmentPosC, segmentAngC, segmentPosD, segmentAngD
-end
-
-function libIK.getSegmentEnt( segment )
-    return segment._ent
-end
-
-function libIK.getSegmentParentEnt( segment )
-    return segment._parentEnt
-end
-
-function libIK.getSegmentLength( segment )
-    return segment._length
-end
-
--- Gets the current world position of the segment's origin.
-function libIK.getSegmentOrigin( segment )
-    return segment._parentEnt:localToWorld( segment._parentToOrigin )
-end
-
--- Gets the current world position of the segment's end.
-function libIK.getSegmentEnd( segment )
-    return segment.ent:localToWorld( segment._endOffset )
-end
-
--- For a desired origin position and angle of a segment, returns the position and angle that you will need to set onto the entity.
-function libIK.convertSegmentPosAngToEntPosAng( segment, originPos, ang )
-    return localToWorld( segment._originToEntPos, segment._originToEntAng, originPos, ang )
 end
 
 
