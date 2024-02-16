@@ -1,4 +1,4 @@
---@name lib_ik
+--@name IK
 --@author legokidlogan
 --@shared
 
