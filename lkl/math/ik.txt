@@ -402,7 +402,11 @@ getIKOffset = function( ent, parent, offset, offsetScaled, offsetFromParent, off
 
     offset = offset + offsetScaled * obbSizeHalf
 
-    if offsetFromParent then
+    if offsetFromParent or offsetFromParentScaled then
+        if not offsetFromParent then
+            offsetFromParent = VECTOR_ZERO
+        end
+
         if offsetFromParentScaled then
             local obbSizeParentHalf = getOBBSize( parent ) / 2
 
