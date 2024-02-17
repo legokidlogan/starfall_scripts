@@ -78,7 +78,13 @@ function libIK.generateSegment( segmentData )
 
     local forwardDir = originToEnd / length
     local upDir = segmentData.UpDir or Vector( 0, 1, 0 )
-    local rightDir = forwardDir:cross( upDir ):getNormalized()
+
+    local rightDir = forwardDir:cross( upDir )
+    local rightDirLength = rightDir:getLength()
+    if rightDirLength == 0 then error( "The forwards and upwards direction of a segment cannot be equal" ) end
+
+    rightDir = rightDir / rightDirLength
+
     local offsetAng = forwardDir:getAngleEx( upDir )
     local originToEntPos, originToEntAng = worldToLocal( VECTOR_ZERO, ANGLE_ZERO, originOffset, offsetAng )
 
