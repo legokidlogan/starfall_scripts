@@ -19,6 +19,7 @@ local mAbs = math.abs
 
 local getOBBSize
 local getIKOffset
+local getVariedOrigin
 local sanitizeIK
 local getIKBendFromTilt
 local determineSegmentEntPosAng
@@ -77,9 +78,12 @@ function libIK.generateSegment( segmentData )
 
     local forwardDir = originToEnd / length
     local upDir = segmentData.UpDir or Vector( 0, 1, 0 )
-    local originToEntPos, originToEntAng = worldToLocal( VECTOR_ZERO, ANGLE_ZERO, originOffset, forwardDir:getAngleEx( upDir ) )
+    local rightDir = forwardDir:cross( upDir ):getNormalized()
+    local offsetAng = forwardDir:getAngleEx( upDir )
+    local originToEntPos, originToEntAng = worldToLocal( VECTOR_ZERO, ANGLE_ZERO, originOffset, offsetAng )
 
     return {
+        -- Core data
         _ent = segmentEnt,
         _parentEnt = parentEnt,
         _length = length,
@@ -88,7 +92,16 @@ function libIK.generateSegment( segmentData )
         _parentToForwardDir = parentEnt:worldToLocalVector( segmentEnt:localToWorldVector( forwardDir ) ),
         _originToEntPos = originToEntPos,
         _originToEntAng = originToEntAng,
+
+        -- Extra data for helper funcs
+        _originOffset = originOffset,
         _endOffset = endOffset,
+        _centerOffset = ( originOffset + endOffset ) / 2,
+        _offsetAng = offsetAng,
+        _forwardDir = forwardDir,
+        _upDir = upDir,
+        _rightDir = rightDir,
+        _parentToRightDir = parentEnt:worldToLocalVector( segmentEnt:localToWorldVector( rightDir ) ),
     }
 end
 
@@ -120,12 +133,88 @@ end
 
 -- Gets the current world position of the segment's origin.
 function libIK.getSegmentOrigin( segment )
+    return segment._ent:localToWorld( segment._originOffset )
+end
+
+--[[
+    - Gets the intended world position of the segment's origin.
+    - Unless you manually reposition the segment or its parent, this should be the same as getSegmentOrigin().
+--]]
+function libIK.getSegmentOriginFromParent( segment )
     return segment._parentEnt:localToWorld( segment._parentToOrigin )
 end
 
 -- Gets the current world position of the segment's end.
 function libIK.getSegmentEnd( segment )
     return segment._ent:localToWorld( segment._endOffset )
+end
+
+-- Gets the current world position of the segment's center.
+function libIK.getSegmentCenter( segment )
+    return segment._ent:localToWorld( segment._centerOffset )
+end
+
+-- Gets the current world angles of the segment.
+function libIK.getSegmentAngles( segment )
+    return segment._ent:localToWorldAngles( segment._offsetAng )
+end
+
+--[[
+    - localToWorld() but for a segment.
+
+    originType: (string) (optional)
+        - Determines what position of the segment to use as the origin.
+        - "origin" (default) - The segment's origin.
+        - "end" - The segment's end.
+        - "center" - The segment's center.
+        - "ent" - The segment entity's position.
+--]]
+function libIK.localToWorldSegment( segment, pos, ang, originType )
+    local originPos = getVariedOrigin( segment, originType )
+    local originAng = libIK.getSegmentAngles( segment )
+
+    return localToWorld( pos, ang, originPos, originAng )
+end
+
+--[[
+    - worldToLocal() but for a segment.
+
+    originType: (string) (optional)
+        - Determines what position of the segment to use as the origin.
+        - "origin" (default) - The segment's origin.
+        - "end" - The segment's end.
+        - "center" - The segment's center.
+        - "ent" - The segment entity's position.
+--]]
+function libIK.worldToLocalSegment( segment, pos, ang, originType )
+    local originPos = getVariedOrigin( segment, originType )
+    local originAng = libIK.getSegmentAngles( segment )
+
+    return worldToLocal( pos, ang, originPos, originAng )
+end
+
+function libIK.getSegmentForward( segment )
+    return segment._ent:localToWorldVector( segment._forwardDir )
+end
+
+function libIK.getSegmentUp( segment )
+    return segment._ent:localToWorldVector( segment._upDir )
+end
+
+function libIK.getSegmentRight( segment )
+    return segment._ent:localToWorldVector( segment._rightDir )
+end
+
+function libIK.getSegmentForwardFromParent( segment )
+    return segment._parentEnt:localToWorldVector( segment._parentToForwardDir )
+end
+
+function libIK.getSegmentUpFromParent( segment )
+    return segment._parentEnt:localToWorldVector( segment._parentToUpDir )
+end
+
+function libIK.getSegmentRightFromParent( segment )
+    return segment._parentEnt:localToWorldVector( segment._parentToRightDir )
 end
 
 -- For a desired origin position and angle of a segment, returns the position and angle that you will need to set onto the entity.
@@ -417,6 +506,22 @@ getIKOffset = function( ent, parent, offset, offsetScaled, offsetFromParent, off
     end
 
     return offset
+end
+
+getVariedOrigin = function( segment, originType )
+    originType = originType or "origin"
+
+    if originType == "origin" then
+        return libIK.getSegmentOrigin( segment )
+    elseif originType == "end" then
+        return libIK.getSegmentEnd( segment )
+    elseif originType == "center" then
+        return libIK.getSegmentCenter( segment )
+    elseif originType == "ent" then
+        return segment._ent:getPos()
+    end
+
+    error( "Invalid originType" )
 end
 
 sanitizeIK = function( startPos, endPos, LA, LB, bendDir, lineDir, L )
