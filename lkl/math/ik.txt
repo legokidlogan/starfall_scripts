@@ -17,6 +17,8 @@ local mCos = math.cos
 local mASin = math.asin
 local mAbs = math.abs
 
+local getOBBSize
+local getIKOffset
 local sanitizeIK
 local getIKBendFromTilt
 local determineSegmentEntPosAng
@@ -57,52 +59,24 @@ function libIK.generateSegment( segmentData )
     local parentEnt = segmentData.Parent
     if not isValid( parentEnt ) then error( "Expected segmentData.Parent to be valid" ) end
 
-    local obbSizeHalf = segmentEnt:obbSize() / 2
-    local obbSizeParentHalf = parentEnt:obbSize() / 2
+    local originOffset = getIKOffset(
+        segmentEnt, parentEnt,
+        segmentData.OriginOffset or Vector( 0, 0, 0 ), segmentData.OriginOffsetScaled or Vector( -1, 0, 0 ),
+        segmentData.OriginOffsetFromParent, segmentData.OriginOffsetFromParentScaled
+    )
 
-    if segmentEnt.getScale then
-        obbSizeHalf = obbSizeHalf * segmentEnt:getScale()
-    end
-
-    if parentEnt.getScale then
-        obbSizeParentHalf = obbSizeParentHalf * parentEnt:getScale()
-    end
-
-    local originOffset = segmentData.OriginOffset or Vector( 0, 0, 0 )
-    local originOffsetScaled = segmentData.OriginOffsetScaled or Vector( -1, 0, 0 )
-    local endOffset = segmentData.EndOffset or Vector( 0, 0, 0 )
-    local endOffsetScaled = segmentData.EndOffsetScaled or Vector( 1, 0, 0 )
-    local upDir = segmentData.UpDir or Vector( 0, 1, 0 )
-
-    originOffset = originOffset + originOffsetScaled * obbSizeHalf
-    endOffset = endOffset + endOffsetScaled * obbSizeHalf
-
-    local originOffsetFromParent = segmentData.OriginOffsetFromParent
-    local originOffsetFromParentScaled = segmentData.OriginOffsetFromParentScaled
-    local endOffsetFromParent = segmentData.EndOffsetFromParent
-    local endOffsetScaledFromParent = segmentData.EndOffsetScaledFromParent
-
-    if originOffsetFromParent then
-        if originOffsetFromParentScaled then
-            originOffsetFromParent = originOffsetFromParent + originOffsetFromParentScaled * obbSizeParentHalf
-        end
-
-        originOffset = originOffset + segmentEnt:worldToLocal( parentEnt:localToWorld( originOffsetFromParent ) )
-    end
-
-    if endOffsetFromParent then
-        if endOffsetScaledFromParent then
-            endOffsetFromParent = endOffsetFromParent + endOffsetScaledFromParent * obbSizeParentHalf
-        end
-
-        endOffset = endOffset + segmentEnt:worldToLocal( parentEnt:localToWorld( endOffsetFromParent ) )
-    end
+    local endOffset = getIKOffset(
+        segmentEnt, parentEnt,
+        segmentData.EndOffset or Vector( 0, 0, 0 ), segmentData.EndOffsetScaled or Vector( 1, 0, 0 ),
+        segmentData.EndOffsetFromParent, segmentData.EndOffsetScaledFromParent
+    )
 
     local originToEnd = endOffset - originOffset
     local length = originToEnd:getLength()
     if length == 0 then error( "Segments cannot have a length of zero" ) end
 
     local forwardDir = originToEnd / length
+    local upDir = segmentData.UpDir or Vector( 0, 1, 0 )
     local originToEntPos, originToEntAng = worldToLocal( VECTOR_ZERO, ANGLE_ZERO, originOffset, forwardDir:getAngleEx( upDir ) )
 
     return {
@@ -412,6 +386,34 @@ end
 
 
 ----- PRIVATE FUNCTIONS -----
+
+getOBBSize = function( ent )
+    local obbSize = ent:obbSize()
+
+    if ent.getScale then
+        obbSize = obbSize * ent:getScale()
+    end
+
+    return obbSize
+end
+
+getIKOffset = function( ent, parent, offset, offsetScaled, offsetFromParent, offsetFromParentScaled )
+    local obbSizeHalf = getOBBSize( ent ) / 2
+
+    offset = offset + offsetScaled * obbSizeHalf
+
+    if offsetFromParent then
+        if offsetFromParentScaled then
+            local obbSizeParentHalf = getOBBSize( parent ) / 2
+
+            offsetFromParent = offsetFromParent + offsetFromParentScaled * obbSizeParentHalf
+        end
+
+        offset = offset + ent:worldToLocal( parent:localToWorld( offsetFromParent ) )
+    end
+
+    return offset
+end
 
 sanitizeIK = function( startPos, endPos, LA, LB, bendDir, lineDir, L )
     L = L or startPos:getDistance( endPos )
