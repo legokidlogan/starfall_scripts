@@ -168,7 +168,7 @@ end
 --[[
     - localToWorld() but for a segment.
 
-    originType: (string) (optional)
+    originType: (optional) (string)
         - Determines what position of the segment to use as the origin.
         - "origin" (default) - The segment's origin.
         - "end" - The segment's end.
@@ -185,7 +185,7 @@ end
 --[[
     - worldToLocal() but for a segment.
 
-    originType: (string) (optional)
+    originType: (optional) (string)
         - Determines what position of the segment to use as the origin.
         - "origin" (default) - The segment's origin.
         - "end" - The segment's end.
@@ -242,13 +242,13 @@ end
         - The length of the first segment.
     LB: (number)
         - The length of the second segment.
-    bendDir: (Vector) (optional)
+    bendDir: (optional) (Vector)
         - The direction to bend in, perpendicular to lineDir.
         - If not provided, it will be auto-calculated but could yield unnatural results.
-    lineDir: (Vector) (optional)
+    lineDir: (optional) (Vector)
         - Equal to ( endPos - startPos ):getNormalized().
         - Only provide this if you have the value already, to reduce redundant calculations.
-    L: (number) (optional)
+    L: (optional) (number)
         - Equal to ( endPos - startPos ):getLength().
         - Only provide this if you have the value already, to reduce redundant calculations.
     
@@ -328,7 +328,7 @@ end
         - How much to rotate the bendDir around lineDir.
         - 0 points to the right of lineDir, 90 points up, 180 points left, 270 points down.
         - For a humanoid model that starts in a T-pose, it's recommended to use 90 for legs, 0 for the right arm, and 180 for the left arm.
-    applyImmediately: (boolean) (optional) (default: false)
+    applyImmediately: (optional) (boolean) (default: false)
         - Whether to apply the results immediately to the segment entities via :setPos() and :setAngles().
 
     RETURNS: startPos, bendPos, bendDir, segmentPosA, segmentAngA, segmentPosB, segmentAngB
