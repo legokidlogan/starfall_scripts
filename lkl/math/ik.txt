@@ -30,14 +30,25 @@ local determineSegmentEntPosAng
 
     segmentData: (table)
         {
-            Ent = ENTITY,                 --                  -- The entity representing the segment.
-            Parent = ENTITY,              --                  -- The parent entity of the segment.
-            OriginOffset = VECTOR,        -- default:  0,0,0  -- The local position of the segment's origin.
-            OriginOffsetScaled = VECTOR,  -- default: -1,0,0  -- The local position of the segment's origin, will be scaled by obbSize() / 2.
-            EndOffset = VECTOR,           -- default:  0,0,0  -- The local position of the segment's end.
-            EndOffsetScaled = VECTOR,     -- default:  1,0,0  -- The local position of the segment's end, will be scaled by obbSize() / 2.
-            UpDir = VECTOR,               -- default:  0,1,0  -- The local up direction of the segment. (top of thigh, top of the calf, back of the arm, etc.)
+            Ent = ENTITY,                                  --                  -- The entity representing the segment.
+            Parent = ENTITY,                               --                  -- The parent entity of the segment.
+
+            OriginOffset = VECTOR (optional),              -- default:  0,0,0  -- The local position of the segment's origin.
+            OriginOffsetScaled = VECTOR (optional),        -- default: -1,0,0  -- The local position of the segment's origin, will be scaled by obbSize() / 2.
+            OriginOffsetFromParent = VECTOR or nil,        -- default:  nil    -- Creates a local offset from the parent, before adding the above two offsets in space local to the segment.
+            OriginOffsetFromParentScaled = VECTOR or nil,  -- default:  nil    -- Same as above, but scaled by the parent.
+
+            EndOffset = VECTOR (optional),                 -- default:  0,0,0  -- The local position of the segment's end.
+            EndOffsetScaled = VECTOR (optional),           -- default:  1,0,0  -- The local position of the segment's end, will be scaled by obbSize() / 2.
+            EndOffsetFromParent = VECTOR or nil,           -- default:  nil    -- Creates a local offset from the parent, before adding the above two offsets in space local to the segment.
+            EndOffsetScaledFromParent = VECTOR or nil,     -- default:  nil    -- Same as above, but scaled by the parent.
+
+            UpDir = VECTOR (optional),                     -- default:  0,1,0  -- The local up direction of the segment. (top of the thigh, top of the calf, back of the arm, etc.)
         }
+        - Note that the '____OffsetFromParent' options will fundamentally change how offsets are calculated, use with caution.
+            - The resulting offset will vary depending on how the semgent and its parent are located relative to each other when this gets called.
+            - An example usecase for this would be if your segment entities are small cubes separated by large, possibly variable, gaps.
+            - The regular offset options are in coords local to the segment entity, while the 'FromParent' options are in coords local to the parent entity.
 --]]
 function libIK.generateSegment( segmentData )
     local segmentEnt = segmentData.Ent
@@ -47,9 +58,14 @@ function libIK.generateSegment( segmentData )
     if not isValid( parentEnt ) then error( "Expected segmentData.Parent to be valid" ) end
 
     local obbSizeHalf = segmentEnt:obbSize() / 2
+    local obbSizeParentHalf = parentEnt:obbSize() / 2
 
     if segmentEnt.getScale then
         obbSizeHalf = obbSizeHalf * segmentEnt:getScale()
+    end
+
+    if parentEnt.getScale then
+        obbSizeParentHalf = obbSizeParentHalf * parentEnt:getScale()
     end
 
     local originOffset = segmentData.OriginOffset or Vector( 0, 0, 0 )
@@ -60,6 +76,27 @@ function libIK.generateSegment( segmentData )
 
     originOffset = originOffset + originOffsetScaled * obbSizeHalf
     endOffset = endOffset + endOffsetScaled * obbSizeHalf
+
+    local originOffsetFromParent = segmentData.OriginOffsetFromParent
+    local originOffsetFromParentScaled = segmentData.OriginOffsetFromParentScaled
+    local endOffsetFromParent = segmentData.EndOffsetFromParent
+    local endOffsetScaledFromParent = segmentData.EndOffsetScaledFromParent
+
+    if originOffsetFromParent then
+        if originOffsetFromParentScaled then
+            originOffsetFromParent = originOffsetFromParent + originOffsetFromParentScaled * obbSizeParentHalf
+        end
+
+        originOffset = originOffset + segmentEnt:worldToLocal( parentEnt:localToWorld( originOffsetFromParent ) )
+    end
+
+    if endOffsetFromParent then
+        if endOffsetScaledFromParent then
+            endOffsetFromParent = endOffsetFromParent + endOffsetScaledFromParent * obbSizeParentHalf
+        end
+
+        endOffset = endOffset + segmentEnt:worldToLocal( parentEnt:localToWorld( endOffsetFromParent ) )
+    end
 
     local originToEnd = endOffset - originOffset
     local length = originToEnd:getLength()
