@@ -29,6 +29,10 @@ if COLORS and gColors then return end -- Don't run twice.
 COLORS = COLORS or {} -- Where all the colors are stored
 gColors = gColors or {} -- "Global Colors": A few simple library functions are kept here
 
+-- Colors with these as their names will not get globalized as c_name. They will still be accessible through COLORS.name, however.
+gColors.nameExceptions = gColors.nameExceptions or {
+    ["fade"] = true,
+}
 
 
 ----- COLOR DEFINITIONS -----
@@ -239,12 +243,9 @@ function gColors.refreshColors()
 
     ----- SETUP -----
 
-
-    local nameExceptions = {
-        ["fade"] = true,
-    }
-
     do -- Globalize the colors (so they can be referenced as c_name instead of COLORS.name)
+        local nameExceptions = gColors.nameExceptions
+
         for name, color in pairs( COLORS ) do
             if not nameExceptions[name] then
                 _G["c_" .. name] = color
