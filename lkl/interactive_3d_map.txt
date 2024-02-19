@@ -335,6 +335,9 @@ local playerHoloLookup = {}
 hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
     meshesReady = true
 
+    timer.remove( "LKL_I3DMap_ShowProgress" )
+    setName( "Interactive 3D Map" )
+
     -- Spawn map holos
     timer.create( "LKL_I3DMap_SpawnMapHolos", 0.5, 0, function()
         local mapPos, mapAng = localToWorld( holoMapOffsetPos, holoMapOffsetAng, chip():getPos(), chip():getAngles() )
@@ -345,6 +348,8 @@ hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
         timer.remove( "LKL_I3DMap_SpawnMapHolos" )
 
         mapHoloBase:setParent( chip() )
+
+        hook.run( "LKL_I3DMap_MapReady" )
     end )
 
     -- Spawn recursive map holos
@@ -397,6 +402,10 @@ timer.create( "LKL_I3DMap_StartLoading", 0.2, 0, function()
 
     if libMapMesh.startLoadingMeshes() then
         timer.remove( "LKL_I3DMap_StartLoading" )
+
+        timer.create( "LKL_I3DMap_ShowProgress", 0.1, 0, function()
+            setName( "Interactive 3D Map\n(" .. math.round( libMapMesh.getMeshProgress() * 100 ) .. "%)" )
+        end )
     end
 end )
 

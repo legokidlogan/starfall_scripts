@@ -79,6 +79,7 @@ local MESH_MIN_BOUNDS = nil
 local MESH_MAX_BOUNDS = nil
 
 local meshes = {}
+local meshProgress = -1
 local meshesStartedLoading = false
 local mapMatStartedCachingColors = false
 local meshesReady = false
@@ -124,6 +125,7 @@ if CLIENT then
         if not mapDataReady then return end
 
         meshesStartedLoading = true
+        meshProgress = 0
 
         if meshMapColorMode == 2 then
             mapMatStartedCachingColors = true
@@ -132,6 +134,11 @@ if CLIENT then
         end
 
         return true
+    end
+
+    -- 0 to 1, -1 if not started.
+    function libMapMesh.getMeshProgress()
+        return meshProgress
     end
 
     --[[
@@ -319,6 +326,7 @@ end
 
 
 local recordVerts_surfaceInd = -1
+local surfaceCountMinusOne = world:getBrushPlaneCount() - 1
 recordVertsQueue = Queue:new(
     function( _, surface )
         recordVerts_surfaceInd = recordVerts_surfaceInd + 1
@@ -332,6 +340,8 @@ recordVertsQueue = Queue:new(
 
         local isInBounds = isSurfaceInBounds( surfaceVerts, surfaceVertCount )
         if not isInBounds then return end
+
+        meshProgress = recordVerts_surfaceInd / surfaceCountMinusOne
 
         local surfaceInd = recordVerts_surfaceInd
         local _, surfaceNormal = world:getBrushPlane( surfaceInd )
