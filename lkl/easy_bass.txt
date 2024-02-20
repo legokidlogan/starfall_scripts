@@ -280,14 +280,6 @@ function easyBass.loadURL( link, settings, callback )
 end
 
 
-hook.add( "Removed", "LKL_EasyBass_DestroyBassObjects", function()
-    for bassObj in pairs( allBassObjs ) do
-        if isValid( bassObj ) then
-            bassObj:stop()
-        end
-    end
-end )
-
 hook.add( "Think", "LKL_EasyBass_Think", function()
     local now = realtime()
 
