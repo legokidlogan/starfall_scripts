@@ -193,7 +193,7 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
             bassObj._fadeInDuration = fadeIn
             bassObj._fadeOutDuration = fadeOut
             bassObj._volume = 1
-            bassVolume._volumeEffective = 1
+            bassObj._volumeEffective = 1
             bassObj:setVolume( volume )
             bassObj:setPitch( pitch )
             bassObj:setLooping( loop )
