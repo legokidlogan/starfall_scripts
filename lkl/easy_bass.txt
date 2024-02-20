@@ -122,6 +122,7 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
     local pitch = settings.Pitch or 1
     local fadeStart = settings.FadeStart or 700
     local fadeEnd = settings.FadeEnd or 2000
+    local useSimpleFading = settings.UseSimpleFading
     local fadeIn = settings.FadeIn or 0
     local fadeOut = settings.FadeOut or 0
     local duration = settings.Duration or 0
@@ -141,6 +142,10 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
         else
             destroyWhenDone = settings.DestroyWhenDone
         end
+    end
+
+    if useSimpleFading == nil then
+        useSimpleFading = true
     end
 
     if fadeIn <= 0 then
@@ -207,7 +212,7 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
             bassObj:setVolume( volume )
             bassObj:setPitch( pitch )
             bassObj:setLooping( loop )
-            bassObj:setFade( fadeStart, fadeEnd )
+            bassObj:setFade( fadeStart, fadeEnd, useSimpleFading )
             bassObj:play()
 
             if duration then
