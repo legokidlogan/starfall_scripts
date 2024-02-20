@@ -8,7 +8,6 @@ easyBass = {}
 
 local allBassObjs = {}
 
-local mathMin = math.min
 local realtime = timer.realtime
 
 
@@ -40,23 +39,6 @@ local function handleFadeInOut( bassObj, volume )
     end
 end
 
--- IGModAudioChannel (the glua object created by starfall bass) doesn't properly become silent outside of the fadeEnd range, so we have to do it manually.
-local function handleDistanceClipping( bassObj, sndPos, fadeEndSqr )
-    local plyPos = eyePos()
-    local distSqr = ( plyPos - sndPos ):getLengthSqr()
-
-    if distSqr > fadeEndSqr then
-        bassObj._isDistanceClipped = true
-        bassObj:setVolumeEffective( 0 ) -- Silence the sound without changing its original desired volume. Don't pause it either, so time doesn't desync when the player returns.
-    else
-        local volume = bassObj._volume or 1
-        local newVolume = handleFadeInOut( bassObj, volume ) or volume
-
-        bassObj._isDistanceClipped = false
-        bassObj:setVolumeEffective( newVolume )
-    end
-end
-
 local function destroyBassObj( bassObj )
     allBassObjs[bassObj or false] = nil
 
@@ -66,7 +48,20 @@ local function destroyBassObj( bassObj )
     end
 end
 
-local function startFollowingTarget( bassObj, target, soundID, fadeEndSqr )
+local function startFadingInOut( bassObj, soundID )
+    hook.add( "Think", "LKL_EasyBass_FadeInOut_" .. soundID, function()
+        if not isValid( bassObj ) then
+            destroyBassObj( bassObj )
+            hook.remove( "Think", "LKL_EasyBass_FadeInOut_" .. soundID )
+
+            return
+        end
+
+        handleFadeInOut( bassObj, bassObj._volume )
+    end )
+end
+
+local function startFollowingTarget( bassObj, target, soundID )
     hook.add( "Think", "LKL_EasyBass_MoveSound_" .. soundID, function()
         if not isValid( bassObj ) or not isValid( target ) then
             destroyBassObj( bassObj )
@@ -78,7 +73,6 @@ local function startFollowingTarget( bassObj, target, soundID, fadeEndSqr )
         local sndPos = target:getPos()
 
         bassObj:setPos( sndPos )
-        handleDistanceClipping( bassObj, sndPos, fadeEndSqr )
     end )
 end
 
@@ -156,8 +150,6 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
         fadeOut = false
     end
 
-    local fadeEndSqr = fadeEnd * fadeEnd
-
     soundID = soundID or ( timer.curtime() .. "-" .. math.random( 1, 100000 ) )
     timer.remove( "LKL_EasyBass_RetrySound_" .. soundID )
 
@@ -183,46 +175,30 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
                 if self._volume == vol then return end
 
                 self._volume = vol
-
-                if self._isDistanceClipped then return end
-
-                self:_setVolume( mathMin( vol, self:getVolumeEffective() ) )
+                self:_setVolume( handleFadeInOut( self, vol ) )
             end
 
             function bassObj:getVolume()
-                return self._volume or 1
+                return self._volume
             end
 
-            -- Sets the effective volume without changing the desired volume. Used by distance clipping.
+            -- Sets the effective volume without changing the desired volume. Used by in/ou fading.
             function bassObj:setVolumeEffective( vol )
                 if self._volumeEffective == vol then return end
-                if self._isDistanceClipped and vol ~= 0 then return end
 
                 self._volumeEffective = vol
                 self:_setVolume( vol )
             end
 
             function bassObj:getVolumeEffective()
-                return self._volumeEffective or 1
-            end
-
-            function bassObj:play()
-                self._isPlaying = true
-                self:_play()
-            end
-
-            function bassObj:pause()
-                self._isPlaying = false
-                self:_pause()
-            end
-
-            function bassObj:isPlaying()
-                return self._isPlaying or false
+                return self._volumeEffective
             end
 
             bassObj._startTime = now
             bassObj._fadeInDuration = fadeIn
             bassObj._fadeOutDuration = fadeOut
+            bassObj._volume = 1
+            bassVolume._volumeEffective = 1
             bassObj:setVolume( volume )
             bassObj:setPitch( pitch )
             bassObj:setLooping( loop )
@@ -242,7 +218,11 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
             if type( target ) == "Vector" then
                 bassObj:setPos( target )
             elseif isValid( target ) then
-                startFollowingTarget( bassObj, target, soundID, fadeEndSqr )
+                startFollowingTarget( bassObj, target, soundID )
+            end
+
+            if fadeIn or fadeOut then
+                startFadingInOut( bassObj, soundID )
             end
 
             if destroyWhenDone then
@@ -276,7 +256,6 @@ end
 
 --[[
     - Creates a bassObj from a clientside game sound file.
-    - Automatically silences the sound past fadeEnd, fixing a long-running sf/gmod bug.
     - If bassObj is supplied, it will automatically destroy that sound instance.
     - callback behaves identically to the callback in bass.loadFile.
 
@@ -287,6 +266,7 @@ end
             Pitch = 1, -- Pitch to play the sound at.
             FadeStart = 700, -- Distance at which the sound starts to fade.
             FadeEnd = 2000, -- Distance at which the sound is completely silent.
+            UseSimpleFading = true, -- Whether or not to use simple distance fading. See Bass:setFade() in the starfall docs for more info.
             FadeIn = 0, -- Time in seconds to fade in the sound.
             FadeOut = 0, -- Time in seconds from the end to fade out the sound. Disabled if Duration is not given.
             Duration = nil, -- Duration of the sound in seconds. If nil, the duration will be automatically calculated.
