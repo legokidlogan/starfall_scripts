@@ -2,17 +2,62 @@
 --@author legokidlogan
 --@client
 
-if easyBass then return end
+easyBass = easyBass or {}
 
-easyBass = {}
+if easyBass._alreadyLoaded then return end
+easyBass._alreadyLoaded = true
+
 
 local allBassObjs = {}
 local soundIDIncrement = 0
 
 local realtime = timer.realtime
 
+local handleFollowTarget
+local handleDestroyWhenDone
+local handleFadeInOut
+local loadBass
 
-local function handleFollowTarget( bassObj )
+
+--[[
+    - Creates a bassObj from a clientside game sound file.
+    - If bassObj is supplied, it will automatically destroy that sound instance.
+    - callback behaves identically to the callback in bass.loadFile.
+
+    - settings: A table of settings for the sound. All settings are optional, and will default to the following if not specified:
+        {
+            Flags = "3d stereo noblock noplay", -- Flags to pass to bass.loadFile.
+            Volume = 1, -- Volume to play the sound at.
+            Pitch = 1, -- Pitch to play the sound at.
+            FadeStart = 700, -- Distance at which the sound starts to fade.
+            FadeEnd = 2000, -- Distance at which the sound is completely silent.
+            UseSimpleFading = true, -- Whether or not to use simple distance fading. See Bass:setFade() in the starfall docs for more info.
+            FadeIn = 0, -- Time in seconds to fade in the sound.
+            FadeOut = 0, -- Time in seconds from the end to fade out the sound. Disabled if Duration is not given.
+            Duration = nil, -- Duration of the sound in seconds. If nil, the duration will be automatically calculated.
+            Target = chip(), -- The entity or vector to play the sound at.
+            Loop = false, -- Whether or not to loop the sound.
+            DestroyWhenDone = true, -- Whether or not to destroy the sound when it finishes playing. Disabled if Duration is provided.
+            StaleThreshold = 30, -- How many ticks of silence must occur in a row for a sound to be considered done, for use with DestroyWhenDone.
+        }
+--]]
+function easyBass.loadFile( path, settings, callback )
+    if not string.startWith( path, "sound/" ) then
+        path = "sound/" .. path
+    end
+
+    loadBass( bass.loadFile, path, settings, nil, callback )
+end
+
+-- Behaves identically to easyBass.loadFile, but loads a sound from a URL instead.
+function easyBass.loadURL( link, settings, callback )
+    loadBass( bass.loadURL, link, settings, nil, callback )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+handleFollowTarget = function( bassObj )
     if bassObj._dontFollowTarget then return end
 
     local target = bassObj._target
@@ -30,7 +75,7 @@ local function handleFollowTarget( bassObj )
     end
 end
 
-local function handleDestroyWhenDone( bassObj )
+handleDestroyWhenDone = function( bassObj )
     if bassObj._dontDestroyWhenDone then return end
     if not bassObj:isPlaying() then return end
 
@@ -52,7 +97,7 @@ local function handleDestroyWhenDone( bassObj )
     end
 end
 
-local function handleFadeInOut( bassObj, now )
+handleFadeInOut = function( bassObj, now )
     local volume = bassObj._volume
     local fadeInDuration = bassObj._fadeInDuration
     local fadeOutDuration = bassObj._fadeOutDuration
@@ -80,7 +125,7 @@ local function handleFadeInOut( bassObj, now )
     end
 end
 
-local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
+loadBass = function( loadFunc, path, settings, bassObj, callback, soundID )
     if type( path ) ~= "string" then
         error( "Expected path to be a string" )
     end
@@ -244,41 +289,7 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
 end
 
 
---[[
-    - Creates a bassObj from a clientside game sound file.
-    - If bassObj is supplied, it will automatically destroy that sound instance.
-    - callback behaves identically to the callback in bass.loadFile.
-
-    - settings: A table of settings for the sound. All settings are optional, and will default to the following if not specified:
-        {
-            Flags = "3d stereo noblock noplay", -- Flags to pass to bass.loadFile.
-            Volume = 1, -- Volume to play the sound at.
-            Pitch = 1, -- Pitch to play the sound at.
-            FadeStart = 700, -- Distance at which the sound starts to fade.
-            FadeEnd = 2000, -- Distance at which the sound is completely silent.
-            UseSimpleFading = true, -- Whether or not to use simple distance fading. See Bass:setFade() in the starfall docs for more info.
-            FadeIn = 0, -- Time in seconds to fade in the sound.
-            FadeOut = 0, -- Time in seconds from the end to fade out the sound. Disabled if Duration is not given.
-            Duration = nil, -- Duration of the sound in seconds. If nil, the duration will be automatically calculated.
-            Target = chip(), -- The entity or vector to play the sound at.
-            Loop = false, -- Whether or not to loop the sound.
-            DestroyWhenDone = true, -- Whether or not to destroy the sound when it finishes playing. Disabled if Duration is provided.
-            StaleThreshold = 30, -- How many ticks of silence must occur in a row for a sound to be considered done, for use with DestroyWhenDone.
-        }
---]]
-function easyBass.loadFile( path, settings, callback )
-    if not string.startWith( path, "sound/" ) then
-        path = "sound/" .. path
-    end
-
-    loadBass( bass.loadFile, path, settings, nil, callback )
-end
-
--- Behaves identically to easyBass.loadFile, but loads a sound from a URL instead.
-function easyBass.loadURL( link, settings, callback )
-    loadBass( bass.loadURL, link, settings, nil, callback )
-end
-
+----- SETUP -----
 
 hook.add( "Think", "LKL_EasyBass_Think", function()
     local now = realtime()
