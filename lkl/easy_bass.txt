@@ -12,8 +12,48 @@ local soundIDIncrement = 0
 local realtime = timer.realtime
 
 
-local function handleFadeInOut( bassObj, volume )
-    local now = realtime()
+local function handleFollowTarget( bassObj )
+    if bassObj._dontFollowTarget then return end
+
+    local target = bassObj._target
+
+    if not isValid( target ) then
+        bassObj:stop()
+
+        return true
+    end
+
+    if target:isPlayer() then
+        bassObj:setPos( target:obbCenterW() )
+    else
+        bassObj:setPos( target:getPos() )
+    end
+end
+
+local function handleDestroyWhenDone( bassObj )
+    if bassObj._dontDestroyWhenDone then return end
+    if not bassObj:isPlaying() then return end
+
+    local volL, volR = bassObj:getLevels() -- :getLevels() is unaffected by :setVolume(), so additional checks aren't needed.
+
+    if volL ~= 0 or volR ~= 0 then
+        bassObj._staleStacks = 0
+
+        return
+    end
+
+    local staleStacks = ( bassObj._staleStacks or 0 ) + 1
+    bassObj._staleStacks = staleStacks
+
+    if staleStacks > bassObj._staleThreshold then
+        bassObj:stop()
+
+        return true
+    end
+end
+
+local function handleFadeInOut( bassObj, now )
+    local volume = bassObj._volume
     local fadeInDuration = bassObj._fadeInDuration
     local fadeOutDuration = bassObj._fadeOutDuration
 
@@ -22,9 +62,9 @@ local function handleFadeInOut( bassObj, volume )
         local timeUntilEnd = endTime - now
 
         if timeUntilEnd < fadeOutDuration then
-            local newVolume = volume * ( timeUntilEnd / fadeOutDuration )
+            bassObj:setVolumeEffective( volume * ( timeUntilEnd / fadeOutDuration ) )
 
-            return newVolume
+            return
         end
     end
 
@@ -33,76 +73,11 @@ local function handleFadeInOut( bassObj, volume )
         local timeSinceStart = now - startTime
 
         if timeSinceStart < fadeInDuration then
-            local newVolume = volume * ( timeSinceStart / fadeInDuration )
+            bassObj:setVolumeEffective( volume * ( timeSinceStart / fadeInDuration ) )
 
-            return newVolume
+            return
         end
     end
-end
-
-local function destroyBassObj( bassObj )
-    allBassObjs[bassObj or false] = nil
-
-    if isValid( bassObj ) then
-        bassObj:pause()
-        bassObj:stop()
-    end
-end
-
-local function startFadingInOut( bassObj, soundID )
-    hook.add( "Think", "LKL_EasyBass_FadeInOut_" .. soundID, function()
-        if not isValid( bassObj ) then
-            destroyBassObj( bassObj )
-            hook.remove( "Think", "LKL_EasyBass_FadeInOut_" .. soundID )
-
-            return
-        end
-
-        handleFadeInOut( bassObj, bassObj._volume )
-    end )
-end
-
-local function startFollowingTarget( bassObj, target, soundID )
-    hook.add( "Think", "LKL_EasyBass_MoveSound_" .. soundID, function()
-        if not isValid( bassObj ) or not isValid( target ) then
-            destroyBassObj( bassObj )
-            hook.remove( "Think", "LKL_EasyBass_MoveSound_" .. soundID )
-
-            return
-        end
-
-        local sndPos = target:getPos()
-
-        bassObj:setPos( sndPos )
-    end )
-end
-
-local function startTrackingVolumeForDestruction( bassObj, soundID )
-    hook.add( "Think", "LKL_EasyBass_DeleteWhenDonePlaying_" .. soundID, function()
-        if not isValid( bassObj ) then
-            destroyBassObj( bassObj )
-            hook.remove( "Think", "LKL_EasyBass_DeleteWhenDonePlaying_" .. soundID )
-
-            return
-        end
-
-        if not bassObj:isPlaying() then return end
-
-        local volL, volR = bassObj:getLevels() -- :getLevels() is unaffected by :setVolume(), so additional checks aren't needed.
-        if volL ~= 0 or volR ~= 0 then
-            bassObj._staleStacks = 0
-
-            return
-        end
-
-        local staleStacks = ( bassObj._staleStacks or 0 ) + 1
-        bassObj._staleStacks = staleStacks
-
-        if staleStacks > bassObj._staleThreshold then
-            destroyBassObj( bassObj )
-            hook.remove( "Think", "LKL_EasyBass_DeleteWhenDonePlaying_" .. soundID )
-        end
-    end )
 end
 
 local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
@@ -111,7 +86,6 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
     end
 
     if bassObj and isValid( bassObj ) then
-        allBassObjs[bassObj] = nil
         bassObj:stop()
         bassObj = false
     end
@@ -175,17 +149,16 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
                 return
             end
 
-            allBassObjs[bassObj] = true
+            table.insert( allBassObjs, bassObj )
             bassObj._setVolume = bassObj._setVolume or bassObj.setVolume
-            bassObj._play = bassObj._play or bassObj.play
-            bassObj._pause = bassObj._pause or bassObj.pause
+            bassObj._stop = bassObj._stop or bassObj.stop
             bassObj._staleThreshold = staleThreshold
 
             function bassObj:setVolume( vol )
                 if self._volume == vol then return end
 
                 self._volume = vol
-                self:_setVolume( handleFadeInOut( self, vol ) )
+                handleFadeInOut( self, realtime() )
             end
 
             function bassObj:getVolume()
@@ -204,7 +177,19 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
                 return self._volumeEffective
             end
 
+            function bassObj:stop()
+                table.removeByValue( allBassObjs, self )
+
+                self:pause()
+                self:_stop()
+
+                function self:stop()
+                end
+            end
+
+            bassObj._soundID = soundID
             bassObj._startTime = now
+            bassObj._dontDestroyWhenDone = not destroyWhenDone
             bassObj._fadeInDuration = fadeIn
             bassObj._fadeOutDuration = fadeOut
             bassObj._volume = 1
@@ -221,22 +206,16 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
                 timer.simple( duration, function()
                     if not isValid( bassObj ) then return end
 
-                    destroyBassObj( bassObj )
+                    bassObj:stop()
                 end )
             end
 
             if type( target ) == "Vector" then
                 bassObj:setPos( target )
+                bassObj._dontFollowTarget = true
             elseif isValid( target ) then
-                startFollowingTarget( bassObj, target, soundID )
-            end
-
-            if fadeIn or fadeOut then
-                startFadingInOut( bassObj, soundID )
-            end
-
-            if destroyWhenDone then
-                startTrackingVolumeForDestruction( bassObj, soundID )
+                bassObj._target = target
+                bassObj._dontFollowTarget = false
             end
 
             if callback then
@@ -246,7 +225,8 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
 
         if not success then
             if isValid( bassObj ) then
-                destroyBassObj( bassObj )
+                bassObj:pause()
+                bassObj:stop()
                 bassObj = false
             end
 
@@ -303,8 +283,18 @@ end
 hook.add( "Removed", "LKL_EasyBass_DestroyBassObjects", function()
     for bassObj in pairs( allBassObjs ) do
         if isValid( bassObj ) then
-            bassObj:pause()
             bassObj:stop()
         end
+    end
+end )
+
+hook.add( "Think", "LKL_EasyBass_Think", function()
+    local now = realtime()
+
+    for _, bassObj in ipairs( allBassObjs ) do
+        if handleFollowTarget( bassObj ) then continue end
+        if handleDestroyWhenDone( bassObj ) then continue end
+
+        handleFadeInOut( bassObj, now )
     end
 end )
