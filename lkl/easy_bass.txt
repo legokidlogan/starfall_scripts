@@ -122,6 +122,8 @@ handleFadeInOut = function( bassObj, now )
             return
         end
     end
+
+    return true
 end
 
 loadBass = function( loadFunc, path, settings, callback, soundID )
@@ -196,7 +198,10 @@ loadBass = function( loadFunc, path, settings, callback, soundID )
                 if self._volume == vol then return end
 
                 self._volume = vol
-                handleFadeInOut( self, realtime() )
+
+                if handleFadeInOut( self, realtime() ) then
+                    self:setVolumeEffective( vol )
+                end
             end
 
             function bassObj:getVolume()
