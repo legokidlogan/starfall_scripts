@@ -143,7 +143,7 @@ local function loadBass( loadFunc, path, settings, bassObj, callback, soundID )
     end
 
     if fadeIn <= 0 then
-        falseIn = false
+        fadeIn = false
     end
 
     if fadeOut <= 0 then
