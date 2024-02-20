@@ -21,7 +21,6 @@ local loadBass
 
 --[[
     - Creates a bassObj from a clientside game sound file.
-    - If bassObj is supplied, it will automatically destroy that sound instance.
     - callback behaves identically to the callback in bass.loadFile.
 
     - settings: A table of settings for the sound. All settings are optional, and will default to the following if not specified:
@@ -46,12 +45,12 @@ function easyBass.loadFile( path, settings, callback )
         path = "sound/" .. path
     end
 
-    loadBass( bass.loadFile, path, settings, nil, callback )
+    loadBass( bass.loadFile, path, settings, callback )
 end
 
 -- Behaves identically to easyBass.loadFile, but loads a sound from a URL instead.
 function easyBass.loadURL( link, settings, callback )
-    loadBass( bass.loadURL, link, settings, nil, callback )
+    loadBass( bass.loadURL, link, settings, callback )
 end
 
 
@@ -125,14 +124,9 @@ handleFadeInOut = function( bassObj, now )
     end
 end
 
-loadBass = function( loadFunc, path, settings, bassObj, callback, soundID )
+loadBass = function( loadFunc, path, settings, callback, soundID )
     if type( path ) ~= "string" then
         error( "Expected path to be a string" )
-    end
-
-    if bassObj and isValid( bassObj ) then
-        bassObj:stop()
-        bassObj = false
     end
 
     settings = settings or {}
@@ -182,11 +176,10 @@ loadBass = function( loadFunc, path, settings, bassObj, callback, soundID )
         soundID = soundIDIncrement
     end
 
-    loadFunc( path, flags, function( x, errNum, errName )
+    loadFunc( path, flags, function( bassObj, errNum, errName )
         local success, err
         success, err = pcall( function()
             local now = realtime()
-            bassObj = x
 
             if not bassObj then
                 success = false
@@ -272,7 +265,6 @@ loadBass = function( loadFunc, path, settings, bassObj, callback, soundID )
             if isValid( bassObj ) then
                 bassObj:pause()
                 bassObj:stop()
-                bassObj = false
             end
 
             if errNum and errName then
@@ -282,7 +274,7 @@ loadBass = function( loadFunc, path, settings, bassObj, callback, soundID )
             print( type( err ) == "table" and ( err.message or err.msg ) or err )
 
             timer.create( "LKL_EasyBass_RetrySound_" .. soundID, 1, 1, function()
-                loadBass( loadFunc, path, settings, bassObj, callback, soundID )
+                loadBass( loadFunc, path, settings, callback, soundID )
             end )
         end
     end )
