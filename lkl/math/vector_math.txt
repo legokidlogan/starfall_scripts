@@ -2289,6 +2289,35 @@ function vectorMath.isPointWithinBox( point, minBounds, maxBounds )
 end
 
 --[[
+    - Returns a list of the 8 points which make up a box.
+
+    minBounds: (Vector)
+        - The minimum point of the box.
+    maxBounds: (Vector)
+        - The maximum point of the box.
+--]]
+function vectorMath.getBoxPoints( minBounds, maxBounds )
+    local minX = minBounds[1]
+    local minY = minBounds[2]
+    local minZ = minBounds[3]
+
+    local maxX = maxBounds[1]
+    local maxY = maxBounds[2]
+    local maxZ = maxBounds[3]
+
+    return {
+        Vector( minX, minY, minZ ),
+        Vector( minX, minY, maxZ ),
+        Vector( minX, maxY, minZ ),
+        Vector( minX, maxY, maxZ ),
+        Vector( maxX, minY, minZ ),
+        Vector( maxX, minY, maxZ ),
+        Vector( maxX, maxY, minZ ),
+        Vector( maxX, maxY, maxZ )
+    }
+end
+
+--[[
     - Returns the min and max points of a cube with the given side length.
 
     sideLength: (number)
