@@ -38,6 +38,7 @@ local mRand = math.rand
 local mRandom = math.random
 local mLerpVector = math.lerpVector
 
+local getArgsAsTable
 local isXCloseToY
 local getCylinderBottomAndDirEff
 local getConeEndRadius
@@ -149,23 +150,11 @@ end
     - The vectors can either be given as individual arguments or one single sequential table of vectors.
 --]]
 function vectorMath.minPiecewiseMulti( ... )
-    local args = { ... }
+    local args = getArgsAsTable( ... )
     local argCount = #args
 
-    if argCount == 1 then
-        local arg1 = args[1]
-
-        if type( arg1 ) == "table" then
-            args = arg1
-            argCount = #args
-
-            if argCount == 1 then return args[1] end
-        else
-            return arg1
-        end
-    end
-
     if argCount == 0 then return end
+    if argCount == 1 then return args[1]:clone() end
 
     local minVec = args[1]:clone()
 
@@ -254,23 +243,11 @@ end
     - The vectors can either be given as individual arguments or one single sequential table of vectors.
 --]]
 function vectorMath.maxPiecewiseMulti( ... )
-    local args = { ... }
+    local args = getArgsAsTable( ... )
     local argCount = #args
 
-    if argCount == 1 then
-        local arg1 = args[1]
-
-        if type( arg1 ) == "table" then
-            args = arg1
-            argCount = #args
-
-            if argCount == 1 then return args[1] end
-        else
-            return arg1
-        end
-    end
-
     if argCount == 0 then return end
+    if argCount == 1 then return args[1]:clone() end
 
     local maxVec = args[1]:clone()
 
@@ -2289,6 +2266,46 @@ function vectorMath.isPointWithinBox( point, minBounds, maxBounds )
 end
 
 --[[
+    - Returns two vectors: the min and max bounds of an axis-aligned box which contails all the input vectors.
+    - The vectors can either be given as individual arguments or one single sequential table of vectors.
+--]]
+function vectorMath.getBoxBounds( ... )
+    local args = getArgsAsTable( ... )
+    local argCount = #args
+
+    if argCount == 0 then return end
+
+    local arg1 = args[1]
+
+    if argCount == 1 then return arg1:clone(), arg1:clone() end
+
+    local xMin = arg1[1]
+    local yMin = arg1[2]
+    local zMin = arg1[3]
+    local xMax = xMin
+    local yMax = yMin
+    local zMax = zMin
+
+    for i = 2, argCount do
+        local vec = args[i]
+        local x = vec[1]
+        local y = vec[2]
+        local z = vec[3]
+
+        if x < xMin then xMin = x
+        elseif x > xMax then xMax = x end
+
+        if y < yMin then yMin = y
+        elseif y > yMax then yMax = y end
+
+        if z < zMin then zMin = z
+        elseif z > zMax then zMax = z end
+    end
+
+    return Vector( xMin, yMin, zMin ), Vector( xMax, yMax, zMax )
+end
+
+--[[
     - Returns a list of the 8 points which make up a box.
 
     minBounds: (Vector)
@@ -2400,6 +2417,20 @@ end
 
 
 ----- PRIVATE FUNCTIONS -----
+
+getArgsAsTable = function( ... )
+    local args = { ... }
+
+    if #args == 1 then
+        local arg1 = args[1]
+
+        if type( arg1 ) == "table" then
+            return arg1
+        end
+    end
+
+    return args
+end
 
 isXCloseToY = function( x, y, precision )
     if not precision then return x == y end
