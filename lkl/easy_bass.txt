@@ -190,8 +190,8 @@ loadBass = function( loadFunc, path, settings, callback, soundID )
             end
 
             table.insert( allBassObjs, bassObj )
-            bassObj._setVolume = bassObj._setVolume or bassObj.setVolume
-            bassObj._stop = bassObj._stop or bassObj.stop
+            bassObj._easyBass_setVolume = bassObj.setVolume
+            bassObj._easyBass_stop = bassObj.stop
             bassObj._staleThreshold = staleThreshold
 
             function bassObj:setVolume( vol )
@@ -213,7 +213,7 @@ loadBass = function( loadFunc, path, settings, callback, soundID )
                 if self._volumeEffective == vol then return end
 
                 self._volumeEffective = vol
-                self:_setVolume( vol )
+                self:_easyBass_setVolume( vol )
             end
 
             function bassObj:getVolumeEffective()
@@ -224,7 +224,7 @@ loadBass = function( loadFunc, path, settings, callback, soundID )
                 table.removeByValue( allBassObjs, self )
 
                 self:pause()
-                self:_stop()
+                self:_easyBass_stop()
 
                 function self:stop()
                 end
