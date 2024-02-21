@@ -192,7 +192,6 @@ loadBass = function( loadFunc, path, settings, callback, soundID )
             table.insert( allBassObjs, bassObj )
             bassObj._easyBass_setVolume = bassObj.setVolume
             bassObj._easyBass_stop = bassObj.stop
-            bassObj._staleThreshold = staleThreshold
 
             function bassObj:setVolume( vol )
                 if self._volume == vol then return end
@@ -231,6 +230,7 @@ loadBass = function( loadFunc, path, settings, callback, soundID )
             end
 
             bassObj._soundID = soundID
+            bassObj._staleThreshold = staleThreshold
             bassObj._startTime = now
             bassObj._dontDestroyWhenDone = not destroyWhenDone
             bassObj._fadeInDuration = fadeIn
