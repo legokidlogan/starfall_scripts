@@ -76,7 +76,7 @@ end
 
 handleDestroyWhenDone = function( bassObj )
     if bassObj._dontDestroyWhenDone then return end
-    if not bassObj:isPlaying() then return end
+    if bassObj:isPaused() or bassObj:isStalled() then return end
 
     local volL, volR = bassObj:getLevels() -- :getLevels() is unaffected by :setVolume(), so additional checks aren't needed.
 
