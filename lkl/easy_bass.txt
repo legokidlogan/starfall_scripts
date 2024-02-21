@@ -291,10 +291,16 @@ end
 hook.add( "Think", "LKL_EasyBass_Think", function()
     local now = realtime()
 
-    for _, bassObj in ipairs( allBassObjs ) do
-        if handleFollowTarget( bassObj ) then continue end
-        if handleDestroyWhenDone( bassObj ) then continue end
+    for i = #allBassObjs, 1, -1 do
+        local bassObj = allBassObjs[i]
 
-        handleFadeInOut( bassObj, now )
+        if isValid( bassObj ) then
+            if handleFollowTarget( bassObj ) then continue end
+            if handleDestroyWhenDone( bassObj ) then continue end
+
+            handleFadeInOut( bassObj, now )
+        else
+            table.remove( allBassObjs, i )
+        end
     end
 end )
