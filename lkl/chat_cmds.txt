@@ -11,8 +11,6 @@ ccmdPrefix = ccmdPrefix or "/ccmd" -- Make sure to define this!
 ccmdPrintCommands = ccmdPrintCommands -- Should the original command message be printed to the player's chat before running it?
 ccmdUsePCall = ccmdUsePCall -- Should chat command functions be wrapped in a pcall? If so, unsuccessful calls will have their error message printed out.
 
-
-
 if ccmdPrintCommands == nil then
     ccmdPrintCommands = true -- Enabled by default
 end
@@ -23,7 +21,6 @@ end
 
 projectNameID = projectNameID or ( "ChatCmds|" .. chip():getChipName() )
 printName = printName or ( "[" .. projectNameID .. "]" )
-
 
 
 require( "lkl/bulletlist.txt" )
@@ -68,286 +65,16 @@ if SERVER then
     local stringExplode = string.explode
     local mMax = math.max
 
-    ccmdGetCommandInfo = false -- Placeholder
-
-    local function getHumans( plys )
-        plys = plys or find.allPlayers()
-
-        for i, ply in ipairs( plys ) do
-            if not isValid( ply ) or ply:isBot() then
-                tableRemove( plys, i )
-            end
-        end
-
-        return plys
-    end
-
-    local function makePlayerLookup( plys )
-        if plys == nil then
-            plys = getHumans()
-        end
-
-        if not plys then
-            plys = {}
-        end
-
-        local plysType = type( plys )
-
-        if plysType == "Player" and isValid( plys ) then
-            plys = {
-                plys,
-            }
-        elseif plysType ~= "table" then
-            return -- Invalid input (was a number, string, invalid ent, etc)
-        end
-
-        local plyLookup = {}
-        plys = getHumans( plys )
-
-        if tableIsEmpty( plys ) then return plyLookup end
-
-        local plyCount = #plys
-
-        if plyCount == 0 then
-            -- This better be a lookup table!
-
-            for ply in pairs( plys ) do -- deep-clone the table to ensure ply validity and unlink memory addresses
-                if isValid( ply ) and ply:isPlayer() then
-                    plyLookup[ply] = true
-                end
-            end
-        else
-            for i = 1, plyCount do
-                local ply = plys[i]
-
-                if isValid( ply ) and ply:isPlayer() then
-                    plyLookup[ply] = true
-                end
-            end
-        end
-
-        for i = 1, plyCount do
-            local ply = plys[i]
-
-            if isValid( ply ) and ply:isPlayer() then
-                plyLookup[ply] = true
-            end
-        end
-
-        return plyLookup
-    end
-
-    local function removeSpaces( str, fallback )
-        str = stringGsub( str, "[%s]+", "" ) or ""
-
-        if str == "" then
-            str = fallback or ""
-        end
-
-        return str
-    end
-
-    local function makeArgInfo( infoIn, cmdFunc, ... )
-        infoInType = type( infoIn )
-
-        if infoInType == "table" then
-            if infoIn.__IsValidated then return infoIn end
-        --
-        elseif infoInType == "function" then
-            local args = { ... }
-
-            infoIn = infoIn( unpack( args ) )
-
-            if type( infoIn ) ~= "table" then
-                error( "Expected argInfo() to return a table" )
-            end
-        --
-        elseif infoIn ~= nil then
-            error( "Expected argInfo to be nil, a table, or a function" )
-            --error( "Expected argInfo to be nil or a table" )
-        end
-
-        infoIn = infoIn or {}
-        local argInfo = {}
-        local argCountR = infoIn.ReqCount
-        local argCountO = infoIn.OptCount
-
-        if not argCountR and not argCountO then
-            argCountR = mMax( ( debug.getinfo( cmdFunc, "u" ).nparams or 0 ) - 3, 0 )
-            argCountO = 0
-            argInfo = {
-                ReqCount = argCountR,
-                OptCount = argCountO,
-                __IsValidated = true,
-            }
-
-            for i = 1, argCountR do
-                argInfo[i] = {
-                    Name = "arg" .. i,
-                    Type = false,
-                    IsOptional = false,
-                    Description = false,
-                }
-            end
-        else
-            argCountR = mMax( argCountR or 0, 0 )
-            argCountO = mMax( argCountO or 0, 0 )
-
-            local expectedTotal = argCountR + argCountO
-            local amountNamed = #infoIn
-            local amountToName = expectedTotal - amountNamed
-
-            argInfo = {
-                ReqCount = argCountR,
-                OptCount = argCountO,
-                __IsValidated = true,
-            }
-
-            for i = 1, amountNamed do
-                local thisArgData = infoIn[i] or {}
-
-                argInfo[i] = {
-                    Name = removeSpaces( tostring( thisArgData.Name ), "arg" .. i ),
-                    Type = false,
-                    IsOptional = i > argCountR,
-                    Description = thisArgData.Description or thisArgData.Descr or thisArgData.Desc,
-                }
-            end
-
-            if amountToName > 0 then
-                for i = 1, amountToName do
-                    local argInd = i + amountNamed
-
-                    argInfo[argInd] = {
-                        Name = "arg" .. argInd,
-                        Type = false,
-                        IsOptional = argInd > argCountR,
-                        Description = false,
-                    }
-                end
-            elseif amountToName ~= 0 then
-                -- Assume the extra names are optional args
-                argCountO = argCountO - amountToName
-                argInfo.OptCount = argCountO
-            end
-        end
-
-        local cArgReq = ccmdScheme:getColor( "ArgRequired" )
-        local cArgOpt = ccmdScheme:getColor( "ArgOptional" )
-
-        local printTbl = {}
-        local printTblCount = 0
-
-        for i = 1, argCountR do
-            printTblCount = printTblCount + 2
-            printTbl[printTblCount - 1] = cArgReq
-            printTbl[printTblCount] = argInfo[i].Name .. " "
-        end
-
-        for i = 1, argCountO do
-            printTblCount = printTblCount + 2
-            printTbl[printTblCount - 1] = cArgOpt
-            printTbl[printTblCount] = argInfo[i + argCountR].Name .. " "
-        end
-
-        if printTblCount > 0 then
-            printTbl[printTblCount] = removeSpaces( printTbl[printTblCount] )
-        end
-
-        argInfo.PrintTbl = printTbl
-
-        return argInfo
-    end
-
-    local function printToPly( ply, printTbl, delay, delayRequirement )
-        if delay and ( delayRequirement == nil or delayRequirement ) then
-            timer.simple( delay, function()
-                printToPly( ply, printTbl )
-            end )
-
-            return
-        end
-
-        --[[
-        net.start( "LKL_ChatCmds_PrintMessage" )
-        net.writeTable( printTbl )
-        net.send( ply )
-        --]]
-
-        ep.printToClient( ply, printTbl )
-    end
-
-    local function hasPrintCommandEnabled( ply )
-        if true then -- Probably will just leave it all to the one boolean and not have a per-player setting
-            return ccmdPrintCommands
-        end
-
-        local printCommandEnabled = printCommandEnabledPlys[ply]
-
-        return printCommandEnabled or ( printCommandEnabled == nil and ccmdPrintCommands )
-    end
-
-    function ccmdPrintFailCase( cmdName, ply, msg, failMsg, badArgInd, ... )
-        local args = { ... }
-
-        local cHighlight = ccmdScheme:getColor( "Highlight" )
-        local cHighlightWeak = ccmdScheme:getColor( "HighlightWeak" )
-        local cFail = ccmdScheme:getColor( "Fail" )
-        local cBulletPoint = ccmdScheme:getColor( "BulletPoint" )
-
-        local printTbl = ep.chipNamePrefix( ccmdScheme )
-        tableAdd( printTbl, {
-            cFail, "Command failed: ",
-        } )
-
-        msg = stringSub( msg, prefixLength + 1 + stringLen( cmdName ) + 2 ) or ""
-
-        tableInsert( printTbl, cHighlightWeak )
-        tableInsert( printTbl, ccmdPrefix .. " " .. cmdName .. " " )
-
-        if badArgInd > 0 then
-            local argCount = #args
-
-            for i = 1, argCount do
-                if i == badArgInd then
-                    tableInsert( printTbl, cFail )
-                else
-                    tableInsert( printTbl, cHighlight )
-                end
-
-                if i == argCount then
-                    tableInsert( printTbl, args[i] )
-                else
-                    tableInsert( printTbl, args[i] .. " " )
-                end
-            end
-        else
-            tableInsert( printTbl, cHighlight )
-            tableInsert( printTbl, msg )
-        end
-
-        if type( failMsg ) == "string" then
-            failMsg = failMsg == "" and "[No reason specified]" or failMsg
-
-            tableInsert( printTbl, cBulletPoint )
-            tableInsert( printTbl, "\n  - " )
-
-            tableInsert( printTbl, cFail )
-            tableInsert( printTbl, failMsg )
-        elseif type( failMsg ) == "table" then
-            local printTblCount = #printTbl
-
-            printTbl[printTblCount] = printTbl[printTblCount] .. "\n"
-            tableAdd( printTbl, failMsg )
-        end
-
-        printToPly( ply, printTbl )
-    end
-
+    local getHumans
+    local makePlayerLookup
+    local removeSpaces
+    local makeArgInfo
+    local printToPly
+    local hasPrintCommandEnabled
+    local processCommand
 
 
     ----- GLOBAL FUNCTIONS -----
-
 
     --[[
         - Gets the info of a command.
@@ -371,7 +98,7 @@ if SERVER then
             mainCmdName: (nil or string)
                 - Name of main command, if cmdName is an alias.
     --]]
-    ccmdGetCommandInfo = function( cmdName )
+    function ccmdGetCommandInfo( cmdName )
         cmdName = cmdName or ""
         local cmdInfo = ccmdCommands[cmdName]
 
@@ -429,7 +156,6 @@ if SERVER then
                 - canAddPlyToTargetList: (bool)
     --]]
     function ccmdSetTargetsForCommand( cmdName, plys, filterNewJoinsFunc )
-        ---------------------------------------------
         local cmdInfo, mainCmdName = ccmdGetCommandInfo( cmdName )
 
         if not cmdInfo then
@@ -677,13 +403,6 @@ if SERVER then
 
         if ccmdCommands[cmdName] then
             error( "There is already a chat command registered with the name \"" .. cmdName .. "\"" )
-            --[[
-            if type( cmdFunc ) == "string" and ccmdAliases[cmdFunc] then
-                error( "There is already a chat command registered with the alias \"" .. cmdFunc .. "\"" )
-            elseif type( cmdFunc ) == "function" then
-                error( "There is already a chat command registered with the name \"" .. cmdName .. "\"" )
-            end
-            --]]
         end
 
         if type( cmdFunc ) == "string" then
@@ -720,7 +439,6 @@ if SERVER then
             error( "Expected failCasesFunc to be nil or a function" )
         end
 
-        --
         if type( argInfo ) ~= "function" then
             if type( argInfo ) == "table" then
                 argInfo.__IsValidated = false
@@ -728,8 +446,6 @@ if SERVER then
 
             argInfo = makeArgInfo( argInfo, cmdFunc, cmdName )
         end
-        --
-        --argInfo = makeArgInfo( argInfo, cmdFunc )
 
         if helpInfo ~= nil and type( helpInfo ) ~= "string" and type( helpInfo ) ~= "table" and type( helpInfo ) ~= "function" then
             error( "Expected helpInfo to be nil, a string, a table, or a function" )
@@ -759,8 +475,6 @@ if SERVER then
             end
         end
 
-
-        ----------------------------------
         ccmdCommands[cmdName] = {
             Name = cmdName,
             Func = cmdFunc,
@@ -986,8 +700,6 @@ if SERVER then
         ccmdCommands[cmdName] = nil
     end
 
-    local processCommand = false -- Defined later
-
     --[[
         - Process a command directly.
         - Useful for automation and shortcuts like "/tp someGuy" --> "/myPrefix tp someGuy" without needing chat re-send delays.
@@ -1033,7 +745,274 @@ if SERVER then
         return processCommand( ply, msg, cmdName, args, argsAsString, hideCommandPrinting )
     end
 
-    -- This is not a global func btw
+    function ccmdPrintFailCase( cmdName, ply, msg, failMsg, badArgInd, ... )
+        local args = { ... }
+
+        local cHighlight = ccmdScheme:getColor( "Highlight" )
+        local cHighlightWeak = ccmdScheme:getColor( "HighlightWeak" )
+        local cFail = ccmdScheme:getColor( "Fail" )
+        local cBulletPoint = ccmdScheme:getColor( "BulletPoint" )
+
+        local printTbl = ep.chipNamePrefix( ccmdScheme )
+        tableAdd( printTbl, {
+            cFail, "Command failed: ",
+        } )
+
+        msg = stringSub( msg, prefixLength + 1 + stringLen( cmdName ) + 2 ) or ""
+
+        tableInsert( printTbl, cHighlightWeak )
+        tableInsert( printTbl, ccmdPrefix .. " " .. cmdName .. " " )
+
+        if badArgInd > 0 then
+            local argCount = #args
+
+            for i = 1, argCount do
+                if i == badArgInd then
+                    tableInsert( printTbl, cFail )
+                else
+                    tableInsert( printTbl, cHighlight )
+                end
+
+                if i == argCount then
+                    tableInsert( printTbl, args[i] )
+                else
+                    tableInsert( printTbl, args[i] .. " " )
+                end
+            end
+        else
+            tableInsert( printTbl, cHighlight )
+            tableInsert( printTbl, msg )
+        end
+
+        if type( failMsg ) == "string" then
+            failMsg = failMsg == "" and "[No reason specified]" or failMsg
+
+            tableInsert( printTbl, cBulletPoint )
+            tableInsert( printTbl, "\n  - " )
+
+            tableInsert( printTbl, cFail )
+            tableInsert( printTbl, failMsg )
+        elseif type( failMsg ) == "table" then
+            local printTblCount = #printTbl
+
+            printTbl[printTblCount] = printTbl[printTblCount] .. "\n"
+            tableAdd( printTbl, failMsg )
+        end
+
+        printToPly( ply, printTbl )
+    end
+
+
+    ----- PRIVATE FUNCTIONS -----
+
+    getHumans = function( plys )
+        plys = plys or find.allPlayers()
+
+        for i, ply in ipairs( plys ) do
+            if not isValid( ply ) or ply:isBot() then
+                tableRemove( plys, i )
+            end
+        end
+
+        return plys
+    end
+
+    makePlayerLookup = function( plys )
+        if plys == nil then
+            plys = getHumans()
+        end
+
+        if not plys then
+            plys = {}
+        end
+
+        local plysType = type( plys )
+
+        if plysType == "Player" and isValid( plys ) then
+            plys = {
+                plys,
+            }
+        elseif plysType ~= "table" then
+            return -- Invalid input (was a number, string, invalid ent, etc)
+        end
+
+        local plyLookup = {}
+        plys = getHumans( plys )
+
+        if tableIsEmpty( plys ) then return plyLookup end
+
+        local plyCount = #plys
+
+        if plyCount == 0 then
+            -- This better be a lookup table!
+
+            for ply in pairs( plys ) do -- deep-clone the table to ensure ply validity and unlink memory addresses
+                if isValid( ply ) and ply:isPlayer() then
+                    plyLookup[ply] = true
+                end
+            end
+        else
+            for i = 1, plyCount do
+                local ply = plys[i]
+
+                if isValid( ply ) and ply:isPlayer() then
+                    plyLookup[ply] = true
+                end
+            end
+        end
+
+        for i = 1, plyCount do
+            local ply = plys[i]
+
+            if isValid( ply ) and ply:isPlayer() then
+                plyLookup[ply] = true
+            end
+        end
+
+        return plyLookup
+    end
+
+    removeSpaces = function( str, fallback )
+        str = stringGsub( str, "[%s]+", "" ) or ""
+
+        if str == "" then
+            str = fallback or ""
+        end
+
+        return str
+    end
+
+    makeArgInfo = function( infoIn, cmdFunc, ... )
+        infoInType = type( infoIn )
+
+        if infoInType == "table" then
+            if infoIn.__IsValidated then return infoIn end
+        elseif infoInType == "function" then
+            local args = { ... }
+
+            infoIn = infoIn( unpack( args ) )
+
+            if type( infoIn ) ~= "table" then
+                error( "Expected argInfo() to return a table" )
+            end
+        elseif infoIn ~= nil then
+            error( "Expected argInfo to be nil, a table, or a function" )
+        end
+
+        infoIn = infoIn or {}
+        local argInfo = {}
+        local argCountR = infoIn.ReqCount
+        local argCountO = infoIn.OptCount
+
+        if not argCountR and not argCountO then
+            argCountR = mMax( ( debug.getinfo( cmdFunc, "u" ).nparams or 0 ) - 3, 0 )
+            argCountO = 0
+            argInfo = {
+                ReqCount = argCountR,
+                OptCount = argCountO,
+                __IsValidated = true,
+            }
+
+            for i = 1, argCountR do
+                argInfo[i] = {
+                    Name = "arg" .. i,
+                    Type = false,
+                    IsOptional = false,
+                    Description = false,
+                }
+            end
+        else
+            argCountR = mMax( argCountR or 0, 0 )
+            argCountO = mMax( argCountO or 0, 0 )
+
+            local expectedTotal = argCountR + argCountO
+            local amountNamed = #infoIn
+            local amountToName = expectedTotal - amountNamed
+
+            argInfo = {
+                ReqCount = argCountR,
+                OptCount = argCountO,
+                __IsValidated = true,
+            }
+
+            for i = 1, amountNamed do
+                local thisArgData = infoIn[i] or {}
+
+                argInfo[i] = {
+                    Name = removeSpaces( tostring( thisArgData.Name ), "arg" .. i ),
+                    Type = false,
+                    IsOptional = i > argCountR,
+                    Description = thisArgData.Description or thisArgData.Descr or thisArgData.Desc,
+                }
+            end
+
+            if amountToName > 0 then
+                for i = 1, amountToName do
+                    local argInd = i + amountNamed
+
+                    argInfo[argInd] = {
+                        Name = "arg" .. argInd,
+                        Type = false,
+                        IsOptional = argInd > argCountR,
+                        Description = false,
+                    }
+                end
+            elseif amountToName ~= 0 then
+                -- Assume the extra names are optional args
+                argCountO = argCountO - amountToName
+                argInfo.OptCount = argCountO
+            end
+        end
+
+        local cArgReq = ccmdScheme:getColor( "ArgRequired" )
+        local cArgOpt = ccmdScheme:getColor( "ArgOptional" )
+
+        local printTbl = {}
+        local printTblCount = 0
+
+        for i = 1, argCountR do
+            printTblCount = printTblCount + 2
+            printTbl[printTblCount - 1] = cArgReq
+            printTbl[printTblCount] = argInfo[i].Name .. " "
+        end
+
+        for i = 1, argCountO do
+            printTblCount = printTblCount + 2
+            printTbl[printTblCount - 1] = cArgOpt
+            printTbl[printTblCount] = argInfo[i + argCountR].Name .. " "
+        end
+
+        if printTblCount > 0 then
+            printTbl[printTblCount] = removeSpaces( printTbl[printTblCount] )
+        end
+
+        argInfo.PrintTbl = printTbl
+
+        return argInfo
+    end
+
+    printToPly = function( ply, printTbl, delay, delayRequirement )
+        if delay and ( delayRequirement == nil or delayRequirement ) then
+            timer.simple( delay, function()
+                printToPly( ply, printTbl )
+            end )
+
+            return
+        end
+
+        ep.printToClient( ply, printTbl )
+    end
+
+    hasPrintCommandEnabled = function( ply )
+        if true then -- Probably will just leave it all to the one boolean and not have a per-player setting
+            return ccmdPrintCommands
+        end
+
+        local printCommandEnabled = printCommandEnabledPlys[ply]
+
+        return printCommandEnabled or ( printCommandEnabled == nil and ccmdPrintCommands )
+    end
+
     processCommand = function( ply, msg, cmdName, args, argsAsString, hideCommandPrinting )
         if not hideCommandPrinting and hasPrintCommandEnabled( ply ) then
             local cTextQuiet = ccmdScheme:getColor( "TextQuiet" )
@@ -1182,7 +1161,8 @@ if SERVER then
     end
 
 
-    --------------------------------------------------------------------------------------------------------
+    ----- SETUP -----
+
     hook.add( "PlayerSay", "LKL_ChatCmds_RunCommand", function( ply, msg )
         local args = stringExplode( " ", msg ) or {}
         local prefix = tableRemove( args, 1 )
@@ -1196,7 +1176,6 @@ if SERVER then
     end )
 
     hook.add( "PlayerInitialSpawn", "LKL_ChatCmds_FilterNewJoin", function( ply )
-        ---------------------------------------------------------
         if targetNewJoinFilter( ply ) then
             targets[ply] = true
         end
@@ -1227,7 +1206,8 @@ if SERVER then
     end )
 
 
-    ---- BUILTIN CHAT COMMANDS:
+    ----- BUILTIN CHAT COMMANDS -----
+
     local visIfAvailCurrentlyChecking = false
 
     --[[
