@@ -39,6 +39,7 @@ if SERVER then
         help = true,
         commands = true,
     }
+    local visIfAvailCurrentlyChecking = false
     local prefixLength = string.len( ccmdPrefix )
     local targetNewJoinFilter = function() return end
     local stateStrVals = {
@@ -825,6 +826,31 @@ if SERVER then
         printToPly( ply, printTbl )
     end
 
+    --[[
+        - In ccmdCreateCommand(), pass this as the targetsOverride argument to make a command visible to a player
+            if they can see at least one other command that does not use this as its targetsOverride.
+    --]]
+    function ccmdFilter_VisibleIfAnyCommandIsAvailable( _, ply )
+        if visIfAvailCurrentlyChecking then return false end -- Avoid infinite loop
+
+        visIfAvailCurrentlyChecking = true
+
+        for cmdName, cmdInfo in pairs( ccmdCommands ) do
+            local targetsOverride = cmdInfo.TargetsOverride
+
+            if targetsOverride == ccmdFilter_VisibleIfAnyCommandIsAvailable then continue end -- Avoid infinite loop
+
+            if ccmdCanSeeCommand( ply, cmdName ) then
+                visIfAvailCurrentlyChecking = false
+                return true
+            end
+        end
+
+        visIfAvailCurrentlyChecking = false
+
+        return false
+    end
+
 
     ----- PRIVATE FUNCTIONS -----
 
@@ -1230,33 +1256,6 @@ if SERVER then
 
 
     ----- BUILTIN CHAT COMMANDS -----
-
-    local visIfAvailCurrentlyChecking = false
-
-    --[[
-        - This has been made global for in case you need to make a command that's visible to players who can see at least one other command
-        - To use it, provide this function as the targetsOverride argument in ccmdCreateCommand()
-    --]]
-    function ccmdFilter_VisibleIfAnyCommandIsAvailable( _, ply )
-        if visIfAvailCurrentlyChecking then return false end -- Avoid infinite loop
-
-        visIfAvailCurrentlyChecking = true
-
-        for cmdName, cmdInfo in pairs( ccmdCommands ) do
-            local targetsOverride = cmdInfo.TargetsOverride
-
-            if targetsOverride == ccmdFilter_VisibleIfAnyCommandIsAvailable then continue end -- Avoid infinite loop
-
-            if ccmdCanSeeCommand( ply, cmdName ) then
-                visIfAvailCurrentlyChecking = false
-                return true
-            end
-        end
-
-        visIfAvailCurrentlyChecking = false
-
-        return false
-    end
 
     local function commandHelp( _, ply, _, ... )
         local args = { ... }
