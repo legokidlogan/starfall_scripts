@@ -66,7 +66,6 @@ if SERVER then
     local stringExplode = string.explode
     local mMax = math.max
 
-    local getHumans
     local makePlayerLookup
     local removeSpaces
     local makeArgInfo
@@ -854,21 +853,9 @@ if SERVER then
 
     ----- PRIVATE FUNCTIONS -----
 
-    getHumans = function( plys )
-        plys = plys or find.allPlayers()
-
-        for i, ply in ipairs( plys ) do
-            if not isValid( ply ) or ply:isBot() then
-                tableRemove( plys, i )
-            end
-        end
-
-        return plys
-    end
-
     makePlayerLookup = function( plys )
         if plys == nil then
-            plys = getHumans()
+            plys = find.allPlayers()
         end
 
         if not plys then
@@ -886,7 +873,6 @@ if SERVER then
         end
 
         local plyLookup = {}
-        plys = getHumans( plys )
 
         if tableIsEmpty( plys ) then return plyLookup end
 
@@ -896,7 +882,7 @@ if SERVER then
             -- This better be a lookup table!
 
             for ply in pairs( plys ) do -- deep-clone the table to ensure ply validity and unlink memory addresses
-                if isValid( ply ) and ply:isPlayer() then
+                if isValid( ply ) and ply:isPlayer() and not ply:isBot() then
                     plyLookup[ply] = true
                 end
             end
@@ -904,17 +890,9 @@ if SERVER then
             for i = 1, plyCount do
                 local ply = plys[i]
 
-                if isValid( ply ) and ply:isPlayer() then
+                if isValid( ply ) and ply:isPlayer() and not ply:isBot() then
                     plyLookup[ply] = true
                 end
-            end
-        end
-
-        for i = 1, plyCount do
-            local ply = plys[i]
-
-            if isValid( ply ) and ply:isPlayer() then
-                plyLookup[ply] = true
             end
         end
 
