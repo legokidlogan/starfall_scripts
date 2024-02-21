@@ -90,177 +90,15 @@ local tableAdd = table.add
 local tableIsEmpty = table.isEmpty
 local tableGetKeys = table.getKeys
 
-
-local function preparePointStyle( pointStyle )
-    local pointStyleData = {}
-
-    if stringSub( pointStyle, 1, 3 ) == "1.1" then
-        pointStyleData.Type = "1.1"
-        pointStyleData.Append = stringSub( pointStyle, 4 )
-
-        return pointStyleData
-    end
-
-    local cycleStr = stringMatch( pointStyle, "^[AaIi1]+" ) or ""
-
-    if cycleStr ~= "" then
-        pointStyleData.Type = "Cycle"
-        pointStyleData.Append = stringSub( pointStyle, #cycleStr + 1 )
-        pointStyleData.Styles = stringSplit( cycleStr, "" )
-
-        return pointStyleData
-    end
-
-    pointStyleData.Type = "Simple"
-    pointStyleData.Append = pointStyle
-
-    return pointStyleData
-end
-
-local function getPointStr( pointStyleData, indentLevel, pointIndex, prevPointIndices )
-    local styleType = pointStyleData.Type
-    local pointStr = ""
-
-    if styleType == "1.1" then
-        pointStr = tostring( pointIndex )
-
-        if prevPointIndices and indentLevel ~= 0 then
-            for i = indentLevel, 1, -1 do
-                pointStr = prevPointIndices[i] .. "." .. pointStr
-            end
-        end
-    elseif styleType == "Cycle" then
-        local styles = pointStyleData.Styles
-        local styleIndex = ( indentLevel % #styles ) + 1
-        local style = styles[styleIndex]
-
-        if style == "A" then
-            local letterIndex = ( ( pointIndex - 1 ) % 26 ) + 1
-            local letter = stringChar( letterIndex + 64 )
-            local letterCount = mCeil( pointIndex / 26 )
-
-            pointStr = stringRep( letter, letterCount )
-        elseif style == "a" then
-            local letterIndex = ( ( pointIndex - 1 ) % 26 ) + 1
-            local letter = stringChar( letterIndex + 96 )
-            local letterCount = mCeil( pointIndex / 26 )
-
-            pointStr = stringRep( letter, letterCount )
-        elseif style == "I" then
-            pointStr = RomanNumeral:numberToRoman( pointIndex, true )
-        elseif style == "i" then
-            pointStr = RomanNumeral:numberToRoman( pointIndex, false )
-        elseif style == "1" then
-            pointStr = tostring( pointIndex )
-        end
-    end
-
-    pointStr = pointStr .. pointStyleData.Append
-
-    return pointStr
-end
-
-local function addDescription( blist, description, cText )
-    if type( description ) == "table" then
-        if isInstanceOf( description, BulletList ) then
-            blist:mergeIn( description )
-
-            return
-        end
-
-        for _, desc in ipairs( description ) do
-            if type( desc ) == "table" then
-                blist:addPoint( desc, nil )
-            else
-                blist:addPoint( {
-                    cText, desc,
-                }, nil )
-            end
-        end
-    elseif description then
-        blist:addPoint( {
-            cText, description,
-        }, nil )
-    end
-end
-
-local function makePlayerLookup( tbl )
-    local lookup = {}
-
-    for key, val in pairs( tbl ) do
-        local ply = type( key ) == "Player" and key or ( type( val ) == "Player" and val ) or nil
-
-        if isValid( ply ) then
-            lookup[ply] = true
-        end
-    end
-
-    return lookup
-end
-
-local function stringIsUpper( str )
-    return str == stringUpper( str )
-end
-
-local function formatString( fStr, marker, func )
-    --[[
-    local splits = {}
-    local remainingStrs = { fStr }
-    local builtStr = ""
-
-    for _, marker in ipairs( markers ) do
-        local toSplits = remainingStrs
-        remainingStrs = {}
-
-        for _, toSplit in ipairs( toSplits ) do
-            local split = stringSplit( toSplit, marker )
-
-            for i, str in ipairs( split ) do
-                local data = {
-                    String = str,
-                    Specifier = i % 2 == 0 and specifier or "",
-                }
-
-                tableInsert( splits, data )
-                tableInsert( remainingStrs, str )
-            end
-        end
-    end
-
-    for _, split in ipairs( splits ) do
-        builtStr = builtStr .. func( split.String, split.Specifier )
-    end
-
-    return builtStr
-    --]]
-
-    local i = 1
-    local strLength = #fStr
-    local prefix = ""
-
-    while i <= strLength do
-        local char = stringSub( fStr, i, i ) or ""
-
-        if char == marker then
-            i = i + 1
-            local specifier = stringSub( fStr, i, i ) or ""
-
-            func( prefix, specifier )
-            prefix = ""
-        else
-            prefix = prefix .. char
-        end
-
-        i = i + 1
-    end
-
-    func( prefix, "POST" )
-end
-
+local preparePointStyle
+local getPointStr
+local addDescription
+local makePlayerLookup
+local stringIsUpper
+local formatString
 
 
 ----- GLOBAL FUNCTIONS -----
-
 
 --[[
     - Similar to print(), but allows for automatic color scheme usage and gColor conversion.
@@ -1691,7 +1529,181 @@ if SERVER then
         net.writeString( json.encode( stringyTbl ) )
         net.send( plys )
     end
-else
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+preparePointStyle = function( pointStyle )
+    local pointStyleData = {}
+
+    if stringSub( pointStyle, 1, 3 ) == "1.1" then
+        pointStyleData.Type = "1.1"
+        pointStyleData.Append = stringSub( pointStyle, 4 )
+
+        return pointStyleData
+    end
+
+    local cycleStr = stringMatch( pointStyle, "^[AaIi1]+" ) or ""
+
+    if cycleStr ~= "" then
+        pointStyleData.Type = "Cycle"
+        pointStyleData.Append = stringSub( pointStyle, #cycleStr + 1 )
+        pointStyleData.Styles = stringSplit( cycleStr, "" )
+
+        return pointStyleData
+    end
+
+    pointStyleData.Type = "Simple"
+    pointStyleData.Append = pointStyle
+
+    return pointStyleData
+end
+
+getPointStr = function( pointStyleData, indentLevel, pointIndex, prevPointIndices )
+    local styleType = pointStyleData.Type
+    local pointStr = ""
+
+    if styleType == "1.1" then
+        pointStr = tostring( pointIndex )
+
+        if prevPointIndices and indentLevel ~= 0 then
+            for i = indentLevel, 1, -1 do
+                pointStr = prevPointIndices[i] .. "." .. pointStr
+            end
+        end
+    elseif styleType == "Cycle" then
+        local styles = pointStyleData.Styles
+        local styleIndex = ( indentLevel % #styles ) + 1
+        local style = styles[styleIndex]
+
+        if style == "A" then
+            local letterIndex = ( ( pointIndex - 1 ) % 26 ) + 1
+            local letter = stringChar( letterIndex + 64 )
+            local letterCount = mCeil( pointIndex / 26 )
+
+            pointStr = stringRep( letter, letterCount )
+        elseif style == "a" then
+            local letterIndex = ( ( pointIndex - 1 ) % 26 ) + 1
+            local letter = stringChar( letterIndex + 96 )
+            local letterCount = mCeil( pointIndex / 26 )
+
+            pointStr = stringRep( letter, letterCount )
+        elseif style == "I" then
+            pointStr = RomanNumeral:numberToRoman( pointIndex, true )
+        elseif style == "i" then
+            pointStr = RomanNumeral:numberToRoman( pointIndex, false )
+        elseif style == "1" then
+            pointStr = tostring( pointIndex )
+        end
+    end
+
+    pointStr = pointStr .. pointStyleData.Append
+
+    return pointStr
+end
+
+addDescription = function( blist, description, cText )
+    if type( description ) == "table" then
+        if isInstanceOf( description, BulletList ) then
+            blist:mergeIn( description )
+
+            return
+        end
+
+        for _, desc in ipairs( description ) do
+            if type( desc ) == "table" then
+                blist:addPoint( desc, nil )
+            else
+                blist:addPoint( {
+                    cText, desc,
+                }, nil )
+            end
+        end
+    elseif description then
+        blist:addPoint( {
+            cText, description,
+        }, nil )
+    end
+end
+
+makePlayerLookup = function( tbl )
+    local lookup = {}
+
+    for key, val in pairs( tbl ) do
+        local ply = type( key ) == "Player" and key or ( type( val ) == "Player" and val ) or nil
+
+        if isValid( ply ) then
+            lookup[ply] = true
+        end
+    end
+
+    return lookup
+end
+
+stringIsUpper = function( str )
+    return str == stringUpper( str )
+end
+
+formatString = function( fStr, marker, func )
+    --[[
+    local splits = {}
+    local remainingStrs = { fStr }
+    local builtStr = ""
+
+    for _, marker in ipairs( markers ) do
+        local toSplits = remainingStrs
+        remainingStrs = {}
+
+        for _, toSplit in ipairs( toSplits ) do
+            local split = stringSplit( toSplit, marker )
+
+            for i, str in ipairs( split ) do
+                local data = {
+                    String = str,
+                    Specifier = i % 2 == 0 and specifier or "",
+                }
+
+                tableInsert( splits, data )
+                tableInsert( remainingStrs, str )
+            end
+        end
+    end
+
+    for _, split in ipairs( splits ) do
+        builtStr = builtStr .. func( split.String, split.Specifier )
+    end
+
+    return builtStr
+    --]]
+
+    local i = 1
+    local strLength = #fStr
+    local prefix = ""
+
+    while i <= strLength do
+        local char = stringSub( fStr, i, i ) or ""
+
+        if char == marker then
+            i = i + 1
+            local specifier = stringSub( fStr, i, i ) or ""
+
+            func( prefix, specifier )
+            prefix = ""
+        else
+            prefix = prefix .. char
+        end
+
+        i = i + 1
+    end
+
+    func( prefix, "POST" )
+end
+
+
+----- SETUP -----
+
+if CLIENT then
     net.receive( "LKL_EasyPrint_PrintFromServer", function()
         if permissionSatisfied ~= nil and not permissionSatisfied then return end -- Soft-integrate into cl_permissions if parent script uses it
 
@@ -1702,5 +1714,6 @@ else
         end )
     end )
 end
+
 
 return epScheme
