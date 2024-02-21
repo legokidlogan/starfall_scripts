@@ -745,8 +745,31 @@ if SERVER then
         return processCommand( ply, msg, cmdName, args, argsAsString, hideCommandPrinting )
     end
 
+    --[[
+        - Manually prints a chat command fail message to chat.
+        - For use if there's something that could halt a chat command but cannot be checked with failCasesFunc.
+            - e.g. commands that occur over time, or where the action and its validity check cannot be separated.
+
+        cmdName: (string)
+            - The name of the command that failed.
+        ply: (player)
+            - The player who tried to run the command.
+        msg: (string)
+            - The player's chat message.
+        failMsg: (string or table)
+            - The message to print to the player's chat.
+                - STRING: A simple failure message, colored red.
+                - TABLE: { COLOR, STRING, COLOR, STRING, ... }
+                    - Allows for colored text.
+        badArgInd: (optional) (integer > 0)
+            - The numerical index of the cmdVarArgs param that caused the failure, if applicable.
+        ...: (optional) (string varargs)
+            - The arguments used in the command.
+    --]]
     function ccmdPrintFailCase( cmdName, ply, msg, failMsg, badArgInd, ... )
         local args = { ... }
+
+        badArgInd = badArgInd or 0
 
         local cHighlight = ccmdScheme:getColor( "Highlight" )
         local cHighlightWeak = ccmdScheme:getColor( "HighlightWeak" )
@@ -1090,7 +1113,7 @@ if SERVER then
             local failMsg, badArgInd = failCasesFunc( cmdName, ply, argsAsString, unpack( args ) )
 
             if failMsg then
-                ccmdPrintFailCase( cmdName, ply, msg, failMsg, badArgInd or 0, unpack( args ) )
+                ccmdPrintFailCase( cmdName, ply, msg, failMsg, badArgInd, unpack( args ) )
 
                 return ""
             end
