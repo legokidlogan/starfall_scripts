@@ -2306,6 +2306,58 @@ function vectorMath.getBoxBounds( ... )
 end
 
 --[[
+    - Returns a table of convexes which make up a hollow box.
+    - For use with prop.createCustom().
+
+    width: (number > 0)
+        - The inner width of the box.
+    height: (number > 0)
+        - The inner height of the box.
+    thickness: (number > 0)
+        - The thickness of the box's walls, extending outwards.
+    originMode: (optional) (0, 1, or 2)
+        - Determines where the origin will be placed.
+        - 0: The origin will be placed at the center of the box. (default)
+        - 1: The origin will be placed at the outer bottom of the box.
+        - 2: The origin will be placed at the inner bottom of the box.
+--]]
+function vectorMath.getHollowBoxConvexes( width, height, thickness, originMode )
+    local w = width / 2
+    local h = height / 2
+    local t = thickness
+    local ho = 0
+
+    if originMode == 1 then
+        ho = h + t
+    elseif originMode == 2 then
+        ho = h
+    end
+
+    return {
+        vectorMath.getBoxPoints(
+            Vector( -w - t, -w - t, -h - t + ho ), Vector( w + t, -w, h + t + ho )
+        ),
+        vectorMath.getBoxPoints(
+            Vector( -w - t, w, -h - t + ho ), Vector( w + t, w + t, h + t + ho )
+        ),
+
+        vectorMath.getBoxPoints(
+            Vector( -w - t, -w, -h - t + ho ), Vector( -w, w, h + t + ho )
+        ),
+        vectorMath.getBoxPoints(
+            Vector( w, -w, -h - t + ho ), Vector( w + t, w, h + t + ho )
+        ),
+
+        vectorMath.getBoxPoints(
+            Vector( -w, -w, -h - t + ho ), Vector( w, w, -h + ho )
+        ),
+        vectorMath.getBoxPoints(
+            Vector( -w, -w, h + ho ), Vector( w, w, h + t + ho )
+        ),
+    }
+end
+
+--[[
     - Returns a list of the 8 points which make up a box.
 
     minBounds: (Vector)
