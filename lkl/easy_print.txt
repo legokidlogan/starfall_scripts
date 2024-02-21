@@ -60,7 +60,7 @@
 
 easyPrint = easyPrint or {}
 
-if easyPrint._alreadyLoaded then return end
+if easyPrint._alreadyLoaded then return ep.getColorScheme() end
 easyPrint._alreadyLoaded = true
 
 require( "lkl/color_scheme.txt" )
