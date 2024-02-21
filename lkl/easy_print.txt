@@ -60,7 +60,8 @@
 
 easyPrint = easyPrint or {}
 
-if easyPrint.printInScheme then return end -- Don't run twice
+if easyPrint._alreadyLoaded then return end
+easyPrint._alreadyLoaded = true
 
 require( "lkl/color_scheme.txt" )
 
