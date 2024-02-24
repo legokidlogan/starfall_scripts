@@ -1913,13 +1913,13 @@ function vectorMath.randomAlongRectangle( width, height, rectNormal, originIsTop
         y = y - height * 0.5
     end
 
-    if not rectNormal then return Vector( x, y, 0 ) end
+    if not rectNormal then return Vector( y, x, 0 ) end
 
     if type( rectNormal ) == "Vector" then
         rectNormal = rectNormal:getAngle()
     end
 
-    return rectNormal:getUp() * x + rectNormal:getRight() * y
+    return -rectNormal:getRight() * x - rectNormal:getUp() * y
 end
 
 --[[
@@ -1946,13 +1946,13 @@ function vectorMath.randomAlongRectangleCorners( width, height, rectNormal, orig
         y = y - height * 0.5
     end
 
-    if not rectNormal then return Vector( x, y, 0 ) end
+    if not rectNormal then return Vector( y, x, 0 ) end
 
     if type( rectNormal ) == "Vector" then
         rectNormal = rectNormal:getAngle()
     end
 
-    return rectNormal:getUp() * x + rectNormal:getRight() * y
+    return -rectNormal:getRight() * x - rectNormal:getUp() * y
 end
 
 --[[
@@ -1979,13 +1979,13 @@ function vectorMath.randomInsideRectangle( width, height, rectNormal, originIsTo
         y = y - height * 0.5
     end
 
-    if not rectNormal then return Vector( x, y, 0 ) end
+    if not rectNormal then return Vector( y, x, 0 ) end
 
     if type( rectNormal ) == "Vector" then
         rectNormal = rectNormal:getAngle()
     end
 
-    return rectNormal:getUp() * x + rectNormal:getRight() * y
+    return -rectNormal:getRight() * x - rectNormal:getUp() * y
 end
 
 --[[
@@ -2037,10 +2037,10 @@ function vectorMath.getRectangleCorners( width, height, rectNormal, originIsTopL
 
     if not rectNormal then
         return {
-            Vector( topLeftX + width, topLeftY, 0 ), -- Top right
-            Vector( topLeftX + width, topLeftY + height, 0 ), -- Bottom right
-            Vector( topLeftX, topLeftY + height, 0 ), -- Bottom left
-            Vector( topLeftX, topLeftY, 0 ) -- Top left
+            Vector( topLeftY, topLeftX + width, 0 ), -- Top right
+            Vector( topLeftY + height, topLeftX + width, 0 ), -- Bottom right
+            Vector( topLeftY + height, topLeftX, 0 ), -- Bottom left
+            Vector( topLeftY, topLeftX, 0 ) -- Top left
         }
     end
 
