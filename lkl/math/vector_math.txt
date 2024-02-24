@@ -2012,6 +2012,54 @@ function vectorMath.randomInsideBoundedRectangle( minWidth, maxWidth, minHeight,
 end
 
 --[[
+    - Returns the four points of a rectangle, in clockwise order.
+
+    width: (number)
+        - The width of the rectangle.
+    height: (number)
+        - The height of the rectangle.
+    rectNormal: (optional) (Vector or Angle)
+        - The normal of the plane of the rectangle.
+        - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
+    originIsTopLeft: (optional) (boolean)
+        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Default is false.
+        - It's recommended to pass this as true when being used for any rendering/vgui functions.
+--]]
+function vectorMath.getRectangleCorners( width, height, rectNormal, originIsTopLeft )
+    local topLeftX = 0
+    local topLeftY = 0
+
+    if not originIsTopLeft then
+        topLeftX = topLeftX - width * 0.5
+        topLeftY = topLeftY - height * 0.5
+    end
+
+    if not rectNormal then
+        return {
+            Vector( topLeftX + width, topLeftY, 0 ), -- Top right
+            Vector( topLeftX + width, topLeftY + height, 0 ), -- Bottom right
+            Vector( topLeftX, topLeftY + height, 0 ), -- Bottom left
+            Vector( topLeftX, topLeftY, 0 ) -- Top left
+        }
+    end
+
+    if type( rectNormal ) == "Vector" then
+        rectNormal = rectNormal:getAngle()
+    end
+
+    local rightDir = -rectNormal:getRight()
+    local downDir = -rectNormal:getUp()
+
+    return {
+        rightDir * ( topLeftX + width ) + downDir * topLeftY, -- Top right
+        rightDir * ( topLeftX + width ) + downDir * ( topLeftY + height ), -- Bottom right
+        rightDir * topLeftX + downDir * ( topLeftY + height ), -- Bottom left
+        rightDir * topLeftX + downDir * topLeftY -- Top left
+    }
+end
+
+--[[
     - Returns whether or not an x, y point is within the area of a rectangle.
     - This is purely 2D, hence the lack of a z parameter or any vectors.
 
