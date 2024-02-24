@@ -1892,7 +1892,8 @@ end
         - The normal of the plane of the rectangle.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Whether (0,0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing rectNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -1933,7 +1934,8 @@ end
         - The normal of the plane of the rectangle.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Whether (0,0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing rectNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -1966,7 +1968,8 @@ end
         - The normal of the plane of the rectangle.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Whether (0,0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing rectNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -2003,7 +2006,8 @@ end
         - The normal of the plane of the rectangle.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Whether (0,0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing rectNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -2022,7 +2026,8 @@ end
         - The normal of the plane of the rectangle.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a rectangle on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Whether (0,0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing rectNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -2076,7 +2081,7 @@ end
     height: (number)
         - The height of the rectangle.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0) is considered to be the top-left of the rectangle, rather than its center.
+        - Whether (0,0) is considered to be the top left of the rectangle, rather than its center.
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -2100,7 +2105,8 @@ end
         - The normal of the plane of the square.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a square on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the square, rather than its center.
+        - Whether (0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing squareNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -2117,7 +2123,8 @@ end
         - The normal of the plane of the square.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a square on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the square, rather than its center.
+        - Whether (0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing rectNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -2134,7 +2141,8 @@ end
         - The normal of the plane of the square.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a square on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the square, rather than its center.
+        - Whether (0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing rectNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -2153,7 +2161,8 @@ end
         - The normal of the plane of the square.
         - Default is equivalent to (though faster than) Vector( 0, 0, 1 ), which results in a square on the XY plane.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0,0) is considered to be the top-left of the square, rather than its center.
+        - Whether (0,0) is considered to be the top left of the rectangle, rather than its center.
+        - This is the top left from the perspective of someone looking at the rectangle (eyes opposing squareNormal).
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
@@ -2176,7 +2185,7 @@ end
     size: (number)
         - The size of the square.
     originIsTopLeft: (optional) (boolean)
-        - Whether (0,0) is considered to be the top-left of the square, rather than its center.
+        - Whether (0,0) is considered to be the top left of the square, rather than its center.
         - Default is false.
         - It's recommended to pass this as true when being used for any rendering/vgui functions.
 --]]
