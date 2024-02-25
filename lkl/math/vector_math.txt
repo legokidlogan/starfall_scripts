@@ -2125,6 +2125,33 @@ function vectorMath.getRectangleCorners( width, height, rectNormal, originIsTopL
 end
 
 --[[
+    - Takes two opposing corners and returns the center, width, height, normal of the rectangle they define.
+
+    corner1: (Vector)
+        - One of the corners of the rectangle.
+    corner2: (Vector)
+        - The opposing corner of the rectangle.
+    rectNormal: (optional) (Vector)
+        - The normal of the plane of the rectangle.
+        - Defaults to the normal of a vertical rectangle based on the two corners (normal will be horizontal).
+--]]
+function vectorMath.getRectange( corner1, corner2, rectNormal )
+    local center = ( corner1 + corner2 ) * 0.5
+    local corner1To2 = corner2 - corner1
+
+    rectNormal = rectNormal and rectNormal:clone() or corner1To2:getAngle():getRight()
+
+    local rectNormalAng = rectNormal:getAngle()
+    local rectLeft = rectNormalAng:getRight()
+    local rectUp = rectNormalAng:getUp()
+
+    local width = mAbs( corner1To2:dot( rectLeft ) )
+    local height = mAbs( corner1To2:dot( rectUp ) )
+
+    return center, width, height, rectNormal
+end
+
+--[[
     - Returns whether or not an x, y point is within the area of a rectangle.
     - This is purely 2D, hence the lack of a z parameter or any vectors.
 
