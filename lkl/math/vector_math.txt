@@ -303,6 +303,66 @@ function vectorMath.clampPiecewise( vec, minVec, maxVec )
 end
 
 --[[
+    - Adds a single vector to each vector in a list.
+
+    vec: (Vector)
+        - The vector to add to each vector in the list.
+    vecs: (table)
+        - A sequential table of vectors.
+    doSelfModify: (optional) (boolean)
+        - If true, will modify the input vecs table directly.
+        - If false, will return a new table of vectors.
+        - Default is false.
+--]]
+function vectorMath.addToVectors( vec, vecs, doSelfModify )
+    if doSelfModify then
+        for i = 1, #vecs do
+            vecs[i] = vecs[i] + vec
+        end
+
+        return vecs
+    end
+
+    local newVecs = {}
+
+    for i = 1, #vecs do
+        newVecs[i] = vecs[i] + vec
+    end
+
+    return newVecs
+end
+
+--[[
+    - Performs piecewise (i.e. per-axis) addition of a vector onto other vectors in a list.
+
+    vec: (Vector)
+        - The vector to multiply against each vector in the list.
+    vecs: (table)
+        - A sequential table of vectors.
+    doSelfModify: (optional) (boolean)
+        - If true, will modify the input vecs table directly.
+        - If false, will return a new table of vectors.
+        - Default is false.
+--]]
+function vectorMath.multiplyAgainstVectors( vec, vecs, doSelfModify )
+    if doSelfModify then
+        for i = 1, #vecs do
+            vecs[i] = vecs[i] * vec
+        end
+
+        return vecs
+    end
+
+    local newVecs = {}
+
+    for i = 1, #vecs do
+        newVecs[i] = vecs[i] * vec
+    end
+
+    return newVecs
+end
+
+--[[
     - Takes a vector and splits it into its unit direction and length.
     - Best used for cases where the length might be zero and needs to be safely accounted for.
 
