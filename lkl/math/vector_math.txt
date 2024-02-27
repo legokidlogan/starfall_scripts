@@ -2135,7 +2135,7 @@ end
         - The normal of the plane of the rectangle.
         - Defaults to the normal of a vertical rectangle based on the two corners (normal will be horizontal).
 --]]
-function vectorMath.getRectange( corner1, corner2, rectNormal )
+function vectorMath.getRectangle( corner1, corner2, rectNormal )
     local center = ( corner1 + corner2 ) * 0.5
     local corner1To2 = corner2 - corner1
 
