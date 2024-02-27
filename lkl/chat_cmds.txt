@@ -54,6 +54,7 @@ if SERVER then
         ["off"] = false,
         ["false"] = false,
     }
+    local preprocessedResults = nil
 
     local tableIsEmpty = table.isEmpty
     local tableRemove = table.remove
@@ -298,6 +299,9 @@ if SERVER then
                         - Allows for colored text.
                 - badArgInd: (optional) (integer > 0)
                     - The numerical index of the cmdVarArgs param that caused the failure, if applicable.
+                    - If failMessage is nil, then badArgInd can instead be any type, and will be retrievable in cmdFunc via ccmdGetPreprocessedResults().
+                        - This is a way to reduce redundant processing on successfull commands.
+                        - See ccmdGetPreprocessedResults() for more info and an example.
             - Lets you have nicely-formatted misuse/invalid arg cases, with relevant info being printed out.
                 - This runs before cmdFunc, so this is to check command availability and do input sanitization, not handle execution errors.
             - The player not providing all required args will be auto-checked before failCasesFunc.
@@ -698,6 +702,47 @@ if SERVER then
         end
 
         ccmdCommands[cmdName] = nil
+    end
+
+    --[[
+        - During execution of cmdFunc in a chat command, this will give the second return value of failCasesFunc.
+        - This is useful if cmdFun and failCasesFunc repeat the same portion of argument processing.
+            Example:
+
+            ccmdCreateCommand(
+                "slap",
+                function( _, _, argsAsString )
+                    local targetPly = ccmdGetPreprocessedResults()
+
+                    slap( targetPly )
+                end,
+                function( _, _, argsAsString )
+                    local targetPly = find.playersByName( argsAsString )[1]
+
+                    if not isValid( targetPly ) then
+                        return {
+                            ccmdScheme:getColor( "Fail" ), "Couldn't find a player by the name of ",
+                            ccmdScheme:getColor( "Highlight" ), argsAsString,
+                        }, 0
+                    end
+
+                    return nil, targetPly
+                end,
+                {
+                    ReqCount = 1,
+                    OptCount = 0,
+                    {
+                        Name = "target",
+                        Description = "The player to slap.",
+                    },
+                },
+                "Slaps a player.",
+                owner(),
+                false
+            )
+    --]]
+    function ccmdGetPreprocessedResults()
+        return preprocessedResults
     end
 
     --[[
@@ -1112,15 +1157,20 @@ if SERVER then
 
         -- Check special fail cases
         local failCasesFunc = cmdInfo.FailCasesFunc
+        preprocessedResults = nil
 
         if failCasesFunc then
-            local failMsg, badArgInd = failCasesFunc( cmdName, ply, argsAsString, unpack( args ) )
+            local failMsg, failResult2 = failCasesFunc( cmdName, ply, argsAsString, unpack( args ) )
 
             if failMsg then
+                local badArgInd = failResult2
+
                 ccmdPrintFailCase( cmdName, ply, msg, failMsg, badArgInd, unpack( args ) )
 
                 return ""
             end
+
+            preprocessedResults = failResult2
         end
 
         -- Run command
