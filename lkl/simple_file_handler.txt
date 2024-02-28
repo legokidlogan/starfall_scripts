@@ -85,7 +85,7 @@ if SERVER then
         net.start( hookBase .. "SaveFile" )
         net.writeUInt( uid, 32 )
         net.writeString( fileName )
-        net.writeStream( str, false )
+        net.writeStream( bit.compress( str ), false )
         net.send( owner() )
     end
 
@@ -173,7 +173,7 @@ if SERVER then
                     print( "File " .. fileName .. " loaded in " .. timeTaken .. " seconds." )
                 end
 
-                local data = json.decode( dataStr )
+                local data = json.decode( bit.decompress( dataStr ) )
                 cbInfo.Callback( cbInfo, data )
             end )
         elseif not hidePrint then
@@ -204,7 +204,9 @@ else
         file.createDir( baseFolder .. folder )
 
         net.readStream( function( dataStr )
-            file.write( baseFolder .. fileName, fileHandler.alterDataString( dataStr ) )
+            dataStr = fileHandler.alterDataString( bit.decompress( dataStr ) )
+
+            file.write( baseFolder .. fileName, dataStr )
 
             net.start( hookBase .. "SaveFileFinished" )
             net.writeUInt( uid, 32 )
@@ -220,7 +222,7 @@ else
 
         net.start( hookBase .. "LoadFileFinished" )
         net.writeUInt( uid, 32 )
-        net.writeStream( dataStr, false )
+        net.writeStream( bit.compress( dataStr ), false )
         net.send()
     end )
 end
