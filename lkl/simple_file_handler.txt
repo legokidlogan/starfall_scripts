@@ -42,6 +42,31 @@ if SERVER then
         return fileName
     end
 
+    --[[
+        - Saves a file to the base folder on the owner's client.
+
+        fileName: (string)
+            - The name of the file to save.
+            - Can contain subfolders, e.g. "folder1/folder2/file.txt".
+            - If no file type is provided, will default to .txt
+        data: (table)
+            - The data to save to the file.
+            - Will be saved as a json-encoded string.
+        cb: (function)
+            - A callback for when the save is finished.
+            - Will be called with the following arguments:
+                - cbInfo: (table)
+                    {
+                        Callback = cb,
+                        FileName = fileName,
+                        FileNameEff = fileName after being processed by fixFilePath(),
+                        TimeStart = timer.realtime() as of calling this function,
+                        TimeTaken = time taken to save the file in seconds,
+                        HidePrint = hidePrint,
+                    }
+        - hidePrint: (boolean)
+            - If true, will not print anything to the console.
+    --]]
     function fileHandler.save( fileName, data, cb, hidePrint )
         local str = json.encode( data )
         uidCounter = uidCounter + 1
@@ -64,6 +89,30 @@ if SERVER then
         net.send( owner() )
     end
 
+    --[[
+        - Loads a file from the owner's client.
+
+        fileName: (string)
+            - The name of the file to load.
+            - Can contain subfolders, e.g. "folder1/folder2/file.txt".
+            - If no file type is provided, will default to .txt
+        cb: (function)
+            - A callback for when the load is finished.
+            - Will be called with the following arguments:
+                - cbInfo: (table)
+                    {
+                        Callback = cb,
+                        FileName = fileName,
+                        FileNameEff = fileName after being processed by fixFilePath(),
+                        TimeStart = timer.realtime() as of calling this function,
+                        TimeTaken = time taken to load the file in seconds,
+                        HidePrint = hidePrint,
+                    }
+                - data: (table)
+                    - The data loaded from the file.
+        - hidePrint: (boolean)
+            - If true, will not print anything to the console.
+    --]]
     function fileHandler.load( fileName, cb, hidePrint )
         uidCounter = uidCounter + 1
         local uid = uidCounter
