@@ -2102,10 +2102,10 @@ function vectorMath.getRectangleCorners( width, height, rectNormal, originIsTopL
 
     if not rectNormal then
         return {
+            Vector( topLeftY, topLeftX, 0 ), -- Top left
             Vector( topLeftY, topLeftX + width, 0 ), -- Top right
             Vector( topLeftY + height, topLeftX + width, 0 ), -- Bottom right
             Vector( topLeftY + height, topLeftX, 0 ), -- Bottom left
-            Vector( topLeftY, topLeftX, 0 ) -- Top left
         }
     end
 
@@ -2117,10 +2117,10 @@ function vectorMath.getRectangleCorners( width, height, rectNormal, originIsTopL
     local downDir = -rectNormal:getUp()
 
     return {
+        rightDir * topLeftX + downDir * topLeftY, -- Top left
         rightDir * ( topLeftX + width ) + downDir * topLeftY, -- Top right
         rightDir * ( topLeftX + width ) + downDir * ( topLeftY + height ), -- Bottom right
         rightDir * topLeftX + downDir * ( topLeftY + height ), -- Bottom left
-        rightDir * topLeftX + downDir * topLeftY -- Top left
     }
 end
 
