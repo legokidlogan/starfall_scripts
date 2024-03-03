@@ -281,8 +281,6 @@ hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, stat
             return
         end
 
-        if input.getCursorVisible() then return end -- Don't do anything if in a GUI menu
-
         thirdPersonZoomStepDir = key == MOUSE_WHEEL_UP and -1 or 1
     elseif key == KEY_RIGHT or key == KEY_LEFT then
         local pressingRight = input.isKeyDown( KEY_RIGHT )
@@ -294,8 +292,6 @@ hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, stat
             return
         end
 
-        if input.getCursorVisible() then return end -- Don't do anything if in a GUI menu
-
         thirdPersonRightStepDir = pressingLeft and -1 or 1
     elseif key == KEY_UP or key == KEY_DOWN then
         local pressingUp = input.isKeyDown( KEY_UP )
@@ -306,8 +302,6 @@ hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, stat
 
             return
         end
-
-        if input.getCursorVisible() then return end -- Don't do anything if in a GUI menu
 
         thirdPersonUpStepDir = pressingDown and -1 or 1
     end
