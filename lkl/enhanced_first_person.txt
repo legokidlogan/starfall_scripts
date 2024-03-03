@@ -27,7 +27,8 @@ local controlFontSize = 20
 
 -- Anti-viewbob settings:
 -- Anticipate jankiness when holding tools, etc.
-local disableViewBob = false -- Disables the view bobbing effect when walking. Will use the following values (and player scale) to position the eyes.
+local disableViewBobFirstPerson = false -- Disables the view bobbing effect when walking in first person. Will use the following values (and player scale) to position the eyes.
+local disableViewBobThirdPerson = true -- Same as above, but for third person.
 local eyeForward = 8
 local eyeOffsetX = 6
 local eyeOffsetY = 66
@@ -86,6 +87,7 @@ local STATE_THIRD_PERSON = 2
     local STATE_COUNT = 3
 
 local curState = STATE_FIRST_PERSON
+local viewBobDisabled = disableViewBobFirstPerson
 local isEditing = false
 local canPrintRamWarning = false
 local boneID = player():lookupAttachment( "eyes" )
@@ -188,7 +190,7 @@ hook.add( "calcview", "LKL_EFP_Calcview", function()
     local aimDir = camAng:getForward()
     local camPosOffsetEff = Vector( 0, 0, 0 )
 
-    if boneID ~= 0 and not disableViewBob then
+    if boneID ~= 0 and not viewBobDisabled then
         camPos = player():getAttachment( boneID )
         camPos = camPos + aimDir * 5
     else
@@ -310,6 +312,12 @@ end )
 hook.add( "LKL_TargetedInput_Tap", "LKL_EFP_Tap", function( _, key, numTaps )
     if key == controlKey then
         curState = ( curState + numTaps ) % STATE_COUNT
+
+        if curState == STATE_FIRST_PERSON then
+            viewBobDisabled = disableViewBobFirstPerson
+        elseif curState == STATE_THIRD_PERSON then
+            viewBobDisabled = disableViewBobThirdPerson
+        end
     end
 end )
 
