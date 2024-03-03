@@ -42,6 +42,11 @@ local thirdPersonZoomMax = 1000
 local thirdPersonYaw = 0 -- Offset (in degrees) from the player's yaw.
 local thirdPersonYawRate = 20
 local thirdPersonYaw90Snap = 15 -- If the yaw offset is this close to a multiple of 90, it will snap to that multiple. Set to 0 to disable.
+local thirdPersonRight = 0 -- Offset (in hmu) in the right direction of the user's view.
+local thirdPersonRightRate = 1
+local thirdPersonUp = 0 -- Offset (in hmu) in the up direction of the user's view.
+local thirdPersonUpRate = 1
+local thirdPersonRightUpSnap = 5 -- If the right or up offset is this close to 0, it will snap to 0. Set to 0 to disable.
 
 -- Usage:
     -- In-game, tap controlKey to swtich between first person, third person, and off.
@@ -92,7 +97,9 @@ local camPosOffsetY = 0
 local camPosOffsetZ = 0
 local scrW
 local scrH
-local thirdPersonZoomDir = false
+local thirdPersonZoomStepDir = false
+local thirdPersonRightStepDir = false
+local thirdPersonUpStepDir = false
 local offsetsFromBoneList = table.getKeys( offsetsFromBone )
 local offsetsFromBoneCount = #offsetsFromBoneList
 local plyScale = player():obbSize().z / 72
@@ -216,6 +223,16 @@ hook.add( "calcview", "LKL_EFP_Calcview", function()
         camAng = camAng + Angle( 0, thirdPersonYaw, 0 )
         aimDir = camAng:getForward()
         camPos = camPos - aimDir * thirdPersonZoom * plyScale
+
+        if thirdPersonRight ~= 0 then
+            local aimRight = camAng:getRight()
+            camPosOffsetEff = camPosOffsetEff + aimRight * thirdPersonRight
+        end
+
+        if thirdPersonUp ~= 0 then
+            local aimUp = camAng:getUp()
+            camPosOffsetEff = camPosOffsetEff + aimUp * thirdPersonUp
+        end
     end
 
     camPos = camPos + camPosOffsetEff
@@ -232,6 +249,18 @@ hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, stat
         if not isEditing then return end
 
         isEditing = false
+        thirdPersonRight = mRound( thirdPersonRight )
+        thirdPersonUp = mRound( thirdPersonUp )
+
+        if thirdPersonRightUpSnap > 0 then
+            if mAbs( thirdPersonRight ) <= thirdPersonRightUpSnap then
+                thirdPersonRight = 0
+            end
+
+            if mAbs( thirdPersonUp ) <= thirdPersonRightUpSnap then
+                thirdPersonUp = 0
+            end
+        end
 
         if thirdPersonYaw90Snap <= 0 then return end
 
@@ -247,14 +276,40 @@ hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, stat
         end
     elseif key == MOUSE_WHEEL_UP or key == MOUSE_WHEEL_DOWN then
         if not state then
-            thirdPersonZoomDir = false
+            thirdPersonZoomStepDir = false
 
             return
         end
 
-        if input.getCursorVisible() then return end
+        if input.getCursorVisible() then return end -- Don't do anything if in a GUI menu
 
-        thirdPersonZoomDir = key == MOUSE_WHEEL_UP and -1 or 1
+        thirdPersonZoomStepDir = key == MOUSE_WHEEL_UP and -1 or 1
+    elseif key == KEY_RIGHT or key == KEY_LEFT then
+        local pressingRight = input.isKeyDown( KEY_RIGHT )
+        local pressingLeft = input.isKeyDown( KEY_LEFT )
+
+        if pressingRight and pressingLeft or ( not pressingRight and not pressingLeft ) then
+            thirdPersonRightStepDir = false
+
+            return
+        end
+
+        if input.getCursorVisible() then return end -- Don't do anything if in a GUI menu
+
+        thirdPersonRightStepDir = pressingLeft and -1 or 1
+    elseif key == KEY_UP or key == KEY_DOWN then
+        local pressingUp = input.isKeyDown( KEY_UP )
+        local pressingDown = input.isKeyDown( KEY_DOWN )
+
+        if pressingUp and pressingDown or ( not pressingUp and not pressingDown ) then
+            thirdPersonUpStepDir = false
+
+            return
+        end
+
+        if input.getCursorVisible() then return end -- Don't do anything if in a GUI menu
+
+        thirdPersonUpStepDir = pressingDown and -1 or 1
     end
 end )
 
@@ -283,9 +338,23 @@ end )
 
 hook.add( "think", "LKL_EFP_ThirdPersonZoom", function()
     if not isEditing then return end
-    if curState ~= STATE_THIRD_PERSON or not thirdPersonZoomDir then return end
+    if curState ~= STATE_THIRD_PERSON or not thirdPersonZoomStepDir then return end
 
-    thirdPersonZoom = mClamp( thirdPersonZoom + thirdPersonZoomDir * thirdPersonZoomRate, thirdPersonZoomMin, thirdPersonZoomMax )
+    thirdPersonZoom = mClamp( thirdPersonZoom + thirdPersonZoomStepDir * thirdPersonZoomRate, thirdPersonZoomMin, thirdPersonZoomMax )
+end )
+
+hook.add( "think", "LKL_EFP_ThirdPersonRight", function()
+    if not isEditing then return end
+    if curState ~= STATE_THIRD_PERSON or not thirdPersonRightStepDir then return end
+
+    thirdPersonRight = thirdPersonRight + thirdPersonRightStepDir * thirdPersonRightRate
+end )
+
+hook.add( "think", "LKL_EFP_ThirdPersonUp", function()
+    if not isEditing then return end
+    if curState ~= STATE_THIRD_PERSON or not thirdPersonUpStepDir then return end
+
+    thirdPersonUp = thirdPersonUp + thirdPersonUpStepDir * thirdPersonUpRate
 end )
 
 hook.add( "drawhud", "LKL_EFP_DrawHUD", function()
@@ -305,6 +374,8 @@ hook.add( "drawhud", "LKL_EFP_DrawHUD", function()
 
     render.drawSimpleText( scrW * 0.5, scrH * 0.5 + controlTextOffsetY, "Zoom: " .. mRound( thirdPersonZoom, 1 ), 1, 3 )
     render.drawSimpleText( scrW * 0.5, scrH * 0.5 + controlTextOffsetY + controlFontSize, "Yaw: " .. mRound( thirdPersonYaw, 1 ), 1, 3 )
+    render.drawSimpleText( scrW * 0.5, scrH * 0.5 + controlTextOffsetY + controlFontSize * 2, "Right: " .. mRound( thirdPersonRight ), 1, 3 )
+    render.drawSimpleText( scrW * 0.5, scrH * 0.5 + controlTextOffsetY + controlFontSize * 3, "Up: " .. mRound( thirdPersonUp ), 1, 3 )
 end )
 
 
@@ -338,6 +409,10 @@ timer.simple( 1, function()
     tiSetTargetButtons( {
         [controlKey] = true,
         [MOUSE_WHEEL_UP] = true,
-        [MOUSE_WHEEL_DOWN] = true
+        [MOUSE_WHEEL_DOWN] = true,
+        [KEY_RIGHT] = true,
+        [KEY_LEFT] = true,
+        [KEY_UP] = true,
+        [KEY_DOWN] = true,
     }, false )
 end )
