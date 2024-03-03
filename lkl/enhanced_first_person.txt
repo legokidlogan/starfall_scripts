@@ -98,9 +98,6 @@ local viewBobDisabled = disableViewBobFirstPerson
 local isEditing = false
 local canPrintRamWarning = false
 local boneID = player():lookupAttachment( "eyes" )
-local camPos
-local camAng
-local chair
 local camPosOffsetX = 0
 local camPosOffsetY = 0
 local camPosOffsetZ = 0
@@ -189,11 +186,8 @@ local function calcview()
         return
     end
 
-    --local camPos
-    --local camAng = player():getEyeAngles()
-    --local chair = player():getVehicle()
-    camAng = player():getEyeAngles()
-    chair = player():getVehicle()
+    local camAng = player():getEyeAngles()
+    local chair = player():getVehicle()
     chair = isValid( chair ) and chair
 
     if chair then
