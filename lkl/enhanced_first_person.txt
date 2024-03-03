@@ -155,8 +155,7 @@ local function calcOffset()
 end
 calcOffset()
 
-
-hook.add( "calcview", "LKL_EFP_Calcview", function()
+local function calcview()
     if not permissionSatisfied then return end
     if curState == STATE_OFF then return end
     if ramUsed() >= ramMax() * 0.7 then
@@ -243,7 +242,10 @@ hook.add( "calcview", "LKL_EFP_Calcview", function()
     camTbl.angles = camAng
 
     return camTbl
-end )
+end
+
+
+hook.add( "calcview", "LKL_EFP_Calcview", calcview )
 
 hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, state )
     if key == controlKey then
@@ -400,7 +402,7 @@ timer.create( "LKL_EFP_CalcOffset", 5, 0, calcOffset )
 
 if debugEnabled and holo then
     timer.create( "LKL_EFP_SeeCamPos", 0.1, 0, function()
-        local result = doCalcview()
+        local result = calcview()
 
         holo:setPos( result.origin )
     end )
