@@ -49,6 +49,7 @@ local thirdPersonUp = 0 -- Offset (in hmu) in the up direction of the user's vie
 local thirdPersonUpRate = 1
 local thirdPersonRightUpSnap = 5 -- If the right or up offset is this close to 0, it will snap to 0. Set to 0 to disable.
 local thirdPersonCollisionsEnabled = true -- Uses traces to prevent the camera from clipping through walls. Can be toggled during edit mode with right shift.
+local thirdPersonCollisionPush = 10 -- If the camera collides, nudge it forwards by this many units to avoid clipping at shallow angles.
 
 -- Usage:
     -- In-game, tap controlKey to swtich between first person, third person, and off.
@@ -162,7 +163,12 @@ calcOffset()
 
 local function thirdPersonCollisionCheck( camPosOriginal, camPosNew )
     local tr = trace.line( camPosOriginal, camPosNew, plyEnt:getVehicle(), THIRD_PERSON_TRACE_MASK, THIRD_PERSON_TRACE_COLLISION_GROUP )
-    if tr.Hit then return tr.HitPos end
+
+    if tr.Hit then
+        if thirdPersonCollisionPush == 0 then return tr.HitPos end
+
+        return tr.HitPos + ( camPosOriginal - camPosNew ):getNormalized() * thirdPersonCollisionPush
+    end
 
     return camPos
 end
