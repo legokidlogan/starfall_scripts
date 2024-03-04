@@ -95,20 +95,21 @@ local COLOR_PALE_GREEN = Color( 125, 255, 125, 255 )
 
 local curState = STATE_FIRST_PERSON
 local viewBobDisabled = disableViewBobFirstPerson
+local plyEnt = player()
 local isEditing = false
-local canPrintRamWarning = false
-local boneID = player():lookupAttachment( "eyes" )
+local boneID = plyEnt:lookupAttachment( "eyes" )
 local camPosOffsetX = 0
 local camPosOffsetY = 0
 local camPosOffsetZ = 0
 local scrW
 local scrH
+local ramLimit = ramMax() * 0.7
 local thirdPersonZoomStepDir = false
 local thirdPersonRightStepDir = false
 local thirdPersonUpStepDir = false
 local offsetsFromBoneList = table.getKeys( offsetsFromBone )
 local offsetsFromBoneCount = #offsetsFromBoneList
-local plyScale = player():obbSize().z / 72
+local plyScale = plyEnt:obbSize().z / 72
 local plyModel
 local controlFont = render.createFont( "Roboto Mono", controlFontSize, 500, true, false, false, true, false, false )
 local controlTextColor = Color( 255, 255, 255, 255 )
@@ -131,7 +132,7 @@ local function negativeMod( a, b )
 end
 
 local function calcOffset()
-    local model = player():getModel()
+    local model = plyEnt:getModel()
 
     if plyModel == model then return end
 
@@ -141,7 +142,7 @@ local function calcOffset()
         for i = 1, offsetsFromBoneCount do
             local boneName = offsetsFromBoneList[i]
 
-            if player():lookupBone( boneName ) then
+            if plyEnt:lookupBone( boneName ) then
                 pos = offsetsFromBone[boneName]
 
                 break
@@ -160,7 +161,7 @@ end
 calcOffset()
 
 local function thirdPersonCollisionCheck( camPosOriginal, camPosNew )
-    local tr = trace.line( camPosOriginal, camPosNew, player():getVehicle(), THIRD_PERSON_TRACE_MASK, THIRD_PERSON_TRACE_COLLISION_GROUP )
+    local tr = trace.line( camPosOriginal, camPosNew, plyEnt:getVehicle(), THIRD_PERSON_TRACE_MASK, THIRD_PERSON_TRACE_COLLISION_GROUP )
     if tr.Hit then return tr.HitPos end
 
     return camPos
@@ -169,25 +170,10 @@ end
 local function calcview()
     if not permissionSatisfied then return end
     if curState == STATE_OFF then return end
-    if ramUsed() >= ramMax() * 0.7 then
-        if canPrintRamWarning then
-            print(
-                Color( 255, 255, 255 ), "[EFP] ",
-                Color( 150, 0, 0 ), "The garbage buffer is almost full, pausing rendering to not exceed RAM limits!"
-            )
+    if ramUsed() >= ramLimit then return end -- Avoid issues when lua memory gets too full
 
-            canPrintRamWarning = false
-
-            timer.simple( 1, function()
-                canPrintRamWarning = true
-            end )
-        end
-
-        return
-    end
-
-    local camAng = player():getEyeAngles()
-    local chair = player():getVehicle()
+    local camAng = plyEnt:getEyeAngles()
+    local chair = plyEnt:getVehicle()
     chair = isValid( chair ) and chair
 
     if chair then
@@ -198,14 +184,14 @@ local function calcview()
     local camPosOffsetEff = Vector( 0, 0, 0 )
 
     if boneID ~= 0 and not viewBobDisabled then
-        camPos = player():getAttachment( boneID )
+        camPos = plyEnt:getAttachment( boneID )
         camPos = camPos + aimDir * 5
     else
         if chair then
-            camPos = player():getPos() + chair:getUp() * eyeOffsetYSitting * plyScale
+            camPos = plyEnt:getPos() + chair:getUp() * eyeOffsetYSitting * plyScale
         else
-            local eyeOffsetYEff = player():isCrouching() and eyeOffsetYCrouched or eyeOffsetY
-            camPos = player():getPos() + Vector( 0, 0, eyeOffsetYEff * plyScale )
+            local eyeOffsetYEff = plyEnt:isCrouching() and eyeOffsetYCrouched or eyeOffsetY
+            camPos = plyEnt:getPos() + Vector( 0, 0, eyeOffsetYEff * plyScale )
         end
 
         local forwardOffset = aimDir * eyeForward
@@ -231,7 +217,7 @@ local function calcview()
     if curState == STATE_THIRD_PERSON then
         local camPosOriginal = camPos
 
-        camAng = camAng + Angle( 0, thirdPersonYaw, 0 )
+        camAng[2] = camAng[2] + thirdPersonYaw
         aimDir = camAng:getForward()
         camPos = camPos - aimDir * thirdPersonZoom * plyScale
 
@@ -411,17 +397,17 @@ end )
 
 
 timer.create( "LKL_EFP_GetBoneID", 1, 0, function()
-    --plyScale = player():obbSize().z / 72
-    boneID = player():lookupAttachment( "eyes" )
+    --plyScale = plyEnt:obbSize().z / 72
+    boneID = plyEnt:lookupAttachment( "eyes" )
 
-    if player():isCrouching() then
-        plyScale = player():obbSize().z / 36
+    if plyEnt:isCrouching() then
+        plyScale = plyEnt:obbSize().z / 36
     else
-        plyScale = player():obbSize().z / 72
+        plyScale = plyEnt:obbSize().z / 72
     end
 
     if id == 0 then
-        id = player():lookupAttachment( "head" )
+        id = plyEnt:lookupAttachment( "head" )
     end
 end )
 
@@ -436,7 +422,7 @@ if debugEnabled and holo then
 end
 
 timer.simple( 1, function()
-    tiSetTargets( player() )
+    tiSetTargets( plyEnt )
     tiSetTargetButtons( {
         [controlKey] = true,
         [MOUSE_WHEEL_UP] = true,
