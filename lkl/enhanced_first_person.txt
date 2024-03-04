@@ -36,9 +36,9 @@ local eyeOffsetYCrouched = 38
 local eyeOffsetYSitting = 28
 
 -- Third person settings:
-local thirdPersonZoom = 130 -- Will be multiplied against 'hitboxHeight / 72'
+local thirdPersonZoom = 140 -- Will be multiplied against 'hitboxHeight / 72'
 local thirdPersonZoomRate = 10
-local thirdPersonZoomMin = 20
+local thirdPersonZoomMin = -200
 local thirdPersonZoomMax = 1000
 local thirdPersonYaw = 0 -- Offset (in degrees) from the player's yaw.
 local thirdPersonYawRate = 20
