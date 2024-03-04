@@ -60,7 +60,7 @@ local thirdPersonCollisionPush = 10 -- If the camera collides, nudge it forwards
 
 -- DEBUG:
 local holo
-local debugEnabled = true
+local debugEnabled = false
 
 if debugEnabled and player() == owner() then
     holo = holograms.create( Vector( 0, 0, 0 ), Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1, 1, 1 ) * 0.1 )
@@ -422,7 +422,7 @@ if debugEnabled and holo then
     timer.create( "LKL_EFP_SeeCamPos", 0.1, 0, function()
         local result = calcview()
 
-        holo:setPos( result.origin )
+        holo:setPos( result and result.origin or Vector() )
     end )
 end
 
