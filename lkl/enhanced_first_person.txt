@@ -15,7 +15,7 @@ require( "lkl/key_globalizer.txt" )
     -- Y - Right/left from aimDir
     -- Z - Up/down from aimDir
     -- All values will be multiplied by a factor of 'hitboxHeight / 72' (72 is the standard hl2 player hitbox height)
-local offsetDefault = Vector( 0, 0, 0 ) -- Base positional offset for the camera. Will be overridden by the table entries below if applicable.
+local offsetDefault = Vector( 5, 0, 0 ) -- Base positional offset for the camera. Will be overridden by the table entries below if applicable.
 local offsetsFromModel = { -- Automatially adds a camera offset if your model matches a specific path
 }
 local offsetsFromBone = { -- Automatially adds a camera offset if your model contains a particular bone (for use with url-based PACs, since model name becomes unreliable)
@@ -60,7 +60,7 @@ local thirdPersonCollisionPush = 10 -- If the camera collides, nudge it forwards
 
 -- DEBUG:
 local holo
-local debugEnabled = false
+local debugEnabled = true
 
 if debugEnabled and player() == owner() then
     holo = holograms.create( Vector( 0, 0, 0 ), Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1, 1, 1 ) * 0.1 )
@@ -191,7 +191,6 @@ local function calcview()
 
     if boneID ~= 0 and not viewBobDisabled then
         camPos = plyEnt:getAttachment( boneID )
-        camPos = camPos + aimDir * 5
     else
         if chair then
             camPos = plyEnt:getPos() + chair:getUp() * eyeOffsetYSitting * plyScale
