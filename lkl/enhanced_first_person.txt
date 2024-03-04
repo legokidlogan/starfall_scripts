@@ -15,8 +15,16 @@ require( "lkl/key_globalizer.txt" )
     -- Y - Right/left from aimDir
     -- Z - Up/down from aimDir
     -- All values will be multiplied by a factor of 'hitboxHeight / 72' (72 is the standard hl2 player hitbox height)
-local offsetDefault = Vector( 5, 0, 0 ) -- Base positional offset for the camera. Will be overridden by the table entries below if applicable.
+local offsetDefault = Vector( 4, 0, 2 ) -- Base positional offset for the camera. Will be overridden by the table entries below if applicable.
 local offsetsFromModel = { -- Automatially adds a camera offset if your model matches a specific path
+}
+local offsetsFromBodyGroup = { -- Automatially adds a camera offset if your model contains a particular bodygroup model (for use with url-based PACs, since model name becomes unreliable)
+    BodyGroupNames = {
+        ["Eouri The Avali"] = Vector( 5, 0, 2 ),
+    },
+    BodyGroupSubModels = {
+        ["Ligeia.smd"] = Vector( 2, 0, 3 ),
+    },
 }
 local offsetsFromBone = { -- Automatially adds a camera offset if your model contains a particular bone (for use with url-based PACs, since model name becomes unreliable)
     ["wristwing02right"] = Vector( -0.8, -1, 2.8 ),
@@ -138,6 +146,24 @@ local function calcOffset()
     if plyModel == model then return end
 
     local pos = offsetsFromModel[model] -- fromModel
+
+    if not pos then -- fromBodyGroup
+        local bodyGroups = plyEnt:getBodygroups()
+        local offsetsFromBodyGroupName = offsetsFromBodyGroup.BodyGroupNames
+        local offsetsFromBodyGroupSubModel = offsetsFromBodyGroup.BodyGroupSubModels
+
+        for _, bodyGroup in pairs( bodyGroups ) do
+            pos = offsetsFromBodyGroupName[bodyGroup.name]
+            if pos then break end
+
+            for _, subModel in pairs( bodyGroup.submodels ) do
+                pos = offsetsFromBodyGroupSubModel[subModel]
+                if pos then break end
+            end
+
+            if pos then break end
+        end
+    end
 
     if not pos then -- fromBone
         for i = 1, offsetsFromBoneCount do
