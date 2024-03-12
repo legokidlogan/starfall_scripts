@@ -32,6 +32,7 @@ local offsetsFromBone = { -- Automatially adds a camera offset if your model con
 local offsetAdd = Vector( 0, 0, 0 ) -- Adds a view offset on top of the default/fromModel/fromBone
 local controlKey = KEY_RCONTROL
 local controlFontSize = 20
+local deactivateWhenULXRagdolled = true -- If you are ulx ragdolled, EFP will temporarily turn off to avoid breaking your camera.
 
 -- Anti-viewbob settings:
 -- Anticipate jankiness when holding tools, etc.
@@ -122,6 +123,7 @@ local plyScale = plyEnt:obbSize().z / 72
 local plyModel
 local controlFont = render.createFont( "Roboto Mono", controlFontSize, 500, true, false, false, true, false, false )
 local controlTextColor = Color( 255, 255, 255, 255 )
+local plyRagdoll = nil
 
 local camTbl = {
     drawviewer = true,
@@ -202,6 +204,7 @@ end
 local function calcview()
     if not permissionSatisfied then return end
     if curState == STATE_OFF then return end
+    if plyRagdoll and deactivateWhenULXRagdolled then return end
     if ramUsed() >= ramLimit then return end -- Avoid issues when lua memory gets too full
 
     local camAng = plyEnt:getEyeAngles()
@@ -425,6 +428,30 @@ hook.add( "drawhud", "LKL_EFP_DrawHUD", function()
         render.drawSimpleText( scrW * 0.5, scrH * 0.5 + controlTextOffsetY + controlFontSize * 4, "Collisions: Disabled", 1, 3 )
     end
 end )
+
+
+if deactivateWhenULXRagdolled then
+    hook.add( "OnEntityCreated", "test", function( ent )
+        if not isValid( ent ) then return end
+        if ent:getClass() ~= "prop_ragdoll" then return end
+
+        timer.simple( 0.1, function()
+            if not isValid( ent ) then return end
+            if isValid( ent:getOwner() ) then return end
+            if player():getParent() ~= ent then return end
+            --if ent:getModel() ~= player():getModel() then return end
+
+            plyRagdoll = ent
+        end )
+    end )
+
+    hook.add( "EntityRemoved", "test", function( ent )
+        if ent == plyRagdoll then
+            plyRagdoll = nil
+        end
+    end )
+end
+
 
 
 timer.create( "LKL_EFP_GetBoneID", 1, 0, function()
