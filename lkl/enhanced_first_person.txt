@@ -431,7 +431,7 @@ end )
 
 
 if deactivateWhenULXRagdolled then
-    hook.add( "OnEntityCreated", "test", function( ent )
+    hook.add( "OnEntityCreated", "DetectULXRagdoll", function( ent )
         if not isValid( ent ) then return end
         if ent:getClass() ~= "prop_ragdoll" then return end
 
@@ -445,7 +445,7 @@ if deactivateWhenULXRagdolled then
         end )
     end )
 
-    hook.add( "EntityRemoved", "test", function( ent )
+    hook.add( "EntityRemoved", "DetectULXRagdollDeletion", function( ent )
         if ent == plyRagdoll then
             plyRagdoll = nil
         end
