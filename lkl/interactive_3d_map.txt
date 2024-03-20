@@ -343,6 +343,12 @@ hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
     timer.remove( "LKL_I3DMap_ShowProgress" )
     setName( "Interactive 3D Map" )
 
+    for _, holo in ipairs( playerHolos ) do
+        if isValid( holo ) then
+            holo:setNoDraw( false )
+        end
+    end
+
     -- Spawn map holos
     timer.create( "LKL_I3DMap_SpawnMapHolos", 0.5, 0, function()
         local mapPos, mapAng = localToWorld( holoMapOffsetPos, holoMapOffsetAng, chip():getPos(), chip():getAngles() )
@@ -382,6 +388,10 @@ net.receive( "LKL_I3DMap_SetPlayerHolos", function()
         if isValid( holo ) and isValid( ply ) then
             pcall( function()
                 holo = holo:toHologram()
+
+                if not meshesReady then
+                    holo:setNoDraw( true )
+                end
             end )
 
             playerHolos[i] = holo
