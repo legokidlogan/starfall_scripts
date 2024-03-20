@@ -332,6 +332,11 @@ local playerHoloPlys = {}
 local playerHoloLookup = {}
 
 
+function libI3DMap.getPlayerHolos()
+    return playerHolos
+end
+
+
 hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
     meshesReady = true
 
@@ -446,6 +451,15 @@ if holoMapShowPlayerNames then
     local screenAnim = ScreenHoloAnimation:new( false, Vector(), Angle() )
     screenAnim:setScreenHoloVisible( true )
     screenAnim:setScreenHoloMaterials( { rtMatPlayerNamesName } )
+
+
+    function libI3DMap.getPlayerNameAnim()
+        return screenAnim
+    end
+
+    function libI3DMap.getPlayerNameHolo()
+        return screenAnim:getGroupedHolo( "ScreenHolo", 1 )
+    end
 
 
     local function setAimedPlayer( ply )
