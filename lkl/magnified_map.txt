@@ -1,0 +1,265 @@
+--@name Magnified Map
+--@author
+--@shared
+--@ owneronly
+--@include lkl/interactive_3d_map.txt
+
+--[[
+    - A version of the Interactive 3D Map that gives players a magnifying glass to see into the actual world, props and all.
+    - Spawn a prop and wire it up to MagButton. Then, players can press E on it to toggle the magnifying glass.
+    - Hold left click while holding the magnifying glass to focus it.
+    - Note that this will not let you see entities outside of your current PVS.
+--]]
+
+-- CONFIG
+local magModelScale = 1
+local magModelColor = Color( 80, 80, 80, 255 )
+local magModelMaterial = "models/debug/debugwhite"
+local magButtonRange = 300
+local magFocusedDistance = 4 * magModelScale
+local magUnfocusedOffsetPos = Vector( 10, -7, -3 ) * magModelScale
+local magUnfocusedOffsetAng = Angle( 20, 15, 0 )
+local magLerp = 0.1
+-- END CONFIG
+
+
+require( "lkl/interactive_3d_map.txt" )
+
+
+if SERVER then
+    inputNames = inputNames or {}
+    inputTypes = inputTypes or {}
+
+    table.insert( inputNames, "MagButton" )
+    table.insert( inputTypes, "ENTITY" )
+
+    wire.adjustInputs( inputNames, inputTypes )
+
+
+    local function wireInput( name, value )
+        if name == "MagButton" then
+            net.start( "LKL_MagMap_SetMagButton" )
+            net.writeEntity( isValid( value ) and value or game.getWorld() )
+            net.send()
+        end
+    end
+
+
+    hook.add( "input", "LKL_MagMap_WireInput", wireInput )
+
+
+    timer.simple( 4, function()
+        wireInput( "MagButton", wire.ports.MagButton )
+    end )
+
+
+    return
+end
+
+
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+
+local rtNameMag = "lkl_i3dmap_magnifying_glass"
+render.createRenderTarget( rtNameMag )
+
+local rtMatMag = material.create( "Refract_DX90" )
+rtMatMag:setTextureRenderTarget( "$basetexture", rtNameMag )
+rtMatMag:setInt( "$flags", 2048 )
+rtMatMag:setInt( "$bluramount", 0 )
+rtMatMag:setVector( "$refracttint", Vector( 1, 1, 1 ) )
+
+local rtNameMagScratch = "lkl_i3dmap_magnifying_glass_scratch"
+render.createRenderTarget( rtNameMagScratch )
+
+local rtMatMagScratch = material.create( "UnlitGeneric" )
+rtMatMagScratch:setTextureRenderTarget( "$basetexture", rtNameMagScratch )
+rtMatMagScratch:setInt( "$flags", 0 )
+
+local magHolo = hologram.create( Vector(), Angle(), "models/hunter/tubes/circle2x2.mdl" )
+local magHoloSize = Vector( 3, 3, 0.5 ) * magModelScale
+magHolo:setSize( magHoloSize )
+magHolo:setMaterial( "!" .. rtMatMag:getName() )
+magHolo:setRenderMode( RENDERMODE.WORLDGLOW )
+magHolo:setColor( Color( 255, 255, 255, 254 ) )
+
+local scrW, scrH = render.getGameResolution()
+local meshesReady = false
+local isMagActive = false
+local isMagFocused = false
+local magLerpActive = false
+local magHoloPosPrev = nil
+local magHoloAngPrev = nil
+local magDetailHolos = {}
+local magButton = nil
+local lerpStopThresholdSqr = 0.001 ^ 2
+local magFocusedOffset = Vector( magFocusedDistance, 0, 0 )
+
+
+do
+    local magRing = hologram.create( Vector( 0, 0, -magHoloSize[3] / 2 ), Angle(), "models/hunter/tubes/tube1x1x1.mdl" )
+    table.insert( magDetailHolos, magRing )
+    magRing:setSize( magHoloSize * Vector( 1.1656, 1.1656, 1 ) )
+    magRing:setMaterial( magModelMaterial )
+    magRing:setColor( magModelColor )
+    magRing:setParent( magHolo )
+
+    local magHandle = hologram.create( Vector( -magHoloSize[1] / 2 + magHoloSize[3] * 0.5 / 5, 0, 0 ), Angle( -90, 180, 180 ), "models/hunter/tubes/tube1x1x1.mdl" )
+    table.insert( magDetailHolos, magHandle )
+    magHandle:setSize( Vector( magHoloSize[3] * 1.5, magHoloSize[3] * 1.5, magHoloSize[1] * 2 ) )
+    magHandle:setMaterial( magModelMaterial )
+    magHandle:setColor( magModelColor )
+    magHandle:setParent( magHolo )
+end
+
+
+local function setMagPosAng( pos, ang, isWorld, eyePos, eyeAng )
+    eyePos = eyePos or render.getEyePos()
+    eyeAng = eyeAng or render.getAngles()
+
+    if isWorld then
+        pos, ang = worldToLocal( pos, ang, eyePos, eyeAng )
+    end
+
+    if magLerpActive and magHoloPosPrev and pos:getDistanceSqr( magHoloPosPrev ) <= lerpStopThresholdSqr then
+        magLerpActive = false
+    end
+
+    magHoloPosPrev = pos
+    magHoloAngPrev = ang
+
+    local posWorld, angWorld = localToWorld( pos, ang, eyePos, eyeAng )
+
+    magHolo:setPos( posWorld )
+    magHolo:setAngles( angWorld )
+end
+
+-- In coords local to the eye
+local function calcIntendedMagPosAng()
+    local pos
+    local ang
+
+    if isMagFocused then
+        pos = magFocusedOffset
+        ang = ANGLE_ZERO
+    else
+        pos = magUnfocusedOffsetPos
+        ang = magUnfocusedOffsetAng
+    end
+
+    -- Account for weird model axes
+    ang = ang:rotateAroundAxis( ang:getRight(), 90 )
+
+    return pos, ang
+end
+
+
+hook.add( "LKL_MapMesh_MeshesReady", "LKL_MagMap_MeshesReady", function()
+    timer.simple( 1, function()
+        meshesReady = true
+        setName( "Magnified Map" )
+    end )
+end )
+
+hook.add( "RenderScene", "LKL_MagMap_RenderMag", function( realEyePos, realEyeAng )
+    if not meshesReady then return end
+    if not isMagActive then return end
+    if cpuTotalAverage() > cpuMax() * 0.6 then return end
+
+    local magHoloPos, magHoloAng = calcIntendedMagPosAng()
+
+    if not magHoloPosPrev then
+        magHoloPosPrev = magHoloPos
+        magHoloAngPrev = magHoloAng
+    end
+
+    magHolo:setNoDraw( true )
+
+    if magLerpActive then
+        setMagPosAng(
+            math.lerpVector( magLerp, magHoloPosPrev, magHoloPos ),
+            math.lerpAngle( magLerp, magHoloAngPrev, magHoloAng ),
+            false,
+            realEyePos,
+            realEyeAng
+        )
+    else
+        setMagPosAng( magHoloPos, magHoloAng, false, realEyePos, realEyeAng )
+    end
+
+    local viewPos, viewAng = libI3DMap.worldToMeshThroughHoloMap( realEyePos, realEyeAng )
+    viewPos = libMapMesh.meshPosToWorldPos( viewPos )
+
+    render.selectRenderTarget( rtNameMagScratch )
+
+    render.setColor( COLOR_WHITE )
+    render.renderView( {
+        origin = viewPos,
+        angles = viewAng,
+        aspectratio = scrW / scrH,
+        x = 0,
+        y = 0,
+        w = scrW,
+        h = scrH,
+        drawviewmodel = false,
+        drawviewer = true,
+    } )
+
+    render.selectRenderTarget()
+
+    magHolo:setNoDraw( false )
+
+    render.selectRenderTarget( rtNameMag )
+    render.setMaterial( rtMatMagScratch )
+    render.drawTexturedRect( 0, 0, 1024, 1024 )
+    render.selectRenderTarget()
+end )
+
+hook.add( "KeyPress", "LKL_MagMap_PressMagButton", function( ply, key )
+    if not isFirstTimePredicted() then return end
+    if not isValid( magButton ) then return end
+    if key ~= IN_KEY.USE then return end
+
+    local tr = ply:getEyeTrace()
+    if tr.Entity ~= magButton then return end
+    if tr.HitPos:getDistance( tr.StartPos ) > magButtonRange then return end
+
+    isMagActive = not isMagActive
+    magLerpActive = true
+
+    if isMagActive then
+        setMagPosAng( tr.HitPos, tr.HitNormal:getAngle(), true )
+    end
+
+    for _, holo in ipairs( magDetailHolos ) do
+        holo:setNoDraw( not isMagActive )
+    end
+
+    magHolo:setNoDraw( not isMagActive )
+end )
+
+hook.add( "KeyPress", "LKL_MagMap_FocusMag", function( _, key )
+    if not isFirstTimePredicted() then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    isMagFocused = true
+    magLerpActive = true
+end )
+
+hook.add( "KeyRelease", "LKL_MagMap_UnfocusMag", function( _, key )
+    if not isFirstTimePredicted() then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    isMagFocused = false
+    magLerpActive = true
+end )
+
+
+net.receive( "LKL_MagMap_SetMagButton", function()
+    magButton = net.readEntity()
+
+    if magButton == game.getWorld() then
+        magButton = nil
+        isMagActive = false
+    end
+end )
