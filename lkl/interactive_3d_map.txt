@@ -7,6 +7,8 @@
 --@include lkl/anims/screen_holo_animation.txt
 --@include lkl/render/screen_mat.txt
 --@include lkl/jiggle_fixer.txt
+--@include lkl/prop_to_holo_direct.txt
+--@include lkl/prop_to_holo_spawner.txt
 
 libMapMesh = libMapMesh or {}
 
@@ -36,6 +38,8 @@ libI3DMap.PLAYER_NAME_FONT_SIZE = libI3DMap.PLAYER_NAME_FONT_SIZE or 30
 if libI3DMap.DO_PINGS == nil then libI3DMap.DO_PINGS = true end
 libI3DMap.PING_SIZE = libI3DMap.PING_SIZE or Vector( 2, 2, 0.5 )
 libI3DMap.PING_LINGER = libI3DMap.PING_LINGER or 3
+
+libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL = libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL or 1
 -- END CONFIG DEFAULTS
 
 
@@ -52,6 +56,8 @@ local holoMapPlayerNameFontSize = libI3DMap.PLAYER_NAME_FONT_SIZE
 
 local holoMapPingSize = libI3DMap.PING_SIZE:clone()
 local holoMapPingLinger = libI3DMap.PING_LINGER
+
+local holoMapReplicatedEntUpdateInterval = libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL
 
 local TRACE_LENGTH = 50000
 local TRACE_COLLISION_GROUP = COLLISION_GROUP.DEBRIS
@@ -132,11 +138,28 @@ end )
 
 
 if SERVER then
+    require( "lkl/prop_to_holo_direct.txt" )
+    require( "lkl/prop_to_holo_spawner.txt" )
+
+
     local playerHolos = {}
     local playerHoloPlys = {}
     local playerPingHolos = {}
     local validModelLookup = {}
     local modelToIdleAnimLookup = {}
+    local replicatedEnts = {}
+    local replicatedEntHolos = nil
+    local replicatedEntLastGroupID = nil
+
+    inputNames = inputNames or {}
+    inputTypes = inputTypes or {}
+
+    table.insert( inputNames, "ReplicatedEnts" )
+    table.insert( inputTypes, "ARRAY" )
+
+    timer.simple( 0, function()
+        wire.adjustInputs( inputNames, inputTypes )
+    end )
 
     do
         for _, model in pairs( game.getPlayerModels() ) do
@@ -216,6 +239,55 @@ if SERVER then
         end )
     end
 
+    local function wireInput( name, value )
+        if name == "ReplicatedEnts" then
+            if not mapDataReady then return end
+
+            if replicatedEntLastGroupID then
+                pthSpawner.cancel( replicatedEntLastGroupID )
+                replicatedEntLastGroupID = nil
+            end
+
+            for _, holo in ipairs( replicatedEntHolos or {} ) do
+                if isValid( holo ) then
+                    holo:remove()
+                end
+            end
+
+            replicatedEnts = value or {}
+            replicatedEntHolos = nil
+
+            if table.isEmpty( replicatedEnts ) then return end
+
+            for i = #replicatedEnts, 1, -1 do
+                local ent = replicatedEnts[i]
+
+                if isValid( ent ) then
+                    ent._i3dmap_ReplicatedEntLastPos = ent:getPos() + Vector( 1, 0, 0 )
+                    ent._i3dmap_ReplicatedEntLastAng = ent:getAngles() + Angle( 1, 0, 0 )
+                else
+                    table.remove( replicatedEnts, i )
+                end
+            end
+
+            local meshMapPos, meshMapAng = libI3DMap.meshToHoloMap( Vector(), Angle() )
+
+            replicatedEntLastGroupID = pthSpawner.spawn(
+                meshMapPos,
+                meshMapAng,
+                pthDirect.getHoloDataStr( replicatedEnts, nil, nil, 3 ),
+                function( holos )
+                    replicatedEntHolos = holos
+
+                    for _, holo in ipairs( holos ) do
+                        holo:setParent( chip() )
+                    end
+                end,
+                Vector( libMapMesh.getMeshScale() )
+            )
+        end
+    end
+
 
     hook.add( "KeyPress", "LKL_I3DMap_KeyPress", function( ply, key )
         if not mapDataReady then return end
@@ -223,6 +295,14 @@ if SERVER then
         if key == IN_KEY.USE then
             doHoloMapPing( ply )
         end
+    end )
+
+    hook.add( "input", "LKL_I3DMap_WireInput", wireInput )
+
+    hook.add( "LKL_MapMesh_AddExtraData", "LKL_I3DMap_AddReplicatedEnts", function()
+        timer.simple( 2, function()
+            wireInput( "ReplicatedEnts", wire.ports.ReplicatedEnts )
+        end )
     end )
 
 
@@ -315,6 +395,42 @@ if SERVER then
 
             holo:setPos( pos )
             holo:setAngles( ang )
+        end
+    end )
+
+    timer.create( "LKL_I3DMap_UpdateReplicatedEnts", holoMapReplicatedEntUpdateInterval, 0, function()
+        if not mapDataReady then return end
+        if not replicatedEntHolos then return end
+        if cpuTotalAverage() > cpuMax() * 0.5 then return end
+
+        for i = #replicatedEnts, 1, -1 do
+            local ent = replicatedEnts[i]
+
+            if isValid( ent ) then
+                local lastPos = ent._i3dmap_ReplicatedEntLastPos
+                local lastAng = ent._i3dmap_ReplicatedEntLastAng
+                local pos = ent:getPos()
+                local ang = ent:getAngles()
+
+                if lastPos ~= pos or lastAng ~= ang then
+                    local holo = replicatedEntHolos[i]
+
+                    local meshPos = libMapMesh.worldPosToMeshPos( pos )
+                    local worldPos, worldAng = libI3DMap.meshToHoloMap( meshPos, ent:getAngles() )
+
+                    holo:setPos( worldPos )
+                    holo:setAngles( worldAng )
+
+                    ent._i3dmap_ReplicatedEntLastPos = pos
+                    ent._i3dmap_ReplicatedEntLastAng = ang
+                end
+            else
+                local holo = replicatedEntHolos[i]
+
+                table.remove( replicatedEnts, i )
+                table.remove( replicatedEntHolos, i )
+                holo:remove()
+            end
         end
     end )
 

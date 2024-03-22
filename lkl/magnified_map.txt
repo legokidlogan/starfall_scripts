@@ -38,8 +38,6 @@ if SERVER then
     table.insert( inputNames, "MagButton" )
     table.insert( inputTypes, "ENTITY" )
 
-    wire.adjustInputs( inputNames, inputTypes )
-
 
     local function wireInput( name, value )
         if name == "MagButton" then
