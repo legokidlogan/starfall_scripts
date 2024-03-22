@@ -95,6 +95,8 @@ local magButton = nil
 local lerpStopThresholdSqr = 0.001 ^ 2
 local magFocusedOffset = Vector( magFocusedDistance, 0, 0 )
 local lastMagLerpTime = nil
+local mapHoloBase = nil
+local magMaxRangeSqr = nil
 
 
 do
@@ -135,6 +137,18 @@ local function setMagPosAng( pos, ang, isWorld, eyePos, eyeAng )
     magHolo:setAngles( angWorld )
 end
 
+local function setMagActive( state )
+    isMagActive = state
+    magLerpActive = true
+    lastMagLerpTime = timer.systime()
+
+    for _, holo in ipairs( magDetailHolos ) do
+        holo:setNoDraw( not isMagActive )
+    end
+
+    magHolo:setNoDraw( not isMagActive )
+end
+
 -- In coords local to the eye
 local function calcIntendedMagPosAng()
     local pos
@@ -154,6 +168,19 @@ local function calcIntendedMagPosAng()
     return pos, ang
 end
 
+local function isTooFarFromMap( realEyePos )
+    if not mapHoloBase then
+        mapHoloBase = libI3DMap.getMapHoloBase()
+        if not mapHoloBase then return false end
+
+        magMaxRangeSqr = ( libMapMesh.MESH_WIDTH * 4 ) ^ 2
+    end
+
+    local mapPos = mapHoloBase:getPos()
+
+    return realEyePos:getDistanceSqr( mapPos ) > magMaxRangeSqr
+end
+
 
 hook.add( "LKL_MapMesh_MeshesReady", "LKL_MagMap_MeshesReady", function()
     timer.simple( 1, function()
@@ -166,6 +193,12 @@ hook.add( "RenderScene", "LKL_MagMap_RenderMag", function( realEyePos, realEyeAn
     if not meshesReady then return end
     if not isMagActive then return end
     if cpuTotalAverage() > cpuMax() * 0.6 then return end
+
+    if isTooFarFromMap( realEyePos ) then
+        setMagActive( false )
+
+        return
+    end
 
     local magHoloPos, magHoloAng = calcIntendedMagPosAng()
     local now = timer.systime()
@@ -236,19 +269,11 @@ hook.add( "KeyPress", "LKL_MagMap_PressMagButton", function( ply, key )
     if tr.Entity ~= magButton then return end
     if tr.HitPos:getDistance( tr.StartPos ) > magButtonRange then return end
 
-    isMagActive = not isMagActive
-    magLerpActive = true
+    setMagActive( not isMagActive )
 
     if isMagActive then
         setMagPosAng( tr.HitPos, tr.HitNormal:getAngle(), true )
-        lastMagLerpTime = timer.systime()
     end
-
-    for _, holo in ipairs( magDetailHolos ) do
-        holo:setNoDraw( not isMagActive )
-    end
-
-    magHolo:setNoDraw( not isMagActive )
 end )
 
 hook.add( "KeyPress", "LKL_MagMap_FocusMag", function( _, key )
