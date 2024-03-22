@@ -1,0 +1,357 @@
+--@name Jiggle Fixer
+--@author legokidlogan
+--@shared
+
+--[[
+    - Auto-fixes jiggle bones on rescaled holograms.
+--]]
+
+
+jiggleFixer = jiggleFixer or {}
+
+if jiggleFixer._alreadyLoaded then return end
+jiggleFixer._alreadyLoaded = true
+
+
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local VECTOR_ONE = Vector( 1, 1, 1 )
+
+local modelDatas = {}
+local modelDataActiveRequests = {}
+local modelDataCallbacks = {}
+local refScale = Vector( 0.25 )
+local timerIncr = 0
+
+local applyScale
+local calcModelData
+local getBoneLocalPos
+
+
+----- GLOBAL FUNCTIONS -----
+
+function jiggleFixer.createHolo( pos, ang, model, scale )
+    local holo = hologram.create( pos, ang, model )
+
+    applyScale( holo, scale )
+
+    return holo
+end
+
+function jiggleFixer.setHoloScale( holo, scale )
+    if holo:getScale() == scale then return end
+
+    applyScale( holo, scale )
+end
+
+function jiggleFixer.setHoloSize( holo, size )
+    jiggleFixer.setHoloScale( holo, size / holo:obbSize() )
+end
+
+function jiggleFixer.setHoloModel( holo, model )
+    if holo:getModel() == model then return end
+
+    local scale = holo:getScale()
+
+    if scale == VECTOR_ONE then
+        holo:setModel( model )
+
+        return
+    end
+
+    applyScale( holo, VECTOR_ONE )
+    holo:setModel( model )
+    applyScale( holo, scale )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+applyScale = function( holo, scale )
+    local model = holo:getModel()
+    local modelData = modelDatas[model]
+
+    holo:setScale( scale )
+
+    if not modelData then
+        if SERVER then
+            calcModelData( holo )
+
+            return
+        else
+            calcModelData( holo, function()
+                if not isValid( holo ) then return end
+
+                applyScale( holo, holo:getScale() )
+            end )
+
+            return
+        end
+    end
+
+    if not modelData.HasJiggles then return end
+
+    if SERVER then
+        net.start( "LKL_JiggleFixer_SetHoloScale" )
+        net.writeEntity( holo )
+        net.writeVector( scale )
+        net.send()
+
+        return
+    end
+
+    local jiggleRootIDs = modelData.JiggleRootIDs
+    local jiggleBoneIDs = modelData.JiggleBoneIDs
+    local jiggleBonePoss = modelData.JiggleBonePoss
+
+    for _, id in ipairs( jiggleRootIDs ) do
+        holo:manipulateBoneScale( id, scale )
+    end
+
+    for i, id in ipairs( jiggleBoneIDs ) do
+        local pos = jiggleBonePoss[i] * ( scale - VECTOR_ONE )
+
+        holo:manipulateBoneScale( id, scale )
+        holo:manipulateBonePosition( id, pos )
+    end
+end
+
+calcModelData = function( holo, clCallback )
+    local model = holo:getModel()
+
+    if SERVER then
+        local requestHolos = modelDataActiveRequests[model]
+
+        if requestHolos then
+            requestHolos[holo] = true
+
+            return
+        end
+
+        modelDataActiveRequests[model] = { [holo] = true }
+
+        -- Handle request timeouts (e.g. owner instance isn't ready yet)
+        timer.simple( 1, function()
+            local oldRequestHolos = modelDataActiveRequests[model]
+            modelDataActiveRequests[model] = nil
+
+            for requestHolo in pairs( oldRequestHolos or {} ) do
+                if isValid( requestHolo ) and not modelDatas[requestHolo:getModel()] then
+                    calcModelData( requestHolo )
+                end
+            end
+        end )
+
+        net.start( "LKL_JiggleFixer_CalcModelData" )
+        net.writeEntity( holo )
+        net.send( owner() )
+
+        return
+    end
+
+    local modelData = modelDatas[model]
+
+    if modelData then
+        if clCallback then clCallback( modelData ) end
+
+        return
+    end
+
+    if clCallback then
+        local callbacks = modelDataCallbacks[model]
+
+        if not callbacks then
+            modelDataCallbacks[model] = { clCallback }
+        else
+            table.insert( callbacks, clCallback )
+        end
+    end
+
+    if timer.exists( "LKL_JiggleFixer_CalcModelData_" .. model ) then return end
+
+    local jiggleRootIDs = {}
+    local jiggleBoneIDs = {}
+    local jiggleBonePoss = {}
+    local jiggleBoneLookup = {}
+
+    local localPoss = {}
+    local refHolo = hologram.create( Vector(), Angle(), model )
+    refHolo:setColor( Color( 0, 0, 0, 1 ) )
+
+    for i = 0, refHolo:getBoneCount() - 1 do
+        localPoss[i] = getBoneLocalPos( refHolo, i )
+    end
+
+    refHolo:setScale( refScale )
+
+    hook.add( "renderoffscreen", "LKL_JiggleFixer_SetupBones_" .. model, function()
+        refHolo:draw() -- Force :SetupBones() to be called
+    end )
+
+    -- Needs a short delay for the bones to set up properly on the scaled holo
+    timer.create( "LKL_JiggleFixer_CalcModelData_" .. model, 0.1, 1, function()
+        hook.remove( "renderoffscreen", "LKL_JiggleFixer_SetupBones_" .. model )
+
+        for i = 0, refHolo:getBoneCount() - 1 do
+            local localPos = localPoss[i]
+            local localScaledPos = getBoneLocalPos( refHolo, i )
+
+            if localPos:getLengthSqr() > 0.01 and localScaledPos:getDistanceSqr( localPos ) < 0.01 then
+                table.insert( jiggleBoneIDs, i )
+                table.insert( jiggleBonePoss, localPos )
+                jiggleBoneLookup[i] = true
+            end
+        end
+
+        for _, boneID in ipairs( jiggleBoneIDs ) do
+            local parentID = refHolo:getBoneParent( boneID )
+
+            if parentID ~= -1 and not jiggleBoneLookup[parentID] then
+                table.insert( jiggleRootIDs, parentID )
+            end
+        end
+
+        refHolo:remove()
+
+        modelData = {
+            HasJiggles = #jiggleBoneIDs > 0,
+            JiggleRootIDs = jiggleRootIDs,
+            JiggleBoneIDs = jiggleBoneIDs,
+            JiggleBonePoss = jiggleBonePoss,
+        }
+
+        modelDatas[model] = modelData
+
+        local callbacks = modelDataCallbacks[model] or {}
+        local cbInd = 0
+
+        modelDataCallbacks[model] = nil
+        timerIncr = timerIncr + 1
+
+        -- Avoid CPU exceed for people with genuinely god awful computers
+        timer.create( "LKL_JiggleFixer_CalcModelData_Callbacks_" .. timerIncr, 0.1, #callbacks, function()
+            cbInd = cbInd + 1
+            callbacks[cbInd]( modelData )
+        end )
+    end )
+end
+
+getBoneLocalPos = function( holo, boneID )
+    local parentID = holo:getBoneParent( boneID )
+    if parentID == -1 then return VECTOR_ZERO end
+
+    local boneMatrix = holo:getBoneMatrix( boneID )
+    local bonePos = boneMatrix:getTranslation()
+    local boneAng = boneMatrix:getAngles()
+    local parentMatrix = holo:getBoneMatrix( parentID )
+    local parentPos = parentMatrix:getTranslation()
+    local parentAng = parentMatrix:getAngles()
+
+    return worldToLocal( bonePos, boneAng, parentPos, parentAng )
+end
+
+
+----- SETUP -----
+
+
+if SERVER then
+    net.receive( "LKL_JiggleFixer_CalcModelData", function()
+        local model = net.readString()
+        local hasJiggles = net.readBool()
+        local jiggleRootIDs = {}
+        local jiggleBoneIDs = {}
+        local jiggleBonePoss = {}
+
+        local modelData = {
+            HasJiggles = hasJiggles,
+            JiggleRootIDs = jiggleRootIDs,
+            JiggleBoneIDs = jiggleBoneIDs,
+            JiggleBonePoss = jiggleBonePoss,
+        }
+
+        modelDatas[model] = modelData
+
+        if hasJiggles then
+            local jiggleRootCount = net.readUInt( 8 )
+
+            for i = 1, jiggleRootCount do
+                jiggleRootIDs[i] = net.readUInt( 8 )
+            end
+
+            local jiggleBoneCount = net.readUInt( 8 )
+
+            for i = 1, jiggleBoneCount do
+                jiggleBoneIDs[i] = net.readUInt( 8 )
+                jiggleBonePoss[i] = net.readVector()
+            end
+        end
+
+        local requestHolos = modelDataActiveRequests[model]
+        modelDataActiveRequests[model] = nil
+
+        for requestHolo in pairs( requestHolos or {} ) do
+            if isValid( requestHolo ) then
+                applyScale( requestHolo, requestHolo:getScale() )
+            end
+        end
+    end )
+else
+    net.receive( "LKL_JiggleFixer_CalcModelData", function()
+        local holo = net.readEntity()
+        if not isValid( holo ) then return end
+
+        local success = pcall( function()
+            holo = holo:toHologram()
+        end )
+
+        if not success then return end
+
+        local model = holo:getModel()
+
+        calcModelData( holo, function( modelData )
+            local hasJiggles = modelData.HasJiggles
+
+            net.start( "LKL_JiggleFixer_CalcModelData" )
+            net.writeString( model )
+            net.writeBool( hasJiggles )
+
+            if not hasJiggles then
+                net.send()
+
+                return
+            end
+
+            local jiggleRootIDs = modelData.JiggleRootIDs
+            local jiggleBoneIDs = modelData.JiggleBoneIDs
+            local jiggleBonePoss = modelData.JiggleBonePoss
+
+            net.writeUInt( #jiggleRootIDs, 8 )
+
+            for _, id in ipairs( jiggleRootIDs ) do
+                net.writeUInt( id, 8 )
+            end
+
+            net.writeUInt( #jiggleBoneIDs, 8 )
+
+            for i, id in ipairs( jiggleBoneIDs ) do
+                net.writeUInt( id, 8 )
+                net.writeVector( jiggleBonePoss[i] )
+            end
+
+            net.send()
+        end )
+    end )
+
+    net.receive( "LKL_JiggleFixer_SetHoloScale", function()
+        local holo = net.readEntity()
+        local scale = net.readVector()
+        if not isValid( holo ) then return end
+
+        local success = pcall( function()
+            holo = holo:toHologram()
+        end )
+
+        if not success then return end
+
+        applyScale( holo, scale )
+    end )
+end
