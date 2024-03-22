@@ -6,6 +6,7 @@
 --@include lkl/math/holo_trace.txt
 --@include lkl/anims/screen_holo_animation.txt
 --@include lkl/render/screen_mat.txt
+--@include lkl/jiggle_fixer.txt
 
 libMapMesh = libMapMesh or {}
 
@@ -15,6 +16,7 @@ if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = true end
 -- END DEFAULT OVERRIDES
 
 require( "lkl/map_mesh.txt" )
+require( "lkl/jiggle_fixer.txt" )
 
 
 libI3DMap = libI3DMap or {}
@@ -243,13 +245,14 @@ if SERVER then
 
                     local holo
                     local _ = pcall( function()
-                        holo = hologram.create( Vector(), Angle(), getSafeModel( ply:getModel() ), Vector( libMapMesh.getMeshScale() * holoMapPlayerScale ) )
+                        holo = hologram.create( Vector(), Angle(), getSafeModel( ply:getModel() ) )
                     end )
 
                     if not holo then return end
 
                     holo:setPlayerColor( ply:getPlayerColor() )
                     holo:setAnimation( getIdleAnim( ply ) )
+                    jiggleFixer.setHoloScale( holo, Vector( libMapMesh.getMeshScale() * holoMapPlayerScale ) )
 
                     playerHolos[i] = holo
                     playerHoloPlys[i] = ply
@@ -283,7 +286,7 @@ if SERVER then
             local holo = playerHolos[i]
 
             if playerHoloPlys[i] ~= ply then
-                holo:setModel( getSafeModel( ply:getModel() ) )
+                jiggleFixer.setHoloModel( holo, getSafeModel( ply:getModel() ) )
                 holo:setPlayerColor( ply:getPlayerColor() )
                 holo:setAnimation( getIdleAnim( ply ) )
 
@@ -296,7 +299,7 @@ if SERVER then
             elseif ply:getModel() ~= holo:getModel() then
                 -- Update the model in case the player changed it.
                 pcall( function() -- Starfall throws an error if we use a model from an unmounted game. Funnily enough, the client still receives the update anyway.
-                    holo:setModel( ply:getModel() )
+                    jiggleFixer.setHoloModel( holo, getSafeModel( ply:getModel() ) )
                     holo:setAnimation( getIdleAnim( ply ) )
                 end )
             end
