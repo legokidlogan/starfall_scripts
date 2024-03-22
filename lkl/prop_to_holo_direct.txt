@@ -1,0 +1,97 @@
+--@name Prop to Holo
+--@author legokidlogan
+--@shared
+--@include lkl/submaterial.txt
+
+pthDirect = pthDirect or {}
+
+if pthDirect._alreadyLoaded then return end
+pthDirect._alreadyLoaded = true
+
+require( "lkl/submaterial.txt" )
+
+
+local COLOR_DEFAULT = Color( 255, 255, 255, 255 )
+local RENDER_MODE_DEFAULT = 0
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+
+local vectorGetRounded
+local getHoloData
+local getHoloDatas
+
+
+----- GLOBAL FUNCTIONS -----
+
+function pthDirect.getHoloData( props, originPos, originAng, clipRounding )
+    return getHoloDatas( props, originPos, originAng, clipRounding )
+end
+
+function pthDirect.getHoloDataStr( props, originPos, originAng, clipRounding )
+    return json.encode( getHoloDatas( props, originPos, originAng, clipRounding ) )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+vectorGetRounded = function( vec, idp )
+    if not idp then return vec end
+
+    vec = vec:clone()
+    vec:round( idp )
+
+    return vec
+end
+
+getHoloData = function( prop, originPos, originAng, clipRounding )
+    local color = prop._pth_OriginalColor or prop:getColor()
+    color = color ~= COLOR_DEFAULT and color or nil -- Assume color is COLOR_DEFAULT if it's not set.
+
+    local renderMode = prop:getRenderMode()
+    renderMode = renderMode ~= RENDER_MODE_DEFAULT and renderMode or nil -- Assume renderMode is 0 if it's not set.
+
+    local clips = {}
+    local entClips = prop:getClipping()
+
+    for i, clip in ipairs( entClips ) do
+        clips[i] = {
+            Origin = vectorGetRounded( clip.origin, clipRounding ),
+            Normal = vectorGetRounded( clip.normal, clipRounding ),
+        }
+    end
+
+    local pos = prop:getPos()
+    local ang = prop:getAngles()
+
+    if not originAng or originAng == ANGLE_ZERO then
+        if originPos then
+            pos = pos - originPos
+        end
+    else
+        pos, ang = worldToLocal( pos, ang, originPos or VECTOR_ZERO, originAng )
+    end
+
+    return {
+        Model = prop:getModel(),
+        Pos = pos,
+        Ang = ang,
+        Material = prop:getMaterial(),
+        SubMaterials = submaterial.getSubMaterials( prop ),
+        Color = color,
+        RenderMode = renderMode,
+        Skin = prop:getSkin(),
+        Clips = #clips > 0 and clips or nil, -- Note that clips in PtH will always be made relative to the hologram they're on.
+        --Scale = nil, -- Scale can't be set on props, and currently we can't get the scale from E2/SF holos from a different serverside chip from the creating one.
+        Fullbright = false,
+    }
+end
+
+getHoloDatas = function( props, originPos, originAng, clipRounding )
+    local holoDatas = {}
+
+    for i, prop in ipairs( props ) do
+        holoDatas[i] = getHoloData( prop, originPos, originAng, clipRounding )
+    end
+
+    return holoDatas
+end

@@ -2,7 +2,7 @@
 --@author legokidlogan
 --@shared
 --@include lkl/simple_file_handler.txt
---@include lkl/submaterial.txt
+--@include lkl/prop_to_holo_direct.txt
 
 if CLIENT and player() ~= owner() then return end
 
@@ -38,11 +38,8 @@ if CLIENT then
 
     -- TODO
 else
-    require( "lkl/submaterial.txt" )
+    require( "lkl/prop_to_holo_direct.txt" )
 
-
-    local COLOR_DEFAULT = Color( 255, 255, 255, 255 )
-    local RENDER_MODE_DEFAULT = 0
 
     local props = {}
     local propLookup = {}
@@ -63,15 +60,6 @@ else
     wire.adjustInputs( inputNames, inputTypes )
 
 
-    local function vectorGetRounded( vec, idp )
-        if not idp then return vec end
-
-        vec = vec:clone()
-        vec:round( idp )
-
-        return vec
-    end
-
     local function selectProp( prop )
         if not isValid( prop ) then return end
         if propLookup[prop] then return end
@@ -79,7 +67,7 @@ else
         propLookup[prop] = true
         table.insert( props, prop )
 
-        prop._color = prop:getColor()
+        prop._pth_OriginalColor = prop:getColor()
         prop:setColor( selectionColor )
     end
 
@@ -90,52 +78,18 @@ else
         propLookup[prop] = nil
         table.removeByValue( props, prop )
 
-        prop:setColor( prop._color )
-        prop._color = nil
+        prop:setColor( prop._pth_OriginalColor )
+        prop._pth_OriginalColor = nil
     end
 
-    local function getHoloData( prop )
-        if prop then
-            local origin = chip():getPos()
-
-            local color = prop._color or prop:getColor()
-            color = color ~= COLOR_DEFAULT and color or nil -- Assume color is COLOR_DEFAULT if it's not set.
-
-            local renderMode = prop:getRenderMode()
-            renderMode = renderMode ~= RENDER_MODE_DEFAULT and renderMode or nil -- Assume renderMode is 0 if it's not set.
-
-            local clips = {}
-            local entClips = prop:getClipping()
-
-            for i, clip in ipairs( entClips ) do
-                clips[i] = {
-                    Origin = vectorGetRounded( clip.origin, clipRounding ),
-                    Normal = vectorGetRounded( clip.normal, clipRounding ),
-                }
-            end
-
-            return {
-                Model = prop:getModel(),
-                Pos = prop:getPos() - origin,
-                Ang = prop:getAngles(),
-                Material = prop:getMaterial(),
-                SubMaterials = submaterial.getSubMaterials( prop ),
-                Color = color,
-                RenderMode = renderMode,
-                Skin = prop:getSkin(),
-                Clips = #clips > 0 and clips or nil, -- Note that clips in PtH will always be made relative to the hologram they're on.
-                --Scale = nil, -- Scale can't be set on props, and currently we can't get the scale from E2/SF holos from a different serverside chip from the creating one.
-                Fullbright = false,
-            }
-        end
-
-        local data = {}
+    local function getHoloDataFull()
+        local combinedProps = {}
         local count = 0
 
         for _, ent in ipairs( props ) do
             if isValid( ent ) then
                 count = count + 1
-                data[count] = getHoloData( ent )
+                combinedProps[count] = ent
             end
         end
 
@@ -143,12 +97,12 @@ else
             for _, ent in ipairs( extraEntList ) do
                 if isValid( ent ) then
                     count = count + 1
-                    data[count] = getHoloData( ent )
+                    combinedEnts[count] = ent
                 end
             end
         end
 
-        return data
+        return pthDirect.getHoloData( combinedProps, chip():getPos(), nil, clipRounding )
     end
 
     local function save( fileName )
@@ -165,7 +119,7 @@ else
 
         fileHandler.save(
             fileName,
-            getHoloData(),
+            getHoloDataFull(),
             function()
                 isSaving = false
                 print( "File saved to .../data/sf_filedata/" .. sfhBaseFolder .. "/" .. fileName )
@@ -202,8 +156,8 @@ else
     hook.add( "Removed", "LKL_PtH_RevertColors", function()
         for _, prop in ipairs( props ) do
             if isValid( prop ) then
-                prop:setColor( prop._color )
-                prop._color = nil
+                prop:setColor( prop._pth_OriginalColor )
+                prop._pth_OriginalColor = nil
             end
         end
     end )
@@ -255,6 +209,3 @@ else
         end
     end )
 end
-
-
-
