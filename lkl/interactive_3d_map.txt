@@ -148,7 +148,11 @@ if SERVER then
     local function isModelValid( model )
         if validModelLookup[model] then return true end
 
-        if string.startWith( model, "models/pac3_cache/" ) then
+        local goodStart =
+            string.startWith( model, "models/pac3_cache/" ) or
+            string.startWith( model, "models/player/" )
+
+        if goodStart then
             validModelLookup[model] = true
 
             return true
