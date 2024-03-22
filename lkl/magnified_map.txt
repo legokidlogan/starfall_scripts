@@ -20,6 +20,8 @@ local magFocusedDistance = 4 * magModelScale
 local magUnfocusedOffsetPos = Vector( 10, -7, -3 ) * magModelScale
 local magUnfocusedOffsetAng = Angle( 20, 15, 0 )
 local magLerp = 0.05
+local allowMagWarp = true
+local rollLerp = 0.025
 -- END CONFIG
 
 
@@ -27,6 +29,9 @@ require( "lkl/interactive_3d_map.txt" )
 
 
 if SERVER then
+    local rollLerpPlayers = {}
+
+
     inputNames = inputNames or {}
     inputTypes = inputTypes or {}
 
@@ -44,8 +49,64 @@ if SERVER then
         end
     end
 
+    local function canWarp( ply )
+        return allowMagWarp and hasPermission( "entities.setPos", ply ) and hasPermission( "entities.setEyeAngles", ply )
+    end
+
 
     hook.add( "input", "LKL_MagMap_WireInput", wireInput )
+
+    if allowMagWarp then
+        local lastRollTime = timer.curtime()
+
+        timer.create( "LKL_MagMap_LerpRoll", 0.05, 0, function()
+            local now = timer.curtime()
+            local dt = now - lastRollTime
+
+            lastRollTime = now
+
+            for i = #rollLerpPlayers, 1, -1 do
+                local ply = rollLerpPlayers[i]
+
+                if not isValid( ply ) or not canWarp( ply ) then
+                    table.remove( rollLerpPlayers, i )
+                else
+                    local ang = ply:getEyeAngles()
+                    local roll = ang[3]
+
+                    if math.abs( roll ) < 0.01 then
+                        table.remove( rollLerpPlayers, i )
+                    else
+                        roll = math.lerp( rollLerp * dt * 150, roll, 0 )
+                    end
+
+                    ang[3] = roll
+                    ply:setEyeAngles( ang )
+                end
+            end
+        end )
+    end
+
+
+    net.receive( "LKL_MagMap_Warp", function( _, ply )
+        local pos = net.readVector()
+        local ang = net.readAngle()
+
+        ply:setPos( pos )
+        ply:setEyeAngles( ang )
+
+        if ang[3] ~= 0 and not table.hasValue( rollLerpPlayers, ply ) then
+            table.insert( rollLerpPlayers, ply )
+        end
+    end )
+
+    net.receive( "LKL_MagMap_CheckWarpPerms", function( _, ply )
+        if not isValid( ply ) then return end
+
+        net.start( "LKL_MagMap_CheckWarpPerms" )
+        net.writeBool( canWarp( ply ) )
+        net.send( ply )
+    end )
 
 
     timer.simple( 4, function()
@@ -58,6 +119,7 @@ end
 
 
 local COLOR_WHITE = Color( 255, 255, 255, 255 )
+local VECTOR_ONE = Vector( 1, 1, 1 )
 local ANGLE_ZERO = Angle( 0, 0, 0 )
 
 local rtNameMag = "lkl_i3dmap_magnifying_glass"
@@ -77,7 +139,7 @@ rtMatMagScratch:setTextureRenderTarget( "$basetexture", rtNameMagScratch )
 rtMatMagScratch:setInt( "$flags", 0 )
 
 local magHolo = hologram.create( Vector(), Angle(), "models/hunter/tubes/circle2x2.mdl" )
-local magHoloSize = Vector( 3, 3, 0.5 ) * magModelScale
+local magHoloSize = Vector( 3.5, 3.5, 0.5 ) * magModelScale
 magHolo:setSize( magHoloSize )
 magHolo:setMaterial( "!" .. rtMatMag:getName() )
 magHolo:setRenderMode( RENDERMODE.WORLDGLOW )
@@ -88,19 +150,27 @@ local meshesReady = false
 local isMagActive = false
 local isMagFocused = false
 local magLerpActive = false
+local magLerpScaleActive = false
 local magHoloPosPrev = nil
 local magHoloAngPrev = nil
+local magHoloScalePrev = nil
+local magHolos = {}
 local magDetailHolos = {}
 local magButton = nil
 local lerpStopThresholdSqr = 0.001 ^ 2
+local lerpScaleStopThresholdSqr = 0.01 ^ 2
 local magFocusedOffset = Vector( magFocusedDistance, 0, 0 )
 local lastMagLerpTime = nil
 local mapHoloBase = nil
 local magMaxRangeSqr = nil
+local magWarpEnabled = false
+local isMagWarping = false
+local magWarpScale = Vector( 3.5, 3.5, 1 )
 
 
 do
     local magRing = hologram.create( Vector( 0, 0, -magHoloSize[3] / 2 ), Angle(), "models/hunter/tubes/tube1x1x1.mdl" )
+    table.insert( magHolos, magRing )
     table.insert( magDetailHolos, magRing )
     magRing:setSize( magHoloSize * Vector( 1.1656, 1.1656, 1 ) )
     magRing:setMaterial( magModelMaterial )
@@ -108,11 +178,28 @@ do
     magRing:setParent( magHolo )
 
     local magHandle = hologram.create( Vector( -magHoloSize[1] / 2 + magHoloSize[3] * 0.5 / 5, 0, 0 ), Angle( -90, 180, 180 ), "models/hunter/tubes/tube1x1x1.mdl" )
+    table.insert( magHolos, magHandle )
     table.insert( magDetailHolos, magHandle )
+    magHandle._magMap_ScaleRemap = { 3, 2, 1 }
     magHandle:setSize( Vector( magHoloSize[3] * 1.5, magHoloSize[3] * 1.5, magHoloSize[1] * 2 ) )
     magHandle:setMaterial( magModelMaterial )
     magHandle:setColor( magModelColor )
     magHandle:setParent( magHolo )
+
+    table.insert( magHolos, magHolo )
+
+    for _, holo in ipairs( magHolos ) do
+        holo._magMap_BaseScale = holo:getScale()
+    end
+
+    for _, holo in ipairs( magDetailHolos ) do
+        holo._magMap_LocalPos = holo:getPos()
+    end
+
+    if allowMagWarp then
+        net.start( "LKL_MagMap_CheckWarpPerms" )
+        net.send()
+    end
 end
 
 
@@ -137,16 +224,46 @@ local function setMagPosAng( pos, ang, isWorld, eyePos, eyeAng )
     magHolo:setAngles( angWorld )
 end
 
+local function setMagScale( scale )
+    if magLerpScaleActive and magHoloScalePrev and scale:getDistanceSqr( magHoloScalePrev ) <= lerpScaleStopThresholdSqr then
+        magLerpScaleActive = false
+    end
+
+    magHoloScalePrev = scale
+
+    for _, holo in ipairs( magHolos ) do
+        local remap = holo._magMap_ScaleRemap
+
+        if remap then
+            holo:setScale( holo._magMap_BaseScale * Vector( scale[remap[1]], scale[remap[2]], scale[remap[3]] ) )
+        else
+            holo:setScale( holo._magMap_BaseScale * scale )
+        end
+
+        local localPos = holo._magMap_LocalPos
+
+        if localPos then
+            holo:setPos( magHolo:localToWorld( localPos * scale ) )
+        end
+    end
+end
+
 local function setMagActive( state )
+    if isMagWarping then
+        if not state then return end
+
+        isMagWarping = false
+        magLerpScaleActive = false
+        setMagScale( VECTOR_ONE )
+    end
+
     isMagActive = state
     magLerpActive = true
     lastMagLerpTime = timer.systime()
 
-    for _, holo in ipairs( magDetailHolos ) do
+    for _, holo in ipairs( magHolos ) do
         holo:setNoDraw( not isMagActive )
     end
-
-    magHolo:setNoDraw( not isMagActive )
 end
 
 -- In coords local to the eye
@@ -168,6 +285,18 @@ local function calcIntendedMagPosAng()
     return pos, ang
 end
 
+local function calcIntendedMagScale()
+    local scale = VECTOR_ONE
+    local lerpSpeed = 1
+
+    if isMagWarping then
+        scale = magWarpScale
+        lerpSpeed = 0.3
+    end
+
+    return scale, lerpSpeed
+end
+
 local function isTooFarFromMap( realEyePos )
     if not mapHoloBase then
         mapHoloBase = libI3DMap.getMapHoloBase()
@@ -181,6 +310,15 @@ local function isTooFarFromMap( realEyePos )
     return realEyePos:getDistanceSqr( mapPos ) > magMaxRangeSqr
 end
 
+local function holdingUtilitySwep()
+    local wep = player():getActiveWeapon()
+    if not isValid( wep ) then return false end
+
+    local class = wep:getClass()
+
+    return class == "weapon_physgun" or class == "gmod_tool"
+end
+
 
 hook.add( "LKL_MapMesh_MeshesReady", "LKL_MagMap_MeshesReady", function()
     timer.simple( 1, function()
@@ -192,7 +330,7 @@ end )
 hook.add( "RenderScene", "LKL_MagMap_RenderMag", function( realEyePos, realEyeAng )
     if not meshesReady then return end
     if not isMagActive then return end
-    if cpuTotalAverage() > cpuMax() * 0.6 then return end
+    if cpuTotalAverage() > cpuMax() * 0.5 then return end
 
     if isTooFarFromMap( realEyePos ) then
         setMagActive( false )
@@ -227,6 +365,40 @@ hook.add( "RenderScene", "LKL_MagMap_RenderMag", function( realEyePos, realEyeAn
         )
     else
         setMagPosAng( magHoloPos, magHoloAng, false, realEyePos, realEyeAng )
+    end
+
+    if magLerpScaleActive then
+        if not magHoloScalePrev then
+            magHoloScalePrev = VECTOR_ONE
+        end
+
+        local scale, lerpSpeed = calcIntendedMagScale()
+        local dt = now - lastMagLerpTime
+        local magLerpEff = lerpSpeed * magLerp * dt * 150
+
+        setMagScale( math.lerpVector( magLerpEff, magHoloScalePrev, scale ) )
+
+        if not magLerpScaleActive then
+            setMagScale( scale )
+
+            if isMagWarping then
+                isMagWarping = false
+                isMagFocused = false
+                magLerpActive = true
+                setMagScale( VECTOR_ONE )
+
+                local targetEyePos, targetEyeAng = libI3DMap.worldToMeshThroughHoloMap( realEyePos, realEyeAng )
+                targetEyePos = libMapMesh.meshPosToWorldPos( targetEyePos )
+
+                local playerPosLocal = worldToLocal( player():getPos(), ANGLE_ZERO, realEyePos, realEyeAng )
+                local targetPlayerPos = localToWorld( playerPosLocal, ANGLE_ZERO, targetEyePos, targetEyeAng )
+
+                net.start( "LKL_MagMap_Warp" )
+                net.writeVector( targetPlayerPos )
+                net.writeAngle( targetEyeAng )
+                net.send()
+            end
+        end
     end
 
     lastMagLerpTime = now
@@ -266,6 +438,7 @@ hook.add( "KeyPress", "LKL_MagMap_PressMagButton", function( ply, key )
     if key ~= IN_KEY.USE then return end
 
     local tr = ply:getEyeTrace()
+
     if tr.Entity ~= magButton then return end
     if tr.HitPos:getDistance( tr.StartPos ) > magButtonRange then return end
 
@@ -277,14 +450,17 @@ hook.add( "KeyPress", "LKL_MagMap_PressMagButton", function( ply, key )
 end )
 
 hook.add( "KeyPress", "LKL_MagMap_FocusMag", function( _, key )
+    if isMagWarping then return end
     if not isFirstTimePredicted() then return end
     if key ~= IN_KEY.ATTACK then return end
+    if holdingUtilitySwep() then return end
 
     isMagFocused = true
     magLerpActive = true
 end )
 
 hook.add( "KeyRelease", "LKL_MagMap_UnfocusMag", function( _, key )
+    if isMagWarping then return end
     if not isFirstTimePredicted() then return end
     if key ~= IN_KEY.ATTACK then return end
 
@@ -292,12 +468,29 @@ hook.add( "KeyRelease", "LKL_MagMap_UnfocusMag", function( _, key )
     magLerpActive = true
 end )
 
+hook.add( "KeyPress", "LKL_MagMap_StartMagWarp", function( _, key )
+    if not isMagFocused then return end
+    if not magWarpEnabled then return end
+    if isMagWarping then return end
+    if not isFirstTimePredicted() then return end
+    if key ~= IN_KEY.ATTACK2 then return end
+    if holdingUtilitySwep() then return end
+
+    isMagWarping = true
+    magLerpScaleActive = true
+end )
+
+
 
 net.receive( "LKL_MagMap_SetMagButton", function()
     magButton = net.readEntity()
 
     if magButton == game.getWorld() then
         magButton = nil
-        isMagActive = false
+        setMagActive( false )
     end
+end )
+
+net.receive( "LKL_MagMap_CheckWarpPerms", function()
+    magWarpEnabled = net.readBool()
 end )
