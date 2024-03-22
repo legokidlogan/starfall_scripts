@@ -58,15 +58,16 @@ function jiggleFixer.setHoloModel( holo, model )
         return
     end
 
-    applyScale( holo, VECTOR_ONE )
+    local forceResetBones = modelDatas[model] and not modelDatas[model].HasJiggles
+
     holo:setModel( model )
-    applyScale( holo, scale )
+    applyScale( holo, scale, forceResetBones )
 end
 
 
 ----- PRIVATE FUNCTIONS -----
 
-applyScale = function( holo, scale )
+applyScale = function( holo, scale, forceResetBones )
     local model = holo:getModel()
     local modelData = modelDatas[model]
 
@@ -81,11 +82,26 @@ applyScale = function( holo, scale )
             calcModelData( holo, function()
                 if not isValid( holo ) then return end
 
-                applyScale( holo, holo:getScale() )
+                applyScale( holo, holo:getScale(), forceResetBones )
             end )
 
             return
         end
+    end
+
+    if forceResetBones then
+        if SERVER then
+            net.start( "LKL_JiggleFixer_ForceResetBones" )
+            net.writeEntity( holo )
+            net.send()
+        else
+            for i = 0, holo:getBoneCount() - 1 do
+                holo:manipulateBoneScale( i, VECTOR_ONE )
+                holo:manipulateBonePosition( i, VECTOR_ZERO )
+            end
+        end
+
+        return
     end
 
     if not modelData.HasJiggles then return end
@@ -290,7 +306,7 @@ if SERVER then
 
         for requestHolo in pairs( requestHolos or {} ) do
             if isValid( requestHolo ) then
-                applyScale( requestHolo, requestHolo:getScale() )
+                applyScale( requestHolo, requestHolo:getScale(), not hasJiggles )
             end
         end
     end )
@@ -353,5 +369,21 @@ else
         if not success then return end
 
         applyScale( holo, scale )
+    end )
+
+    net.receive( "LKL_JiggleFixer_ForceResetBones", function()
+        local holo = net.readEntity()
+        if not isValid( holo ) then return end
+
+        local success = pcall( function()
+            holo = holo:toHologram()
+        end )
+
+        if not success then return end
+
+        for i = 0, holo:getBoneCount() - 1 do
+            holo:manipulateBoneScale( i, VECTOR_ONE )
+            holo:manipulateBonePosition( i, VECTOR_ZERO )
+        end
     end )
 end
