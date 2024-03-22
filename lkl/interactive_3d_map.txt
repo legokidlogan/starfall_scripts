@@ -339,6 +339,10 @@ local playerHoloPlys = {}
 local playerHoloLookup = {}
 
 
+function libI3DMap.getMapHoloBase()
+    return mapHoloBase
+end
+
 function libI3DMap.getPlayerHolos()
     return playerHolos
 end
