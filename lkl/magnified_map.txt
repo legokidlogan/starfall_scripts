@@ -138,13 +138,6 @@ local rtMatMagScratch = material.create( "UnlitGeneric" )
 rtMatMagScratch:setTextureRenderTarget( "$basetexture", rtNameMagScratch )
 rtMatMagScratch:setInt( "$flags", 0 )
 
-local magHolo = hologram.create( Vector(), Angle(), "models/hunter/tubes/circle2x2.mdl" )
-local magHoloSize = Vector( 3.5, 3.5, 0.5 ) * magModelScale
-magHolo:setSize( magHoloSize )
-magHolo:setMaterial( "!" .. rtMatMag:getName() )
-magHolo:setRenderMode( RENDERMODE.WORLDGLOW )
-magHolo:setColor( Color( 255, 255, 255, 254 ) )
-
 local scrW, scrH = render.getGameResolution()
 local meshesReady = false
 local isMagActive = false
@@ -154,6 +147,7 @@ local magLerpScaleActive = false
 local magHoloPosPrev = nil
 local magHoloAngPrev = nil
 local magHoloScalePrev = nil
+local magHolo = nil
 local magHolos = {}
 local magDetailHolos = {}
 local magButton = nil
@@ -169,6 +163,14 @@ local magWarpScale = Vector( 3.5, 3.5, 1 )
 
 
 do
+    magHolo = hologram.create( Vector(), Angle(), "models/hunter/tubes/circle2x2.mdl" )
+    local magHoloSize = Vector( 3.5, 3.5, 0.5 ) * magModelScale
+    table.insert( magHolos, magHolo )
+    magHolo:setSize( magHoloSize )
+    magHolo:setMaterial( "!" .. rtMatMag:getName() )
+    magHolo:setRenderMode( RENDERMODE.WORLDGLOW )
+    magHolo:setColor( Color( 255, 255, 255, 254 ) )
+
     local magRing = hologram.create( Vector( 0, 0, -magHoloSize[3] / 2 ), Angle(), "models/hunter/tubes/tube1x1x1.mdl" )
     table.insert( magHolos, magRing )
     table.insert( magDetailHolos, magRing )
@@ -185,8 +187,6 @@ do
     magHandle:setMaterial( magModelMaterial )
     magHandle:setColor( magModelColor )
     magHandle:setParent( magHolo )
-
-    table.insert( magHolos, magHolo )
 
     for _, holo in ipairs( magHolos ) do
         holo._magMap_BaseScale = holo:getScale()
