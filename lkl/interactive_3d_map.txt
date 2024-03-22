@@ -503,7 +503,12 @@ if holoMapShowPlayerNames then
     timer.create( "LKL_I3DMap_DisplayPlayerNames", 0.2, 0, function()
         if not meshesReady then return end
         local startPos = render.getEyePos()
-        if startPos:getDistanceSqr( chip():getPos() ) > holoMapStartLoadingDistSqr then return end
+
+        if startPos:getDistanceSqr( chip():getPos() ) > holoMapStartLoadingDistSqr then
+            setAimedPlayer( nil )
+
+            return
+        end
 
         local eyeAng = render.getAngles()
         local _, _, holoMapHitPos = libI3DMap.holoMapTraceAlt( startPos, eyeAng )
