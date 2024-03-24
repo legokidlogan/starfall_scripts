@@ -36,6 +36,7 @@ libMapMesh.ALPHA = libMapMesh.ALPHA or 255
 libMapMesh.COLOR_MODE = libMapMesh.COLOR_MODE or 2 -- 0 = no vertex coloring, 1 = map color, 2 = map color from material, 3 = solid color (uses fallback color), 4 = color by surface ID, 5 = random per surface
 libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE = libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE or 1 / 8 -- When using color mode 2, downscales the texture before sampling it. Helps with noisy textures like grass.
 libMapMesh.COLOR_MODE_2_NUM_SAMPLES = libMapMesh.COLOR_MODE_2_NUM_SAMPLES or 50 -- When using color mode 2, how many pixels to sample per material.
+libMapMesh.COLOR_MODE_2_FULLBRIGHT = libMapMesh.COLOR_MODE_2_FULLBRIGHT or false -- When using color mode 2, whether or not to ignore lighting.
 libMapMesh.COLOR_MODE_4_NUM_CYCLES = libMapMesh.COLOR_MODE_4_NUM_CYCLES or 1 -- When using color mode 4, how many cycles of the color wheel to go through.
 libMapMesh.HSV_SATURATION = libMapMesh.HSV_SATURATION or 1 -- Used by color modes 4 and 5.
 libMapMesh.HSV_VALUE = libMapMesh.HSV_VALUE or 1 -- Used by color modes 4 and 4.
@@ -63,6 +64,7 @@ local meshMapAlpha = libMapMesh.ALPHA
 local meshMapColorMode = libMapMesh.COLOR_MODE
 local meshMapColorMode2CompressionScale = libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE
 local meshMapColorMode2NumSamples = libMapMesh.COLOR_MODE_2_NUM_SAMPLES
+local meshMapColorMode2Fullbright = libMapMesh.COLOR_MODE_2_FULLBRIGHT
 local meshMapColorMode4NumCycles = libMapMesh.COLOR_MODE_4_NUM_CYCLES
 local meshMapHSVSaturation = libMapMesh.HSV_SATURATION
 local meshMapHSVValue = libMapMesh.HSV_VALUE
@@ -659,11 +661,12 @@ elseif meshMapColorMode == 2 then
     render.createRenderTarget( rtNameCopyMat )
 
     getMapColor = function( pos, surfaceCenter, surfaceNormal, _surfaceInd, surfaceMat )
+        local color = mapMatColors[surfaceMat] or meshMapFallbackColor
+        if meshMapColorMode2Fullbright then return color end
+
         pos = surfaceCenter + surfaceNormal * 5
 
         local vertLight = render.computeLighting( pos, surfaceNormal )
-        local color = mapMatColors[surfaceMat] or meshMapFallbackColor
-
         local combinedBrightness = vertLight:getLength() / 3
         local brightnessMult = surfaceMat.brightnessMult
 
