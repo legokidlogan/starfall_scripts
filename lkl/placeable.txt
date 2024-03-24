@@ -15,7 +15,7 @@ require( "lkl/syncable.txt" )
 Placeable = class( "Placeable", Syncable )
 
 -- These static vars can be overridden by subclasses, but not by instances.
-Placeable.static.THINK_PERF_LIMIT = 0.9 -- :think() calls will be skipped when the chip's fractional quota exceeds this amount.
+Placeable.static.THINK_PERF_LIMIT = 0.8 -- :think() calls will be skipped when the chip's fractional quota exceeds this amount.
 
 
 local ENTITY_TYPES = {
