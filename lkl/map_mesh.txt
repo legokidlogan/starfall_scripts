@@ -18,6 +18,7 @@ libMapMesh.CEILING_CLIP = libMapMesh.CEILING_CLIP or 50 -- TODO: Verify that thi
 if libMapMesh.LOAD_IMMEDIATELY == nil then libMapMesh.LOAD_IMMEDIATELY = true end
 if libMapMesh.DO_WIREFRAME == nil then libMapMesh.DO_WIREFRAME = false end
 if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = false end
+if libMapMesh.SHOW_DISPLACEMENTS == nil then libMapMesh.SHOW_DISPLACEMENTS = true end -- Only works for some maps. See https://github.com/legokidlogan/starfall_data/tree/main/map_data/displacements
 if libMapMesh.HIDE_SKYBOX == nil then libMapMesh.ADD_FLOOR = true end -- Hide the skybox region.
 libMapMesh.MESH_SCALE_OVERRIDE = libMapMesh.MESH_SCALE_OVERRIDE or nil -- Set to a number to override the mesh scale, instead of using map bounds and mesh width.
 libMapMesh.MESH_OFFSET_OVERRIDE = libMapMesh.MESH_OFFSET_OVERRIDE or nil -- Set to a vector to override the mesh offset, instead of using map bounds.
@@ -46,6 +47,7 @@ local meshMapCeilingClip = libMapMesh.CEILING_CLIP
 local meshMapLoadImmediately = libMapMesh.LOAD_IMMEDIATELY
 local meshMapDoWireframe = libMapMesh.DO_WIREFRAME
 local meshMapAddFloor = libMapMesh.ADD_FLOOR
+local meshMapShowDisplacements = libMapMesh.SHOW_DISPLACEMENTS
 local meshMapHideSkybox = libMapMesh.HIDE_SKYBOX
 
 local meshMapHideNoDraw = libMapMesh.HIDE_NO_DRAW
@@ -344,7 +346,14 @@ recordVertsQueue = Queue:new(
         meshProgress = recordVerts_surfaceInd / surfaceCountMinusOne
 
         local surfaceInd = recordVerts_surfaceInd
-        local _, surfaceNormal = world:getBrushPlane( surfaceInd )
+        local surfaceNormal
+
+        if surface.getNormal then
+            surfaceNormal = surface:getNormal()
+        else
+            _, surfaceNormal = world:getBrushPlane( surfaceInd )
+        end
+
         local isWater = surface:isWater()
         local overrideColor = surface.overrideColor
         local surfaceMat = getCachedSurfaceMat( surface )
@@ -484,10 +493,85 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddFloor", function()
             return "none"
         end,
 
+        getNormal = function()
+            return Vector( 0, 0, 1 )
+        end,
+
         overrideColor = meshMapFloorColor,
     }
 
     recordVertsQueue:addEntry( floorSurface )
+    surfaceCountMinusOne = surfaceCountMinusOne + 1
+end )
+
+hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function()
+    if not meshMapShowDisplacements then return end
+
+    --recordVertsQueue:clear() -- TODO: REMOVE
+
+    local url = "https://github.com/legokidlogan/starfall_data/raw/main/map_data/displacements/" .. game.getMap() .. ".txt"
+
+    http.get( url, function( data, _, _, code )
+        if code ~= 200 then return end
+
+        local meshInfo = json.decode( bit.decompress( data ) )
+
+        for _, dispInfo in ipairs( meshInfo ) do
+            local tris = dispInfo.tris
+            local mat
+
+            pcall( function()
+                mat = material.load( dispInfo.matName )
+            end )
+
+            if not mat then
+                mat = "none"
+            end
+
+            for _, tri in ipairs( tris ) do
+                local normal = tri.n
+                local v1 = tri[1]
+                local v2 = tri[2]
+                local v3 = tri[3]
+
+                local surf = {
+                    getVertices = function()
+                        return {
+                            v1,
+                            v2,
+                            v3,
+                        }
+                    end,
+
+                    isNoDraw = function()
+                        return false
+                    end,
+
+                    isWater = function()
+                        return false
+                    end,
+
+                    isSky = function()
+                        return false
+                    end,
+
+                    getMaterial = function()
+                        return mat
+                    end,
+
+                    getNormal = function()
+                        return normal
+                    end,
+
+                    overrideColor = nil,
+                }
+
+                recordVertsQueue:addEntry( surf )
+            end
+
+            surfaceCountMinusOne = surfaceCountMinusOne + #tris
+        end
+    end )
 end )
 
 hook.add( "renderoffscreen", "LKL_MapMesh_SetUpMeshMat", function()
