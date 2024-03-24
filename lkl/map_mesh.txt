@@ -17,9 +17,9 @@ libMapMesh.MESH_WIDTH = libMapMesh.MESH_WIDTH or 200
 libMapMesh.CEILING_CLIP = libMapMesh.CEILING_CLIP or 50 -- TODO: Verify that this is needed
 if libMapMesh.LOAD_IMMEDIATELY == nil then libMapMesh.LOAD_IMMEDIATELY = true end
 if libMapMesh.DO_WIREFRAME == nil then libMapMesh.DO_WIREFRAME = false end
-if libMapMesh.ADD_FLOOR == nil then libMapMesh.HIDE_SKYBOX = false end
+if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = false end
 if libMapMesh.SHOW_DISPLACEMENTS == nil then libMapMesh.SHOW_DISPLACEMENTS = true end -- Only works for some maps. See https://github.com/legokidlogan/starfall_data/tree/main/map_data/displacements
-if libMapMesh.HIDE_SKYBOX == nil then libMapMesh.ADD_FLOOR = true end -- Hide the skybox region.
+if libMapMesh.HIDE_SKYBOX == nil then libMapMesh.HIDE_SKYBOX = true end -- Hide the skybox region.
 libMapMesh.MESH_SCALE_OVERRIDE = libMapMesh.MESH_SCALE_OVERRIDE or nil -- Set to a number to override the mesh scale, instead of using map bounds and mesh width.
 libMapMesh.MESH_OFFSET_OVERRIDE = libMapMesh.MESH_OFFSET_OVERRIDE or nil -- Set to a vector to override the mesh offset, instead of using map bounds.
 
@@ -203,6 +203,10 @@ end
 
 ----- PRIVATE FUNCTIONS / SETUP -----
 
+local world = game.getWorld()
+local surfaceCountMinusOne = world:getBrushPlaneCount() - 1
+local mapMatSurfaces = world:getBrushSurfaces()
+
 
 hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
     local mapData = libMapData.getData()
@@ -236,7 +240,21 @@ hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
     MESH_MIN_BOUNDS = mapData.MinBounds * MESH_SCALE + MESH_OFFSET
     MESH_MAX_BOUNDS = mapData.MaxBounds * MESH_SCALE + MESH_OFFSET
 
-    hook.run( "LKL_MapMesh_AddExtraData" )
+    hook.run( "LKL_MapMesh_AddExtraData", function( surface, onlyGetMaterial )
+        if not onlyGetMaterial then
+            recordVertsQueue:addEntry( surface )
+            surfaceCountMinusOne = surfaceCountMinusOne + 1
+        end
+
+        if meshMapColorMode == 2 then
+            local mat = surface:getMaterial()
+
+            if mat ~= "none" then
+                table.insert( mapMatSurfaces, surface )
+            end
+        end
+    end )
+
     mapDataReady = true
 
     if CLIENT and meshMapLoadImmediately then
@@ -258,7 +276,6 @@ local VERT_GROUP_SIZE_LIMIT = 65535
 local VERT_GROUP_SIZE_LIMIT_SOFT = VERT_GROUP_SIZE_LIMIT - 3 * 100
 local MESH_LOAD_PERF_LIMIT = 0.6
 
-local world = game.getWorld()
 local curVertGroup = {}
 local curVertGroupSize = 0
 local vertGroups = { curVertGroup }
@@ -328,7 +345,6 @@ end
 
 
 local recordVerts_surfaceInd = -1
-local surfaceCountMinusOne = world:getBrushPlaneCount() - 1
 recordVertsQueue = Queue:new(
     function( _, surface )
         recordVerts_surfaceInd = recordVerts_surfaceInd + 1
@@ -460,7 +476,7 @@ recordVertsQueue = Queue:new(
 )
 
 
-hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddFloor", function()
+hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddFloor", function( addSurfaceFunc )
     if not meshMapAddFloor then return end
 
     local mapData = libMapData.getData()
@@ -500,11 +516,10 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddFloor", function()
         overrideColor = meshMapFloorColor,
     }
 
-    recordVertsQueue:addEntry( floorSurface )
-    surfaceCountMinusOne = surfaceCountMinusOne + 1
+    addSurfaceFunc( floorSurface )
 end )
 
-hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function()
+hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( addSurfaceFunc )
     if not meshMapShowDisplacements then return end
 
     local url = "https://raw.githubusercontent.com/legokidlogan/starfall_data/main/map_data/displacements/" .. game.getMap() .. ".txt"
@@ -564,10 +579,8 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function()
                     overrideColor = nil,
                 }
 
-                recordVertsQueue:addEntry( surf )
+                addSurfaceFunc( surf )
             end
-
-            surfaceCountMinusOne = surfaceCountMinusOne + #tris
         end
     end )
 end )
@@ -649,20 +662,16 @@ elseif meshMapColorMode == 2 then
         pos = surfaceCenter + surfaceNormal * 5
 
         local vertLight = render.computeLighting( pos, surfaceNormal )
-        --local vertLight = render.getLightColor( pos )
-
         local color = mapMatColors[surfaceMat] or meshMapFallbackColor
 
-        --[[
-        return Color(
-            color.r * vertLight[1],
-            color.g * vertLight[2],
-            color.b * vertLight[3],
-            255
-        )
-        --]]
+        local combinedBrightness = vertLight:getLength() / 3
+        local brightnessMult = surfaceMat.brightnessMult
 
-        local combinedBrightness = math.clamp( vertLight:getLength() / 3, 0, 1 ) ^ 0.35
+        if brightnessMult then
+            combinedBrightness = combinedBrightness * brightnessMult
+        end
+
+        combinedBrightness = math.clamp( combinedBrightness, 0, 1 ) ^ 0.35
 
         return Color(
             color.r * combinedBrightness,
@@ -672,11 +681,8 @@ elseif meshMapColorMode == 2 then
         )
     end
 
-    local surfaces = world:getBrushSurfaces()
-
-
     local function cacheNextMapMatColor()
-        local surface = table.remove( surfaces )
+        local surface = table.remove( mapMatSurfaces )
 
         if not surface then
             hook.remove( "renderoffscreen", "LKL_MapMesh_CacheMapMatColors" )
@@ -690,6 +696,8 @@ elseif meshMapColorMode == 2 then
 
         textureCopyMat:setTexture( "$basetexture", surfaceMat:getTexture( "$basetexture" ) )
 
+        local ignoreBlack = surface.ignoreBlack
+        local samplesEff = surface.sampleCountOverride or meshMapColorMode2NumSamples
         local width = math.ceil( ( surfaceMat:getWidth() - 1 ) * meshMapColorMode2CompressionScale )
         local height = math.ceil( ( surfaceMat:getHeight() - 1 ) * meshMapColorMode2CompressionScale )
         local rSum = 0
@@ -711,22 +719,26 @@ elseif meshMapColorMode == 2 then
         -- Read pixels from render target. Unfortunately, this is the only option, as material:getColor() doesn't work on vtf textures.
         render.capturePixels()
 
-        for _ = 1, meshMapColorMode2NumSamples do
+        for _ = 1, samplesEff do
             local x = mathRand( 0, width )
             local y = mathRand( 0, height )
             local color = render.readPixel( x, y )
 
-            rSum = rSum + color.r
-            gSum = gSum + color.g
-            bSum = bSum + color.b
+            if ignoreBlack and color == COLOR_BLACK then
+                samplesEff = samplesEff - 1
+            else
+                rSum = rSum + color.r
+                gSum = gSum + color.g
+                bSum = bSum + color.b
+            end
         end
 
         render.selectRenderTarget()
 
-        local avgColor = Color(
-            rSum / meshMapColorMode2NumSamples,
-            gSum / meshMapColorMode2NumSamples,
-            bSum / meshMapColorMode2NumSamples,
+        local avgColor = samplesEff == 0 and Color( 0, 0, 0, 255 ) or Color(
+            rSum / samplesEff,
+            gSum / samplesEff,
+            bSum / samplesEff,
             255
         )
 
@@ -781,3 +793,4 @@ else
     error( "Invalid COLOR_MODE in libMapMesh" )
 end
 
+libMapMesh.getMapColor = getMapColor

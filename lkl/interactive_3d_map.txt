@@ -39,6 +39,9 @@ if libI3DMap.DO_PINGS == nil then libI3DMap.DO_PINGS = true end
 libI3DMap.PING_SIZE = libI3DMap.PING_SIZE or Vector( 2, 2, 0.5 )
 libI3DMap.PING_LINGER = libI3DMap.PING_LINGER or 3
 
+if libI3DMap.SHOW_PROP_STATIC == nil then libI3DMap.SHOW_PROP_STATIC = true end -- Only works for some maps. See https://github.com/legokidlogan/starfall_data/tree/main/map_data/prop_static
+if libI3DMap.PROP_STATIC_USE_FULL_MATERIAL == nil then libI3DMap.PROP_STATIC_USE_FULL_MATERIAL = false end -- false to use the map mesh' coloring, true to use the prop's full material
+
 libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL = libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL or 1
 -- END CONFIG DEFAULTS
 
@@ -56,6 +59,9 @@ local holoMapPlayerNameFontSize = libI3DMap.PLAYER_NAME_FONT_SIZE
 
 local holoMapPingSize = libI3DMap.PING_SIZE:clone()
 local holoMapPingLinger = libI3DMap.PING_LINGER
+
+local holoMapShowPropStatic = libI3DMap.SHOW_PROP_STATIC
+local holoMapPropStaticUseFullMaterial = libI3DMap.PROP_STATIC_USE_FULL_MATERIAL
 
 local holoMapReplicatedEntUpdateInterval = libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL
 
@@ -444,6 +450,8 @@ require( "lkl/anims/screen_holo_animation.txt" )
 require( "lkl/render/screen_mat.txt" )
 
 
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+
 local meshesReady = false
 local holoMapStartLoadingDistSqr = holoMapStartLoadingDist ^ 2
 local mapHoloBase = nil
@@ -686,4 +694,150 @@ if holoMapShowPlayerNames then
         screenMatLib.unstretchScratchWork()
         screenMatLib.updateScreenMaterial( rtNamePlayerNames )
     end )
+end
+
+if holoMapShowPropStatic then
+    local propStaticQueue = nil
+    local propStaticIncr = 0
+    local mapScaleVec = nil
+    local hideSkybox = nil
+    local skyboxMinBounds = nil
+    local skyboxMaxBounds = nil
+
+
+    hook.add( "LKL_MapMesh_AddExtraData", "LKL_I3DMap_AddPropStatic", function( addSurfaceFunc )
+        local url = "https://raw.githubusercontent.com/legokidlogan/starfall_data/main/map_data/prop_static/" .. game.getMap() .. ".txt"
+        local numSamples = libMapMesh.COLOR_MODE_2_NUM_SAMPLES * 2
+        local matNameToMat = {}
+
+        http.get( url, function( data, _, _, code )
+            if code ~= 200 then return end
+
+            local propInfos = json.decode( bit.decompress( data ) )
+
+            for _, propInfo in ipairs( propInfos ) do
+                local matName = propInfo.matName
+                local mat = matNameToMat[matName]
+
+                if mat then
+                    propInfo.mat = mat
+                    propStaticQueue:addEntry( propInfo )
+
+                    continue
+                end
+
+                if matName ~= "none" then
+                    local success = pcall( function()
+                        mat = material.load( matName )
+                    end )
+
+                    if not success then
+                        mat = "none"
+                    end
+                end
+
+                local surf = {
+                    getMaterial = function()
+                        return mat
+                    end,
+
+                    ignoreBlack = true,
+                    sampleCountOverride = numSamples,
+                }
+
+                mat.brightnessMult = 1.5
+                propInfo.mat = mat
+                matNameToMat[matName] = mat
+
+                addSurfaceFunc( surf, true )
+                propStaticQueue:addEntry( propInfo )
+            end
+        end )
+    end )
+
+    hook.add( "LKL_I3DMap_MapReady", "LKL_I3DMap_CreateStaticPropHolos", function()
+        local mapData = libMapData.getData()
+
+        if mapData.Skybox ~= false then
+            skyboxMinBounds = mapData.Skybox.MinBounds:clone()
+            skyboxMaxBounds = mapData.Skybox.MaxBounds:clone()
+        end
+
+        mapScaleVec = Vector( libMapMesh.getMeshScale() )
+        hideSkybox = libMapMesh.HIDE_SKYBOX
+
+        propStaticQueue:start()
+    end )
+
+
+    propStaticQueue = Queue:new(
+        function( _, entry )
+            if not hologram.canSpawn() then return true end
+
+            if hologram.hologramsLeft() < 20 then -- Give some extra breathing room for other holos as well
+                print(
+                    Color( 255, 255, 255, 255 ), "[I3DMap] ",
+                    Color( 150127, 0, 0, 255 ), "Not enough holograms left to spawn static props! ",
+                    Color( 255, 255, 255, 255 ), "Try increasing ",
+                    Color( 255, 255, 150, 255 ), "sf_holograms_max_cl"
+                )
+
+                propStaticQueue:clear()
+
+                return
+            end
+
+            local pos = entry.pos
+
+            if hideSkybox and skyboxMinBounds and pos:withinAABox( skyboxMinBounds, skyboxMaxBounds ) then return end
+
+            local ang = entry.ang
+            local model = entry.model
+            local scale = entry.scale
+            local skin = entry.skin
+            local mat = entry.mat
+
+            pos = libMapMesh.worldPosToMeshPos( pos )
+            pos, ang = libI3DMap.meshToHoloMap( pos, ang )
+
+            propStaticIncr = propStaticIncr + 1
+
+            local holo
+
+            pcall( function()
+                holo = hologram.create( pos, ang, model, mapScaleVec * scale )
+            end )
+
+            if not holo then return true end
+
+            holo:setSkin( skin )
+            holo:setParent( mapHoloBase )
+
+            if holoMapPropStaticUseFullMaterial then
+                holo:setMaterial( mat:getName() )
+            else
+                local obbCenterW = entry.obbCenterW
+                local posToCenter = obbCenterW - pos
+                local posToCenterLengthSqr = posToCenter:getLengthSqr()
+                local lightNormal
+
+                if posToCenterLengthSqr > 0.001 then
+                    lightNormal = posToCenter / math.sqrt( posToCenterLengthSqr )
+                else
+                    lightNormal = ang:getForward()
+                end
+
+                local color = libMapMesh.getMapColor( obbCenterW, obbCenterW, lightNormal, propStaticIncr, mat ) or COLOR_WHITE
+
+                holo:setColor( color )
+                holo:setMaterial( "model_color" )
+            end
+        end,
+        nil,
+        {},
+        0.5,
+        50,
+        0.4,
+        "SpawnStaticProps"
+    )
 end
