@@ -697,7 +697,14 @@ elseif meshMapColorMode == 2 then
         local surfaceMat = getCachedSurfaceMat( surface )
         if mapMatColors[surfaceMat] then return true end -- Already cached.
 
-        textureCopyMat:setTexture( "$basetexture", surfaceMat:getTexture( "$basetexture" ) )
+        local texture = surfaceMat:getTexture( "$basetexture" )
+
+        if texture then
+            textureCopyMat:setTexture( "$basetexture", surfaceMat:getTexture( "$basetexture" ) )
+        end
+
+        textureCopyMat:setVector( "$color", surfaceMat:getVector( "$color" ) )
+        textureCopyMat:setVector( "$color2", surfaceMat:getVector( "$color2" ) )
 
         local ignoreBlack = surface.ignoreBlack
         local samplesEff = surface.sampleCountOverride or meshMapColorMode2NumSamples
