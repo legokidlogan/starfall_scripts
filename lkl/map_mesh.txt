@@ -668,7 +668,7 @@ elseif meshMapColorMode == 2 then
 
         local vertLight = render.computeLighting( pos, surfaceNormal )
         local combinedBrightness = vertLight:getLength() / 3
-        local brightnessMult = surfaceMat.brightnessMult
+        local brightnessMult = istable( surfaceMat ) and surfaceMat.brightnessMult
 
         if brightnessMult then
             combinedBrightness = combinedBrightness * brightnessMult

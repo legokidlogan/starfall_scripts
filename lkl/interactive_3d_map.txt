@@ -731,7 +731,9 @@ if holoMapShowPropStatic then
                         mat = material.load( matName )
                     end )
 
-                    if not success then
+                    if success then
+                        mat.brightnessMult = 1.5
+                    else
                         mat = "none"
                     end
                 end
@@ -745,7 +747,6 @@ if holoMapShowPropStatic then
                     sampleCountOverride = numSamples,
                 }
 
-                mat.brightnessMult = 1.5
                 propInfo.mat = mat
                 matNameToMat[matName] = mat
 
