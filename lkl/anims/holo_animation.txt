@@ -141,7 +141,7 @@ end
             - This is for if your animation resizes the holo, and you want to reset it back to its original size.
             - This is also used by AutoScale, if enabled.
             - holo._holoAnimation_AutoScale is also set to true if AutoScale is enabled.
-        - The original value oh Color will be stored in holo._holoAnimation_OriginalColor for use with :setAllHolosColor().
+        - The original value of Color will be stored in holo._holoAnimation_OriginalColor for use with :setAllHolosColor().
 --]]
 function HoloAnimation:queueUnnamedHolo( entry )
     self:_validateHoloEntry( entry )
