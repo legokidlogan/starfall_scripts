@@ -17,7 +17,7 @@ libMapMesh.MESH_WIDTH = libMapMesh.MESH_WIDTH or 200
 libMapMesh.CEILING_CLIP = libMapMesh.CEILING_CLIP or 50 -- TODO: Verify that this is needed
 if libMapMesh.LOAD_IMMEDIATELY == nil then libMapMesh.LOAD_IMMEDIATELY = true end
 if libMapMesh.DO_WIREFRAME == nil then libMapMesh.DO_WIREFRAME = false end
-if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = false end
+if libMapMesh.ADD_FLOOR == nil then libMapMesh.HIDE_SKYBOX = false end
 if libMapMesh.SHOW_DISPLACEMENTS == nil then libMapMesh.SHOW_DISPLACEMENTS = true end -- Only works for some maps. See https://github.com/legokidlogan/starfall_data/tree/main/map_data/displacements
 if libMapMesh.HIDE_SKYBOX == nil then libMapMesh.ADD_FLOOR = true end -- Hide the skybox region.
 libMapMesh.MESH_SCALE_OVERRIDE = libMapMesh.MESH_SCALE_OVERRIDE or nil -- Set to a number to override the mesh scale, instead of using map bounds and mesh width.
@@ -591,13 +591,6 @@ end
 
 if meshMapHideSkybox then
     isSurfaceInBounds = function( verts, vertCount )
-        -- Disallow if any verts are in the skybox.
-        for i = 1, vertCount do
-            if verts[i]:withinAABox( MAP_SKYBOX_MIN_BOUNDS, MAP_SKYBOX_MAX_BOUNDS ) then
-                return true
-            end
-        end
-
         -- Allow if any verts are in the playable region.
         for i = 1, vertCount do
             if verts[i]:withinAABox( MAP_MIN_BOUNDS, MAP_MAX_BOUNDS ) then
@@ -609,6 +602,13 @@ if meshMapHideSkybox then
     end
 else
     isSurfaceInBounds = function( verts, vertCount )
+        -- Allow if any verts are in the skybox.
+        for i = 1, vertCount do
+            if verts[i]:withinAABox( MAP_SKYBOX_MIN_BOUNDS, MAP_SKYBOX_MAX_BOUNDS ) then
+                return true
+            end
+        end
+
         -- Allow if any verts are in the playable region.
         for i = 1, vertCount do
             if verts[i]:withinAABox( MAP_MIN_BOUNDS, MAP_MAX_BOUNDS ) then
