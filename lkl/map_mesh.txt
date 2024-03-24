@@ -507,9 +507,7 @@ end )
 hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function()
     if not meshMapShowDisplacements then return end
 
-    --recordVertsQueue:clear() -- TODO: REMOVE
-
-    local url = "https://github.com/legokidlogan/starfall_data/raw/main/map_data/displacements/" .. game.getMap() .. ".txt"
+    local url = "https://raw.githubusercontent.com/legokidlogan/starfall_data/main/map_data/displacements/" .. game.getMap() .. ".txt"
 
     http.get( url, function( data, _, _, code )
         if code ~= 200 then return end
