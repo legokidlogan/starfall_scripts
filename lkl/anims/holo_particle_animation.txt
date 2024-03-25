@@ -1,0 +1,608 @@
+--@name Holo Particle Animation
+--@author legokidlogan
+--@shared
+--@include lkl/anims/holo_animation.txt
+--@include lkl/math/hsv_math.txt
+
+--[[
+    - TODO
+--]]
+
+
+if HoloParticleAnimation then return end
+
+require( "lkl/anims/holo_animation.txt" )
+require( "lkl/math/hsv_math.txt" )
+
+
+HoloParticleAnimation = class( "HoloParticleAnimation", HoloAnimation )
+local ThisClass = HoloParticleAnimation -- For readability
+
+
+ThisClass.static.ONLY_SPAWN_ON_CLIENT = true
+ThisClass.static.PARTICLE_SPAWN_INTERVAL = 0.1
+ThisClass.static.PARTICLE_SPAWN_COUNT = 1
+ThisClass.static.PARTICLE_LIFETIME = 1
+ThisClass.static.PARTICLE_MODEL = "models/holograms/hq_sphere.mdl"
+ThisClass.static.PARTICLE_MATERIAL = ""
+ThisClass.static.PARTICLE_SPREAD_PITCH = 0
+ThisClass.static.PARTICLE_SPREAD_YAW = 0
+ThisClass.static.PARTICLE_OFFSET_POS = Vector( 0, 0, 0 )
+ThisClass.static.PARTICLE_OFFSET_ANG = Angle( 0, 0, 0 )
+ThisClass.static.PARTICLE_SPEED_MIN = 0
+ThisClass.static.PARTICLE_SPEED_MAX = 0
+ThisClass.static.PARTICLE_INERTIA = 1
+ThisClass.static.PARTICLE_GRAVITY = Vector( 0, 0, 0 )
+ThisClass.static.PARTICLE_HSV_MIN = Color( 0, 1, 1 )
+ThisClass.static.PARTICLE_HSV_MAX = Color( 0, 1, 1 )
+ThisClass.static.PARTICLE_ALPHA_START = 255
+ThisClass.static.PARTICLE_ALPHA_END = 0
+ThisClass.static.PARTICLE_SCALE_START = Vector( 1 )
+ThisClass.static.PARTICLE_SCALE_END = Vector( 1 )
+ThisClass.static.PARTICLE_FULLBRIGHT = false
+
+
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+
+
+----- STATIC FUNCTIONS -----
+
+function ThisClass:initialize( replicateOnClient, pos, ang, ... )
+    ThisClass.super.initialize( self, replicateOnClient, pos, ang, ... )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ThisClass:setOnlySpawnOnClient( onlySpawnOnClient )
+    self._onlySpawnOnClient = onlySpawnOnClient
+    self:syncProperty( "HoloParticleAnimation_OnlySpawnOnClient", onlySpawnOnClient )
+end
+
+function ThisClass:shouldOnlySpawnOnClient()
+    local state = self._onlySpawnOnClient
+    if state == nil then return self.class.ONLY_SPAWN_ON_CLIENT end
+
+    return state
+end
+
+function ThisClass:setParticleSpawnInterval( interval )
+    self._particleParticleSpawnInterval = interval
+    self:syncProperty( "HoloParticleAnimation_ParticleSpawnInterval", interval, "float" )
+end
+
+function ThisClass:getParticleSpawnInterval()
+    return self._particleParticleSpawnInterval or self.class.PARTICLE_SPAWN_INTERVAL
+end
+
+function ThisClass:setParticleSpawnCount( count )
+    if count < 1 then error( "Expected count to be >= 1" ) end
+
+    self._particleSpawnCount = count
+    self:syncProperty( "HoloParticleAnimation_ParticleSpawnCount", count, 8, true )
+end
+
+function ThisClass:getParticleSpawnCount()
+    return self._particleSpawnCount or self.class.PARTICLE_SPAWN_COUNT
+end
+
+function ThisClass:setParticleLifetime( lifetime )
+    self._particleLifetime = lifetime
+    self:syncProperty( "HoloParticleAnimation_ParticleLifetime", lifetime, "float" )
+end
+
+function ThisClass:getParticleLifetime()
+    return self._particleLifetime or self.class.PARTICLE_LIFETIME
+end
+
+function ThisClass:setParticleModel( model )
+    self._particleModel = model
+    self:syncProperty( "HoloParticleAnimation_ParticleModel", model )
+end
+
+function ThisClass:getParticleModel()
+    return self._particleModel or self.class.PARTICLE_MODEL
+end
+
+function ThisClass:setParticleMaterial( material )
+    self._particleMaterial = material
+    self:syncProperty( "HoloParticleAnimation_ParticleMaterial", material )
+end
+
+function ThisClass:getParticleMaterial()
+    return self._particleMaterial or self.class.PARTICLE_MATERIAL
+end
+
+function ThisClass:setParticleSpreadPitch( spread )
+    self._particleSpreadPitch = spread
+    self:syncProperty( "HoloParticleAnimation_ParticleSpreadPitch", spread, "float" )
+end
+
+function ThisClass:getParticleSpreadPitch()
+    return self._particleSpreadPitch or self.class.PARTICLE_SPREAD_PITCH
+end
+
+function ThisClass:setParticleSpreadYaw( spread )
+    self._particleSpreadYaw = spread
+    self:syncProperty( "HoloParticleAnimation_ParticleSpreadYaw", spread, "float" )
+end
+
+function ThisClass:getParticleSpreadYaw()
+    return self._particleSpreadYaw or self.class.PARTICLE_SPREAD_YAW
+end
+
+function ThisClass:setParticleOffsetPos( pos )
+    self._particleOffsetPos = pos
+    self:syncProperty( "HoloParticleAnimation_ParticleOffsetPos", pos )
+end
+
+function ThisClass:getParticleOffsetPos()
+    return self._particleOffsetPos or self.class.PARTICLE_OFFSET_POS
+end
+
+function ThisClass:setParticleOffsetAng( ang )
+    self._particleOffsetAng = ang
+    self:syncProperty( "HoloParticleAnimation_ParticleOffsetAng", ang )
+end
+
+function ThisClass:getParticleOffsetAng()
+    return self._particleOffsetAng or self.class.PARTICLE_OFFSET_ANG
+end
+
+function ThisClass:setParticleSpeedMin( speed )
+    self._particleSpeedMin = speed
+    self:syncProperty( "HoloParticleAnimation_ParticleSpeedMin", speed, "float" )
+end
+
+function ThisClass:getParticleSpeedMin()
+    return self._particleSpeedMin or self.class.PARTICLE_SPEED_MIN
+end
+
+function ThisClass:setParticleSpeedMax( speed )
+    self._particleSpeedMax = speed
+    self:syncProperty( "HoloParticleAnimation_ParticleSpeedMax", speed, "float" )
+end
+
+function ThisClass:getParticleSpeedMax()
+    return self._particleSpeedMax or self.class.PARTICLE_SPEED_MAX
+end
+
+function ThisClass:setParticleInertia( inertia )
+    self._particleInertia = inertia
+    self:syncProperty( "HoloParticleAnimation_ParticleInertia", inertia, "float" )
+end
+
+function ThisClass:getParticleInertia()
+    return self._particleInertia or self.class.PARTICLE_INERTIA
+end
+
+function ThisClass:setParticleGravity( gravity )
+    if type( gravity ) == "number" then
+        gravity = Vector( 0, 0, -gravity )
+    end
+
+    self._particleGravity = gravity
+    self:syncProperty( "HoloParticleAnimation_ParticleGravity", gravity )
+end
+
+function ThisClass:getParticleGravity()
+    return self._particleGravity or self.class.PARTICLE_GRAVITY
+end
+
+function ThisClass:setParticleHSVMin( hsvColor, rgbColor )
+    if rgbColor then
+        hsvColor = hsvMath.rgbToHSV( rgbColor )
+    end
+
+    self._particleHSVMin = hsvColor
+    self:syncProperty( "HoloParticleAnimation_ParticleHSVMin", hsvColor )
+end
+
+function ThisClass:getParticleHSVMin()
+    return self._particleHSVMin or self.class.PARTICLE_HSV_MIN
+end
+
+function ThisClass:setParticleHSVMax( hsvColor, rgbColor )
+    if rgbColor then
+        hsvColor = hsvMath.rgbToHSV( rgbColor )
+    end
+
+    self._particleHSVMax = hsvColor
+    self:syncProperty( "HoloParticleAnimation_ParticleHSVMax", hsvColor )
+end
+
+function ThisClass:getParticleHSVMax()
+    return self._particleHSVMax or self.class.PARTICLE_HSV_MAX
+end
+
+function ThisClass:setParticleAlphaStart( alpha )
+    self._particleAlphaStart = alpha
+    self:syncProperty( "HoloParticleAnimation_ParticleAlphaStart", alpha, "float" )
+end
+
+function ThisClass:getParticleAlphaStart()
+    return self._particleAlphaStart or self.class.PARTICLE_ALPHA_START
+end
+
+function ThisClass:setParticleAlphaEnd( alpha )
+    self._particleAlphaEnd = alpha
+    self:syncProperty( "HoloParticleAnimation_ParticleAlphaEnd", alpha, "float" )
+end
+
+function ThisClass:getParticleAlphaEnd()
+    return self._particleAlphaEnd or self.class.PARTICLE_ALPHA_END
+end
+
+function ThisClass:setParticleScaleStart( scale )
+    if scale ~= nil and type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
+
+    self._particleScaleStart = scale
+    self:syncProperty( "HoloParticleAnimation_ParticleScaleStart", scale )
+end
+
+function ThisClass:getParticleScaleStart()
+    return self._particleScaleStart or self.class.PARTICLE_SCALE_START
+end
+
+function ThisClass:setParticleScaleEnd( scale )
+    if scale ~= nil and type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
+
+    self._particleScaleEnd = scale
+    self:syncProperty( "HoloParticleAnimation_ParticleScaleEnd", scale )
+end
+
+function ThisClass:getParticleScaleEnd()
+    return self._particleScaleEnd or self.class.PARTICLE_SCALE_END
+end
+
+function ThisClass:setParticleFullbright( fullbright )
+    self._particleFullbright = fullbright
+    self:syncProperty( "HoloParticleAnimation_ParticleFullbright", fullbright )
+end
+
+function ThisClass:getParticleFullbright()
+    local state = self._particleFullbright
+    if state == nil then return self.class.PARTICLE_FULLBRIGHT end
+
+    return state
+end
+
+function ThisClass:getParticles()
+    return self:getHoloGroup( "HoloParticleAnimation_Particle" ) or {}
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ThisClass:think()
+    ThisClass.super.think( self )
+
+    if ( CLIENT or not self:shouldOnlySpawnOnClient() ) and self:isPlaying() then
+        local lastSpawnTime = self._lastSpawnTime or 0
+        local now = timer.curtime()
+
+        if now - lastSpawnTime >= self:getParticleSpawnInterval() then
+            self._lastSpawnTime = now
+
+            for _ = 1, self:getParticleSpawnCount() do
+                self:_spawnParticle()
+            end
+        end
+    end
+
+    local particles = self:getParticles()
+    local dt = self:getThinkDelta() * self:getSpeed()
+
+    for i = #particles, 1, -1 do
+        self:_particleThink( particles[i], dt )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+function ThisClass:_spawnParticle()
+    local pos = self:getPos()
+    local ang = self:getAngles()
+
+    local right = ang:getRight()
+    local up = ang:getUp()
+    local spreadPitch = self:getParticleSpreadPitch()
+    local spreadYaw = self:getParticleSpreadYaw()
+
+    ang = ang:rotateAroundAxis( right, math.rand( -spreadPitch, spreadPitch ) * 180 )
+    ang = ang:rotateAroundAxis( up, math.rand( -spreadYaw, spreadYaw ) * 180 )
+    local velDir = ang:getForward()
+
+    pos, ang = localToWorld( self:getParticleOffsetPos(), self:getParticleOffsetAng(), pos, ang )
+
+    local lifetime = self:getParticleLifetime()
+    local speed = math.rand( self:getParticleSpeedMin(), self:getParticleSpeedMax() )
+    local hsvMin = self:getParticleHSVMin()
+    local hsvMax = self:getParticleHSVMax()
+    local alphaStart = self:getParticleAlphaStart()
+    local alphaEnd = self:getParticleAlphaEnd()
+    local scaleStart = self:getParticleScaleStart()
+    local scaleEnd = self:getParticleScaleEnd()
+    local color = hsvMath.hsvToRGB( Color( math.rand( hsvMin.r, hsvMax.r ), math.rand( hsvMin.g, hsvMax.g ), math.rand( hsvMin.b, hsvMax.b ), alphaStart ) )
+
+    self:queueGroupedHolo(
+        {
+            Model = self:getParticleModel(),
+            Material = self:getParticleMaterial(),
+            Pos = pos,
+            Ang = ang,
+            Color = color,
+            Alpha = alphaStart,
+            Scale = scaleStart,
+            AutoScale = true,
+            Fullbright = self:getParticleFullbright(),
+
+            ExtraData = {
+                _lifetime = lifetime,
+                _vel = velDir * speed,
+                _inertia = self:getParticleInertia(),
+                _alphaStart = alphaStart,
+                _alphaEnd = alphaEnd,
+                _scaleStart = scaleStart,
+                _scaleEnd = scaleEnd,
+                _color = color,
+                _gravity = self:getParticleGravity(),
+            },
+
+            Callback = function( holo )
+                local now = timer.curtime()
+
+                holo._startTime = now
+                holo._curTime = now
+            end,
+        },
+        "HoloParticleAnimation_Particle"
+    )
+end
+
+function ThisClass:_particleThink( holo, dt )
+    local time = holo._curTime + dt
+    local timeSinceStart = time - holo._startTime
+    local lifetime = holo._lifetime
+
+    if timeSinceStart >= lifetime then
+        self:removeHolo( holo )
+
+        return
+    end
+
+    holo._curTime = time
+
+    local timeFrac = timeSinceStart / lifetime
+    local oldVel = holo._vel
+    local vel = oldVel
+    local inertia = holo._inertia
+    local gravity = holo._gravity
+    local alphaStart = holo._alphaStart
+    local alphaEnd = holo._alphaEnd
+    local scaleStart = holo._scaleStart
+    local scaleEnd = holo._scaleEnd
+
+    if gravity ~= VECTOR_ZERO then
+        vel = vel + gravity * dt
+        holo._vel = vel
+    end
+
+    if inertia ~= 1 then
+        holo._vel = math.lerpVector( dt, vel, vel * inertia )
+    end
+
+    if alphaStart ~= alphaEnd then
+        local color = holo._color
+        color.a = math.lerp( timeFrac, alphaStart, alphaEnd )
+        holo:setColor( color )
+    end
+
+    if scaleStart ~= scaleEnd then
+        holo:setScale( math.lerpVector( timeFrac, scaleStart, scaleEnd ) )
+    end
+
+    if oldSpeed ~= 0 then
+        holo:setPos( holo:getPos() + oldVel * dt )
+    end
+end
+
+
+----- SETUP -----
+
+if SERVER then return end
+
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_OnlySpawnOnClient", function()
+    local anim = Syncable:readSyncedCopy()
+    local onlySpawnOnClient = net.readBool()
+
+    if not anim then return end
+
+    anim:setOnlySpawnOnClient( onlySpawnOnClient )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleSpawnInterval", function()
+    local anim = Syncable:readSyncedCopy()
+    local interval = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleSpawnInterval( interval )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleSpawnCount", function()
+    local anim = Syncable:readSyncedCopy()
+    local count = net.readUInt( 8 )
+
+    if not anim then return end
+
+    anim:setParticleSpawnCount( count )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleLifetime", function()
+    local anim = Syncable:readSyncedCopy()
+    local lifetime = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleLifetime( lifetime )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleModel", function()
+    local anim = Syncable:readSyncedCopy()
+    local model = net.readString()
+
+    if not anim then return end
+
+    anim:setParticleModel( model )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleMaterial", function()
+    local anim = Syncable:readSyncedCopy()
+    local material = net.readString()
+
+    if not anim then return end
+
+    anim:setParticleMaterial( material )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleSpreadPitch", function()
+    local anim = Syncable:readSyncedCopy()
+    local spread = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleSpreadPitch( spread )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleSpreadYaw", function()
+    local anim = Syncable:readSyncedCopy()
+    local spread = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleSpreadYaw( spread )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleOffsetPos", function()
+    local anim = Syncable:readSyncedCopy()
+    local pos = net.readVector()
+
+    if not anim then return end
+
+    anim:setParticleOffsetPos( pos )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleOffsetAng", function()
+    local anim = Syncable:readSyncedCopy()
+    local ang = net.readAngle()
+
+    if not anim then return end
+
+    anim:setParticleOffsetAng( ang )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleSpeedMin", function()
+    local anim = Syncable:readSyncedCopy()
+    local speed = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleSpeedMin( speed )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleSpeedMax", function()
+    local anim = Syncable:readSyncedCopy()
+    local speed = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleSpeedMax( speed )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleInertia", function()
+    local anim = Syncable:readSyncedCopy()
+    local inertia = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleInertia( inertia )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleGravity", function()
+    local anim = Syncable:readSyncedCopy()
+    local gravity = net.readVector()
+
+    if not anim then return end
+
+    anim:setParticleGravity( gravity )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleHSVMin", function()
+    local anim = Syncable:readSyncedCopy()
+    local hsvMin = net.readColor()
+
+    if not anim then return end
+
+    anim:setParticleHSVMin( hsvMin )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleHSVMax", function()
+    local anim = Syncable:readSyncedCopy()
+    local hsvMax = net.readColor()
+
+    if not anim then return end
+
+    anim:setParticleHSVMax( hsvMax )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleAlphaStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local alpha = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleAlphaStart( alpha )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleAlphaEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local alpha = net.readFloat()
+
+    if not anim then return end
+
+    anim:setParticleAlphaEnd( alpha )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleScaleStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local scale = net.readVector()
+
+    if not anim then return end
+
+    anim:setParticleScaleStart( scale )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleScaleEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local scale = net.readVector()
+
+    if not anim then return end
+
+    anim:setParticleScaleEnd( scale )
+end )
+
+net.receive( "LKL_Syncable_Set__HoloParticleAnimation_ParticleFullbright", function()
+    local anim = Syncable:readSyncedCopy()
+    local fullbright = net.readBool()
+
+    if not anim then return end
+
+    anim:setParticleFullbright( fullbright )
+end )
