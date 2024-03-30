@@ -20,6 +20,7 @@ if libMapMesh.DO_WIREFRAME == nil then libMapMesh.DO_WIREFRAME = false end
 if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = false end
 if libMapMesh.SHOW_DISPLACEMENTS == nil then libMapMesh.SHOW_DISPLACEMENTS = true end -- Only works for some maps. See https://github.com/legokidlogan/starfall_data/tree/main/map_data/displacements
 if libMapMesh.HIDE_SKYBOX == nil then libMapMesh.HIDE_SKYBOX = true end -- Hide the skybox region.
+if libMapMesh.SKYBOX_BRUSHES_INTO_WORLD == nil then libMapMesh.SKYBOX_BRUSHES_INTO_WORLD = true end -- Brushes in the skybox that correspond to parts of the world in the void will get scaled up and replicated. e.g. the dividing land in gm_excess_construct_13.
 libMapMesh.MESH_SCALE_OVERRIDE = libMapMesh.MESH_SCALE_OVERRIDE or nil -- Set to a number to override the mesh scale, instead of using map bounds and mesh width.
 libMapMesh.MESH_OFFSET_OVERRIDE = libMapMesh.MESH_OFFSET_OVERRIDE or nil -- Set to a vector to override the mesh offset, instead of using map bounds.
 
@@ -50,6 +51,7 @@ local meshMapDoWireframe = libMapMesh.DO_WIREFRAME
 local meshMapAddFloor = libMapMesh.ADD_FLOOR
 local meshMapShowDisplacements = libMapMesh.SHOW_DISPLACEMENTS
 local meshMapHideSkybox = libMapMesh.HIDE_SKYBOX
+local meshMapSkyboxBrushesIntoWorld = libMapMesh.SKYBOX_BRUSHES_INTO_WORLD
 
 local meshMapHideNoDraw = libMapMesh.HIDE_NO_DRAW
 local meshMapNoDrawColor = libMapMesh.NO_DRAW_COLOR
@@ -273,6 +275,7 @@ require( "lkl/queue.txt" )
 
 local COLOR_WHITE = Color( 255, 255, 255, 255 )
 local COLOR_BLACK = Color( 0, 0, 0, 255 )
+local COLLISION_GROUP_WORLD = COLLISION_GROUP.WORLD
 
 local VERT_GROUP_SIZE_LIMIT = 65535
 local VERT_GROUP_SIZE_LIMIT_SOFT = VERT_GROUP_SIZE_LIMIT - 3 * 100
@@ -354,6 +357,76 @@ local function startCreatingMesh()
     end )
 end
 
+local function tryAddSkyboxBrushIntoWorld( surface, surfaceInd, verts, vertCount )
+    local worldVerts = {}
+    local surfaceCenter = Vector()
+
+    for i = 1, vertCount do
+        local vert = verts[i]
+        if not vert:withinAABox( MAP_SKYBOX_MIN_BOUNDS, MAP_SKYBOX_MAX_BOUNDS ) then return end
+
+        local worldVert = libMapData.skyPosToWorldPos( vert )
+        --if not worldVert:withinAABox( MAP_MIN_BOUNDS, MAP_MAX_BOUNDS ) then return end
+
+        worldVerts[i] = worldVert
+        surfaceCenter = surfaceCenter + worldVert
+    end
+
+    if not trace.line( surfaceCenter, surfaceCenter, nil, nil, COLLISION_GROUP_WORLD ).HitWorld then return end -- Don't replicate if the surface isn't in the void. (clientside approx. of not :isInWorld())
+
+    local surfaceNormal
+
+    if surface.getNormal then
+        surfaceNormal = surface:getNormal()
+    else
+        _, surfaceNormal = world:getBrushPlane( surfaceInd )
+
+        function surface:getNormal()
+            return surfaceNormal
+        end
+    end
+
+    surfaceCenter = surfaceCenter / vertCount
+
+    local isSky = surface:isSky()
+    local isNoDraw = surface:isNoDraw()
+    local isWater = surface:isWater()
+    local mat = surface:getMaterial()
+
+    surfaceCountMinusOne = surfaceCountMinusOne + 1
+    recordVertsQueue:addEntry( {
+        getVertices = function()
+            return worldVerts
+        end,
+
+        getNormal = function()
+            return surfaceNormal
+        end,
+
+        isNoDraw = function()
+            return isNoDraw
+        end,
+
+        isSky = function()
+            return isSky
+        end,
+
+        isWater = function()
+            return isWater
+        end,
+
+        getMaterial = function()
+            return mat
+        end,
+
+        overrideColor = surface.overrideColor,
+        ignoreBlack = surface.ignoreBlack,
+        sampleCountOverride = surface.sampleCountOverride,
+
+        colorCenter = libMapData.worldPosToSkyPos( surfaceCenter ),
+    } )
+end
+
 
 local recordVerts_surfaceInd = -1
 recordVertsQueue = Queue:new(
@@ -366,6 +439,10 @@ recordVertsQueue = Queue:new(
         local surfaceVerts = surface:getVertices()
         local surfaceVertCount = #surfaceVerts
         if surfaceVertCount < 3 then return end
+
+        if meshMapSkyboxBrushesIntoWorld then
+            tryAddSkyboxBrushIntoWorld( surface, recordVerts_surfaceInd, surfaceVerts, surfaceVertCount )
+        end
 
         local isInBounds = isSurfaceInBounds( surfaceVerts, surfaceVertCount )
         if not isInBounds then return end
@@ -403,7 +480,7 @@ recordVertsQueue = Queue:new(
 
         libMapMesh.nudgeSurfaceVerts( surfaceVerts, surfaceNormal, surfaceInd )
 
-        local surfaceCenter = vectorMath.getCenter( surfaceVerts )
+        local surfaceCenter = surface.colorCenter or vectorMath.getCenter( surfaceVerts )
 
         if surfaceVertCount == 3 then
             for i = 1, surfaceVertCount do
