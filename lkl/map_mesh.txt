@@ -286,6 +286,7 @@ local rtNameCopyMat = "lkl_mapmesh_copy_mat"
 local textureCopyMat = nil
 local mapMatsByName = {}
 local mapMatColors = {}
+local tempMaterials = {} -- Materials created for the sake of caching colors. Will get destroyed afterwards.
 
 local renderTraceSurfaceColor = render.traceSurfaceColor
 local mathRand = math.rand
@@ -307,6 +308,14 @@ local function getCachedSurfaceMat( surface )
     mapMatsByName[surfaceMatName] = surfaceMat
 
     return surfaceMat
+end
+
+local function destroyTempMaterials()
+    for _, mat in ipairs( tempMaterials ) do
+        mat:destroy()
+    end
+
+    tempMaterials = {}
 end
 
 local function onFinishLoadingMeshes()
@@ -468,6 +477,7 @@ recordVertsQueue = Queue:new(
     end,
     function()
         curVertGroupSize = 0
+        destroyTempMaterials()
         startCreatingMesh()
     end,
     world:getBrushSurfaces(),
@@ -525,6 +535,55 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
     if not meshMapShowDisplacements then return end
 
     local url = "https://raw.githubusercontent.com/legokidlogan/starfall_data/main/map_data/displacements/" .. game.getMap() .. ".txt"
+    local manualTexMats = {}
+
+    -- Starfall blocks the LightmappedGeneric shader used by some displacements, so we have to go by the texture instead.
+    local function makeDisplacementTempMat( dispInfo, texName )
+        local mat
+
+        pcall( function()
+            mat = material.create( "UnlitGeneric" )
+            mat:setTexture( "$basetexture", texName )
+
+            local colorVec = dispInfo.matColorVec
+            local color2Vec = dispInfo.matColor2Vec
+
+            if colorVec then
+                mat:setVector( "$color", colorVec )
+            end
+
+            if color2Vec then
+                mat:setVector( "$color2", color2Vec )
+            end
+
+            manualTexMats[texName] = mat
+            table.insert( tempMaterials, mat )
+        end )
+
+        return mat or "none"
+    end
+
+    local function getDisplacementMat( dispInfo )
+        local mat
+
+        pcall( function()
+            mat = material.load( dispInfo.matName )
+        end )
+
+        if not mat then
+            local texName = dispInfo.texName
+
+            if texName then
+                mat = manualTexMats[texName] or makeDisplacementTempMat( dispInfo, texName )
+            end
+        end
+
+        if not mat then
+            mat = "none"
+        end
+
+        return mat
+    end
 
     http.get( url, function( data, _, _, code )
         if code ~= 200 then return end
@@ -533,15 +592,7 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
 
         for _, dispInfo in ipairs( meshInfo ) do
             local tris = dispInfo.tris
-            local mat
-
-            pcall( function()
-                mat = material.load( dispInfo.matName )
-            end )
-
-            if not mat then
-                mat = "none"
-            end
+            local mat = getDisplacementMat( dispInfo )
 
             for _, tri in ipairs( tris ) do
                 local normal = tri.n
