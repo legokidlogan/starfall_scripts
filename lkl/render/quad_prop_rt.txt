@@ -1,0 +1,63 @@
+--@name Quad Prop RT
+--@author legokidloga
+--@client
+
+--[[
+    - THIS REQUIRES THE QUAD PROPS ADDON
+        - https://steamcommunity.com/sharedfiles/filedetails/?id=3175047967
+--]]
+
+
+local rtMats = {}
+
+--[[
+    - Creates a rendertarget, material, and rendering hook for drawing a custom material to a quadprop.
+
+    rtName: (string)
+        - Name of the rendertarget to create.
+    renderFunc: (function)
+        - The function to use for drawing to the rendertarget.
+        - Will be called inside a renderoffscreen hook with the rendertarget already selected.
+
+    RETURNS: mat
+        mat: (Material)
+            - A material tied to the rendertarget.
+            - To apply to a quadprop, use quadProp:setCustomMaterial( mat )
+--]]
+function quadprop.makeRT( rtName, renderFunc )
+    if not render.renderTargetExists( rtName ) then
+        render.createRenderTarget( rtName )
+    end
+
+    local mat = rtMats[rtName]
+
+    if not mat then
+        mat = material.create( "UnlitGeneric" )
+        mat:setInt( "$flags", 16 + 32 )
+        mat:setTextureRenderTarget( "$basetexture", rtName )
+
+        rtMats[rtName] = mat
+    end
+
+    hook.add( "renderoffscreen", "DrawQuadPropRT_" .. rtName, function()
+        render.selectRenderTarget( rtName )
+            renderFunc()
+        render.selectRenderTarget()
+    end )
+
+    return mat
+end
+
+-- Destroys a custom rendertarget and material.
+function quadprop.destroyRT( rtName )
+    if not render.renderTargetExists( rtName ) then return end
+
+    hook.remove( "renderoffscreen", "DrawQuadPropRT_" .. rtName )
+    render.destroyRenderTarget( rtName )
+
+    local mat = rtMats[rtName]
+    if not mat then return end
+
+    mat:destroy()
+    rtMats[rtName] = nil
+end
