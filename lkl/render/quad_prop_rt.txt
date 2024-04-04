@@ -24,7 +24,7 @@ local rtMats = {}
             - A material tied to the rendertarget.
             - To apply to a quadprop, use quadProp:setCustomMaterial( mat )
 --]]
-function quadprop.makeRT( rtName, renderFunc )
+function quadprop.createRT( rtName, renderFunc )
     if not render.renderTargetExists( rtName ) then
         render.createRenderTarget( rtName )
     end
