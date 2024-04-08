@@ -363,6 +363,7 @@ if CLIENT then
 
         hook.add( "setupskyboxfog", "LKL_MapData_DataGen_GetSkyboxScale", function( scale )
             hook.remove( "setupskyboxfog", "LKL_MapData_DataGen_GetSkyboxScale" )
+            timer.remove( "LKL_MapData_DataGen_GetSkyboxScale_Timeout" )
 
             if not alreadyHadHUD then
                 enableHud( player(), false )
@@ -370,6 +371,20 @@ if CLIENT then
 
             net.start( "LKL_MapData_DataGen_DefineSkyboxScale" )
             net.writeFloat( scale )
+            net.writeBool( true )
+            net.send()
+        end )
+
+        timer.create( "LKL_MapData_DataGen_GetSkyboxScale_Timeout", 1, 1, function()
+            hook.remove( "setupskyboxfog", "LKL_MapData_DataGen_GetSkyboxScale" )
+
+            if not alreadyHadHUD then
+                enableHud( player(), true )
+            end
+
+            net.start( "LKL_MapData_DataGen_DefineSkyboxScale" )
+            net.writeFloat( 0.0625 ) -- 1 / 16
+            net.writeBool( false )
             net.send()
         end )
     end )
@@ -651,6 +666,13 @@ net.receive( "LKL_MapData_DataGen_DefineSkyboxScale", function( _, ply )
     if ply ~= owner() then return end
 
     skyboxScale = net.readFloat()
+
+    printIf( not libMapData.HIDE_PROGRESS_PRINTS and not net.readBool(),
+        c_white, "[MapData] ",
+        c_alert_red, "    Map fog prevented skybox scale detection! ",
+        c_white, "Using default scale of ",
+        c_yellow, "1/16"
+    )
 
     printIf( not libMapData.HIDE_PROGRESS_PRINTS,
         c_white, "[MapData] ",
