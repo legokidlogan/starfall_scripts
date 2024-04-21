@@ -1,0 +1,536 @@
+--@name Vector Tester
+--@author legokidlogan
+--@shared
+--@owneronly
+
+vectorTester = vectorTester or {}
+if vectorTester._alreadyLoaded then return end
+vectorTester._alreadyLoaded = true
+
+-- LIBRARY CONFIG DEFAULTS:
+
+-- SERVER:
+    -- These can be changed at any time
+    vectorTester.BIT_BUFFER_SIZE = vectorTester.BIT_BUFFER_SIZE or ( 8 * 100 ) -- Won't let net.getBitsLeft() fall below this much when networking show calls.
+
+    -- These cannot be changed after this file is require()'d.
+    vectorTester.NETWORK_INTERVAL = vectorTester.NETWORK_INTERVAL or 0.1
+
+-- CLIENT:
+    -- These can be changed at any time
+    vectorTester.NAME_FORCE_COLOR = vectorTester.NAME_FORCE_COLOR or false -- Should be false or a color. If a color, will force all names to be that color.
+    vectorTester.NAME_RENDER_DISTANCE = vectorTester.NAME_RENDER_DISTANCE or 1000
+
+    -- These can be changed right before calling vectorTester.showVector(), etc. to alter the upcoming vector or angle.
+    vectorTester.ARROW_LENGTH_MULT = vectorTester.ARROW_LENGTH_MULT or ( 7 / 30 )
+
+    -- These cannot be changed after this file is require()'d.
+    vectorTester.NAME_FONT_SIZE = vectorTester.NAME_FONT_SIZE or 16
+    vectorTester.NAME_FONT_OUTLINE = vectorTester.NAME_FONT_OUTLINE == nil and true or vectorTester.NAME_FONT_OUTLINE
+    vectorTester.NAME_FONT_ANTI_ALIAS = vectorTester.NAME_FONT_ANTI_ALIAS == nil and false or vectorTester.NAME_FONT_ANTI_ALIAS
+
+-- END LIBRARY CONFIG DEFAULTS
+
+
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+local COLOR_RED = Color( 255, 0, 0, 255 )
+local COLOR_GREEN = Color( 0, 255, 0, 255 )
+local COLOR_BLUE = Color( 0, 0, 255, 255 )
+local DEFAULT_NAME_PREFIX = SERVER and "__unnamed_sv_" or "__unnamed_cl_"
+
+local nameIncr = 0
+local angsToShow = {}
+local pointsToShow = {}
+local angNameLookup = {}
+local pointNameLookup = {}
+
+local getDefaultParams
+
+
+----- GLOBAL FUNCTIONS -----
+
+--[[
+    - Adds a vector to be shown.
+
+    pos: (Vector)
+        - The origin of the vector.
+    dir: (Vector)
+        - The direction of the vector. Should be length 1.
+        - If 0,0,0 or contains a nan value, will show a point instead with diameter length.
+    length: (optinal) (number)
+        - The length of the vector to show.
+        - If negative, will show the vector in the opposite direction.
+        - If zero, will show a point instead with diameter 1.
+        - Default: 1
+    lifetime: (optional) (number)
+        - The time in seconds to show the vector for.
+        - If zero or less, will not show the vector.
+        - Default: 1
+    color: (optional) (Color)
+        - The color of the vector.
+        - Default: 255,255,255,255
+    name: (optional) (string)
+        - The name of the vector. Used for showing text and removing duplicates.
+        - If a specific vector is going to be repeated over and over, it's best to give it a name, even if you don't want to show the name.
+        - Defaults to a unique name.
+    showName: (optional) (boolean)
+        - Whether to show the name of the vector.
+        - Default: false
+--]]
+function vectorTester.showVector( pos, dir, length, lifetime, color, name, showName )
+    length = length or 1
+
+    if length < 0 then
+        length = -length
+        dir = -dir
+    end
+
+    local x = dir[1]
+    local y = dir[2]
+    local z = dir[3]
+
+    if length == 0 or ( x == 0 and y == 0 and z == 0 ) or x ~= x or y ~= y or z ~= z then
+        vectorTester.showPoint( pos, ( length == 0 and 1 or length ) / 2, lifetime, color, name, showName )
+
+        return
+    end
+
+    vectorTester.showAngle( pos, dir:getAngle(), length, lifetime, color, name, showName )
+end
+
+--[[
+    - Similar to vectorTester.showVector(), but replaces (pos, dir, length) with (startPos, endPos).
+
+    startPos: (Vector)
+        - The origin of the vector.
+    endPos: (Vector)
+        - The end of the vector.
+--]]
+function vectorTester.showVectorFromTo( startPos, endPos, lifetime, color, name, showName )
+    local dir = endPos - startPos
+    local length = dir:getLength()
+
+    if length == 0 then
+        vectorTester.showPoint( startPos, 1, lifetime, color, name, showName )
+
+        return
+    end
+
+    vectorTester.showAngle( startPos, dir:getAngle(), length, lifetime, color, name, showName )
+end
+
+--[[
+    - Similar to vectorTester.showVector(), but replaces (dir) with (ang).
+    - Use this if you want to preserve the angle's roll.
+
+    ang: (Angle)
+        - The angle to use.
+--]]
+function vectorTester.showAngle( pos, ang, length, lifetime, color, name, showName )
+    length = length or 1
+    lifetime, color, name, showName = getDefaultParams( lifetime, color, name, showName )
+
+    if angNameLookup[name] then
+        for i, angData in ipairs( angsToShow ) do
+            if angData.Name == name then
+                table.remove( angsToShow, i )
+
+                break
+            end
+        end
+    end
+
+    if lifetime <= 0 then
+        angNameLookup[name] = nil
+
+        return
+    end
+
+    angNameLookup[name] = true
+
+    if SERVER then
+        table.insert( angsToShow, {
+            Pos = pos,
+            Ang = ang,
+            Length = length,
+            ExpireTime = timer.curtime() + lifetime,
+            Color = color,
+            Name = name,
+            ShowName = showName,
+        } )
+
+        return
+    end
+
+    local forward = ang:getForward()
+    local up = ang:getUp()
+    local endPos = pos + forward * length
+
+    local arrow1 = -forward:rotateAroundAxis( up, 45 ) * length * vectorTester.ARROW_LENGTH_MULT
+    local arrow2 = arrow1:rotateAroundAxis( forward, 180 )
+
+    table.insert( angsToShow, {
+        Pos = pos,
+        EndPos = endPos,
+        ArrowPos1 = endPos + arrow1,
+        ArrowPos2 = endPos + arrow2,
+        ExpireTime = timer.curtime() + lifetime,
+        Color = color,
+        Name = name,
+        ShowName = showName,
+    } )
+end
+
+--[[
+    - Shows the forward, right, and up vectors of an angle.
+
+    pos: (Vector)
+        - The origin of the axes.
+    ang: (Angle)
+        - The angle to use.
+    length: (optional) (number)
+        - The length of the axes to show.
+        - If negative, will show the opposite direction.
+        - If zero, will not show anything.
+        - Default: 1
+    lifetime: (optional) (number)
+        - The time in seconds to show the axes for.
+        - If zero or less, will not show anything.
+        - Default: 1
+    alpha: (optional) (number)
+        - The alpha of the axes.
+        - Default: 255
+    name: (optional) (string)
+        - Same as in vectorTester.showVector().
+    showName: (optional) (boolean)
+        - Same as in vectorTester.showVector().
+--]]
+function vectorTester.showAxes( pos, ang, length, lifetime, alpha, name, showName )
+    local colorForward = COLOR_RED
+    local colorRight = COLOR_GREEN
+    local colorUp = COLOR_BLUE
+
+    if alpha and alpha ~= 255 then
+        colorForward = Color( 255, 0, 0, alpha )
+        colorRight = Color( 0, 255, 0, alpha )
+        colorUp = Color( 0, 0, 255, alpha )
+    end
+
+    lifetime, _, name, showName = getDefaultParams( lifetime, true, name, showName )
+
+    local angRight = ang:rotateAroundAxis( ang:getUp(), -90 )
+    local angUp = ang:rotateAroundAxis( ang:getRight(), 90 )
+
+    if showName and length ~= 0 then
+        local nameColor = ( alpha and alpha ~= 255 ) and Color( 255, 255, 255, alpha ) or COLOR_WHITE
+
+        vectorTester.showPoint( pos, 0, lifetime, nameColor, name, true )
+    else
+        -- Remove old point in case it currently exists and is now being hidden
+        vectorTester.showPoint( pos, 0, -1, nameColor, name, false )
+    end
+
+    vectorTester.showAngle( pos, ang, length, lifetime, colorForward, name .. "_forward", false )
+    vectorTester.showAngle( pos, angRight, length, lifetime, colorRight, name .. "_right", false )
+    vectorTester.showAngle( pos, angUp, length, lifetime, colorUp, name .. "_up", false )
+end
+
+--[[
+    - Shows a point.
+
+    pos: (Vector)
+        - The position of the point.
+    radius: (optional) (number)
+        - The radius of the point.
+        - Default: 1
+    lifetime: (optional) (number)
+        - The time in seconds to show the point for.
+        - If zero or less, will not show the point.
+        - Default: 1
+    color: (optional) (Color)
+        - The color of the point.
+        - Default: 255,255,255,255
+    name: (optional) (string)
+        - The name of the point. Used for showing text and removing duplicates.
+        - If a specific point is going to be repeated over and over, it's best to give it a name, even if you don't want to show the name.
+        - Defaults to a unique name.
+    showName: (optional) (boolean)
+        - Whether to show the name of the point.
+        - Default: false
+--]]
+function vectorTester.showPoint( pos, radius, lifetime, color, name, showName )
+    radius = radius or 1
+    lifetime, color, name, showName = getDefaultParams( lifetime, color, name, showName )
+
+    if pointNameLookup[name] then
+        for i, pointData in ipairs( pointsToShow ) do
+            if pointData.Name == name then
+                table.remove( pointsToShow, i )
+
+                break
+            end
+        end
+    end
+
+    if lifetime <= 0 then
+        pointNameLookup[name] = nil
+
+        return
+    end
+
+    pointNameLookup[name] = true
+
+    if SERVER then
+        table.insert( pointsToShow, {
+            Pos = pos,
+            Radius = radius,
+            ExpireTime = timer.curtime() + lifetime,
+            Color = color,
+            Name = name,
+            ShowName = showName,
+        } )
+
+        return
+    end
+
+    table.insert( pointsToShow, {
+        Pos = pos,
+        Diameter = radius * 2,
+        ExpireTime = timer.curtime() + lifetime,
+        Color = color,
+        Name = name,
+        ShowName = showName,
+    } )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+getDefaultParams = function( lifetime, color, name, showName )
+    lifetime = lifetime or 1
+    color = color or COLOR_WHITE
+    showName = showName or false
+
+    if not name then
+        nameIncr = nameIncr + 1
+        name = DEFAULT_NAME_PREFIX .. nameIncr
+    end
+
+    return lifetime, color, name, showName
+end
+
+
+----- SETUP -----
+
+if SERVER then
+    local function processAngQueue()
+        local now = timer.curtime()
+        local bitBufferSize = vectorTester.BIT_BUFFER_SIZE
+
+        for i = #angsToShow, 1, -1 do
+            local angData = angsToShow[i]
+            local name = angData.Name
+            local expireTime = angData.ExpireTime
+
+            if now > expireTime then
+                table.remove( angsToShow, i )
+                angNameLookup[name] = nil
+
+                continue
+            end
+
+            local bitsNeeded = 401 + #name * 8
+
+            if net.getBitsLeft() - bitsNeeded < bitBufferSize then
+                break
+            end
+
+            net.start( "LKL_VectorTester_Ang" )
+                net.writeVector( angData.Pos )
+                net.writeAngle( angData.Ang )
+                net.writeFloat( angData.Length )
+                net.writeFloat( expireTime )
+                net.writeColor( angData.Color )
+                net.writeString( name )
+                net.writeBool( angData.ShowName )
+            net.send( owner() )
+
+            table.remove( angsToShow, i )
+            angNameLookup[name] = nil
+        end
+    end
+
+    local function processPointQueue()
+        local now = timer.curtime()
+        local bitBufferSize = vectorTester.BIT_BUFFER_SIZE
+
+        for i = #pointsToShow, 1, -1 do
+            local pointData = pointsToShow[i]
+            local name = pointData.Name
+            local expireTime = pointData.ExpireTime
+
+            if now > expireTime then
+                table.remove( pointsToShow, i )
+                pointNameLookup[name] = nil
+
+                continue
+            end
+
+            local bitsNeeded = 313 + #name * 8
+
+            if net.getBitsLeft() - bitsNeeded < bitBufferSize then
+                break
+            end
+
+            net.start( "LKL_VectorTester_Point" )
+                net.writeVector( pointData.Pos )
+                net.writeFloat( pointData.Radius )
+                net.writeFloat( expireTime )
+                net.writeColor( pointData.Color )
+                net.writeString( name )
+                net.writeBool( pointData.ShowName )
+            net.send( owner() )
+
+            table.remove( pointsToShow, i )
+            pointNameLookup[name] = nil
+        end
+    end
+
+
+    timer.create( "LKL_VectorTester_NetQueue", vectorTester.NETWORK_INTERVAL, 0, function()
+        processAngQueue()
+        processPointQueue()
+    end )
+else
+    local nameFont = render.createFont( "Roboto Mono", vectorTester.NAME_FONT_SIZE, 400, vectorTester.NAME_FONT_ANTI_ALIAS, false, false, vectorTester.NAME_FONT_OUTLINE, false, false )
+    local spriteMat = material.create( "UnlitGeneric" )
+    spriteMat:setTexture( "$basetexture", "vgui/circle" )
+    spriteMat:setInt( "$flags", 16 + 32 )
+
+
+    local function drawAngles()
+        local now = timer.curtime()
+
+        local renderSetColor = render.setColor
+        local renderDraw3DLine = render.draw3DLine
+        local tableRemove = table.remove
+
+        for i = #angsToShow, 1, -1 do
+            local angData = angsToShow[i]
+
+            if now > angData.ExpireTime then
+                tableRemove( angsToShow, i )
+                angNameLookup[angData.Name] = nil
+
+                continue
+            end
+
+            renderSetColor( angData.Color )
+
+            local endPos = angData.EndPos
+
+            renderDraw3DLine( angData.Pos, endPos )
+            renderDraw3DLine( endPos, angData.ArrowPos1 )
+            renderDraw3DLine( endPos, angData.ArrowPos2 )
+        end
+    end
+
+    local function drawPoints()
+        local now = timer.curtime()
+
+        local renderDraw3DSprite = render.draw3DSprite
+        local tableRemove = table.remove
+
+        render.setMaterial( spriteMat )
+
+        for i = #pointsToShow, 1, -1 do
+            local pointData = pointsToShow[i]
+
+            if now > pointData.ExpireTime then
+                tableRemove( pointsToShow, i )
+                pointNameLookup[pointData.Name] = nil
+
+                continue
+            end
+
+            local diameter = pointData.Diameter
+
+            renderDraw3DSprite( pointData.Pos, diameter, diameter, pointData.Color )
+        end
+    end
+
+    local function drawNames( entries )
+        local now = timer.curtime()
+        local eyePos = render.getEyePos()
+        local nameForceColor = vectorTester.NAME_FORCE_COLOR
+        local nameRenderDist = vectorTester.NAME_RENDER_DISTANCE
+        local nameDontForceColor = not nameForceColor
+
+        local renderSetColor = render.setColor
+        local renderDrawSimpleText = render.drawSimpleText
+
+        render.setFont( nameFont )
+
+        if nameForceColor then
+            render.setColor( nameForceColor )
+        end
+
+        for i = #entries, 1, -1 do
+            local entry = entries[i]
+            if not entry.ShowName then continue end
+            if now > entry.ExpireTime then continue end
+
+            local pos = entry.Pos
+
+            if eyePos:getDistance( pos ) < nameRenderDist then
+                local scrPos = pos:toScreen()
+
+                if scrPos.visible then
+                    if nameDontForceColor then
+                        renderSetColor( entry.Color )
+                    end
+
+                    renderDrawSimpleText( scrPos.x, scrPos.y, entry.Name, 1, 1 )
+                end
+            end
+        end
+    end
+
+
+    hook.add( "PostDrawTranslucentRenderables", "LKL_VectorTester_Render", function()
+        drawAngles()
+        drawPoints()
+    end )
+
+    hook.add( "DrawHUD", "LKL_VectorTester_RenderNames", function()
+        drawNames( angsToShow )
+        drawNames( pointsToShow )
+    end )
+
+
+    net.receive( "LKL_VectorTester_Ang", function()
+        local pos = net.readVector()
+        local ang = net.readAngle()
+        local length = net.readFloat()
+        local expireTime = net.readFloat()
+        local color = net.readColor()
+        local name = net.readString()
+        local showName = net.readBool()
+
+        vectorTester.showAngle( pos, ang, length, expireTime - timer.curtime(), color, name, showName )
+    end )
+
+    net.receive( "LKL_VectorTester_Point", function()
+        local pos = net.readVector()
+        local radius = net.readFloat()
+        local expireTime = net.readFloat()
+        local color = net.readColor()
+        local name = net.readString()
+        local showName = net.readBool()
+
+        vectorTester.showPoint( pos, radius, expireTime - timer.curtime(), color, name, showName )
+    end )
+
+
+    enableHud( owner(), true )
+end
