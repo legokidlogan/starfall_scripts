@@ -31,6 +31,8 @@ function Label:initialize( parent )
 
     self._renderedTextWidth = 0
     self._renderedTextHeight = 0
+    self._renderedTextPosX = 0
+    self._renderedTextPosY = 0
 
     self:setSize( 200, 25 )
     self:setTextAlign( TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
@@ -130,6 +132,18 @@ function Label:getRenderedTextSize()
     return self:getRenderedTextWidth(), self:getRenderedTextHeight()
 end
 
+function Label:getRenderedTextPosX()
+    return self._renderedTextPosX
+end
+
+function Label:getRenderedTextPosY()
+    return self._renderedTextPosY
+end
+
+function Label:getRenderedTextPos()
+    return self._renderedTextPosX, self._renderedTextPosY
+end
+
 --[[
     - Returns a width and height that would cause the Label to perfectly fit the text.
     - Uses the rendered text size and inner margins.
@@ -209,6 +223,9 @@ function Label:handleDraw()
 
         self:onRenderedTextSizeChanged( textWidthOld, textHeightOld, textWidth, textHeight )
     end
+
+    self._renderedTextPosX = x
+    self._renderedTextPosY = y
 end
 
 
