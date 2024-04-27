@@ -43,6 +43,18 @@
             state: (boolean)
                 - true if the mouse was clicked.
                 - false if the mouse was released.
+
+
+    - RENDER HOOKS:
+        LKL_SGUI_PreRender
+            - Called before any SGUI rendering is done.
+
+        LKL_SGUI_PreRenderExtraDrawCalls
+            - Called right before extra draw calls are rendered.
+            - :handleOrderedDraw() and :handleOrderedDrawBackground() will be called after this.
+
+        LKL_SGUI_PostRender
+            - Called after all SGUI rendering is done.
 --]]
 
 
@@ -2405,6 +2417,8 @@ hook.add( "render", "LKL_SGUI_AutoDraw", function()
 
     wipeExtraDrawCalls()
 
+    hook.run( "LKL_SGUI_PreRender" )
+
     for _, panel in ipairs( parentlessPanels ) do
         if panel:doesAutoDraw() and panel:getAssociatedScreen() == screen then
             if not SGUI.perfCheck() then return end -- Note that perf isn't checked recursively, to recude overhead.
@@ -2413,7 +2427,11 @@ hook.add( "render", "LKL_SGUI_AutoDraw", function()
         end
     end
 
+    hook.run( "LKL_SGUI_PreRenderExtraDrawCalls" )
+
     handleExtraDrawCalls()
+
+    hook.run( "LKL_SGUI_PostRender" )
 end )
 
 hook.add( "think", "LKL_SGUI_MouseHoverAndThink", function()
