@@ -2152,7 +2152,6 @@ end
 
 local function propogateThink( panel )
     if not panel:isVisible() then return end
-    if panel:getAssociatedScreen() == nil and not render.isHUDActive() then return end
 
     panel:think()
 
@@ -2457,12 +2456,14 @@ hook.add( "think", "LKL_SGUI_MouseHoverAndThink", function()
     if not Panel:isThinkEnabled() then return end
 
     local now = realtime()
+    local isHUDInactive = not render.isHUDActive()
 
     thinkDelta = now - lastThinkTime
     lastThinkTime = now
 
     for _, panel in ipairs( parentlessPanels ) do
         if not SGUI.perfCheck() then break end -- Note that perf isn't checked recursively, to recude overhead.
+        if isHUDInactive and panel:getAssociatedScreen() == nil then break end
 
         propogateThink( panel )
     end
