@@ -41,6 +41,10 @@ libMapMesh.COLOR_MODE_2_FULLBRIGHT = libMapMesh.COLOR_MODE_2_FULLBRIGHT or false
 libMapMesh.COLOR_MODE_4_NUM_CYCLES = libMapMesh.COLOR_MODE_4_NUM_CYCLES or 1 -- When using color mode 4, how many cycles of the color wheel to go through.
 libMapMesh.HSV_SATURATION = libMapMesh.HSV_SATURATION or 1 -- Used by color modes 4 and 5.
 libMapMesh.HSV_VALUE = libMapMesh.HSV_VALUE or 1 -- Used by color modes 4 and 4.
+
+if libMapMesh.MESH_EXPORT == nil then libMapMesh.MESH_EXPORT = false end -- Whether or not to export the mesh to multiple files.
+if libMapMesh.MESH_EXPORT_COMPRESSED == nil then libMapMesh.MESH_EXPORT_COMPRESSED = true end -- When exporting meshes, do so compressed.
+libMapMesh.MESH_EXPORT_SUBFOLDER = libMapMesh.MESH_EXPORT_SUBFOLDER or "" -- Subfolder to export meshes to. Will be created in "lkl/map_mesh/exports/MAP/SUBFOLDER/". Leave empty for no subfolder.
 -- END CONFIG DEFAULTS
 
 
@@ -71,6 +75,14 @@ local meshMapColorMode4NumCycles = libMapMesh.COLOR_MODE_4_NUM_CYCLES
 local meshMapHSVSaturation = libMapMesh.HSV_SATURATION
 local meshMapHSVValue = libMapMesh.HSV_VALUE
 
+local meshMapExport = libMapMesh.MESH_EXPORT
+local meshMapExportCompressed = libMapMesh.MESH_EXPORT_COMPRESSED
+local meshMapExportSubfolder = libMapMesh.MESH_EXPORT_SUBFOLDER
+
+if meshMapExportSubfolder ~= "" and string.sub( meshMapExportSubfolder, -1 ) ~= "/" then
+    meshMapExportSubfolder = meshMapExportSubfolder .. "/"
+end
+
 local MODEL_CUBE = "models/hunter/blocks/cube025x025x025.mdl"
 
 local MAP_MIN_BOUNDS = nil
@@ -92,6 +104,7 @@ local meshesReady = false
 local meshMat = nil
 local mapDataReady = false
 local recordVertsQueue = nil
+local meshMapExportFolder = "lkl/map_mesh/exports/" .. game.getMap() .. "/" .. meshMapExportSubfolder
 
 
 ----- PUBLIC FUNCTIONS -----
@@ -324,6 +337,14 @@ end
 local function onFinishLoadingMeshes()
     meshesReady = true
 
+    if meshMapExport and player() == owner() then
+        if meshMapExportSubfolder == "" then
+            print( "Map meshes exported to " .. meshMapExportFolder )
+        else
+            print( "Map meshes exported to " .. meshMapExportFolder )
+        end
+    end
+
     hook.run( "LKL_MapMesh_MeshesReady" )
 end
 
@@ -337,6 +358,16 @@ local function startCreatingMesh()
     end
 
     curVertGroupSize = #curVertGroup
+
+    if meshMapExport and player() == owner() then
+        local meshData = json.encode( curVertGroup )
+
+        if meshMapExportCompressed then
+            meshData = bit.compress( meshData )
+        end
+
+        file.write( meshMapExportFolder .. "mesh_" .. ( #meshes + 1 ) .. ".txt", meshData )
+    end
 
     local curMesh = nil
     local loadMesh = coroutine.wrap( function() curMesh = mesh.createFromTable( curVertGroup, true ) return true end )
@@ -729,6 +760,17 @@ do
     meshMat = material.create( "UnlitGeneric" )
     meshMat:setTextureRenderTarget( "$basetexture", rtNameMesh )
     meshMat:setInt( "$flags", 16 + 2048 + ( meshMapDoWireframe and 268435456 or 0 ) )
+
+    -- Delete old mesh files, in case the final count goes down.
+    if meshMapExport and player() == owner() then
+        file.createDir( meshMapExportFolder )
+
+        local fileNames = file.find( meshMapExportFolder .. "mesh_*.txt" )
+
+        for _, fileName in ipairs( fileNames ) do
+            file.delete( meshMapExportFolder .. fileName )
+        end
+    end
 end
 
 
