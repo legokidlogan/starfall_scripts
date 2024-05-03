@@ -41,6 +41,7 @@ libMapMesh.COLOR_MODE_2_FULLBRIGHT = libMapMesh.COLOR_MODE_2_FULLBRIGHT or false
 libMapMesh.COLOR_MODE_4_NUM_CYCLES = libMapMesh.COLOR_MODE_4_NUM_CYCLES or 1 -- When using color mode 4, how many cycles of the color wheel to go through.
 libMapMesh.HSV_SATURATION = libMapMesh.HSV_SATURATION or 1 -- Used by color modes 4 and 5.
 libMapMesh.HSV_VALUE = libMapMesh.HSV_VALUE or 1 -- Used by color modes 4 and 4.
+libMapMesh.GRAYSCALE = libMapMesh.GRAYSCALE or false -- Whether or not to convert the color to grayscale. APplies after all other color options.
 
 if libMapMesh.MESH_EXPORT == nil then libMapMesh.MESH_EXPORT = false end -- Whether or not to export the mesh to multiple files.
 if libMapMesh.MESH_EXPORT_COMPRESSED == nil then libMapMesh.MESH_EXPORT_COMPRESSED = true end -- When exporting meshes, do so compressed.
@@ -74,6 +75,7 @@ local meshMapColorMode2Fullbright = libMapMesh.COLOR_MODE_2_FULLBRIGHT
 local meshMapColorMode4NumCycles = libMapMesh.COLOR_MODE_4_NUM_CYCLES
 local meshMapHSVSaturation = libMapMesh.HSV_SATURATION
 local meshMapHSVValue = libMapMesh.HSV_VALUE
+local meshMapGrayscale = libMapMesh.GRAYSCALE
 
 local meshMapExport = libMapMesh.MESH_EXPORT
 local meshMapExportCompressed = libMapMesh.MESH_EXPORT_COMPRESSED
@@ -971,6 +973,17 @@ elseif meshMapColorMode == 5 then
     end
 else
     error( "Invalid COLOR_MODE in libMapMesh" )
+end
+
+if meshMapGrayscale then
+    local _getMapColor = getMapColor
+    getMapColor = function( ... )
+        local color = _getMapColor( ... )
+        local hsv = color:rgbToHSV()
+        hsv.g = 0
+
+        return hsv:hsvToRGB()
+    end
 end
 
 libMapMesh.getMapColor = getMapColor
