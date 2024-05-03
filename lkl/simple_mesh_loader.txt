@@ -1,0 +1,467 @@
+--@name Simple Mesh Loader
+--@author legokidlogan
+--@shared
+--@include lkl/math/vector_math.txt
+
+simpleMeshLoader = simpleMeshLoader or {}
+if simpleMeshLoader._alreadyLoaded then return end
+simpleMeshLoader._alreadyLoaded = true
+
+simpleMeshLoader.PERF_LIMIT = simpleMeshLoader.PERF_LIMIT or 0.4
+simpleMeshLoader.WIREFRAME = simpleMeshLoader.WIREFRAME or false
+
+
+if SERVER then
+    net.receive( "LKL_SML_LoadMeshesFromJSONCompressed", function( _, ply )
+        if ply ~= owner() then return end
+
+        local pos = net.readVector()
+        local ang = net.readAngle()
+        local scale = net.readVector()
+        local isMatAPath = net.readBool()
+        local mat = net.readString()
+        local callbackName = net.readString()
+
+        local targets = {}
+
+        for _ = 1, net.readUInt( 8 ) do
+            local target = net.readEntity()
+
+            if isValid( target ) then
+                table.insert( targets, target )
+            end
+        end
+
+        local jsonStrCount = net.readUInt( 16 )
+        local jsonStrLengths = {}
+
+        for _ = 1, jsonStrCount do
+            table.insert( jsonStrLengths, net.readUInt( 32 ) )
+        end
+
+        net.readStream( function( jsonStrsCombined )
+            for i = #targets, 1, -1 do
+                if not isValid( targets[i] ) then
+                    table.remove( targets, i )
+                end
+            end
+
+            net.start( "LKL_SML_LoadMeshesFromJSONCompressed" )
+                net.writeVector( pos )
+                net.writeAngle( ang )
+                net.writeVector( scale )
+                net.writeBool( isMatAPath )
+                net.writeString( mat )
+                net.writeString( callbackName )
+
+                net.writeUInt( jsonStrCount, 16 )
+
+                for i = 1, jsonStrCount do
+                    net.writeUInt( jsonStrLengths[i], 32 )
+                end
+
+                net.writeStream( jsonStrsCombined, false )
+            net.send( targets )
+        end )
+    end )
+
+
+    return
+end
+
+
+require( "lkl/math/vector_math.txt" )
+
+local getCallback
+local fixVertColors
+local getFilesInFolder
+
+local meshMat = material.create( "UnlitGeneric" )
+meshMat:setTexture( "$basetexture", "color/white" )
+meshMat:setInt( "$flags", 16 + 2048 + ( simpleMeshLoader.WIREFRAME and 268435456 or 0 ) )
+
+
+----- GLOBAL FUNCTIONS (Mesh Loading) -----
+
+function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback )
+    pos = pos or Vector()
+    ang = ang or Angle()
+    scale = scale or Vector( 1, 1, 1 )
+    mat = mat or meshMat
+    callback = getCallback( callback )
+
+    local verts = {}
+
+    local function processVerts()
+        local curMesh = nil
+        local convexVerts = nil
+        local _
+        local loadMesh = coroutine.wrap( function() curMesh = mesh.createFromTable( verts, true ) return true end )
+
+        local function onThreadingDone()
+            local minBounds = vectorMath.minPiecewiseMulti( convexVerts ) * scale
+            local maxBounds = vectorMath.maxPiecewiseMulti( convexVerts ) * scale
+
+            local holo = hologram.create( pos, ang, "models/hunter/blocks/cube025x025x025.mdl", scale )
+            holo:setMesh( curMesh )
+            holo:setMeshMaterial( meshMat )
+            holo:setRenderBounds( minBounds, maxBounds )
+
+            callback( holo )
+        end
+
+        local function findMeshBounds()
+            local getConvexHull = coroutine.wrap( function() _, convexVerts = mesh.findConvexHull( verts, true ) return true end )
+
+            hook.add( "think", "LKL_SML_LoadMesh", function()
+                local perfLimit = quotaMax() * simpleMeshLoader.PERF_LIMIT
+
+                while quotaAverage() < perfLimit do
+                    if getConvexHull() == true then
+                        hook.remove( "think", "LKL_SML_LoadMesh" )
+
+                        onThreadingDone()
+
+                        return
+                    end
+                end
+            end )
+        end
+
+        hook.add( "think", "LKL_SML_LoadMesh", function()
+            local perfLimit = quotaMax() * simpleMeshLoader.PERF_LIMIT
+
+            while quotaAverage() < perfLimit do
+                if loadMesh() == true then
+                    hook.remove( "think", "LKL_SML_LoadMesh" )
+
+                    findMeshBounds()
+
+                    return
+                end
+            end
+        end )
+    end
+
+    -- Account for the 15000 element limit of json.decode() and the operation intensity of it.
+
+    local chunkVerts = nil
+    local fixingVertColors = false
+    local chunkSize = 5000 -- Smaller chunks to avoid hitting quota limits
+
+    local jsonStrSplit = string.split( jsonStr, "}," )
+    local prevInd = 0
+    local elemCount = #jsonStrSplit
+
+    jsonStrSplit[1] = jsonStrSplit[1]:sub( 2 ) -- Remove the starting [
+    jsonStrSplit[elemCount] = jsonStrSplit[elemCount]:sub( 1, -3 ) -- Remove the ending }]
+
+    timer.create( "LKL_SML_LoadMesh", 0.5, 0, function()
+        if cpuTotalAverage() > quotaMax() * simpleMeshLoader.PERF_LIMIT then return end
+
+        if fixingVertColors then
+            fixVertColors( chunkVerts )
+            table.add( verts, chunkVerts )
+            fixingVertColors = false
+
+            return
+        end
+
+        if prevInd >= elemCount then
+            timer.remove( "LKL_SML_LoadMesh" )
+            processVerts()
+
+            return
+        end
+
+        local nextInd = math.min( prevInd + chunkSize, elemCount )
+        local jsonStrChunk = "[" .. table.concat( jsonStrSplit, "},", prevInd + 1, nextInd ) .. "}]"
+
+        prevInd = nextInd
+        chunkVerts = json.decode( jsonStrChunk )
+        fixingVertColors = true
+    end )
+end
+
+function simpleMeshLoader.loadFromJSONCompressed( jsonStrCompressed, pos, ang, scale, mat, callback )
+    local jsonStr = bit.decompress( jsonStrCompressed )
+
+    simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback )
+end
+
+function simpleMeshLoader.loadFromFile( fileName, pos, ang, scale, mat, callback )
+    simpleMeshLoader.loadFromJSON( file.read( fileName ), pos, ang, scale, mat, callback )
+end
+
+function simpleMeshLoader.loadFromFileCompressed( fileName, pos, ang, scale, mat, callback )
+    simpleMeshLoader.loadFromJSONCompressed( file.read( fileName ), pos, ang, scale, mat, callback )
+end
+
+function simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
+    local cb = getCallback( callback )
+    local holos = {}
+    local incr = 0
+    local meshCount = #jsonStrs
+
+    callback = function( holo )
+        if holo then
+            incr = incr + 1
+            holos[incr] = holo
+        end
+
+        if incr >= meshCount then
+            cb( holos )
+        else
+            simpleMeshLoader.loadFromJSON( jsonStrs[incr + 1], pos, ang, scale, mat, callback )
+        end
+    end
+
+    callback( nil )
+end
+
+function simpleMeshLoader.loadFromJSONCompressedMulti( jsonStrsCompressed, pos, ang, scale, mat, callback )
+    local jsonStrs = {}
+
+    for i = 1, #jsonStrsCompressed do
+        jsonStrs[i] = bit.decompress( jsonStrsCompressed[i] )
+    end
+
+    simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
+end
+
+function simpleMeshLoader.loadFromFileMulti( fileNames, pos, ang, scale, mat, callback )
+    local jsonStrs = {}
+
+    for i = 1, #fileNames do
+        jsonStrs[i] = file.read( fileNames[i] )
+    end
+
+    simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
+end
+
+function simpleMeshLoader.loadFromFileCompressedMulti( fileNames, pos, ang, scale, mat, callback )
+    local jsonStrs = {}
+
+    for i = 1, #fileNames do
+        jsonStrs[i] = bit.decompress( file.read( fileNames[i] ) )
+    end
+
+    simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
+end
+
+function simpleMeshLoader.loadFromFolder( folderName, pos, ang, scale, mat, callback )
+    simpleMeshLoader.loadFromFileMulti( getFilesInFolder( folderName ), pos, ang, scale, mat, callback )
+end
+
+function simpleMeshLoader.loadFromFolderCompressed( folderName, pos, ang, scale, mat, callback )
+    simpleMeshLoader.loadFromFileCompressedMulti( getFilesInFolder( folderName ), pos, ang, scale, mat, callback )
+end
+
+
+----- GLOBAL FUNCTIONS (JSON Distribution) -----
+
+function simpleMeshLoader.jsonFromFile( fileName )
+    return file.read( fileName )
+end
+
+function simpleMeshLoader.jsonFromFileCompressed( fileName )
+    return bit.decompress( file.read( fileName ) )
+end
+
+function simpleMeshLoader.jsonFromFileMulti( fileNames )
+    local jsonStrs = {}
+
+    for i = 1, #fileNames do
+        jsonStrs[i] = file.read( fileNames[i] )
+    end
+
+    return jsonStrs
+end
+
+function simpleMeshLoader.jsonFromFileCompressedMulti( fileNames )
+    local jsonStrs = {}
+
+    for i = 1, #fileNames do
+        jsonStrs[i] = bit.decompress( file.read( fileNames[i] ) )
+    end
+
+    return jsonStrs
+end
+
+function simpleMeshLoader.jsonFromFolder( folderName )
+    return simpleMeshLoader.jsonFromFileMulti( getFilesInFolder( folderName ) )
+end
+
+function simpleMeshLoader.jsonFromFolderCompressed( folderName )
+    return simpleMeshLoader.jsonFromFileCompressedMulti( getFilesInFolder( folderName ) )
+end
+
+function simpleMeshLoader.loadJSONOnOthers( jsonStrs, pos, ang, scale, mat, callbackName, isCompressed, targets )
+    if player() ~= owner() then return end
+
+    local isMatAPath = false
+
+    if not mat then
+        mat = "[MESH_MAT]"
+    elseif type( mat ) ~= "string" then
+        mat = mat:getName()
+        isMatAPath = true
+    end
+
+    pos = pos or Vector()
+    ang = ang or Angle()
+    scale = scale or Vector( 1, 1, 1 )
+    callbackName = callbackName or "[NONE]"
+
+    if type( jsonStrs ) == "string" then
+        jsonStrs = { jsonStrs }
+    end
+
+    targets = targets or find.allPlayers()
+
+    local targetsHadOwner = table.removeByValue( targets, owner() )
+
+    if targetsHadOwner then
+        if isCompressed then
+            simpleMeshLoader.loadFromJSONCompressedMulti( jsonStrs, pos, ang, scale, mat, callbackName )
+        else
+            simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callbackName )
+        end
+    end
+
+    if #targets == 0 then return end
+
+    if not isCompressed then
+        for i, jsonStr in ipairs( jsonStrs ) do
+            jsonStrs[i] = bit.compress( jsonStr )
+        end
+    end
+
+    local jsonStrsCombined = ""
+
+    net.start( "LKL_SML_LoadMeshesFromJSONCompressed" )
+        net.writeVector( pos )
+        net.writeAngle( ang )
+        net.writeVector( scale )
+        net.writeBool( isMatAPath )
+        net.writeString( mat )
+        net.writeString( callbackName )
+
+        net.writeUInt( #targets, 8 )
+
+        for _, target in ipairs( targets ) do
+            net.writeEntity( target )
+        end
+
+        net.writeUInt( #jsonStrs, 16 )
+
+        for _, jsonStr in ipairs( jsonStrs ) do
+            net.writeUInt( #jsonStr, 32 )
+            jsonStrsCombined = jsonStrsCombined .. jsonStr
+        end
+
+        net.writeStream( jsonStrsCombined, false )
+    net.send()
+end
+
+function simpleMeshLoader.loadFileOnOthers( fileName, pos, ang, scale, mat, callbackName, isCompressed, targets )
+    if player() ~= owner() then return end
+
+    local jsonStr = file.read( fileName )
+
+    simpleMeshLoader.loadJSONOnOthers( jsonStr, pos, ang, scale, mat, callbackName, isCompressed, targets )
+end
+
+function simpleMeshLoader.loadFolderOnOthers( folderName, pos, ang, scale, mat, callbackName, isCompressed, targets )
+    if player() ~= owner() then return end
+
+    local jsonStrs = simpleMeshLoader.jsonFromFolder( folderName )
+
+    simpleMeshLoader.loadJSONOnOthers( jsonStrs, pos, ang, scale, mat, callbackName, isCompressed, targets )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+getCallback = function( callback )
+    if type( callback ) == "function" then return callback end
+
+    if type( callback ) == "string" then
+        return function( holos )
+            if type( holos ) ~= "table" then
+                holos = { holos }
+            end
+
+            hook.run( "LKL_SML_MeshesLoaded", holos, callback )
+        end
+    end
+
+    return function() end
+end
+
+getFilesInFolder = function( folderName )
+    if folderName:sub( -1 ) == "/" then
+        folderName = folderName:sub( 1, -2 )
+    end
+
+    local fileNames = file.find( folderName .. "/*.txt", "DATA" )
+
+    for i = 1, #fileNames do
+        fileNames[i] = folderName .. "/" .. fileNames[i]
+    end
+
+    return fileNames
+end
+
+fixVertColors = function( verts )
+    for _, vert in ipairs( verts ) do
+        local color = vert.color
+
+        if color then
+            vert.color = Color( color.r, color.g, color.b, color.a )
+        end
+    end
+end
+
+
+net.receive( "LKL_SML_LoadMeshesFromJSONCompressed", function()
+    local pos = net.readVector()
+    local ang = net.readAngle()
+    local scale = net.readVector()
+    local isMatAPath = net.readBool()
+    local mat = net.readString()
+    local callbackName = net.readString()
+
+    if isMatAPath then
+        mat = material.load( mat )
+    elseif mat == "[MESH_MAT]" then
+        mat = meshMat
+    else
+        mat = hook.run( "LKL_SML_GetMaterialForName", mat, callbackName ) or meshMat
+    end
+
+    local jsonStrCount = net.readUInt( 16 )
+    local jsonStrLengths = {}
+
+    for _ = 1, jsonStrCount do
+        table.insert( jsonStrLengths, net.readUInt( 32 ) )
+    end
+
+    net.readStream( function( jsonStrsCombined )
+        local jsonStrs = {}
+        local startInd = 1
+
+        for i = 1, jsonStrCount do
+            local endInd = startInd + jsonStrLengths[i] - 1
+            jsonStrs[i] = jsonStrsCombined:sub( startInd, endInd )
+
+            startInd = endInd + 1
+        end
+
+        if callbackName == "[NONE]" then
+            simpleMeshLoader.loadFromJSONCompressedMulti( jsonStrs, pos, ang, scale, mat )
+        else
+            simpleMeshLoader.loadFromJSONCompressedMulti( jsonStrs, pos, ang, scale, mat, callbackName )
+        end
+    end )
+end )
