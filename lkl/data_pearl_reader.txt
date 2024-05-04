@@ -15,10 +15,14 @@ local pearlHoldPosOffset = Vector( 0, 0, 10 )
 
 local btnSet = nil
 local btnLock = nil
+local btnPower = nil
+local btnOwnerOnly = nil
 local pearl = nil
 local lockWeld = nil
 local pearlSettled = false
 local locked = false
+local powered = true
+local ownerOnly = true
 local ready = false
 
 local data = {}
@@ -53,6 +57,43 @@ local function setData( tbl, str, compressed )
     wire.ports.DataCompressed = dataCompressed
 end
 
+local function updateLockButton()
+    btnLock:setSubMaterial( 1, locked and "models/cheeze/buttons2/multiply" or "models/cheeze/buttons2/minus" )
+end
+
+local function updatePowerButton()
+    btnPower:setColor( powered and Color( 0, 255, 0, 255 ) or Color( 255, 0, 0, 255 ) )
+end
+
+local function updateOwnerOnlyButton()
+    btnOwnerOnly:setColor( ownerOnly and Color( 0, 255, 255, 255 ) or Color( 0, 255, 0, 255 ) )
+end
+
+local function setLocked( state )
+    if locked == state then return end
+
+    if not state then
+        if isValid( lockWeld ) then
+            lockWeld:remove()
+        end
+
+        lockWeld = nil
+        locked = false
+        updateLockButton()
+
+        return
+    end
+
+    if not isValid( pearl ) then return end
+    if not pearlSettled then return end
+
+    locked = true
+    updateLockButton()
+
+    pearl:setPos( chip():localToWorld( pearlHoldPosOffset ) )
+    lockWeld = constraint.weld( chip(), pearl )
+end
+
 local function dropPearl()
     if locked then return end
     if not isValid( pearl ) then return end
@@ -64,6 +105,18 @@ local function dropPearl()
     pearlSettled = false
 
     setData()
+end
+
+local function setPower( state )
+    if powered == state then return end
+
+    powered = state
+    updatePowerButton()
+
+    if not powered then
+        setLocked( false )
+        dropPearl()
+    end
 end
 
 local function hookRunRemoteSafe( targets, hookName, ... )
@@ -99,6 +152,18 @@ hook.add( "remote", "LKL_DataPearlReader_IsLocked", function( _callingChip, _cal
     return locked
 end )
 
+hook.add( "remote", "LKL_DataPearlReader_IsPowered", function( _callingChip, _callingPly, hookName )
+    if hookName ~= "LKL_DataPearlReader_IsPowered" then return end
+
+    return powered
+end )
+
+hook.add( "remote", "LKL_DataPearlReader_IsOwnerOnly", function( _callingChip, _callingPly, hookName )
+    if hookName ~= "LKL_DataPearlReader_IsOwnerOnly" then return end
+
+    return ownerOnly
+end )
+
 hook.add( "remote", "LKL_DataPearl_ForceDrop", function( _callingChip, callingPly, hookName )
     if callingPly ~= owner() then return end
     if hookName ~= "LKL_DataPearl_ForceDrop" then return end
@@ -107,7 +172,7 @@ hook.add( "remote", "LKL_DataPearl_ForceDrop", function( _callingChip, callingPl
 end )
 
 hook.add( "KeyPress", "LKL_DataPearlReader_PressButtons", function( ply, key )
-    if ply ~= owner() then return end
+    if ownerOnly and ply ~= owner() then return end
     if key ~= IN_KEY.USE then return end
 
     local ent = ply:getEyeTrace().Entity
@@ -118,22 +183,14 @@ hook.add( "KeyPress", "LKL_DataPearlReader_PressButtons", function( ply, key )
 
         hook.runRemote( pearl, "LKL_DataPearl_WriteData", dataCompressedIn, true )
     elseif ent == btnLock then
-        if not isValid( pearl ) then return end
-        if not pearlSettled then return end
+        setLocked( not locked )
+    elseif ent == btnPower then
+        setPower( not powered )
+    elseif ent == btnOwnerOnly then
+        if ply ~= owner() then return end
 
-        locked = not locked
-        btnLock:setSubMaterial( 1, locked and "models/cheeze/buttons2/multiply" or "models/cheeze/buttons2/minus" )
-
-        if locked then
-            pearl:setPos( chip():localToWorld( pearlHoldPosOffset ) )
-            lockWeld = constraint.weld( chip(), pearl )
-        else
-            if isValid( lockWeld ) then
-                lockWeld:remove()
-            end
-
-            lockWeld = nil
-        end
+        ownerOnly = not ownerOnly
+        updateOwnerOnlyButton()
     end
 end )
 
@@ -142,16 +199,15 @@ hook.add( "think", "LKL_DataPearlReader_PullInPearl", function()
 
     if not isValid( pearl ) then
         pearl = nil
-        locked = false
         pearlSettled = false
-        btnLock:setSubMaterial( 1, locked and "models/cheeze/buttons2/multiply" or "models/cheeze/buttons2/minus" )
-
+        setLocked( false )
         setData()
 
         return
     end
 
     if locked then return end
+    if not powered then return end
 
     local pearlHoldPos = chip():localToWorld( pearlHoldPosOffset )
     local pearlPos = pearl:getPos()
@@ -187,24 +243,41 @@ timer.create( "LKL_DataPearlReader_SpawnButtons", 0.25, 0, function()
             btnSet:setParent( chip() )
             btnSet:doNotDuplicate( true )
         end )
-    else
+    elseif not btnLock then
         pcall( function()
             btnLock = prop.create( chip():localToWorld( Vector( 1.75, 1.5, 1.5 ) ), chip():localToWorldAngles( Angle( 60, 35, 0 ) ), "models/cheeze/buttons2/set_small.mdl", true )
             btnLock:setParent( chip() )
-            btnLock:setSubMaterial( 1, locked and "models/cheeze/buttons2/multiply" or "models/cheeze/buttons2/minus" )
             btnLock:doNotDuplicate( true )
+            updateLockButton()
         end )
+    elseif not btnPower then
+        pcall( function()
+            btnPower = prop.create( chip():localToWorld( Vector( 1.05, 0, 1.2 ) ), chip():localToWorldAngles( Angle( -25, -180, 0 ) ), "models/fasteroid/led_nano.mdl", true )
+            btnPower:setParent( chip() )
+            btnPower:doNotDuplicate( true )
+            btnPower:setMaterial( "model_color" )
+            updatePowerButton()
+        end )
+    elseif not btnOwnerOnly then
+        pcall( function()
+            btnOwnerOnly = prop.create( chip():localToWorld( Vector( 1.45, 0, 0.35 ) ), chip():localToWorldAngles( Angle( 70, 0, 0 ) ), "models/fasteroid/led_nano.mdl", true )
+            btnOwnerOnly:setParent( chip() )
+            btnOwnerOnly:doNotDuplicate( true )
+            btnOwnerOnly:setMaterial( "model_color" )
+            updateOwnerOnlyButton()
+        end )
+    end
 
-        if isValid( btnLock ) then
-            timer.remove( "LKL_DataPearlReader_SpawnButtons" )
-            ready = true
-        end
+    if isValid( btnOwnerOnly ) then
+        timer.remove( "LKL_DataPearlReader_SpawnButtons" )
+        ready = true
     end
 end )
 
 timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
     if not ready then return end
     if locked then return end
+    if not powered then return end
 
     local readerHoldPoss = {}
     local otherReaders = find.byClass( "starfall_processor", function( ent )
@@ -217,10 +290,14 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
     end )
 
     for _, otherChip in ipairs( otherReaders ) do
-        local results = hookRunRemoteSafe( otherChip, "LKL_DataPearlReader_GetHoldPos" )
+        local resultsIsPowered = hookRunRemoteSafe( otherChip, "LKL_DataPearlReader_IsPowered" )
 
-        if results then
-            readerHoldPoss[otherChip] = results[1][1]
+        if resultsIsPowered and resultsIsPowered[1][1] then
+            local resultsGetHoldPos = hookRunRemoteSafe( otherChip, "LKL_DataPearlReader_GetHoldPos" )
+
+            if resultsGetHoldPos then
+                readerHoldPoss[otherChip] = resultsGetHoldPos[1][1]
+            end
         end
     end
 
@@ -237,11 +314,12 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         ent.beingReadBy = beingReadBy
 
         if isValid( beingReadBy ) and beingReadBy ~= chip() then
-            local otherDist = ent:getPos():getDistance( readerHoldPoss[beingReadBy] or Vector() )
+            local otherHoldPos = readerHoldPoss[beingReadBy]
+            local otherDist = otherHoldPos and ent:getPos():getDistance( otherHoldPos ) or math.huge
             if otherDist <= dist then return false end
 
-            local results = hookRunRemoteSafe( beingReadBy, "LKL_DataPearlReader_IsLocked" )
-            if results and results[1][1] then return false end
+            local resultsIsLocked = hookRunRemoteSafe( beingReadBy, "LKL_DataPearlReader_IsLocked" )
+            if resultsIsLocked and resultsIsLocked[1][1] then return false end
         end
 
         return true
