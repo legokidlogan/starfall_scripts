@@ -1,0 +1,248 @@
+--@name Data Pearl
+--@author legokidlogan
+--@shared
+--@model models/sprops/geometry/sphere_3.mdl
+
+-- CONFIG
+local SEND_TO_CLIENTS = true
+local NAME = "Data Pearl" -- Clientside-only display name. Name needs to be "Data Pearl" serverside for fast detection by the pearl reader.
+-- END CONFIG
+
+
+local function fixColors( tbl )
+    for key, value in pairs( tbl ) do
+        if type( value ) == "table" then
+            local r = value.r
+            if not r then continue end
+
+            local g = value.g
+            if not g then continue end
+
+            local b = value.b
+            if not b then continue end
+
+            local a = value.a
+            if not a then continue end
+
+            tbl[key] = Color( r, g, b, a )
+        end
+    end
+end
+
+
+if SERVER then
+    local pearlColor = nil
+    local pearlColorStr = nil
+    local beingReadBy = false
+    local userdataCompressed = getUserdata()
+    local userdataString = ""
+    local userdata = {}
+
+
+    local function sendToClients( targets )
+        if net.isStreaming() then
+            timer.simple( 1, function()
+                sendToClients( targets )
+            end )
+
+            return
+        end
+
+        if type( targets ) == "Player" then
+            if not isValid( targets ) then return end
+        elseif type( targets ) == "table" then
+            for i = #targets, 1, -1 do
+                if not isValid( targets[i] ) then
+                    table.remove( targets, i )
+                end
+            end
+        end
+
+        net.start( "LKL_DataPearl_DataChanged" )
+            if #userdataCompressed < net.getBytesLeft() - 200 then
+                net.writeBool( true )
+                net.writeString( userdataCompressed )
+            else
+                net.writeBool( false )
+                net.writeStream( userdataCompressed, false )
+            end
+        net.send( targets )
+    end
+
+    local function setUserdataCompressed( str )
+        userdataCompressed = str
+        userdataString = bit.decompress( userdataCompressed ) or userdataCompressed
+        userdata = {}
+
+        pcall( function()
+            userdata = json.decode( userdataString ) or {}
+        end )
+
+        fixColors( userdata )
+
+        setUserdata(
+            pearlColorStr ..
+            userdataCompressed
+        )
+
+        hook.runRemote( nil, "LKL_DataPearl_DataChanged", {
+            data = userdata,
+            dataString = userdataString,
+            dataCompressed = userdataCompressed,
+        } )
+
+        if SEND_TO_CLIENTS then
+            sendToClients()
+        end
+    end
+
+
+    ----- SETUP -----
+
+    hook.add( "remote", "LKL_DataPearl_WriteData", function( _callingChip, callingPly, hookName, data, isCompressed )
+        if callingPly ~= owner() then return end
+        if hookName ~= "LKL_DataPearl_WriteData" then return end
+
+        if type( data ) == "table" then
+            data = bit.compress( json.encode( data ) )
+        elseif type( data ) == "string" then
+            if not isCompressed then
+                data = bit.compress( data )
+            end
+        else
+            return
+        end
+
+        if data ~= userdataCompressed then
+            setUserdataCompressed( data )
+        end
+    end )
+
+    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, _callingPly, hookName )
+        if hookName ~= "LKL_DataPearl_ReadData" then return end
+
+        return {
+            data = userdata,
+            dataString = userdataString,
+            dataCompressed = userdataCompressed,
+        }
+    end )
+
+    hook.add( "remote", "LKL_DataPearl_SetBeingReadBy", function( callingChip, callingPly, hookName, state )
+        if callingPly ~= owner() then return end
+        if hookName ~= "LKL_DataPearl_SetBeingReadBy" then return end
+
+        beingReadBy = state and callingChip or false
+    end )
+
+    hook.add( "remote", "LKL_DataPearl_GetBeingReadBy", function( _callingChip, _callingPly, hookName )
+        if hookName ~= "LKL_DataPearl_GetBeingReadBy" then return end
+
+        return beingReadBy
+    end )
+
+    if SEND_TO_CLIENTS then
+        hook.add( "ClientInitialized", "LKL_DataPearl_InitializeData", function( ply )
+            sendToClients( ply )
+        end )
+    end
+
+
+    if userdataCompressed == "" then
+        chip():setMaterial( "sprops/trans/misc/sh_m2" )
+        setUserdata(
+            bit.tohex( math.random( 0, 255 ), 2 ) ..
+            bit.tohex( math.random( 0, 255 ), 2 ) ..
+            bit.tohex( math.random( 0, 255 ), 2 )
+        )
+
+        timer.simple( 0.1, function()
+            chip():setMass( 50 )
+            restart()
+        end )
+    else
+        pearlColorStr = string.sub( userdataCompressed, 1, 6 )
+        pearlColor = Color(
+            tonumber( "0x" .. pearlColorStr:sub( 1, 2 ) ),
+            tonumber( "0x" .. pearlColorStr:sub( 3, 4 ) ),
+            tonumber( "0x" .. pearlColorStr:sub( 5, 6 ) ),
+            255
+        )
+
+        setUserdataCompressed( userdataCompressed:sub( 7 ) )
+
+        timer.simple( 0.1, function()
+            chip():setColor( pearlColor )
+
+            timer.create( "LKL_DataPearl_UpdateColor", 1, 0, function()
+                local color = chip():getColor()
+                color.a = 255
+
+                if color == pearlColor then return end
+
+                pearlColor = color
+                pearlColorStr = pearlColor:toHex( false )
+
+                setUserdata(
+                    pearlColorStr ..
+                    userdataCompressed
+                )
+            end )
+        end )
+    end
+else
+    local userdataCompressed = ""
+    local userdataString = ""
+    local userdata = {}
+    local initialized = false
+
+
+    ----- SETUP -----
+
+    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, _callingPly, hookName )
+        if hookName ~= "LKL_DataPearl_ReadData" then return end
+
+        if not initialized then
+            return false
+        end
+
+        return {
+            data = userdata,
+            dataString = userdataString,
+            dataCompressed = userdataCompressed,
+        }
+    end )
+
+
+    net.receive( "LKL_DataPearl_DataChanged", function()
+        local function onRead( str )
+            userdataCompressed = str
+            userdataString = bit.decompress( userdataCompressed ) or userdataCompressed
+            userdata = {}
+
+            pcall( function()
+                userdata = json.decode( userdataString ) or {}
+            end )
+
+            fixColors( userdata )
+
+            if userdataCompressed == "" then
+                setName( NAME .. " (blank)" )
+            else
+                setName( NAME )
+            end
+
+            hook.runRemote( nil, "LKL_DataPearl_DataChanged", {
+                data = userdata,
+                dataString = userdataString,
+                dataCompressed = userdataCompressed,
+            } )
+        end
+
+        if net.readBool() then
+            onRead( net.readString() )
+        else
+            net.readStream( onRead )
+        end
+    end )
+end

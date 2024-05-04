@@ -1,0 +1,198 @@
+--@name Data Pearl Reader
+--@author legokidlogan
+--@server
+--@model models/sprops/misc/domes/size_0/dome_6x3.mdl
+
+
+-- CONFIG
+local pearlSearchRadius = 40
+local pearlPullStrength = 75
+local pearlPullDampening = 4
+local pearlSettleRadius = 2.5
+local pearlHoldPosOffset = Vector( 0, 0, 10 )
+-- END CONFIG
+
+
+local btnSet = nil
+local btnLock = nil
+local pearl = nil
+local lockWeld = nil
+local pearlSettled = false
+local locked = false
+local ready = false
+
+local data = {}
+local dataString = ""
+local dataCompressed = ""
+local dataCompressedIn = ""
+
+prop.setPropUndo( false )
+prop.setPropClean( true )
+
+wire.adjustInputs( { "DataCompressedIn" }, { "STRING" } )
+wire.adjustOutputs( { "Data", "DataString", "DataCompressed" }, { "TABLE", "STRING", "STRING" } )
+
+if chip():getMaterial() == "" then
+    chip():setMaterial( "phoenix_storms/FuturisticTrackRamp_1-2" )
+end
+
+
+local function wireInput( name, value )
+    if name == "DataCompressedIn" then
+        dataCompressedIn = value
+    end
+end
+
+local function setData( tbl, str, compressed )
+    data = tbl or {}
+    dataString = str or ""
+    dataCompressed = compressed or ""
+
+    wire.ports.Data = data
+    wire.ports.DataString = dataString
+    wire.ports.DataCompressed = dataCompressed
+end
+
+
+hook.add( "input", "LKL_DataPearlReader_WireInput", wireInput )
+
+hook.add( "remote", "LKL_DataPearlReader_DataChanged", function( callingChip, _callingPly, hookName, info )
+    if hookName ~= "LKL_DataPearl_DataChanged" then return end
+    if callingChip ~= pearl then return end
+
+    setData( info.data, info.dataString, info.dataCompressed )
+end )
+
+hook.add( "KeyPress", "LKL_DataPearlReader_PressButtons", function( ply, key )
+    if ply ~= owner() then return end
+    if key ~= IN_KEY.USE then return end
+
+    local ent = ply:getEyeTrace().Entity
+
+    if ent == btnSet then
+        if not isValid( pearl ) then return end
+        if not pearlSettled then return end
+
+        hook.runRemote( pearl, "LKL_DataPearl_WriteData", dataCompressedIn, true )
+    elseif ent == btnLock then
+        if not isValid( pearl ) then return end
+        if not pearlSettled then return end
+
+        locked = not locked
+        btnLock:setSubMaterial( 1, locked and "models/cheeze/buttons2/multiply" or "models/cheeze/buttons2/minus" )
+
+        if locked then
+            pearl:setPos( chip():localToWorld( pearlHoldPosOffset ) )
+            lockWeld = constraint.weld( chip(), pearl )
+        else
+            if isValid( lockWeld ) then
+                lockWeld:remove()
+            end
+
+            lockWeld = nil
+        end
+    end
+end )
+
+hook.add( "think", "LKL_DataPearlReader_PullInPearl", function()
+    if pearl == nil then return end
+
+    if not isValid( pearl ) then
+        pearl = nil
+        locked = false
+        pearlSettled = false
+        btnLock:setSubMaterial( 1, locked and "models/cheeze/buttons2/multiply" or "models/cheeze/buttons2/minus" )
+
+        setData()
+
+        return
+    end
+
+    if locked then return end
+
+    local pearlHoldPos = chip():localToWorld( pearlHoldPosOffset )
+    local pearlPos = pearl:getPos()
+    local toHoldPos = pearlHoldPos - pearlPos
+    local dist = toHoldPos:getLength()
+
+    if dist < pearlSettleRadius and not pearlSettled then
+        pearlSettled = true
+
+        local result = hook.runRemote( pearl, "LKL_DataPearl_ReadData" )[1][1]
+
+        setData( result.data, result.dataString, result.dataCompressed )
+    end
+
+    if dist == 0 then return end
+
+    local physicsMult = timer.frametime() * pearl:getMass()
+    local pearlVelOpposite = -pearl:getVelocity()
+
+    pearl:applyForceCenter(
+        toHoldPos * pearlPullStrength * physicsMult
+        + pearlVelOpposite * pearlPullDampening * physicsMult
+    )
+end )
+
+
+timer.create( "LKL_DataPearlReader_SpawnButtons", 0.25, 0, function()
+    if not prop.canSpawn() then return end
+
+    if not btnSet then
+        pcall( function()
+            btnSet = prop.create( chip():localToWorld( Vector( 1.75, -1.5, 1.5 ) ), chip():localToWorldAngles( Angle( 60, -35, 0 ) ), "models/cheeze/buttons2/set_small.mdl", true )
+            btnSet:setParent( chip() )
+        end )
+    else
+        pcall( function()
+            btnLock = prop.create( chip():localToWorld( Vector( 1.75, 1.5, 1.5 ) ), chip():localToWorldAngles( Angle( 60, 35, 0 ) ), "models/cheeze/buttons2/set_small.mdl", true )
+            btnLock:setParent( chip() )
+            btnLock:setSubMaterial( 1, locked and "models/cheeze/buttons2/multiply" or "models/cheeze/buttons2/minus" )
+        end )
+
+        if isValid( btnLock ) then
+            timer.remove( "LKL_DataPearlReader_SpawnButtons" )
+            ready = true
+        end
+    end
+end )
+
+timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
+    if not ready then return end
+    if locked then return end
+
+    local pearlHoldPos = chip():localToWorld( pearlHoldPosOffset )
+    local nearestPearl = find.closest( find.byClass( "starfall_processor", function( ent )
+        if not isValid( ent ) then return false end
+        if ent:getOwner() ~= owner() then return false end
+        if ent:getChipName() ~= "Data Pearl" then return false end
+        if ent:getPos():getDistance( pearlHoldPos ) > pearlSearchRadius then return false end
+
+        local beingReadBy = hook.runRemote( ent, "LKL_DataPearl_GetBeingReadBy" )[1][1]
+        if isValid( beingReadBy ) and beingReadBy ~= chip() then return false end
+
+        return true
+    end ), pearlHoldPos )
+
+    if nearestPearl == pearl then return end
+
+    if isValid( pearl ) then
+        pearl:enableGravity( true )
+        hook.runRemote( pearl, "LKL_DataPearl_SetBeingReadBy", false )
+    end
+
+    pearlSettled = false
+    pearl = nearestPearl
+
+    if isValid( pearl ) then
+        pearl:enableGravity( false )
+        hook.runRemote( pearl, "LKL_DataPearl_SetBeingReadBy", true )
+    end
+
+    setData()
+end )
+
+
+timer.simple( 1, function()
+    wireInput( "DataCompressedIn", wire.ports.DataCompressedIn )
+end )
