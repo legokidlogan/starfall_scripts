@@ -148,7 +148,7 @@ if SERVER then
             chip():setCollisionGroup( COLLISION_GROUP.PASSABLE_DOOR )
         else
             chip():enableGravity( true )
-            chip():setCollisionGroup( COLLISION_GROUP.NORMAL )
+            chip():setCollisionGroup( COLLISION_GROUP.NONE )
         end
     end
 
