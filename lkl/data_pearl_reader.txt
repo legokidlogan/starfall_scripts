@@ -5,14 +5,14 @@
 
 
 -- CONFIG
-local pearlSearchRadius = 40
-local pearlPullStrength = 75
-local pearlPullDampening = 4
-local pearlSettleRadius = 2.5
-local pearlSettleSpeedThreshold = 50
-local pearlCanUnsettle = true
-local pearlCanUnsettleRadius = 5
-local pearlHoldPosOffset = Vector( 0, 0, 10 )
+local PEARL_SEARCH_RADIUS = 40
+local PEARL_PULL_STRENGTH = 75
+local PEARL_PULL_DAMPENING = 4
+local PEARL_SETTLE_RADIUS = 2.5
+local PEARL_SETTLE_SPEED_THRESHOLD = 50
+local PEARL_CAN_UNSETTLE = true
+local PEARL_UNSETTLE_RADIUS = 5
+local PEARL_HOLD_OFFSET_POS = Vector( 0, 0, 10 )
 -- END CONFIG
 
 
@@ -95,7 +95,7 @@ local function setLocked( state )
     locked = true
     updateLockButton()
 
-    pearl:setPos( chip():localToWorld( pearlHoldPosOffset ) )
+    pearl:setPos( chip():localToWorld( PEARL_HOLD_OFFSET_POS ) )
     lockWeld = constraint.weld( chip(), pearl )
 end
 
@@ -148,7 +148,7 @@ end
 hook.add( "remote", "LKL_DataPearlReader_GetHoldPos", function( _callingChip, _callingPly, hookName )
     if hookName ~= "LKL_DataPearlReader_GetHoldPos" then return end
 
-    return chip():localToWorld( pearlHoldPosOffset )
+    return chip():localToWorld( PEARL_HOLD_OFFSET_POS )
 end )
 
 hook.add( "remote", "LKL_DataPearlReader_IsLocked", function( _callingChip, _callingPly, hookName )
@@ -252,18 +252,18 @@ hook.add( "think", "LKL_DataPearlReader_PullInPearl", function()
     if locked then return end
     if not powered then return end
 
-    local pearlHoldPos = chip():localToWorld( pearlHoldPosOffset )
+    local pearlHoldPos = chip():localToWorld( PEARL_HOLD_OFFSET_POS )
     local pearlPos = pearl:getPos()
     local toHoldPos = pearlHoldPos - pearlPos
     local dist = toHoldPos:getLength()
 
-    if not pearlSettled or pearlCanUnsettle then
+    if not pearlSettled or PEARL_CAN_UNSETTLE then
         local pearlShouldSettle
 
         if pearlSettled then
-            pearlShouldSettle = dist <= pearlCanUnsettleRadius
+            pearlShouldSettle = dist <= PEARL_UNSETTLE_RADIUS
         else
-            pearlShouldSettle = dist <= pearlSettleRadius and pearl:getVelocity():getLength() <= pearlSettleSpeedThreshold
+            pearlShouldSettle = dist <= PEARL_SETTLE_RADIUS and pearl:getVelocity():getLength() <= PEARL_SETTLE_SPEED_THRESHOLD
         end
 
         if pearlShouldSettle ~= pearlSettled then
@@ -285,8 +285,8 @@ hook.add( "think", "LKL_DataPearlReader_PullInPearl", function()
     local pearlVelOpposite = -pearl:getVelocity()
 
     pearl:applyForceCenter(
-        toHoldPos * pearlPullStrength * physicsMult
-        + pearlVelOpposite * pearlPullDampening * physicsMult
+        toHoldPos * PEARL_PULL_STRENGTH * physicsMult
+        + pearlVelOpposite * PEARL_PULL_DAMPENING * physicsMult
     )
 end )
 
@@ -358,14 +358,14 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         end
     end
 
-    local pearlHoldPos = chip():localToWorld( pearlHoldPosOffset )
+    local pearlHoldPos = chip():localToWorld( PEARL_HOLD_OFFSET_POS )
     local nearestPearl = find.closest( find.byClass( "starfall_processor", function( ent )
         if not isValid( ent ) then return false end
         if ent:getOwner() ~= owner() then return false end
         if ent:getChipName() ~= "Data Pearl" then return false end
 
         local dist = ent:getPos():getDistance( pearlHoldPos )
-        if dist > pearlSearchRadius then return false end
+        if dist > PEARL_SEARCH_RADIUS then return false end
 
         local beingReadBy = hook.runRemote( ent, "LKL_DataPearl_GetBeingReadBy" )[1][1]
         ent.beingReadBy = beingReadBy
