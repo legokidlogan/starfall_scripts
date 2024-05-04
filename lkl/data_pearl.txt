@@ -133,6 +133,8 @@ if SERVER then
         ply = isValid( ply ) and ply or false
 
         if ply and isValid( beingReadBy ) then
+            if chip():isFrozen() then return end
+
             local results = hookRunRemoteSafe( beingReadBy, "LKL_DataPearlReader_IsLocked" )
             if results and results[1][1] then return end
         end
@@ -187,6 +189,7 @@ if SERVER then
     hook.add( "remote", "LKL_DataPearl_SetBeingReadBy", function( callingChip, callingPly, hookName, state )
         if callingPly ~= owner() then return end
         if hookName ~= "LKL_DataPearl_SetBeingReadBy" then return end
+        if isValid( beingReadBy ) and callingChip ~= beingReadBy then return end
 
         beingReadBy = state and callingChip or false
     end )

@@ -213,9 +213,10 @@ hook.add( "remote", "LKL_DataPearlReader_DataChanged", function( callingChip, _c
     setData( info.data, info.dataString, info.dataCompressed )
 end )
 
-hook.add( "remote", "LKL_DataPearlReader_ForceDrop", function( _callingChip, callingPly, hookName )
+hook.add( "remote", "LKL_DataPearlReader_ForceDrop", function( _callingChip, callingPly, hookName, pearlToDrop )
     if callingPly ~= owner() then return end
     if hookName ~= "LKL_DataPearlReader_ForceDrop" then return end
+    if pearlToDrop and pearlToDrop ~= pearl then return end
 
     dropPearl()
 end )
@@ -378,11 +379,15 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         if ent:getOwner() ~= owner() then return false end
         if ent:getChipName() ~= "Data Pearl" then return false end
 
-        local dist = ent:getPos():getDistance( pearlHoldPos )
+        ent.beingReadBy = nil
+
+        local entPos = ent:getPos()
+        local dist = entPos:getDistance( pearlHoldPos )
         if dist > PEARL_SEARCH_RADIUS then return false end
 
         local resultsIsBeingGrabbed = hookRunRemoteSafe( ent, "LKL_DataPearl_IsBeingGrabbed" )
-        if resultsIsBeingGrabbed and resultsIsBeingGrabbed[1][1] then return false end
+        if not resultsIsBeingGrabbed then return false end -- Not a valid starfall instance
+        if resultsIsBeingGrabbed[1][1] then return false end
 
         local resultsBeingReadBy = hookRunRemoteSafe( ent, "LKL_DataPearl_GetBeingReadBy" )
         local beingReadBy = resultsBeingReadBy and resultsBeingReadBy[1][1]
@@ -391,7 +396,7 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
 
         if isValid( beingReadBy ) and beingReadBy ~= chip() then
             local otherHoldPos = readerHoldPoss[beingReadBy]
-            local otherDist = otherHoldPos and ent:getPos():getDistance( otherHoldPos ) or math.huge
+            local otherDist = otherHoldPos and entPos:getDistance( otherHoldPos ) or math.huge
             if otherDist <= dist then return false end
 
             local resultsIsLocked = hookRunRemoteSafe( beingReadBy, "LKL_DataPearlReader_IsLocked" )
@@ -414,11 +419,19 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         local otherReader = pearl.beingReadBy
 
         if isValid( otherReader ) and otherReader ~= chip() then
-            hookRunRemoteSafe( otherReader, "LKL_DataPearlReader_ForceDrop" )
+            hookRunRemoteSafe( otherReader, "LKL_DataPearlReader_ForceDrop", pearl )
         end
 
         pearl:enableGravity( false )
         hookRunRemoteSafe( pearl, "LKL_DataPearl_SetBeingReadBy", true )
+
+        timer.create( "LKL_DataPearlReader_MaintainNoGravity", 0.5, 0, function()
+            if isValid( pearl ) then
+                pearl:enableGravity( false )
+            else
+                timer.remove( "LKL_DataPearlReader_MaintainNoGravity" )
+            end
+        end )
     end
 
     setData()
