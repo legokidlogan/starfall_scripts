@@ -341,8 +341,10 @@ timer.create( "LKL_DataPearlReader_SpawnButtons", 0.25, 0, function()
     end
 
     if isValid( btnOwnerOnly ) then
-        timer.remove( "LKL_DataPearlReader_SpawnButtons" )
         ready = true
+
+        timer.remove( "LKL_DataPearlReader_SpawnButtons" )
+        hook.run( "LKL_DataPearlReader_Initialized" )
     end
 end )
 
@@ -435,6 +437,18 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
     end
 
     setData()
+end )
+
+hook.add( "LKL_DataPearlReader_Initialized", "LKL_DataPearlReader_AutoLock", function()
+    local contraption = chip():getAllConstrained( { Weld = true } )
+
+    for _, ent in ipairs( contraption ) do
+        if ent:getOwner() ~= owner() then continue end
+        if ent:getClass() ~= "starfall_processor" then continue end
+        if ent:getChipName() ~= "Data Pearl" then continue end
+
+        constraint.breakType( ent, "Weld" )
+    end
 end )
 
 
