@@ -41,6 +41,8 @@ if chip():getMaterial() == "" then
 end
 
 
+----- PRIVATE FUNCTIONS -----
+
 local function wireInput( name, value )
     if name == "DataCompressedIn" then
         dataCompressedIn = value
@@ -107,7 +109,7 @@ local function dropPearl()
     setData()
 end
 
-local function setPower( state )
+local function setPowered( state )
     if powered == state then return end
 
     powered = state
@@ -117,6 +119,13 @@ local function setPower( state )
         setLocked( false )
         dropPearl()
     end
+end
+
+local function setOwnerOnly( state )
+    if ownerOnly == state then return end
+
+    ownerOnly = state
+    updateOwnerOnlyButton()
 end
 
 local function hookRunRemoteSafe( targets, hookName, ... )
@@ -131,14 +140,7 @@ local function hookRunRemoteSafe( targets, hookName, ... )
 end
 
 
-hook.add( "input", "LKL_DataPearlReader_WireInput", wireInput )
-
-hook.add( "remote", "LKL_DataPearlReader_DataChanged", function( callingChip, _callingPly, hookName, info )
-    if hookName ~= "LKL_DataPearl_DataChanged" then return end
-    if callingChip ~= pearl then return end
-
-    setData( info.data, info.dataString, info.dataCompressed )
-end )
+----- SETUP (Remote Hook Getters) -----
 
 hook.add( "remote", "LKL_DataPearlReader_GetHoldPos", function( _callingChip, _callingPly, hookName )
     if hookName ~= "LKL_DataPearlReader_GetHoldPos" then return end
@@ -164,12 +166,51 @@ hook.add( "remote", "LKL_DataPearlReader_IsOwnerOnly", function( _callingChip, _
     return ownerOnly
 end )
 
+
+----- SETUP (Remote Hook Setters) -----
+
+hook.add( "remote", "LKL_DataPearlReader_SetLocked", function( _callingChip, callingPly, hookName, state )
+    if callingPly ~= owner() then return end
+    if hookName ~= "LKL_DataPearlReader_SetLocked" then return end
+
+    setLocked( state )
+end )
+
+hook.add( "remote", "LKL_DataPearlReader_SetPowered", function( _callingChip, callingPly, hookName, state )
+    if callingPly ~= owner() then return end
+    if hookName ~= "LKL_DataPearlReader_SetPowered" then return end
+
+    setPowered( state )
+end )
+
+hook.add( "remote", "LKL_DataPearlReader_SetOwnerOnly", function( _callingChip, callingPly, hookName, state )
+    if callingPly ~= owner() then return end
+    if hookName ~= "LKL_DataPearlReader_SetOwnerOnly" then return end
+
+    setOwnerOnly( state )
+end )
+
+
+----- SETUP (Remote Hook Listeners) -----
+
+hook.add( "remote", "LKL_DataPearlReader_DataChanged", function( callingChip, _callingPly, hookName, info )
+    if hookName ~= "LKL_DataPearl_DataChanged" then return end
+    if callingChip ~= pearl then return end
+
+    setData( info.data, info.dataString, info.dataCompressed )
+end )
+
 hook.add( "remote", "LKL_DataPearlReader_ForceDrop", function( _callingChip, callingPly, hookName )
     if callingPly ~= owner() then return end
     if hookName ~= "LKL_DataPearlReader_ForceDrop" then return end
 
     dropPearl()
 end )
+
+
+----- SETUP (Misc) -----
+
+hook.add( "input", "LKL_DataPearlReader_WireInput", wireInput )
 
 hook.add( "KeyPress", "LKL_DataPearlReader_PressButtons", function( ply, key )
     if ownerOnly and ply ~= owner() then return end
@@ -185,12 +226,11 @@ hook.add( "KeyPress", "LKL_DataPearlReader_PressButtons", function( ply, key )
     elseif ent == btnLock then
         setLocked( not locked )
     elseif ent == btnPower then
-        setPower( not powered )
+        setPowered( not powered )
     elseif ent == btnOwnerOnly then
         if ply ~= owner() then return end
 
-        ownerOnly = not ownerOnly
-        updateOwnerOnlyButton()
+        setOwnerOnly( not ownerOnly )
     end
 end )
 
