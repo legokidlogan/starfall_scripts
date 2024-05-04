@@ -125,7 +125,7 @@ local function dropPearl()
         pearl:enableGravity( true )
     end
 
-    hook.runRemote( pearl, "LKL_DataPearl_SetBeingReadBy", false )
+    hookRunRemoteSafe( pearl, "LKL_DataPearl_SetBeingReadBy", false )
 
     pearl = nil
     pearlSettled = false
@@ -418,7 +418,7 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         end
 
         pearl:enableGravity( false )
-        hook.runRemote( pearl, "LKL_DataPearl_SetBeingReadBy", true )
+        hookRunRemoteSafe( pearl, "LKL_DataPearl_SetBeingReadBy", true )
     end
 
     setData()
