@@ -9,6 +9,9 @@ local pearlSearchRadius = 40
 local pearlPullStrength = 75
 local pearlPullDampening = 4
 local pearlSettleRadius = 2.5
+local pearlSettleSpeedThreshold = 50
+local pearlCanUnsettle = true
+local pearlCanUnsettleRadius = 5
 local pearlHoldPosOffset = Vector( 0, 0, 10 )
 -- END CONFIG
 
@@ -254,12 +257,26 @@ hook.add( "think", "LKL_DataPearlReader_PullInPearl", function()
     local toHoldPos = pearlHoldPos - pearlPos
     local dist = toHoldPos:getLength()
 
-    if dist < pearlSettleRadius and not pearlSettled then
-        pearlSettled = true
+    if not pearlSettled or pearlCanUnsettle then
+        local pearlShouldSettle
 
-        local result = hook.runRemote( pearl, "LKL_DataPearl_ReadData" )[1][1]
+        if pearlSettled then
+            pearlShouldSettle = dist <= pearlCanUnsettleRadius
+        else
+            pearlShouldSettle = dist <= pearlSettleRadius and pearl:getVelocity():getLength() <= pearlSettleSpeedThreshold
+        end
 
-        setData( result.data, result.dataString, result.dataCompressed )
+        if pearlShouldSettle ~= pearlSettled then
+            pearlSettled = pearlShouldSettle
+
+            if pearlSettled then
+                local result = hook.runRemote( pearl, "LKL_DataPearl_ReadData" )[1][1]
+
+                setData( result.data, result.dataString, result.dataCompressed )
+            else
+                setData()
+            end
+        end
     end
 
     if dist == 0 then return end
