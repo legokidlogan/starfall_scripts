@@ -164,9 +164,9 @@ hook.add( "remote", "LKL_DataPearlReader_IsOwnerOnly", function( _callingChip, _
     return ownerOnly
 end )
 
-hook.add( "remote", "LKL_DataPearl_ForceDrop", function( _callingChip, callingPly, hookName )
+hook.add( "remote", "LKL_DataPearlReader_ForceDrop", function( _callingChip, callingPly, hookName )
     if callingPly ~= owner() then return end
-    if hookName ~= "LKL_DataPearl_ForceDrop" then return end
+    if hookName ~= "LKL_DataPearlReader_ForceDrop" then return end
 
     dropPearl()
 end )
@@ -338,7 +338,7 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         local otherReader = pearl.beingReadBy
 
         if isValid( otherReader ) and otherReader ~= chip() then
-            hookRunRemoteSafe( otherReader, "LKL_DataPearl_ForceDrop" )
+            hookRunRemoteSafe( otherReader, "LKL_DataPearlReader_ForceDrop" )
         end
 
         pearl:enableGravity( false )
