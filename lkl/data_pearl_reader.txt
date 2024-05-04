@@ -141,6 +141,10 @@ local function hookRunRemoteSafe( targets, hookName, ... )
         results = hook.runRemote( targets, hookName, unpack( args ) )
     end )
 
+    if results and not results[1] then
+        return false
+    end
+
     return results
 end
 
