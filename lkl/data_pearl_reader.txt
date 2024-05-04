@@ -185,12 +185,14 @@ timer.create( "LKL_DataPearlReader_SpawnButtons", 0.25, 0, function()
         pcall( function()
             btnSet = prop.create( chip():localToWorld( Vector( 1.75, -1.5, 1.5 ) ), chip():localToWorldAngles( Angle( 60, -35, 0 ) ), "models/cheeze/buttons2/set_small.mdl", true )
             btnSet:setParent( chip() )
+            btnSet:doNotDuplicate( true )
         end )
     else
         pcall( function()
             btnLock = prop.create( chip():localToWorld( Vector( 1.75, 1.5, 1.5 ) ), chip():localToWorldAngles( Angle( 60, 35, 0 ) ), "models/cheeze/buttons2/set_small.mdl", true )
             btnLock:setParent( chip() )
             btnLock:setSubMaterial( 1, locked and "models/cheeze/buttons2/multiply" or "models/cheeze/buttons2/minus" )
+            btnLock:doNotDuplicate( true )
         end )
 
         if isValid( btnLock ) then
