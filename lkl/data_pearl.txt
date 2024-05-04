@@ -230,6 +230,13 @@ if SERVER then
         return isValid( beingGrabbedBy )
     end )
 
+    hook.add( "remote", "LKL_DataPearl_GetPearlsBeingRead", function( _callingChip, _callingPly, hookName )
+        if hookName ~= "LKL_DataPearl_GetPearlsBeingRead" then return end
+        if not isValid( beingReadBy ) then return end
+
+        return chip(), beingReadBy
+    end )
+
     if SEND_TO_CLIENTS then
         hook.add( "ClientInitialized", "LKL_DataPearl_InitializeData", function( ply )
             sendToClients( ply )
