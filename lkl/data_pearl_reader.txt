@@ -5,6 +5,8 @@
 
 
 -- CONFIG
+local READER_BUTTON_RANGE = 100
+
 local PEARL_SEARCH_RADIUS = 40
 local PEARL_PULL_STRENGTH = 75
 local PEARL_PULL_DAMPENING = 4
@@ -219,7 +221,11 @@ hook.add( "KeyPress", "LKL_DataPearlReader_PressButtons", function( ply, key )
     if ownerOnly and ply ~= owner() then return end
     if key ~= IN_KEY.USE then return end
 
-    local ent = ply:getEyeTrace().Entity
+    local tr = ply:getEyeTrace()
+    local ent = tr.Entity
+
+    if not isValid( ent ) then return end -- Skip early if not looking at anything
+    if tr.StartPos:getDistance( tr.HitPos ) > READER_BUTTON_RANGE then return end
 
     if ent == btnSet then
         if not isValid( pearl ) then return end
