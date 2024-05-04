@@ -6,6 +6,12 @@
 -- CONFIG
 local SEND_TO_CLIENTS = true
 local NAME = "Data Pearl" -- Clientside-only display name. Name needs to be "Data Pearl" serverside for fast detection by the pearl reader.
+local GRAB_ALLOWED = true
+local GRAB_RANGE = 120
+local GRAB_DISTANCE = 50
+local GRAB_STRENGTH = 25
+local GRAB_VEL_ACCOUNT = 0.2
+local GRAB_THROW_STRENGTH = 300
 -- END CONFIG
 
 
@@ -29,14 +35,34 @@ local function fixColors( tbl )
     end
 end
 
+local function hookRunRemoteSafe( targets, hookName, ... )
+    local results
+    local args = { ... }
+
+    pcall( function()
+        results = hook.runRemote( targets, hookName, unpack( args ) )
+    end )
+
+    if results and not results[1] then
+        return false
+    end
+
+    return results
+end
+
 
 if SERVER then
     local pearlColor = nil
     local pearlColorStr = nil
     local beingReadBy = false
+    local beingGrabbedBy = nil
     local userdataCompressed = getUserdata()
     local userdataString = ""
     local userdata = {}
+    local toolClassesLookup = {
+        ["gmod_tool"] = true,
+        ["weapon_physgun"] = true,
+    }
 
 
     local function sendToClients( targets )
@@ -96,6 +122,36 @@ if SERVER then
         end
     end
 
+    local function holdingTools( ply )
+        local wep = ply:getActiveWeapon()
+        if not isValid( wep ) then return false end
+
+        return toolClassesLookup[wep:getClass()]
+    end
+
+    local function setBeingGrabbedBy( ply )
+        ply = isValid( ply ) and ply or false
+
+        if ply and isValid( beingReadBy ) then
+            local results = hookRunRemoteSafe( beingReadBy, "LKL_DataPearlReader_IsLocked" )
+            if results and results[1][1] then return end
+        end
+
+        beingGrabbedBy = ply
+
+        if beingGrabbedBy then
+            if isValid( beingReadBy ) then
+                hookRunRemoteSafe( beingReadBy, "LKL_DataPearlReader_ForceDrop" )
+            end
+
+            chip():enableGravity( false )
+            chip():setCollisionGroup( COLLISION_GROUP.PASSABLE_DOOR )
+        else
+            chip():enableGravity( true )
+            chip():setCollisionGroup( COLLISION_GROUP.PASSABLE_DOOR )
+        end
+    end
+
 
     ----- SETUP -----
 
@@ -141,9 +197,63 @@ if SERVER then
         return beingReadBy
     end )
 
+    hook.add( "remote", "LKL_DataPearl_GetBeingGrabbedBy", function( _callingChip, _callingPly, hookName )
+        if hookName ~= "LKL_DataPearl_GetBeingGrabbedBy" then return end
+
+        return beingGrabbedBy
+    end )
+
+    hook.add( "remote", "LKL_DataPearl_IsBeingGrabbed", function( _callingChip, _callingPly, hookName )
+        if hookName ~= "LKL_DataPearl_IsBeingGrabbed" then return end
+
+        return isValid( beingGrabbedBy )
+    end )
+
     if SEND_TO_CLIENTS then
         hook.add( "ClientInitialized", "LKL_DataPearl_InitializeData", function( ply )
             sendToClients( ply )
+        end )
+    end
+
+    if GRAB_ALLOWED then
+        hook.add( "KeyPress", "LKL_DataPearl_Grab", function( ply, key )
+            if isValid( beingGrabbedBy ) then
+                if ply ~= beingGrabbedBy then return end
+                if holdingTools( ply ) then return end
+
+                if key == IN_KEY.USE then
+                    setBeingGrabbedBy( false )
+                elseif key == IN_KEY.ATTACK then
+                    chip():getPhysicsObject():setVelocity( beingGrabbedBy:getAimVector() * GRAB_THROW_STRENGTH )
+                    setBeingGrabbedBy( false )
+                end
+
+                return
+            end
+
+            if key ~= IN_KEY.USE then return end
+
+            local tr = ply:getEyeTrace()
+            if tr.Entity ~= chip() then return end
+            if tr.StartPos:getDistance( tr.HitPos ) > GRAB_RANGE then return end
+            if holdingTools( ply ) then return end
+
+            setBeingGrabbedBy( ply )
+        end )
+
+        hook.add( "think", "LKL_DataPearl_GrabMove", function()
+            if not beingGrabbedBy then return end
+
+            if not isValid( beingGrabbedBy ) then
+                setBeingGrabbedBy( false )
+
+                return
+            end
+
+            local targetPos = beingGrabbedBy:getShootPos() + beingGrabbedBy:getAimVector() * GRAB_DISTANCE + beingGrabbedBy:getVelocity() * GRAB_VEL_ACCOUNT
+            local pos = chip():getPos()
+
+            chip():getPhysicsObject():setVelocity( ( targetPos - pos ) * GRAB_STRENGTH )
         end )
     end
 
