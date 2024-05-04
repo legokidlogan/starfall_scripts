@@ -9,8 +9,8 @@ local NAME = "Data Pearl" -- Clientside-only display name. Name needs to be "Dat
 local GRAB_ALLOWED = true
 local GRAB_RANGE = 120
 local GRAB_DISTANCE = 50
-local GRAB_STRENGTH = 25
-local GRAB_VEL_ACCOUNT = 0.2
+local GRAB_STRENGTH = 35
+local GRAB_VEL_ACCOUNT = 0.1
 local GRAB_THROW_STRENGTH = 300
 -- END CONFIG
 
