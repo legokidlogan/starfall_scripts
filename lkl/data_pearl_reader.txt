@@ -237,9 +237,8 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         ent.beingReadBy = beingReadBy
 
         if isValid( beingReadBy ) and beingReadBy ~= chip() then
-            local otherDist = ent:getPos():getDistance( readerHoldPoss[beingHeldBy] or Vector() )
-
-            if otherDist < dist then return false end
+            local otherDist = ent:getPos():getDistance( readerHoldPoss[beingReadBy] or Vector() )
+            if otherDist <= dist then return false end
 
             local results = hookRunRemoteSafe( beingReadBy, "LKL_DataPearlReader_IsLocked" )
             if results and results[1][1] then return false end
