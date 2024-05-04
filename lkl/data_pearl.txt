@@ -39,6 +39,24 @@ local function hookRunRemoteSafe( targets, hookName, ... )
     local results
     local args = { ... }
 
+    if type( targets ) == "table" then
+        results = {}
+
+        for _, target in ipairs( targets ) do
+            local result = hookRunRemoteSafe( target, hookName, unpack( args ) )
+
+            if result then
+                table.insert( results, result[1] )
+            end
+        end
+
+        if #results == 0 then
+            return false
+        end
+
+        return results
+    end
+
     pcall( function()
         results = hook.runRemote( targets, hookName, unpack( args ) )
     end )
