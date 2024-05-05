@@ -12,6 +12,43 @@ simpleMeshLoader.WIREFRAME = simpleMeshLoader.WIREFRAME or false
 
 
 if SERVER then
+    function simpleMeshLoader.loadFromJSONCompressedMulti( jsonStrsCompressed, pos, ang, scale, matPath, callbackName, targets )
+        pos = pos or Vector()
+        ang = ang or Angle()
+        scale = scale or Vector( 1, 1, 1 )
+        matPath = matPath or "[MESH_MAT]"
+        callbackName = callbackName or "[NONE]"
+
+        local jsonStrCount = #jsonStrsCompressed
+        local jsonStrLengths = {}
+        local jsonStrCombined = ""
+
+        for i = 1, jsonStrCount do
+            local jsonStr = jsonStrsCompressed[i]
+
+            table.insert( jsonStrLengths, #jsonStr )
+            jsonStrCombined = jsonStrCombined .. jsonStr
+        end
+
+        net.start( "LKL_SML_LoadMeshesFromJSONCompressed" )
+            net.writeVector( pos )
+            net.writeAngle( ang )
+            net.writeVector( scale )
+            net.writeBool( matPath ~= "[MESH_MAT]" )
+            net.writeString( matPath )
+            net.writeString( callbackName )
+
+            net.writeUInt( jsonStrCount, 16 )
+
+            for i = 1, jsonStrCount do
+                net.writeUInt( jsonStrLengths[i], 32 )
+            end
+
+            net.writeStream( jsonStrCombined, false )
+        net.send( targets )
+    end
+
+
     net.receive( "LKL_SML_LoadMeshesFromJSONCompressed", function( _, ply )
         if ply ~= owner() then return end
 
