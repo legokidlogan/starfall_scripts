@@ -299,6 +299,7 @@ if SERVER then
         )
 
         timer.simple( 0.1, function()
+            chip():setParent()
             chip():setMass( 50 )
             chip():setPos( chip():getPos() + Vector( 0, 0, 2 ) )
             chip():enableMotion( true )
