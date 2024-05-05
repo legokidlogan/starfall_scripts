@@ -118,9 +118,13 @@ if SERVER then
         userdataString = bit.decompress( userdataCompressed ) or userdataCompressed
         userdata = {}
 
-        pcall( function()
-            userdata = json.decode( userdataString ) or {}
-        end )
+        local jsonStrSplit = string.split( userdataString, "}," )
+
+        if #jsonStrSplit < 1000 then
+            pcall( function()
+                userdata = json.decode( userdataString ) or {}
+            end )
+        end
 
         fixColors( userdata )
 
@@ -360,9 +364,13 @@ else
             userdataString = bit.decompress( userdataCompressed ) or userdataCompressed
             userdata = {}
 
-            pcall( function()
-                userdata = json.decode( userdataString ) or {}
-            end )
+            local jsonStrSplit = string.split( userdataString, "}," )
+
+            if #jsonStrSplit < 1000 then
+                pcall( function()
+                    userdata = json.decode( userdataString ) or {}
+                end )
+            end
 
             fixColors( userdata )
 
