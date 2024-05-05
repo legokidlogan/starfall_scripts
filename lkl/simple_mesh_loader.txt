@@ -109,6 +109,8 @@ end
 
 require( "lkl/math/vector_math.txt" )
 
+local meshIncr = 0
+
 local getCallback
 local fixVertColors
 local getFilesInFolder
@@ -127,7 +129,12 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
     mat = mat or meshMat
     callback = getCallback( callback )
 
+    meshIncr = meshIncr + 1
+
     local verts = {}
+    local meshID = meshIncr
+    local timerName = "LKL_SML_LoadMesh_" .. meshID
+    local holo = nil
 
     local function processVerts()
         local curMesh = nil
@@ -139,7 +146,7 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
             local minBounds = vectorMath.minPiecewiseMulti( convexVerts ) * scale
             local maxBounds = vectorMath.maxPiecewiseMulti( convexVerts ) * scale
 
-            local holo = hologram.create( pos, ang, "models/hunter/blocks/cube025x025x025.mdl", scale )
+            holo = hologram.create( pos, ang, "models/hunter/blocks/cube025x025x025.mdl", scale )
             holo:setMesh( curMesh )
             holo:setMeshMaterial( meshMat )
             holo:setRenderBounds( minBounds, maxBounds )
@@ -150,12 +157,12 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
         local function findMeshBounds()
             local getConvexHull = coroutine.wrap( function() _, convexVerts = mesh.findConvexHull( verts, true ) return true end )
 
-            hook.add( "think", "LKL_SML_LoadMesh", function()
+            hook.add( "think", timerName, function()
                 local perfLimit = quotaMax() * simpleMeshLoader.PERF_LIMIT
 
                 while quotaAverage() < perfLimit do
                     if getConvexHull() == true then
-                        hook.remove( "think", "LKL_SML_LoadMesh" )
+                        hook.remove( "think", timerName )
 
                         onThreadingDone()
 
@@ -165,12 +172,12 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
             end )
         end
 
-        hook.add( "think", "LKL_SML_LoadMesh", function()
+        hook.add( "think", timerName, function()
             local perfLimit = quotaMax() * simpleMeshLoader.PERF_LIMIT
 
             while quotaAverage() < perfLimit do
                 if loadMesh() == true then
-                    hook.remove( "think", "LKL_SML_LoadMesh" )
+                    hook.remove( "think", timerName )
 
                     findMeshBounds()
 
@@ -193,7 +200,7 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
     jsonStrSplit[1] = jsonStrSplit[1]:sub( 2 ) -- Remove the starting [
     jsonStrSplit[elemCount] = jsonStrSplit[elemCount]:sub( 1, -3 ) -- Remove the ending }]
 
-    timer.create( "LKL_SML_LoadMesh", 0.5, 0, function()
+    timer.create( timerName, 0.5, 0, function()
         if cpuTotalAverage() > quotaMax() * simpleMeshLoader.PERF_LIMIT then return end
 
         if fixingVertColors then
@@ -205,7 +212,7 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
         end
 
         if prevInd >= elemCount then
-            timer.remove( "LKL_SML_LoadMesh" )
+            timer.remove( timerName )
             processVerts()
 
             return
@@ -218,20 +225,29 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
         chunkVerts = json.decode( jsonStrChunk )
         fixingVertColors = true
     end )
+
+    return function()
+        timer.remove( timerName )
+        hook.remove( "think", timerName )
+
+        if isValid( holo ) then
+            holo:remove()
+        end
+    end
 end
 
 function simpleMeshLoader.loadFromJSONCompressed( jsonStrCompressed, pos, ang, scale, mat, callback )
     local jsonStr = bit.decompress( jsonStrCompressed )
 
-    simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback )
+    return simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback )
 end
 
 function simpleMeshLoader.loadFromFile( fileName, pos, ang, scale, mat, callback )
-    simpleMeshLoader.loadFromJSON( file.read( fileName ), pos, ang, scale, mat, callback )
+    return simpleMeshLoader.loadFromJSON( file.read( fileName ), pos, ang, scale, mat, callback )
 end
 
 function simpleMeshLoader.loadFromFileCompressed( fileName, pos, ang, scale, mat, callback )
-    simpleMeshLoader.loadFromJSONCompressed( file.read( fileName ), pos, ang, scale, mat, callback )
+    return simpleMeshLoader.loadFromJSONCompressed( file.read( fileName ), pos, ang, scale, mat, callback )
 end
 
 function simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
@@ -239,8 +255,12 @@ function simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, cal
     local holos = {}
     local incr = 0
     local meshCount = #jsonStrs
+    local removerFuncs = {}
+    local canceled = false
 
     callback = function( holo )
+        if canceled then return end
+
         if holo then
             incr = incr + 1
             holos[incr] = holo
@@ -249,11 +269,19 @@ function simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, cal
         if incr >= meshCount then
             cb( holos )
         else
-            simpleMeshLoader.loadFromJSON( jsonStrs[incr + 1], pos, ang, scale, mat, callback )
+            table.insert( removerFuncs, simpleMeshLoader.loadFromJSON( jsonStrs[incr + 1], pos, ang, scale, mat, callback ) )
         end
     end
 
     callback( nil )
+
+    return function()
+        canceled = true
+
+        for _, removerFunc in ipairs( removerFuncs ) do
+            removerFunc()
+        end
+    end
 end
 
 function simpleMeshLoader.loadFromJSONCompressedMulti( jsonStrsCompressed, pos, ang, scale, mat, callback )
@@ -263,7 +291,7 @@ function simpleMeshLoader.loadFromJSONCompressedMulti( jsonStrsCompressed, pos, 
         jsonStrs[i] = bit.decompress( jsonStrsCompressed[i] )
     end
 
-    simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
+    return simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
 end
 
 function simpleMeshLoader.loadFromFileMulti( fileNames, pos, ang, scale, mat, callback )
@@ -273,7 +301,7 @@ function simpleMeshLoader.loadFromFileMulti( fileNames, pos, ang, scale, mat, ca
         jsonStrs[i] = file.read( fileNames[i] )
     end
 
-    simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
+    return simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
 end
 
 function simpleMeshLoader.loadFromFileCompressedMulti( fileNames, pos, ang, scale, mat, callback )
@@ -283,15 +311,15 @@ function simpleMeshLoader.loadFromFileCompressedMulti( fileNames, pos, ang, scal
         jsonStrs[i] = bit.decompress( file.read( fileNames[i] ) )
     end
 
-    simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
+    return simpleMeshLoader.loadFromJSONMulti( jsonStrs, pos, ang, scale, mat, callback )
 end
 
 function simpleMeshLoader.loadFromFolder( folderName, pos, ang, scale, mat, callback )
-    simpleMeshLoader.loadFromFileMulti( getFilesInFolder( folderName ), pos, ang, scale, mat, callback )
+    return simpleMeshLoader.loadFromFileMulti( getFilesInFolder( folderName ), pos, ang, scale, mat, callback )
 end
 
 function simpleMeshLoader.loadFromFolderCompressed( folderName, pos, ang, scale, mat, callback )
-    simpleMeshLoader.loadFromFileCompressedMulti( getFilesInFolder( folderName ), pos, ang, scale, mat, callback )
+    return simpleMeshLoader.loadFromFileCompressedMulti( getFilesInFolder( folderName ), pos, ang, scale, mat, callback )
 end
 
 
