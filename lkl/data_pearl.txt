@@ -3,10 +3,21 @@
 --@shared
 --@model models/sprops/geometry/sphere_3.mdl
 
+dataPearl = dataPearl or {}
+
 -- CONFIG
+local NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name. Name needs to be "Data Pearl" serverside for fast detection by the pearl reader.
+
 local SEND_TO_CLIENTS = true
-local NAME = "Data Pearl" -- Clientside-only display name. Name needs to be "Data Pearl" serverside for fast detection by the pearl reader.
+if dataPearl.SEND_TO_CLIENTS ~= nil then
+    SEND_TO_CLIENTS = dataPearl.SEND_TO_CLIENTS
+end
+
 local GRAB_ALLOWED = true
+if dataPearl.GRAB_ALLOWED ~= nil then
+    GRAB_ALLOWED = dataPearl.GRAB_ALLOWED
+end
+
 local GRAB_RANGE = 120
 local GRAB_DISTANCE = 50
 local GRAB_STRENGTH = 35
