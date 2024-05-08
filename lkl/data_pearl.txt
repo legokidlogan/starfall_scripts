@@ -23,6 +23,16 @@ local GRAB_DISTANCE = 50
 local GRAB_STRENGTH = 35
 local GRAB_VEL_ACCOUNT = 0.1
 local GRAB_THROW_STRENGTH = 300
+
+local IMPACT_SOUND_ENABLED = true
+local IMPACT_SOUND_COOLDOWN = 0.25
+local IMPACT_SOUND_SPEED_MIN = 100
+local IMPACT_SOUND_SPEED_MAX = 1000
+local IMPACT_SOUND_VOLUME = 1
+local IMPACT_SOUND_PITCH = 150
+local IMPACT_SOUND_PATH = function()
+    return "physics/glass/glass_bottle_impact_hard" .. math.random( 1, 3 ) .. ".wav"
+end
 -- END CONFIG
 
 
@@ -300,6 +310,35 @@ if SERVER then
         end )
     end
 
+
+    timer.simple( 0.1, function()
+        if not IMPACT_SOUND_ENABLED then return end
+
+        local onCooldown = false
+
+        chip():addCollisionListener( function( colData )
+            if onCooldown then return true end
+
+            local speed = colData.HitSpeed:getLength()
+
+            if speed <= IMPACT_SOUND_SPEED_MIN then return end
+
+            onCooldown = true
+
+            timer.simple( IMPACT_SOUND_COOLDOWN, function()
+                onCooldown = false
+            end )
+
+            local volume = math.remap( math.min( speed, IMPACT_SOUND_SPEED_MAX ), IMPACT_SOUND_SPEED_MIN, IMPACT_SOUND_SPEED_MAX, 0, IMPACT_SOUND_VOLUME )
+            local path = IMPACT_SOUND_PATH
+
+            if type( path ) == "function" then
+                path = path()
+            end
+
+            chip():emitSound( path, 75, IMPACT_SOUND_PITCH, volume )
+        end )
+    end )
 
     if userdataCompressed == "" then
         chip():setMaterial( "sprops/trans/misc/sh_m2" )
