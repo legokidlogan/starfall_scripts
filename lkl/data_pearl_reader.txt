@@ -24,6 +24,10 @@ local PULL_SOUND_PITCH_MIN = 80
 local PULL_SOUND_PITCH_MAX = 140
 local PULL_SOUND_PITCH_SPEED_MIN = 20
 local PULL_SOUND_PITCH_SPEED_MAX = 150
+
+local EJECT_DEFAULT_STRENGTH_MIN = 200
+local EJECT_DEFAULT_STRENGTH_MAX = 300
+local EJECT_DEFAULT_SPREAD = 90
 -- END CONFIG
 
 
@@ -48,7 +52,7 @@ local dataCompressedIn = ""
 prop.setPropUndo( false )
 prop.setPropClean( true )
 
-wire.adjustInputs( { "DataCompressedIn" }, { "STRING" } )
+wire.adjustInputs( { "DataCompressedIn", "ForceEject", "ForceEjectWithSpeed", "ForceEjectUpWithSpeed" }, { "STRING", "NUMBER", "NUMBER", "NUMBER" } )
 wire.adjustOutputs( { "Data", "DataString", "DataCompressed" }, { "TABLE", "STRING", "STRING" } )
 
 if chip():getMaterial() == "" then
@@ -91,10 +95,18 @@ local function hookRunRemoteSafe( targets, hookName, ... )
     return results
 end
 
-local function wireInput( name, value )
-    if name == "DataCompressedIn" then
-        dataCompressedIn = value
-    end
+local function spreadVector( dir, pitchRange, yawRange )
+    local pitchDeg = math.rand( -pitchRange, pitchRange ) / 2
+    local yawDeg = math.rand( -yawRange, yawRange ) / 2
+
+    local ang = dir:getAngle()
+    local right = ang:getRight()
+    local up = ang:getUp()
+
+    ang = ang:rotateAroundAxis( right, pitchDeg )
+    ang = ang:rotateAroundAxis( up, yawDeg )
+
+    return ang:getForward()
 end
 
 local function setData( tbl, str, compressed )
@@ -144,7 +156,7 @@ local function setLocked( state )
     lockWeld = constraint.weld( chip(), pearl )
 end
 
-local function dropPearl()
+local function dropPearl( ejectVel )
     if locked then return end
     if not isValid( pearl ) then return end
 
@@ -165,6 +177,28 @@ local function dropPearl()
     end
 
     hookRunRemoteSafe( pearl, "LKL_DataPearl_SetBeingReadBy", false )
+
+    if ejectVel then
+        if type( ejectVel ) ~= "Vector" then
+            local strength = type( ejectVel ) == "number" and ejectVel or math.rand( EJECT_DEFAULT_STRENGTH_MIN, EJECT_DEFAULT_STRENGTH_MAX )
+
+            ejectVel = spreadVector( chip():getUp(), EJECT_DEFAULT_SPREAD, EJECT_DEFAULT_SPREAD )
+            ejectVel = ejectVel * strength
+        end
+
+        pearl:getPhysicsObject():setVelocity( ejectVel )
+        pearl.recentlyEjected = true
+
+        chip():emitSound( "npc/scanner/scanner_nearmiss1.wav", 75, 125, 0.5 )
+
+        local oldPearl = pearl
+
+        timer.simple( 0.5, function()
+            if isValid( oldPearl ) then
+                oldPearl.recentlyEjected = nil
+            end
+        end )
+    end
 
     pearl = nil
     pearlSettled = false
@@ -189,6 +223,24 @@ local function setOwnerOnly( state )
 
     ownerOnly = state
     updateOwnerOnlyButton()
+end
+
+local function wireInput( name, value )
+    if name == "DataCompressedIn" then
+        dataCompressedIn = value
+    elseif name == "ForceEject" then
+        if value ~= 0 then
+            dropPearl( true )
+        end
+    elseif name == "ForceEjectWithSpeed" then
+        if value ~= 0 then
+            dropPearl( value )
+        end
+    elseif name == "ForceEjectUpWithSpeed" then
+        if value ~= 0 then
+            dropPearl( chip():getUp() * value )
+        end
+    end
 end
 
 
@@ -252,12 +304,12 @@ hook.add( "remote", "LKL_DataPearlReader_DataChanged", function( callingChip, _c
     setData( info.data, info.dataString, info.dataCompressed )
 end )
 
-hook.add( "remote", "LKL_DataPearlReader_ForceDrop", function( _callingChip, callingPly, hookName, pearlToDrop )
+hook.add( "remote", "LKL_DataPearlReader_ForceDrop", function( _callingChip, callingPly, hookName, pearlToDrop, ejectVel )
     if callingPly ~= owner() then return end
     if hookName ~= "LKL_DataPearlReader_ForceDrop" then return end
     if pearlToDrop and pearlToDrop ~= pearl then return end
 
-    dropPearl()
+    dropPearl( ejectVel )
 end )
 
 
@@ -440,6 +492,7 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         if not isValid( ent ) then return false end
         if ent:getOwner() ~= owner() then return false end
         if ent:getChipName() ~= "Data Pearl" then return false end
+        if ent.recentlyEjected then return false end
 
         ent.beingReadBy = nil
 
