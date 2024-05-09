@@ -2,6 +2,7 @@
 --@author legokidlogan
 --@shared
 --@include lkl/math/vector_math.txt
+--@include lkl/json_extensions.txt
 
 simpleMeshLoader = simpleMeshLoader or {}
 if simpleMeshLoader._alreadyLoaded then return end
@@ -108,11 +109,11 @@ end
 
 
 require( "lkl/math/vector_math.txt" )
+require( "lkl/json_extensions.txt" )
 
 local meshIncr = 0
 
 local getCallback
-local fixVertColors
 local getFilesInFolder
 
 local meshMat = material.create( "UnlitGeneric" )
@@ -131,7 +132,7 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
 
     meshIncr = meshIncr + 1
 
-    local verts = {}
+    local verts
     local meshID = meshIncr
     local timerName = "LKL_SML_LoadMesh_" .. meshID
     local holo = nil
@@ -187,46 +188,14 @@ function simpleMeshLoader.loadFromJSON( jsonStr, pos, ang, scale, mat, callback 
         end )
     end
 
-    -- Account for the 15000 element limit of json.decode() and the operation intensity of it.
+    local cancelJSONFunc = json.decodeSafe( jsonStr, function( tbl )
+        verts = tbl
 
-    local chunkVerts = nil
-    local fixingVertColors = false
-    local chunkSize = 5000 -- Smaller chunks to avoid hitting quota limits
-
-    local jsonStrSplit = string.split( jsonStr, "}," )
-    local prevInd = 0
-    local elemCount = #jsonStrSplit
-
-    jsonStrSplit[1] = jsonStrSplit[1]:sub( 2 ) -- Remove the starting [
-    jsonStrSplit[elemCount] = jsonStrSplit[elemCount]:sub( 1, -3 ) -- Remove the ending }]
-
-    timer.create( timerName, 0.5, 0, function()
-        if cpuTotalAverage() > quotaMax() * simpleMeshLoader.PERF_LIMIT then return end
-
-        if fixingVertColors then
-            fixVertColors( chunkVerts )
-            table.add( verts, chunkVerts )
-            fixingVertColors = false
-
-            return
-        end
-
-        if prevInd >= elemCount then
-            timer.remove( timerName )
-            processVerts()
-
-            return
-        end
-
-        local nextInd = math.min( prevInd + chunkSize, elemCount )
-        local jsonStrChunk = "[" .. table.concat( jsonStrSplit, "},", prevInd + 1, nextInd ) .. "}]"
-
-        prevInd = nextInd
-        chunkVerts = json.decode( jsonStrChunk )
-        fixingVertColors = true
-    end )
+        processVerts()
+    end, { "color" } )
 
     return function()
+        cancelJSONFunc()
         timer.remove( timerName )
         hook.remove( "think", timerName )
 
@@ -476,16 +445,6 @@ getFilesInFolder = function( folderName )
     end
 
     return fileNames
-end
-
-fixVertColors = function( verts )
-    for _, vert in ipairs( verts ) do
-        local color = vert.color
-
-        if color then
-            vert.color = Color( color.r, color.g, color.b, color.a )
-        end
-    end
 end
 
 
