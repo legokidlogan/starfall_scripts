@@ -1,0 +1,184 @@
+--@name JSON Extensions
+--@author legokidlogan
+--@shared
+
+jsonExtensions = jsonExtensions or {}
+
+if jsonExtensions._alreadyLoaded then return end
+jsonExtensions._alreadyLoaded = true
+
+
+jsonExtensions.DECODE_SAFE_CHUNK_SIZE = jsonExtensions.DECODE_SAFE_CHUNK_SIZE or 5000 -- Entry limit for json.decodeSafe() chunks.
+jsonExtensions.DECODE_SAFE_PERF_LIMIT = jsonExtensions.DECODE_SAFE_PERF_LIMIT or 0.25 -- Performance limit for json.decodeSafe() chunks.
+jsonExtensions.DECODE_SAFE_INTERVAL = jsonExtensions.DECODE_SAFE_INTERVAL or 0.5 -- Interval for json.decodeSafe() chunks.
+
+
+local uidIncr = 0
+
+local tableGetKeys = table.getKeys
+
+
+--[[
+    - Fixes colors in a table produced via JSON decoding, since they normally don't have the correct metatable.
+    - Modifies the table in-place, but also returns it.
+
+    tbl: (table)
+        - The table to fix.
+    colorKeys: (optional) (table)
+        - If provided, should be a list of strings, each being the name of a key.
+            - For every table (recursively) in tbl, any key which matches the ones provided will have its value interpreted as a color.
+            - This will convert the corresponding values into color objects with the correct metatable, unlike with the default JSON decoder.
+            - e.g. for the good table example above, { "color" } would be what you want.
+        - If not provided, will recursively search for any values that are tables with {"r","g","b","a"} as their only keys and convert them into colors.
+            - This is slower, but will catch all possible color values.
+--]]
+function json.fixColors( tbl, colorKeys )
+    if colorKeys then
+        for _, key in ipairs( colorKeys ) do
+            local val = tbl[key]
+
+            if val then
+                tbl[key] = Color( val.r, val.g, val.b, val.a )
+            end
+        end
+    else
+        for key, val in pairs( tbl ) do
+            if type( val ) == "table" then
+                local r = val.r
+
+                if r then
+                    local g = val.g
+                    local b = val.b
+                    local a = val.a
+
+                    if g and b and a and #tableGetKeys( val ) == 4 then
+                        tbl[key] = Color( r, g, b, a )
+                    end
+                end
+            end
+        end
+    end
+
+    for _, val in pairs( tbl ) do
+        if type( val ) == "table" then
+            json.fixColors( val, colorKeys )
+        end
+    end
+
+    return tbl
+end
+
+
+--[[
+    - Decodes a JSON string over time in chunks to avoid hitting the quota limit or hitting the 15000 entry limit.
+
+    jsonStr: (string)
+        - The JSON string to decode.
+        - If the string length is below 10000, it will be decoded immediately and not undergo the restrictions noted below.
+        - This expects the original table to be of the following format: {
+            { key = value, key = value, key = value },
+            { key = value, key = value, key = value },
+            { key = value, key = value, key = value },
+        }
+
+        where each value can be of any type, but if a value is a table, it must either be non-sequential or not have sub-tables.
+
+        Example: {
+            { name = "John", age = 25, pos = Vector( 1, 2, 3 ), color = Color( 255, 0, 0 ), subTable = { 1, 2, 3 }, subTable2 = { key = value } },
+            { name = "Jane", age = 30, pos = Vector( 1, 2, 3 ), color = Color( 255, 0, 0 ) },
+            { name = "Bob", age = 40, pos = Vector( 1, 2, 3 ), color = Color( 255, 0, 0 ) },
+        }
+
+        Bad example: {
+            1, 2, 3, 4 -- not tables
+        }
+
+        Bad example: {
+            { 1, 2, 3, 4 } -- not key-value pairs
+        }
+
+        Bad example: {
+            {
+                foo = { 1, 2, 3, 4 }, -- this is okay, it doesn't have sub-tables
+                bar = { blah = 1, blah2 = { 1, 2, 3, 4 } }, -- this is okay, it's non-sequential, and its sub-tables are also okay
+            },
+            {
+                foo = { -- this is NOT okay, it's a sequential table with sub-tables
+                    { blah = 1, blah2 = 2, blah3 = 3 }
+                }
+            },
+        }
+
+        - This is because most GMod projects that handle JSON data large enough to be chunked out is typically of this format.
+            - e.g. mesh vertices, entities and their properties, etc.
+    callback: (function)
+        - The function to call once the JSON string has been fully decoded.
+        - Will receive the created table as its argument.
+    colorKeys: (table or nil or false)
+        - Same as in json.fixColors(), automatically applying to the table as it gets decoded.
+        - Provide false to disable color fixing.
+
+    RETURNS: cancelFunc
+        cancelFunc: (function)
+            - A function to call which will cancel the decoding process if it isn't finished yet.
+--]]
+function json.decodeSafe( jsonStr, callback, colorKeys )
+    if false and #jsonStr < 10000 then
+        local out = json.decode( jsonStr )
+
+        if colorKeys ~= false then
+            json.fixColors( out, colorKeys )
+        end
+
+        callback( out )
+
+        return function() end
+    end
+
+    uidIncr = uidIncr + 1
+
+    local chunkSize = jsonExtensions.DECODE_SAFE_CHUNK_SIZE
+    local perfLimit = jsonExtensions.DECODE_SAFE_PERF_LIMIT * quotaMax()
+    local uid = uidIncr
+    local timerName = "LKL_JSON_DecodeSafe_" .. uid
+    local out = {}
+
+    local jsonStrSplit = string.split( jsonStr, "},{" )
+    local elemCount = #jsonStrSplit
+    local fixingColors = false
+    local prevInd = 0
+    local doFixColors = colorKeys ~= false
+
+    jsonStrSplit[1] = jsonStrSplit[1]:sub( 3 ) -- Remove the starting [{
+    jsonStrSplit[elemCount] = jsonStrSplit[elemCount]:sub( 1, -3 ) -- Remove the ending }]
+
+    timer.create( timerName, jsonExtensions.DECODE_SAFE_INTERVAL, 0, function()
+        if cpuTotalAverage() > perfLimit then return end
+
+        if doFixColors and fixingColors then
+            json.fixColors( chunk, colorKeys )
+            table.add( out, chunk )
+            fixingColors = false
+
+            return
+        end
+
+        if prevInd >= elemCount then
+            timer.remove( timerName )
+            callback( out )
+
+            return
+        end
+
+        local nextInd = math.min( prevInd + chunkSize, elemCount )
+        local jsonStrChunk = "[{" .. table.concat( jsonStrSplit, "},{", prevInd + 1, nextInd ) .. "}]"
+
+        prevInd = nextInd
+        chunk = json.decode( jsonStrChunk )
+        fixingColors = true
+    end )
+
+    return function()
+        timer.remove( timerName )
+    end
+end
