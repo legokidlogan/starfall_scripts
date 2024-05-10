@@ -1,0 +1,47 @@
+--@name Output Compressed File
+--@author legokidlogan
+--@shared
+--@owneronly
+
+local filePath = "" -- Give a path for file.read()
+local isAlreadyCompressed = true -- Set to true if the file already contains compressed data
+local decodeJSON = false
+
+
+if SERVER then
+    wire.adjustOutputs( { "OutTbl", "OutStr", "OutCompressed" }, { "TABLE", "STRING", "STRING" } )
+
+
+    net.receive( "SendData", function( _, ply )
+        if ply ~= owner() then return end
+
+        net.readStream( function( dataCompressed )
+            local dataStr = bit.decompress( dataCompressed )
+            local outTbl = {}
+
+            if decodeJSON then
+                pcall( function()
+                    outTbl = json.decode( dataStr )
+                end )
+            end
+
+            wire.ports.OutTbl = outTbl
+            wire.ports.OutStr = dataStr
+            wire.ports.OutCompressed = dataCompressed
+        end )
+    end )
+else
+    net.start( "SendData" )
+        if not string.endsWith( filePath, ".txt" ) then
+            filePath = filePath .. ".txt"
+        end
+
+        local dataCompressed = file.read( filePath )
+
+        if not isAlreadyCompressed then
+            dataCompressed = bit.compress( dataCompressed )
+        end
+
+        net.writeStream( dataCompressed, false )
+    net.send()
+end

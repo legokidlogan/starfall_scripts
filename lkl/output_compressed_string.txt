@@ -1,0 +1,18 @@
+--@name Output Compressed String
+--@author legokidlogan
+--@server
+
+local dataStr = ""
+local doDropboxFix = false
+
+
+if doDropboxFix then
+    dataStr = string.replace( dataStr, "www.dropbox", "dl.dropboxusercontent" )
+    dataStr = string.replace( dataStr, "&dl=0", "&dl=1" )
+end
+
+
+wire.adjustOutputs( { "Out", "OutCompressed" }, { "STRING", "STRING" } )
+
+wire.ports.Out = dataStr
+wire.ports.OutCompressed = bit.compress( dataStr )

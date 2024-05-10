@@ -1,0 +1,148 @@
+--@name Wire Meshes
+--@author
+--@shared
+--@include lkl/simple_mesh_loader.txt
+
+require( "lkl/simple_mesh_loader.txt" )
+
+
+local maxMeshes = 5
+local meshOffsetPos = Vector( 0, 0, 0 )
+local meshOffsetAng = Angle( 0, 0, 0 )
+local meshScale = Vector( 1 )
+local streamTimeout = 30
+
+
+if SERVER then
+    local meshQueue = {}
+    local streamReadyPlayers = {}
+
+
+    inputNames = inputNames or {}
+    inputTypes = inputTypes or {}
+
+    for i = 1, maxMeshes do
+        table.insert( inputNames, "MeshCompressed_" .. i )
+        table.insert( inputTypes, "STRING" )
+    end
+
+    wire.adjustInputs( inputNames, inputTypes )
+
+
+    hook.add( "input", "LKL_WireMeshes", function( name, value )
+        if string.startWith( name, "MeshCompressed_" ) then
+            local parts = string.split( name, "_" )
+            local id = tonumber( parts[2] )
+
+            for i, entry in ipairs( meshQueue ) do
+                if entry.id == id then
+                    table.remove( meshQueue, i )
+
+                    break
+                end
+            end
+
+            if value == "" then
+                net.start( "LKL_WireMeshes_RemoveMesh" )
+                    net.writeUInt( id, 8 )
+                net.send()
+            else
+                table.insert( meshQueue, { id = id, value = value, targets = find.allPlayers() } )
+            end
+        end
+    end )
+
+
+    net.receive( "LKL_WireMeshes_StreamFinished", function( _, ply )
+        streamReadyPlayers[ply] = true
+    end )
+
+
+    timer.create( "LKL_WireMeshes_ProcessQueue", 1, 0, function()
+        if net.isStreaming() then return end
+
+        local entry = meshQueue[1]
+        if not entry then return end
+
+        local unsentTargets = entry.targets
+
+        if #unsentTargets == 0 then
+            table.remove( meshQueue, 1 )
+
+            return
+        end
+
+        local sendingTargets = {}
+
+        for i = #unsentTargets, 1, -1 do
+            local ply = unsentTargets[i]
+
+            if streamReadyPlayers[ply] then
+                streamReadyPlayers[ply] = nil
+                table.insert( sendingTargets, ply )
+                table.remove( unsentTargets, i )
+            end
+        end
+
+        if #sendingTargets ~= 0 then
+            local now = timer.curtime()
+            local expireTime = entry.expireTime or ( now + streamTimeout )
+
+            if now >= expireTime then
+                table.remove( meshQueue, 1 )
+
+                return
+            end
+        end
+
+        if #sendingTargets == 0 then return end
+
+        net.start( "LKL_WireMeshes_LoadMesh" )
+            net.writeUInt( entry.id, 8 )
+            net.writeStream( entry.value, false )
+        net.send( sendingTargets )
+    end )
+else
+    local meshRemoverFuncs = {}
+
+
+    local function removeMesh( id )
+        local removerFunc = meshRemoverFuncs[id]
+
+        if removerFunc then
+            removerFunc()
+            meshRemoverFuncs[id] = nil
+        end
+    end
+
+
+    net.receive( "LKL_WireMeshes_LoadMesh", function()
+        local id = net.readUInt( 8 )
+
+        removeMesh( id )
+
+        net.readStream( function( jsonStrCompressed )
+            meshRemoverFuncs[id] = simpleMeshLoader.loadFromJSONCompressed( jsonStrCompressed, nil, nil, meshScale, nil, function( holo )
+                holo:setPos( chip():localToWorld( meshOffsetPos ) )
+                holo:setAngles( chip():localToWorldAngles( meshOffsetAng ) )
+                holo:setParent( chip() )
+            end )
+
+            net.start( "LKL_WireMeshes_StreamFinished" )
+            net.send()
+        end )
+    end )
+
+    net.receive( "LKL_WireMeshes_RemoveMesh", function()
+        local id = net.readUInt( 8 )
+
+        removeMesh( id )
+    end )
+
+
+    timer.simple( 1, function()
+        net.start( "LKL_WireMeshes_StreamFinished" )
+        net.send()
+    end )
+end
+

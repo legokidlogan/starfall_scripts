@@ -1,0 +1,53 @@
+--@name Output Mesh From Model
+--@author legokidlogan
+--@shared
+--@owneronly
+
+local model = "models/props_c17/doll01.mdl"
+local isAlreadyCompressed = true -- Set to true if the file already contains compressed data
+local decodeJSON = false
+
+
+if SERVER then
+    wire.adjustOutputs( { "OutTbl", "OutStr", "OutCompressed" }, { "TABLE", "STRING", "STRING" } )
+
+
+    net.receive( "SendData", function( _, ply )
+        if ply ~= owner() then return end
+
+        net.readStream( function( dataCompressed )
+            local dataStr = bit.decompress( dataCompressed )
+            local outTbl = {}
+
+            if decodeJSON then
+                pcall( function()
+                    outTbl = json.decode( dataStr )
+                end )
+            end
+
+            wire.ports.OutTbl = outTbl
+            wire.ports.OutStr = dataStr
+            wire.ports.OutCompressed = dataCompressed
+        end )
+    end )
+else
+    net.start( "SendData" )
+        local meshDatas = mesh.getModelMeshes( model )
+        local meshVerts = {}
+
+        for i, meshData in ipairs( meshDatas ) do
+            local verts = meshData.triangles
+
+            table.add( meshVerts, verts )
+
+            for _, vert in ipairs( verts ) do
+                vert.weights = nil
+                vert.userdata = nil
+            end
+        end
+
+        local dataCompressed = bit.compress( json.encode( meshVerts ) )
+
+        net.writeStream( dataCompressed, false )
+    net.send()
+end

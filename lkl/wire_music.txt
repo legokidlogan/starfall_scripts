@@ -1,0 +1,218 @@
+--@name Wire Music
+--@author legokidlogan
+--@shared
+
+-- CONFIG
+local volume = 1
+local pitch = 1
+local fadeMin = 300
+local fadeMax = 1500
+local target = chip() -- Use owner() to play on yourself, chip() to play on the starfall chip
+-- END CONFIG
+
+
+if SERVER then
+    inputNames = inputNames or {}
+    inputTypes = inputTypes or {}
+
+    outputNames = outputNames or {}
+    outputTypes = outputTypes or {}
+
+
+    table.insert( inputNames, "URL" )
+    table.insert( inputTypes, "STRING" )
+
+
+    table.insert( outputNames, "Playing" )
+    table.insert( outputTypes, "NUMBER" )
+
+    table.insert( outputNames, "LoopedOnce" )
+    table.insert( outputTypes, "NUMBER" )
+
+    table.insert( outputNames, "LoopedOncePulse" )
+    table.insert( outputTypes, "NUMBER" )
+
+
+    wire.adjustInputs( inputNames, inputTypes )
+    wire.adjustOutputs( outputNames, outputTypes )
+
+    wire.ports.Playing = 0
+    wire.ports.LoopedOnce = 0
+    wire.ports.LoopedOncePulse = 0
+
+
+    hook.add( "input", "LKL_WireMusic_WireInput", function( name, value )
+        if name == "URL" then
+            if value == "" then
+                net.start( "LKL_WireMusic_Stop" )
+                net.send()
+
+                wire.ports.Playing = 0
+            else
+                net.start( "LKL_WireMusic_PlayURL" )
+                net.writeString( value )
+                net.send()
+
+                wire.ports.Playing = 1
+            end
+
+            wire.ports.LoopedOnce = 0
+            wire.ports.LoopedOncePulse = 0
+
+            timer.remove( "LKL_WireMusic_LoopedOncePulse" )
+        end
+    end )
+
+    hook.add( "ClientInitialized", "LKL_WireMusic_StartURL", function( ply )
+        timer.simple( 0.1, function()
+            if not isValid( ply ) then return end
+
+            local url = wire.ports.URL
+
+            if url ~= "" then
+                net.start( "LKL_WireMusic_PlayURL" )
+                net.writeString( url )
+                net.send( ply )
+            end
+        end )
+    end )
+
+
+    net.receive( "LKL_WireMusic_SongLoopedOnce", function( _, ply )
+        if ply ~= owner() then return end
+
+        wire.ports.LoopedOnce = 1
+        wire.ports.LoopedOncePulse = 1
+
+        timer.create( "LKL_WireMusic_LoopedOncePulse", 0.1, 1, function()
+            wire.ports.LoopedOncePulse = 0
+        end )
+    end )
+else
+    local curSound = nil
+    local curURL = ""
+    local soundCache = {}
+    local activeRequests = {}
+
+
+    local function startMovingSound()
+        hook.add( "think", "LKL_WireMusic_MoveSound", function()
+            if not isValid( curSound ) then
+                hook.remove( "think", "LKL_WireMusic_MoveSound" )
+
+                return
+            end
+
+            curSound:setPos( target:getPos() )
+        end )
+
+        if player() == owner() then
+            timer.create( "LKL_WireMusic_SongLoopedOnce", curSound:getLength(), 1, function()
+                net.start( "LKL_WireMusic_SongLoopedOnce" )
+                net.send()
+            end )
+        end
+    end
+
+    local function loadURL( sndURL )
+        if activeRequests[sndURL] then return end
+
+        if eyePos():getDistance( target:getPos() ) > fadeMax * 1.5 then
+            timer.create( "LKL_WireMusic_LoadURL_" .. sndURL, 5, 1, function()
+                loadURL( sndURL )
+            end )
+
+            return
+        end
+
+        activeRequests[sndURL] = true
+        timer.remove( "LKL_WireMusic_LoadURL_" .. sndURL )
+
+        pcall( function()
+            bass.loadURL( sndURL, "3d noblock noplay", function( x )
+                activeRequests[sndURL] = nil
+
+                if not isValid( x ) then return end
+
+                local existingSound = soundCache[sndURL]
+
+                if existingSound and isValid( existingSound ) then
+                    x:stop()
+
+                    return
+                end
+
+                soundCache[sndURL] = x
+
+                x:setVolume( volume )
+                x:setFade( fadeMin, fadeMax )
+                x:setPitch( pitch )
+                x:setLooping( true )
+
+                if sndURL == curURL then
+                    curSound = x
+                    curSound:play()
+                    startMovingSound()
+                end
+            end )
+        end )
+    end
+
+
+    net.receive( "LKL_WireMusic_PlayURL", function()
+        local url = net.readString()
+
+        if url == curURL then return end
+
+        curURL = url
+
+        if activeRequests[url] then return end
+
+        if isValid( curSound ) then
+            curSound:pause()
+            curSound = nil
+        end
+
+        timer.remove( "LKL_WireMusic_SongLoopedOnce" )
+
+        local cachedSound = soundCache[url]
+
+        if isValid( cachedSound ) then
+            cachedSound:setTime( 0 )
+            cachedSound:play()
+
+            curSound = cachedSound
+            startMovingSound()
+
+            return
+        end
+
+        if bass.soundsLeft() < 3 then
+            for k, v in pairs( soundCache ) do
+                soundCache[k] = nil
+
+                if isValid( v ) then
+                    v:stop()
+
+                    break
+                end
+            end
+        end
+
+        loadURL( url )
+    end )
+
+    net.receive( "LKL_WireMusic_Stop", function()
+        if isValid( curSound ) then
+            curSound:pause()
+        end
+
+        timer.remove( "LKL_WireMusic_LoadURL_" .. curURL )
+        timer.remove( "LKL_WireMusic_SongLoopedOnce" )
+        hook.remove( "think", "LKL_WireMusic_MoveSound" )
+
+        curSound = nil
+        curURL = ""
+    end )
+end
+
