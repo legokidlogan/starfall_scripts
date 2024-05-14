@@ -508,6 +508,7 @@ timer.create( "LKL_PearlReader_DetectNearestPearl", 0.25, 0, function()
         if not isValid( ent ) then return false end
         if ent:getOwner() ~= owner() then return false end
         if ent:getChipName() ~= "Data Pearl" then return false end
+        if ent:isFrozen() then return false end
         if ent.recentlyEjected then return false end
 
         ent.beingReadBy = nil
