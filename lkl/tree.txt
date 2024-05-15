@@ -1,0 +1,189 @@
+--@name Class Template
+--@author
+--@shared
+--@include lkl/destroyable.txt
+
+if Tree then return end
+
+require( "lkl/destroyable.txt" )
+
+
+Tree = class( "Tree", Destroyable )
+
+
+local tableInsert = table.insert
+local mathMax = math.max
+
+
+----- STATIC FUNCTIONS -----
+
+function Tree:initialize( children )
+    self._children = {}
+    self._childLookup = {}
+
+    if children then
+        for _, child in ipairs( children ) do
+            self:addChild( child )
+        end
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+-- Returns by reference.
+function Tree:getChildren()
+    return self._children
+end
+
+-- Returns a soft-copy of the children table.
+function Tree:getChildrenCopy()
+    local out = {}
+
+    for _, child in ipairs( self._children ) do
+        tableInsert( out, child )
+    end
+
+    return out
+end
+
+function Tree:hasChild( tree )
+    return self._childLookup[tree] ~= nil
+end
+
+function Tree:hasChildRecursive( tree )
+    if self:hasChild( tree ) then return true end
+
+    for _, child in ipairs( self._children ) do
+        if child:hasChildRecursive( tree ) then return true end
+    end
+
+    return false
+end
+
+-- Traverses according to pre-order. Return something to exit early.
+function Tree:traversePreOrder( func )
+    local result = func( self )
+    if result ~= nil then return result end
+
+    for _, child in ipairs( self._children ) do
+        result = child:traverseInOrder( func )
+        if result ~= nil then return result end
+    end
+end
+
+-- Traverses according to post-order. Return something to exit early.
+function Tree:traversePostOrder( func )
+    local result = nil
+
+    for _, child in ipairs( self._children ) do
+        result = child:traverseInOrder( func )
+        if result ~= nil then return result end
+    end
+
+    result = func( self )
+    if result ~= nil then return result end
+end
+
+function Tree:insertChild( tree, ind )
+    if tree == self then return end
+    if self:hasChildRecursive( tree ) then return end
+
+    local children = self._children
+    local max = #children + 1
+
+    ind = math.clamp( ind or max, 1, max )
+
+    tableInsert( children, ind, tree )
+    self._childLookup[tree] = true
+end
+
+function Tree:addChild( tree )
+    self:insertChild( tree )
+end
+
+function Tree:removeChild( tree )
+    if not self:hasChild( tree ) then return end
+
+    local children = self._children
+
+    for i, child in ipairs( children ) do
+        if child == tree then
+            table.remove( children, i )
+            self._childLookup[tree] = nil
+
+            return
+        end
+    end
+end
+
+function Tree:getChildByIndex( ind )
+    return self._children[ind]
+end
+
+function Tree:removeChildByIndex( ind )
+    local children = self._children
+    if not children[ind] then return end
+
+    local child = children[ind]
+
+    table.remove( children, ind )
+    self._childLookup[child] = nil
+end
+
+function Tree:getChildCount()
+    return #self._children
+end
+
+function Tree:isLeaf()
+    return #self._children == 0
+end
+
+function Tree:hasChildren()
+    return #self._children ~= 0
+end
+
+function Tree:getChildCountRecursive()
+    local count = 0
+
+    for _, child in ipairs( self._children ) do
+        count = count + 1 + child:getChildCountRecursive()
+    end
+
+    return count
+end
+
+function Tree:getHeight()
+    local max = 0
+
+    for _, child in ipairs( self._children ) do
+        max = mathMax( max, 1 + child:getHeight() )
+    end
+
+    return max
+end
+
+function Tree:clear()
+    table.empty( self._children )
+    table.empty( self._childLookup )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Tree:onDestroyed()
+    self._children = nil
+    self._childLookup = nil
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
