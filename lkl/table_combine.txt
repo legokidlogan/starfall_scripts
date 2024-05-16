@@ -16,6 +16,7 @@
 --]]
 function table.combine( target, source )
     local targVals = {}
+    local tableInsert = table.insert
 
     for _, v in ipairs( target ) do
         targVals[v] = true
@@ -23,7 +24,7 @@ function table.combine( target, source )
 
     for _, v in ipairs( source ) do
         if not targVals[v] then
-            table.insert( target, v )
+            tableInsert( target, v )
         end
     end
 end
