@@ -686,6 +686,7 @@ if SERVER then
 else
     require( "lkl/extra_timers.txt" )
 
+    local clientOnly = false
     local iAmATarget = false
     local myButtonStates = {}
     local tapStreaks = {}
@@ -759,6 +760,8 @@ else
         targets = newTargets
         iAmATarget = targets[player()]
 
+        if clientOnly then return end
+
         net.start( "LKL_TargetedInput_Acknowledge" )
         net.writeString( "SetTargets" )
         net.send()
@@ -774,6 +777,8 @@ else
         targetAllButtons = targetAll
         targetButtons = newTargetButtons
 
+        if clientOnly then return end
+
         net.start( "LKL_TargetedInput_Acknowledge" )
         net.writeString( "SetTargetButtons" )
         net.send()
@@ -783,6 +788,11 @@ else
         net.start( "LKL_TargetedInput_RefreshMyButtonStates" )
         net.writeTable( myButtonStates )
         net.send()
+    end
+
+    -- Disables networking. For use in client-only chips which only want to use the tap/hold/etc utilities.
+    function tiSetClientOnly( state )
+        clientOnly = state
     end
 
 
@@ -804,6 +814,8 @@ else
                 -- If the button is still down, it's a hold
                 hook.run( "LKL_TargetedInput_HoldStart", player(), key )
 
+                if clientOnly then return end
+
                 net.start( "LKL_TargetedInput_HoldStart" )
                 net.writeUInt( key, 10 )
                 net.send()
@@ -821,6 +833,8 @@ else
 
             -- If the button is still up, finish the tap streak
             hook.run( "LKL_TargetedInput_Tap", player(), key, streakResult )
+
+            if clientOnly then return end
 
             net.start( "LKL_TargetedInput_Tap" )
             net.writeUInt( key, 10 )
@@ -846,6 +860,7 @@ else
         tapCheck( key, state )
         hook.run( "LKL_TargetedInput_InputClk", player(), key, state )
 
+        if clientOnly then return end
         if not iAmATarget then return end
 
         net.start( "LKL_TargetedInput_InputClk" )
