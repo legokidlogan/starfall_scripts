@@ -6,6 +6,7 @@
 --[[
     - Appends entries from source into target, without adding duplicate values.
     - Both tables must be sequential.
+    - Modifies in-place and returns the target table.
 
     - Example:
         local target = { 1, 2, 3 }
@@ -27,4 +28,6 @@ function table.combine( target, source )
             tableInsert( target, v )
         end
     end
+
+    return target
 end
