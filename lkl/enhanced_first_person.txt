@@ -480,6 +480,7 @@ if debugEnabled and holo then
 end
 
 timer.simple( 1, function()
+    tiSetClientOnly( true )
     tiSetTargets( plyEnt )
     tiSetTargetButtons( {
         [controlKey] = true,
