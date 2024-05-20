@@ -3,7 +3,7 @@
 --@shared
 --@include lkl/music_player_songs.txt
 --@include lkl/easy_bass.txt
---@include lkl/chat_cmds.txt
+--@include lkl/chat_cmds_multi.txt
 
 --[[
     - Songs and playlists are defined in lkl/music_player_songs.txt
@@ -54,10 +54,12 @@ do
     end
 end
 
-projectNameID = projectNameID or "MusicPlayer"
-ccmdPrefix = ccmdPrefix or "/music"
 
-require( "lkl/chat_cmds.txt" )
+local ccmdPrefix = ccmdPrefix or "/music"
+local ccmdName = "MusicPlayer"
+projectNameID = projectNameID or ccmdName
+
+require( "lkl/chat_cmds_multi.txt" )
 
 
 local loopEnabled = musicPlayer.LOOP_DEFAULT
@@ -700,12 +702,20 @@ end
 
 if not musicPlayer.USE_CHAT_COMMANDS then return end
 
-ccmdCreateCommand(
-    "play",
-    function( _, _, _, songNameOrURL )
+
+ccmdMulti.registerProject( ccmdPrefix, ccmdName, nil )
+ccmdMulti.setTargets( ccmdPrefix, owner(), false )
+
+ccmdMulti.createCommand(
+    ccmdPrefix,
+    {
+        "play",
+        "p",
+    },
+    function( _, _, _, _, songNameOrURL )
         playSong( songNameOrURL )
     end,
-    function( _, _, _, songNameOrURL )
+    function( _, _, _, _, songNameOrURL )
         local indexOrURL = getSongIndexOrURL( songNameOrURL )
 
         if not isSongValid( indexOrURL ) then
@@ -724,9 +734,9 @@ ccmdCreateCommand(
     owner(),
     false
 )
-ccmdCreateCommand( "p", "play" )
 
-ccmdCreateCommand(
+ccmdMulti.createCommand(
+    ccmdPrefix,
     "stop",
     function()
         stopSongs()
@@ -738,7 +748,8 @@ ccmdCreateCommand(
     false
 )
 
-ccmdCreateCommand(
+ccmdMulti.createCommand(
+    ccmdPrefix,
     "skip",
     function()
         playSong( getNextSongIndex() )
@@ -750,8 +761,12 @@ ccmdCreateCommand(
     false
 )
 
-ccmdCreateCommand(
-    "restart",
+ccmdMulti.createCommand(
+    ccmdPrefix,
+    {
+        "restart",
+        "r",
+    },
     function()
         restartSong()
     end,
@@ -761,11 +776,14 @@ ccmdCreateCommand(
     owner(),
     false
 )
-ccmdCreateCommand( "r", "restart" )
 
-ccmdCreateCommand(
-    "playlist",
-    function( _, _, _, playlistName )
+ccmdMulti.createCommand(
+    ccmdPrefix,
+    {
+        "playlist",
+        "pl",
+    },
+    function( _, _, _, _, playlistName )
         if not playlistName or playlistName == "" then
             local curPlaylistName = getCurPlaylistName()
 
@@ -786,7 +804,7 @@ ccmdCreateCommand(
             selectPlaylist( playlistName )
         end
     end,
-    function( _, _, _, playlistName )
+    function( _, _, _, _, playlistName )
         if not playlistName or playlistName == "" then return end
         if deselectWords[playlistName] then return end
 
@@ -817,11 +835,15 @@ ccmdCreateCommand(
     owner(),
     false
 )
-ccmdCreateCommand( "pl", "playlist" )
 
-ccmdCreateCommand(
-    "volume",
-    function( _, _, _, volume )
+ccmdMulti.createCommand(
+    ccmdPrefix,
+    {
+        "volume",
+        "vol",
+        "v",
+    },
+    function( _, _, _, _, volume )
         setVolume( tonumber( volume ) )
 
         return {
@@ -830,7 +852,7 @@ ccmdCreateCommand(
             ccmdScheme:getColor( "Text" ), ".",
         }
     end,
-    function( _, _, _, volume )
+    function( _, _, _, _, volume )
         if not tonumber( volume ) then
             return "Expected volume to be a number.", 1
         end
@@ -847,11 +869,13 @@ ccmdCreateCommand(
     owner(),
     false
 )
-ccmdCreateCommand( "vol", "volume" )
-ccmdCreateCommand( "v", "volume" )
 
-ccmdCreateToggleCommand(
-    "loop",
+ccmdMulti.createToggleCommand(
+    ccmdPrefix,
+    {
+        "loop",
+        "l",
+    },
     function( _, newState )
         setLoop( newState )
     end,
@@ -861,10 +885,13 @@ ccmdCreateToggleCommand(
     owner(),
     false
 )
-ccmdCreateCommand( "l", "loop" )
 
-ccmdCreateToggleCommand(
-    "shuffle",
+ccmdMulti.createToggleCommand(
+    ccmdPrefix,
+    {
+        "shuffle",
+        "sh",
+    },
     function( _, newState )
         setShuffle( newState )
     end,
@@ -874,4 +901,3 @@ ccmdCreateToggleCommand(
     owner(),
     false
 )
-ccmdCreateCommand( "sh", "shuffle" )
