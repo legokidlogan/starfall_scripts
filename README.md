@@ -74,7 +74,7 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
     - Provides functions for handling lists, key-value lists, bullet lists, [ulx](https://github.com/TeamUlysses/ulx)-style command targeting, and more.
     - Able to automatically get colorzied strings from *any* type, including custom middleclass objects and multi-colored strings for Vector and Angle.
     - Allows for quick printing of messages from server to specific clients without having to do the networking yourself.
-- [chat_cmds.txt](/lkl/chat_cmds.txt)
+- [chat_cmds_multi.txt](/lkl/chat_cmds_multi.txt)
     - A feature-rich library to simplify chat command creation.
     - Utilizes [easy_print.txt](/lkl/easy_print.txt) to colorize the commands, standardizing the appearance and improving readability.
     - Allows for aliasing commands, such as `/prefix reallylongcommand` and `/prefix rlc`
@@ -82,6 +82,7 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
     - Arguments can be given names, marked as required/optional, and they will automatically be enforced.
     - Fail cases can be handled separately from the execution function to keep things tidy and provide colored prints on what went wrong.
     - Has a built-in help command to list argument info and any custom details you provide.
+    - Allows for the creation of multiple sets of commands (with different prefixes) in the same chip.
 - [sv_dosound.txt](/lkl/sv_dosound.txt) and [cl_dosound.txt](/lkl/cl_dosound.txt)
     - **Disclaimer**: `cl_dosound` will soon be refactored to use [easy_bass.txt](/lkl/easy_bass.txt), though it shouldn't change anything front-facing.
     - Lets you create special event-based sounds, consolidating the params into one place and reducing the playback function to a simple one-liner.

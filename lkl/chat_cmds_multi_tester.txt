@@ -1,0 +1,145 @@
+--@name chat_cmds_multi Tester
+--@author legokidlogan
+--@shared
+--@include lkl/chat_cmds_multi.txt
+
+require( "lkl/chat_cmds_multi.txt" )
+
+if CLIENT then return end
+
+
+----- CT1 COMMANDS -----
+
+ccmdMulti.registerProject( "/ct1", "CmdTest1", nil )
+ccmdMulti.setTargets( "/ct1", owner(), false )
+
+ccmdMulti.createCommand(
+    "/ct1",
+    "err",
+    function( cmdPrefix, cmdName, ply, argsAsStr, errorType )
+        if errorType == "1" then
+            error( "This is a runtime error" )
+        end
+
+        return "No error"
+    end,
+    function( _, _, _, _, errorType )
+        if errorType == "2" then
+            return "This is a fail reason", 1
+        end
+    end,
+    { -- argInfo
+        ReqCount = 1,
+        OptCount = 0,
+        {
+            Name = "errorType",
+            Description = "The type of error to throw",
+        },
+    },
+    { -- helpInfo
+        "This is a basic line.",
+        {
+            c_white, "This uses ",
+            c_yellow, "global colors ",
+            "::c_code_string", "string colors, ",
+            Color( 255, 123, 0 ), "and local colors.",
+        },
+    },
+    nil,
+    nil
+)
+
+ccmdMulti.createCommand(
+    "/ct1",
+    "ctest",
+    function()
+        return {
+            c_white, "This uses ",
+            c_yellow, "global colors, ",
+            "::c_code_string", "string colors, ",
+            "::c(127,255,0,255)", "custom string colors, ",
+            Color( 255, 123, 0 ), "local colors, ",
+            "Attention", "and color scheme types.",
+        }
+    end,
+    function()
+        -- No fail cases
+    end,
+    { -- argInfo
+        ReqCount = 0,
+        OptCount = 0,
+    },
+    { -- helpInfo
+        "This is a basic line.",
+        {
+            c_white, "This uses ",
+            c_yellow, "global colors, ",
+            "::c_code_string", "string colors, ",
+            "::c(127,255,0,255)", "custom string colors, ",
+            Color( 255, 123, 0 ), "local colors, ",
+            "Attention", "and color scheme types.",
+        },
+    },
+    nil,
+    nil
+)
+
+
+----- CT2 COMMANDS -----
+
+ccmdMulti.registerProject( "/ct2", "CmdTest2", nil )
+ccmdMulti.setTargets( "/ct2", owner(), false )
+
+ccmdMulti.createCommand(
+    "/ct2",
+    "err",
+    function( cmdPrefix, cmdName, ply, argsAsStr, errorType )
+        if errorType == "1" then
+            error( "This is a runtime error" )
+        end
+
+        return "No error"
+    end,
+    function( _, _, _, _, errorType )
+        if errorType == "2" then
+            return "This is a fail reason", 1
+        end
+    end,
+    { -- argInfo
+        ReqCount = 1,
+        OptCount = 0,
+        {
+            Name = "errorType",
+            Description = "The type of error to throw",
+        },
+    },
+    { -- helpInfo
+        "This is a basic line.",
+        {
+            c_white, "This uses ",
+            c_yellow, "global colors ",
+            "::c_code_string", "string colors, ",
+            Color( 255, 123, 0 ), "and local colors.",
+        },
+    },
+    nil,
+    nil
+)
+
+ccmdMulti.createCommand(
+    "/ct2",
+    "foo",
+    function()
+        return "bar"
+    end,
+    function()
+        -- No fail cases
+    end,
+    { -- argInfo
+        ReqCount = 0,
+        OptCount = 0,
+    },
+    "foo bar", -- helpInfo
+    nil,
+    nil
+)
