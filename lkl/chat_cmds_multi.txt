@@ -852,12 +852,12 @@ end
         ccmdMulti.createCommand(
             "/myPrefix",
             "slap",
-            function( _, _, argsAsString )
+            function( _, _, _, argsAsString )
                 local targetPly = ccmdMulti.getPreprocessedResults()
 
                 slap( targetPly )
             end,
-            function( _, _, argsAsString )
+            function( _, _, _, argsAsString )
                 local targetPly = find.playersByName( argsAsString )[1]
 
                 if not isValid( targetPly ) then
