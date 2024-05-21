@@ -872,10 +872,14 @@ else
 
 
     hook.add( "inputPressed", "LKL_TargetedInput_InputPressed", function( key )
+        if not isFirstTimePredicted() then return end
+
         keyClk( key, true )
     end )
 
     hook.add( "inputReleased", "LKL_TargetedInput_InputReleased", function( key )
+        if not isFirstTimePredicted() then return end
+
         keyClk( key, false )
     end )
 
