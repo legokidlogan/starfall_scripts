@@ -1521,12 +1521,27 @@ if SERVER then
             - A player or table of players to send the print table to.
         - printTbl: (table)
             - The print table to send.
+        - consoleOnly: (optional) (boolean)
+            - Whether to only print to the console.
+            - Defaults to false.
     --]]
-    function ep.printToClient( plys, printTbl )
+    function ep.printToClient( plys, printTbl, consoleOnly )
         local stringyTbl = ep.stringifyPrintTable( epScheme, printTbl )
 
+        local jsonStr = json.encode( stringyTbl )
+        local jsonCompressed = bit.compress( jsonStr )
+        local sendCompressed = #jsonCompressed < #jsonStr
+
         net.start( "LKL_EasyPrint_PrintFromServer" )
-        net.writeString( json.encode( stringyTbl ) )
+            net.writeBool( consoleOnly and true or false )
+            net.writeBool( sendCompressed )
+
+            if sendCompressed then
+                net.writeUInt( #jsonCompressed, 32 )
+                net.writeData( jsonCompressed, #jsonCompressed )
+            else
+                net.writeString( jsonStr )
+            end
         net.send( plys )
     end
 end
@@ -1707,10 +1722,25 @@ if CLIENT then
     net.receive( "LKL_EasyPrint_PrintFromServer", function()
         if permissionSatisfied ~= nil and not permissionSatisfied then return end -- Soft-integrate into cl_permissions if parent script uses it
 
-        local printTbl = ep.colorizePrintTable( epScheme, json.decode( net.readString() ) )
+        local consoleOnly = net.readBool()
+        local readCompressed = net.readBool()
+        local jsonStr
+
+        if readCompressed then
+            local jsonLength = net.readUInt( 32 )
+            jsonStr = bit.decompress( net.readData( jsonLength ) )
+        else
+            jsonStr = net.readString()
+        end
+
+        local printTbl = ep.colorizePrintTable( epScheme, json.decode( jsonStr ) )
 
         pcall( function() -- Some servers add extra permissions for printing on client
-            print( unpack( printTbl ) )
+            if consoleOnly then
+                printConsole( unpack( printTbl ) )
+            else
+                print( unpack( printTbl ) )
+            end
         end )
     end )
 end
