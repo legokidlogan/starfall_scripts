@@ -60,6 +60,7 @@ COLORS.pale_red = Color( 255, 150, 150, 255 )
 COLORS.pale_green = Color( 150, 255, 150, 255 )
 COLORS.pale_blue = Color( 150, 150, 255, 255 )
 COLORS.pale_yellow = Color( 255, 255, 150, 255 )
+COLORS.pale_orange = Color( 255, 170, 100, 255 )
 
 COLORS.medium_blue = Color( 90, 90, 220, 255 )
 
@@ -94,6 +95,7 @@ COLORS.realm_server = Color( 3, 169, 244, 255 )
 COLORS.realm_client = Color( 222, 169, 9, 255 )
 COLORS.realm_menu = Color( 76, 175, 80, 255 )
 COLORS.realm_current = SERVER and COLORS.realm_server or COLORS.realm_client
+COLORS.steam_id = Color( 70, 130, 200, 255 )
 
 
 -- Code colors (based off of default colors for the Visual Studio Code glua extension by aStonedPenguin )
