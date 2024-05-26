@@ -424,9 +424,9 @@ end
                     - Allows for colored text.
             - badArgInd: (optional) (integer > 0)
                 - The numerical index of the cmdVarArgs param that caused the failure, if applicable.
-                - If failMessage is nil, then badArgInd can instead be any type, and will be retrievable in cmdFunc via ccmdGetPreprocessedResults().
+                - If failMessage is nil, then badArgInd can instead be any type, and will be retrievable in cmdFunc via ccmdMulti.getPreprocessedResults().
                     - This is a way to reduce redundant processing on successfull commands.
-                    - See ccmdGetPreprocessedResults() for more info and an example.
+                    - See ccmdMulti.getPreprocessedResults() for more info and an example.
         - Lets you have nicely-formatted misuse/invalid arg cases, with relevant info being printed out.
             - This runs before cmdFunc, so this is to check command availability and do input sanitization, not handle execution errors.
         - The player not providing all required args will be auto-checked before failCasesFunc.
