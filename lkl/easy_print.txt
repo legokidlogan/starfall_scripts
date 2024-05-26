@@ -1517,11 +1517,11 @@ if SERVER then
     --[[
         - Sends a print table over to a player to have them print it clientside.
 
-        - plys: (player or table)
+        plys: (player or table)
             - A player or table of players to send the print table to.
-        - printTbl: (table)
+        printTbl: (table)
             - The print table to send.
-        - consoleOnly: (optional) (boolean)
+        consoleOnly: (optional) (boolean)
             - Whether to only print to the console.
             - Defaults to false.
     --]]
