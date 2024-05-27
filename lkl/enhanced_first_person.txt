@@ -82,10 +82,6 @@ permissions = {
     "render.calcview"
 }
 
-permissionSatisfied = false
-permissionRequestSent = false
-checkPermissions = false
-
 setupPermissionRequest( permissions, "See yourself in first person", true )
 
 require( "lkl/cl_check_permissions.txt" )
