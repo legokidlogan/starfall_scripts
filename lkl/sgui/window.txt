@@ -5,6 +5,7 @@
 --@include lkl/sgui/close_button.txt
 --@include lkl/sgui/draggable.txt
 --@include lkl/sgui/label.txt
+--@include lkl/sgui/resizable.txt
 
 --[[
     - SGUI.Window
@@ -18,6 +19,7 @@ require( "lkl/sgui/collapsible.txt" )
 require( "lkl/sgui/close_button.txt" )
 require( "lkl/sgui/draggable.txt" )
 require( "lkl/sgui/label.txt" )
+require( "lkl/sgui/resizable.txt" )
 
 if SGUI.Window then return end -- Don't run twice
 
