@@ -17,6 +17,8 @@ local mCos = math.cos
 local mASin = math.asin
 local mAbs = math.abs
 
+local localToWorldVector
+local worldToLocalVector
 local getOBBSize
 local getIKOffset
 local getVariedOrigin
@@ -94,8 +96,8 @@ function libIK.generateSegment( segmentData )
         _parentEnt = parentEnt,
         _length = length,
         _parentToOrigin = parentEnt:worldToLocal( segmentEnt:localToWorld( originOffset ) ),
-        _parentToUpDir = parentEnt:worldToLocalVector( segmentEnt:localToWorldVector( upDir ) ),
-        _parentToForwardDir = parentEnt:worldToLocalVector( segmentEnt:localToWorldVector( forwardDir ) ),
+        _parentToUpDir = worldToLocalVector( parentEnt, localToWorldVector( segmentEnt, upDir ) ),
+        _parentToForwardDir = worldToLocalVector( parentEnt, localToWorldVector( segmentEnt, forwardDir ) ),
         _originToEntPos = originToEntPos,
         _originToEntAng = originToEntAng,
 
@@ -107,7 +109,7 @@ function libIK.generateSegment( segmentData )
         _forwardDir = forwardDir,
         _upDir = upDir,
         _rightDir = rightDir,
-        _parentToRightDir = parentEnt:worldToLocalVector( segmentEnt:localToWorldVector( rightDir ) ),
+        _parentToRightDir = worldToLocalVector( parentEnt, localToWorldVector( segmentEnt, rightDir ) ),
     }
 end
 
@@ -200,27 +202,27 @@ function libIK.worldToLocalSegment( segment, pos, ang, originType )
 end
 
 function libIK.getSegmentForward( segment )
-    return segment._ent:localToWorldVector( segment._forwardDir )
+    return localToWorldVector( segment._ent, segment._forwardDir )
 end
 
 function libIK.getSegmentUp( segment )
-    return segment._ent:localToWorldVector( segment._upDir )
+    return localToWorldVector( segment._ent, segment._upDir )
 end
 
 function libIK.getSegmentRight( segment )
-    return segment._ent:localToWorldVector( segment._rightDir )
+    return localToWorldVector( segment._ent, segment._rightDir )
 end
 
 function libIK.getSegmentForwardFromParent( segment )
-    return segment._parentEnt:localToWorldVector( segment._parentToForwardDir )
+    return localToWorldVector( segment._parentEnt, segment._parentToForwardDir )
 end
 
 function libIK.getSegmentUpFromParent( segment )
-    return segment._parentEnt:localToWorldVector( segment._parentToUpDir )
+    return localToWorldVector( segment._parentEnt, segment._parentToUpDir )
 end
 
 function libIK.getSegmentRightFromParent( segment )
-    return segment._parentEnt:localToWorldVector( segment._parentToRightDir )
+    return localToWorldVector( segment._parentEnt, segment._parentToRightDir )
 end
 
 -- For a desired origin position and angle of a segment, returns the position and angle that you will need to set onto the entity.
@@ -482,6 +484,14 @@ end
 
 ----- PRIVATE FUNCTIONS -----
 
+localToWorldVector = function( ent, vec )
+    return ent:localToWorld( vec ) - ent:getPos()
+end
+
+worldToLocalVector = function( ent, vec )
+    return ent:worldToLocal( vec + ent:getPos() )
+end
+
 getOBBSize = function( ent )
     local obbSize = ent:obbSize()
 
@@ -547,7 +557,7 @@ end
 
 getIKBendFromTilt = function( segment, lineDir, tiltDeg )
     local parentEnt = segment._parentEnt
-    local upDir = parentEnt:localToWorldVector( segment._parentToUpDir )
+    local upDir = localToWorldVector( parentEnt, segment._parentToUpDir )
     upDir = upDir:rotateAroundAxis( lineDir, -tiltDeg )
 
     local bendDir = lineDir:cross( upDir )
@@ -557,7 +567,7 @@ getIKBendFromTilt = function( segment, lineDir, tiltDeg )
     if bendDirLength ~= 1 then
         -- Fallback option if upDir == lineDir.
         if bendDirLength == 0 then
-            local forwardDir = parentEnt:localToWorldVector( segment._parentToForwardDir )
+            local forwardDir = localToWorldVector( parentEnt, segment._parentToForwardDir )
             forwardDir = forwardDir:rotateAroundAxis( lineDir, tiltDeg + 90 )
 
             -- In such cases, forwardDir and lineDir are guaranteed to be perpendicular, so crossing them is always length 1.
