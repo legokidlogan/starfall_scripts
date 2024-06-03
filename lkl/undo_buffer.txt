@@ -26,7 +26,7 @@ local centerMaterial = "model_color"
 local centerColor = Color( 255, 255, 255, 255 )
 local bufferModel = "models/hunter/geometric/hex1x1.mdl"
 local bufferMaterial = "model_color"
-local bufferColors = {} -- You cdan manually define colors in here for each hexagon. If the final count is not 6, expect strange results.
+local bufferColors = {} -- You can manually define colors in here for each hexagon. If the final count is not 6, expect strange results.
 local bufferColorAutoCount = 6 -- number or false. Adds this many colors to bufferColors according to the settings below.
     local bufferColorAutoMode = 1 -- 1 = HSV rainbow, 2 = HSV range from-to, 3 = HSV range random
     local colorRangeStartHSV = Color( 0, 0.4, 1 ) -- 0-360, 0-1, 0-1
