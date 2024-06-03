@@ -26,8 +26,8 @@ local centerMaterial = "model_color"
 local centerColor = Color( 255, 255, 255, 255 )
 local bufferModel = "models/hunter/geometric/hex1x1.mdl"
 local bufferMaterial = "model_color"
-local bufferColors = {}
-local bufferColorAutoCount = 6 -- number or false
+local bufferColors = {} -- You cdan manually define colors in here for each hexagon. If the final count is not 6, expect strange results.
+local bufferColorAutoCount = 6 -- number or false. Adds this many colors to bufferColors according to the settings below.
     local bufferColorAutoMode = 1 -- 1 = HSV rainbow, 2 = HSV range from-to, 3 = HSV range random
     local colorRangeStartHSV = Color( 0, 0.4, 1 ) -- 0-360, 0-1, 0-1
     local colorRangeEndHSV = Color( 360, 0.8, 1 ) -- 0-360, 0-1, 0-1
@@ -35,20 +35,29 @@ local bufferRadius = 82.2
 local bufferMass = 50000
 local bufferDoParent = true
 
-local animEnabled = true
-local animPauseIfEmpty = true
-local animPauseIfNotFull = true
-local animPauseToggleOnUse = true
-local animStartPaused = false
-local animInterval = 0.15
-local animStartDelay = 5
+local animEnabled = true -- Enable animations.
+local animPauseIfEmpty = true -- Temporarily pauses the animation if the buffer is empty.
+local animPauseIfNotFull = true -- Temporarily pauses the animation if the buffer isn't full.
+local animPauseToggleOnUse = true -- Allows the animation to be toggled by pressing E on the chip.
+local animStartPaused = false -- Should the animation start paused?
+local animInterval = 0.15 -- Small numbers means the animation is smoother, but more intensive.
+local animStartDelay = 5 -- Startup delay for the animation to begin once the chip starts.
 
 local function animShouldPause()
     return chip():isPlayerHolding()
 end
 
 
--- Animation Area (it's encouraged to make your own, these are just examples)
+--[[ Animation Area -----
+    - To set up an animation, just define a function called animFunc( time, dt )
+        - time is the total time elapsed since the script started.
+        - dt is the time since the last call to animFunc.
+    - You can also define a second function called animFunc2( time, dt ) for additional animations.
+        - If you use it, I personally would recommend using animFunc for pos/ang animation and animFunc2 for colors.
+    - Use the provided helper functions (defined further below) to move the buffer props and/or chip around.
+    - Directly below are some example animations, but I strongly recommend making your own!
+--]]
+
 
 --[[
 -- Constant rotation -----
