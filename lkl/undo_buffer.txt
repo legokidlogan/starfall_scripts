@@ -3,37 +3,353 @@
 --@server
 --@model models/hunter/geometric/hex1x1.mdl
 --@include lkl/queue.txt
+--@include lkl/perf_check.txt
 
 require( "lkl/queue.txt" )
+require( "lkl/perf_check.txt" )
+
+-- For use with reading in animFunc, will be auto-filled for you.
+local bufferCount
+local bufferProps = {}
+local bufferPropBasePoss = {}
+local bufferPropBaseAngs = {}
+local bufferPropOffsetDirs = {}
+
+local moveBufferProp
+local offsetBufferProp
+local nudgeBufferProp
+local offsetBufferPropRadially
 
 
 -- CONFIG: -----------------------------------------------------------------
+local centerMaterial = "model_color"
+local centerColor = Color( 255, 255, 255, 255 )
 local bufferModel = "models/hunter/geometric/hex1x1.mdl"
 local bufferMaterial = "model_color"
 local bufferColors = {}
-local hsvColorCount = 6 -- number or false. Will add static rainbow colors to bufferColors if provided.
+local bufferColorAutoCount = 6 -- number or false
+    local bufferColorAutoMode = 1 -- 1 = HSV rainbow, 2 = HSV range from-to, 3 = HSV range random
+    local colorRangeStartHSV = Color( 0, 0.4, 1 ) -- 0-360, 0-1, 0-1
+    local colorRangeEndHSV = Color( 360, 0.8, 1 ) -- 0-360, 0-1, 0-1
 local bufferRadius = 82.2
 local bufferMass = 50000
+local bufferDoParent = true
 
-chip():setColor( Color( 255, 255, 255, 255 ) )
-chip():setMaterial( bufferMaterial )
--- END CONFIG -----------------------------------------------------------------
+local animEnabled = true
+local animPauseIfEmpty = true
+local animPauseIfNotFull = true
+local animPauseToggleOnUse = true
+local animStartPaused = true
+local animInterval = 0.15
+local animStartDelay = 5
+
+local function animShouldPause()
+    return chip():isPlayerHolding()
+end
 
 
-local bufferProps = {}
-local bufferLookup = {}
-local bufferEntries = {}
-local bufferQueue
+-- Animation Area (it's encouraged to make your own, these are just examples)
 
-if hsvColorCount then
-    for i = 1, hsvColorCount do
-        local color = Color( ( i - 1 ) * ( 360 / hsvColorCount ), 1, 1 ):hsvToRGB()
-        table.insert( bufferColors, color )
+--[[
+-- Constant rotation -----
+local rotSpeed = 2
+
+local function animFunc( time, dt )
+    local thetaChange = dt * rotSpeed
+    local rotAxis = -chip():getUp()
+    local curAng = chip():getAngles()
+
+    local newAng = curAng:rotateAroundAxis( rotAxis, thetaChange )
+
+    chip():setAngles( newAng )
+end
+--]]
+
+
+--[[
+-- Radial oscillation -----
+local oscSpeed = 2
+local oscDistMin = 0
+local oscDistMax = 50
+
+local function animFunc( time, dt )
+    local dist = math.remap( math.sin( time * oscSpeed ), -1, 1, oscDistMin, oscDistMax )
+
+    offsetBufferPropRadially( -1, dist )
+end
+--]]
+
+
+--[[
+-- Constant HSV shift -----
+local hsvShiftSpeed = 10
+
+local function animFunc2( time, dt )
+    local hueOffset = time * hsvShiftSpeed
+
+    for i = 1, bufferColorAutoCount do
+        local ent = bufferProps[i]
+
+        if isValid( ent ) then
+            local hue = ( i - 1 ) * ( 360 / bufferColorAutoCount )
+            local color = Color( hue + hueOffset, 1, 1 ):hsvToRGB()
+
+            ent:setColor( color )
+        end
+    end
+end
+--]]
+
+
+-- DVD Bounce -----
+--[[
+local bounceBounds = 200
+local bounceOriginLocal = Vector( 0, 0, -0.5 )
+local hexWidth = 95.4
+local hexHeight = 82.686
+local hexSpeedMin = 20
+local hexSpeedMax = 50
+local hexDepthMax = 2
+
+local LOCAL_EDGE_X = Vector( 1, 0, 0 ) * hexHeight / 2
+local LOCAL_EDGE_X_MINUS = Vector( -1, 0, 0 ) * hexHeight / 2
+local LOCAL_EDGE_Y = Vector( 0, 1, 0 ) * hexWidth / 2
+local LOCAL_EDGE_Y_MINUS = Vector( 0, -1, 0 ) * hexWidth / 2
+local LOCAL_EDGES = { LOCAL_EDGE_X, LOCAL_EDGE_X_MINUS, LOCAL_EDGE_Y, LOCAL_EDGE_Y_MINUS }
+
+local WALL_LEFT = 1
+local WALL_RIGHT = 2
+local WALL_UP = 3
+local WALL_DOWN = 4
+
+local BOUNCE_BOUNDS_TOO_FAR_SQR = ( bounceBounds * 1.5 ) ^ 2
+
+bufferDoParent = false
+
+
+local function isInRect( xMin, xMax, yMin, yMax, x, y )
+    return x >= xMin and x <= xMax and y >= yMin and y <= yMax
+end
+
+local function reflectDir( dirX, dirY, wallSide )
+    if wallSide == WALL_UP or wallSide == WALL_DOWN then
+        return dirX, -dirY
+    else
+        return -dirX, dirY
     end
 end
 
-local bufferCount = #bufferColors
+local function animFunc( _time, dt )
+    local bounceOrigin = chip():localToWorld( bounceOriginLocal )
 
+    for i = 1, bufferCount do
+        local hex = bufferProps[i]
+        if not hex or not hex:isValid() then continue end
+
+        local hexPos = chip():worldToLocalVector( hex:getPos() - bounceOrigin )
+        --local hexPos = chip():worldToLocal( hex:getPos() ) - bounceOriginLocal
+        local velX = hex._velX or ( ( math.random( 0, 1 ) * 2 - 1 ) * math.rand( hexSpeedMin, hexSpeedMax ) )
+        local velY = hex._velY or ( ( math.random( 0, 1 ) * 2 - 1 ) * math.rand( hexSpeedMin, hexSpeedMax ) )
+        local depth = hex._depth or math.rand( -hexDepthMax, 0 )
+        local posX = hexPos[1]
+        local posY = hexPos[2]
+
+        local velHasChanged = not hex._velX
+
+        for wallSide, edge in pairs( LOCAL_EDGES ) do
+            local edgeX = edge[1]
+            local edgeY = edge[2]
+
+            if not isInRect( -bounceBounds, bounceBounds, -bounceBounds, bounceBounds, posX + edgeX, posY + edgeY ) then
+                velX, velY = reflectDir( velX, velY, wallSide )
+                velHasChanged = true
+            end
+        end
+
+        hex:setPos( chip():localToWorldVector( Vector( posX + velX * dt, posY + velY * dt, depth ) ) + bounceOrigin )
+
+        if velHasChanged then
+            hex._velX = velX
+            hex._velY = velY
+
+            if not hex._depth then
+                hex._depth = depth
+            end
+
+            if Vector( posX, posY, 0 ):getLengthSqr() > BOUNCE_BOUNDS_TOO_FAR_SQR then
+                hex:setPos( bounceOrigin )
+                hex:setAngles( chip():getAngles() )
+                --hex:remove()
+            end
+        end
+    end
+end
+--]]
+
+
+-- END CONFIG -----------------------------------------------------------------
+
+
+----- ANIMATION HELPERS -----
+
+-- Sets pos/ang relative to chip
+-- Index of 0 will move the chip itself
+-- Index of -1 will move all buffer props
+moveBufferProp = function( ind, pos, ang )
+    if ind < 0 then
+        for i = 1, bufferCount do
+            moveBufferProp( i, pos, ang )
+        end
+
+        return
+    end
+
+    local ent = ind == 0 and chip() or bufferProps[ind]
+    if not isValid( ent ) then return end
+
+    if pos then
+        -- Parented props automatically setpos in local coords
+        if not bufferDoParent then
+            pos = chip():localToWorld( pos )
+        end
+
+        ent:setPos( pos )
+    end
+
+    if ang then
+        ent:setAngles( chip():localToWorldAngles( ang ) )
+    end
+end
+
+-- Sets pos/ang relative to chip + the prop's base pos/ang
+-- Index of 0 will move the chip itself
+-- Index of -1 will move all buffer props
+offsetBufferProp = function( ind, pos, ang )
+    if ind == 0 then
+        moveBufferProp( 0, pos, ang )
+    elseif ind < 0 then
+        for i = 1, bufferCount do
+            offsetBufferProp( i, pos, ang )
+        end
+
+        return
+    end
+
+    local ent = bufferProps[ind]
+    if not isValid( ent ) then return end
+
+    if pos then
+        pos = pos + bufferPropBasePoss[ind]
+    end
+
+    if ang then
+        ang = ang + bufferPropBaseAngs[ind]
+    end
+
+    moveBufferProp( ind, pos, ang )
+end
+
+-- Sets pos/ang relative to chip + the prop's current pos/ang
+-- Index of 0 will move the chip itself
+-- Index of -1 will move all buffer props
+nudgeBufferProp = function( ind, pos, ang )
+    if ind < 0 then
+        for i = 1, bufferCount do
+            nudgeBufferProp( i, pos, ang )
+        end
+
+        return
+    end
+
+    local ent = ind == 0 and chip() or bufferProps[ind]
+    if not isValid( ent ) then return end
+
+    if pos then
+        pos = pos + chip():worldToLocal( ent:getPos() )
+    end
+
+    if ang then
+        ang = ang + chip():worldToLocalAngles( ent:getAngles() )
+    end
+
+    moveBufferProp( ind, pos, ang )
+end
+
+-- Sets pos relative to chip + the prop's base pos + radial offset
+-- ang behaves the same as in offsetBufferProp()
+-- Index of -1 will move all buffer props
+offsetBufferPropRadially = function( ind, dist, ang )
+    if ind == 0 then return end
+
+    if ind < 0 then
+        for i = 1, bufferCount do
+            offsetBufferPropRadially( i, dist, ang )
+        end
+
+        return
+    end
+
+    local ent = bufferProps[ind]
+    if not isValid( ent ) then return end
+
+    local pos = bufferPropOffsetDirs[ind] * dist
+    offsetBufferProp( ind, pos, ang )
+end
+
+
+----- SETUP -----
+
+local bufferLookup = {}
+local bufferEntries = {}
+local bufferQueue
+local animIsUsePaused = animPauseToggleOnUse and animStartPaused
+
+if bufferColorAutoCount then
+    if bufferColorAutoMode == 1 then
+        for i = 1, bufferColorAutoCount do
+            local color = Color( ( i - 1 ) * ( 360 / bufferColorAutoCount ), 1, 1 ):hsvToRGB()
+            table.insert( bufferColors, color )
+        end
+    elseif bufferColorAutoMode == 2 then
+        local startHue = colorRangeStartHSV[1]
+        local startSaturation = colorRangeStartHSV[2]
+        local startValue = colorRangeStartHSV[3]
+
+        local endHue = colorRangeEndHSV[1]
+        local endSaturation = colorRangeEndHSV[2]
+        local endValue = colorRangeEndHSV[3]
+
+        for i = 1, bufferColorAutoCount do
+            local frac = ( i - 1 ) / ( bufferColorAutoCount - 1 )
+
+            local color = Color(
+                math.lerp( frac, startHue, endHue ),
+                math.lerp( frac, startSaturation, endSaturation ),
+                math.lerp( frac, startValue, endValue )
+            ):hsvToRGB()
+            table.insert( bufferColors, color )
+        end
+    elseif bufferColorAutoMode == 3 then
+        local startHue = colorRangeStartHSV[1]
+        local startSaturation = colorRangeStartHSV[2]
+        local startValue = colorRangeStartHSV[3]
+
+        local endHue = colorRangeEndHSV[1]
+        local endSaturation = colorRangeEndHSV[2]
+        local endValue = colorRangeEndHSV[3]
+
+        for _ = 1, bufferColorAutoCount do
+            local color = Color(
+                math.rand( startHue, endHue ),
+                math.rand( startSaturation, endSaturation ),
+                math.rand( startValue, endValue )
+            ):hsvToRGB()
+            table.insert( bufferColors, color )
+        end
+    end
+end
+
+bufferCount = #bufferColors
 for i, color in pairs( bufferColors ) do
     local frac = ( i - 1 ) / bufferCount
     local theta = frac * math.pi * 2
@@ -41,6 +357,10 @@ for i, color in pairs( bufferColors ) do
     local offsetDir = Vector( -math.cos( theta ), math.sin( theta ), 0 )
     local pos = offsetDir * bufferRadius
     local ang = Angle( 0, 0, 0 )
+
+    bufferPropBasePoss[i] = pos
+    bufferPropBaseAngs[i] = ang
+    bufferPropOffsetDirs[i] = offsetDir
 
     local entry = {
         Index = i,
@@ -101,12 +421,16 @@ hook.add( "EntityRemoved", "LKL_UndoBuffer_RespawnProps", function( ent )
 end )
 
 hook.add( "KeyPress", "LKL_UndoBuffer_TogglePause", function( ply, key )
+    if not animPauseToggleOnUse then return end
+    if not animEnabled then return end
     if ply ~= owner() then return end
     if key ~= IN_KEY.USE then return end
 
     local tr = ply:getEyeTrace()
     if tr.Entity ~= chip() then return end
     if tr.HitPos:getDistanceSqr( tr.StartPos ) > 500^2 then return end
+
+    animIsUsePaused = not animIsUsePaused
 end )
 
 
@@ -125,7 +449,7 @@ bufferQueue = Queue:new(
         ent:setColor( entry.Color )
         ent:setMaterial( bufferMaterial )
         ent:setMass( bufferMass )
-        ent:setParent( chip() )
+        ent:setParent( bufferDoParent and chip() or nil )
         ent:setNocollideAll( true )
         ent:doNotDuplicate()
         ent.undoBuffer_entry = entry
@@ -141,4 +465,46 @@ timer.simple( 1, function()
     bufferQueue:start()
     chip():setMass( bufferMass )
     chip():setNocollideAll( true )
+    chip():setMaterial( centerMaterial )
+    chip():setColor( centerColor )
 end )
+
+
+if animEnabled then
+    local useThink = animInterval <= 0
+    local timeElapsed = 0
+
+
+    local function doAnim()
+        local count = #bufferProps
+        if animPauseIfEmpty and count == 0 then return end
+        if animPauseIfNotFull and count ~= bufferCount then return end
+        if animIsUsePaused then return end
+        if animShouldPause() then return end
+
+        local prevTime = timeElapsed
+
+        if useThink then
+            timeElapsed = timeElapsed + timer.frametime()
+        else
+            timeElapsed = timeElapsed + animInterval
+        end
+
+        if animFunc then
+            animFunc( timeElapsed, timeElapsed - prevTime )
+        end
+
+        if animFunc2 then
+            animFunc2( timeElapsed, timeElapsed - prevTime )
+        end
+    end
+
+
+    timer.simple( animStartDelay, function()
+        if useThink then
+            hook.add( "think", "UndoBuffer_Anim", doAnim )
+        else
+            timer.create( "UndoBuffer_Anim", animInterval, 0, doAnim )
+        end
+    end )
+end
