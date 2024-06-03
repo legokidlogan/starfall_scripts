@@ -39,7 +39,7 @@ local animEnabled = true
 local animPauseIfEmpty = true
 local animPauseIfNotFull = true
 local animPauseToggleOnUse = true
-local animStartPaused = true
+local animStartPaused = false
 local animInterval = 0.15
 local animStartDelay = 5
 
