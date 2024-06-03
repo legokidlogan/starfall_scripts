@@ -67,6 +67,27 @@ end
 
 
 --[[
+-- Oscillating rotation -----
+local rotSpeed = 0.5
+local rotScale = 180
+
+local function animFunc( time, dt )
+    local theta = math.sin( time * rotSpeed ) * rotScale
+    local rotAxis = -chip():getUp()
+
+    -- Convert to vector and back to remove the rotation, regardless of the chip being moved by physgun (this is overkill)
+    local ang = rotAxis:getAngle()
+    ang = ang:rotateAroundAxis( ang:getRight(), 90 )
+
+    -- Set the new rotation
+    ang = ang:rotateAroundAxis( rotAxis, theta )
+
+    chip():setAngles( ang )
+end
+--]]
+
+
+--[[
 -- Radial oscillation -----
 local oscSpeed = 2
 local oscDistMin = 0
