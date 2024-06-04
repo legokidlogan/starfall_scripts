@@ -1,0 +1,144 @@
+--@name Undo Buffer
+--@author legokidlogan
+--@server
+--@model models/hunter/geometric/hex1x1.mdl
+--@include lkl/queue.txt
+
+require( "lkl/queue.txt" )
+
+
+-- CONFIG: -----------------------------------------------------------------
+local bufferModel = "models/hunter/geometric/hex1x1.mdl"
+local bufferMaterial = "model_color"
+local bufferColors = {}
+local hsvColorCount = 6 -- number or false. Will add static rainbow colors to bufferColors if provided.
+local bufferRadius = 82.2
+local bufferMass = 50000
+
+chip():setColor( Color( 255, 255, 255, 255 ) )
+chip():setMaterial( bufferMaterial )
+-- END CONFIG -----------------------------------------------------------------
+
+
+local bufferProps = {}
+local bufferLookup = {}
+local bufferEntries = {}
+local bufferQueue
+
+if hsvColorCount then
+    for i = 1, hsvColorCount do
+        local color = Color( ( i - 1 ) * ( 360 / hsvColorCount ), 1, 1 ):hsvToRGB()
+        table.insert( bufferColors, color )
+    end
+end
+
+local bufferCount = #bufferColors
+
+for i, color in pairs( bufferColors ) do
+    local frac = ( i - 1 ) / bufferCount
+    local theta = frac * math.pi * 2
+
+    local offsetDir = Vector( -math.cos( theta ), math.sin( theta ), 0 )
+    local pos = offsetDir * bufferRadius
+    local ang = Angle( 0, 0, 0 )
+
+    local entry = {
+        Index = i,
+        Pos = pos,
+        Ang = ang,
+        Color = color,
+    }
+
+    bufferEntries[i] = entry
+end
+
+
+prop.setPropUndo_lastVal = prop.setPropUndo_lastVal or false
+prop._setPropUndo = prop._setPropUndo or prop.setPropUndo
+function prop.setPropUndo( bool )
+    prop.setPropUndo_lastVal = bool
+
+    return prop._setPropUndo( bool )
+end
+
+local function safeSpawn( pos, ang, model, frozen )
+    if not prop.canSpawn() then return false end
+
+    local ent
+
+    local success = pcall( function()
+        ent = prop.create( pos, ang, model, frozen )
+    end )
+
+    if not success then return false end
+
+    return ent
+end
+
+
+hook.add( "Remove", "LKL_UndoBuffer_RemoveProps", function()
+    for _, ent in pairs( bufferProps ) do
+        if isValid( ent ) then
+            ent:remove()
+        end
+    end
+end )
+
+hook.add( "EntityRemoved", "LKL_UndoBuffer_RespawnProps", function( ent )
+    if not bufferLookup[ent] then return end
+
+    bufferLookup[ent] = nil
+    table.removeByValue( bufferProps, ent )
+
+    local entry = ent.undoBuffer_entry
+    if not entry then return end
+
+    entry.Pos = chip():worldToLocal( ent:getPos() )
+    entry.Ang = chip():worldToLocalAngles( ent:getAngles() )
+    entry.Color = ent:getColor()
+
+    bufferQueue:addEntryAndStart( entry )
+end )
+
+hook.add( "KeyPress", "LKL_UndoBuffer_TogglePause", function( ply, key )
+    if ply ~= owner() then return end
+    if key ~= IN_KEY.USE then return end
+
+    local tr = ply:getEyeTrace()
+    if tr.Entity ~= chip() then return end
+    if tr.HitPos:getDistanceSqr( tr.StartPos ) > 500^2 then return end
+end )
+
+
+bufferQueue = Queue:new(
+    function( _, entry )
+        local ind = entry.Index
+        local pos = chip():localToWorld( entry.Pos )
+        local ang = chip():localToWorldAngles( entry.Ang )
+
+        prop._setPropUndo( true )
+        local ent = safeSpawn( pos, ang, bufferModel, true )
+        prop._setPropUndo( prop.setPropUndo_lastVal )
+
+        if not ent then return true end
+
+        ent:setColor( entry.Color )
+        ent:setMaterial( bufferMaterial )
+        ent:setMass( bufferMass )
+        ent:setParent( chip() )
+        ent:setNocollideAll( true )
+        ent:doNotDuplicate()
+        ent.undoBuffer_entry = entry
+
+        bufferProps[ind] = ent
+        bufferLookup[ent] = true
+    end,
+    nil,
+    bufferEntries, 0.1, 4, 0.8, "UndoBuffer_SpawnProps"
+)
+
+timer.simple( 1, function()
+    bufferQueue:start()
+    chip():setMass( bufferMass )
+    chip():setNocollideAll( true )
+end )
