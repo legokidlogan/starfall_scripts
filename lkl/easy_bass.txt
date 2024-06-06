@@ -22,6 +22,9 @@ local loadBass
 --[[
     - Creates a bassObj from a clientside game sound file.
     - callback behaves identically to the callback in bass.loadFile.
+    - failCallback receives errNum, errName, nonBassErr as arguments if the sound fails to load.
+        - Return true to automatically retry the sound.
+        - If failCallback is not provided, the sound will always be retried.
 
     - settings: A table of settings for the sound. All settings are optional, and will default to the following if not specified:
         {
@@ -40,17 +43,17 @@ local loadBass
             StaleThreshold = 30, -- How many ticks of silence must occur in a row for a sound to be considered done, for use with DestroyWhenDone.
         }
 --]]
-function easyBass.loadFile( path, settings, callback )
+function easyBass.loadFile( path, settings, callback, failCallback )
     if not string.startWith( path, "sound/" ) then
         path = "sound/" .. path
     end
 
-    loadBass( bass.loadFile, path, settings, callback )
+    loadBass( bass.loadFile, path, settings, callback, failCallback )
 end
 
 -- Behaves identically to easyBass.loadFile, but loads a sound from a URL instead.
-function easyBass.loadURL( link, settings, callback )
-    loadBass( bass.loadURL, link, settings, callback )
+function easyBass.loadURL( link, settings, callback, failCallback )
+    loadBass( bass.loadURL, link, settings, callback, failCallback )
 end
 
 
@@ -126,7 +129,7 @@ handleFadeInOut = function( bassObj, now )
     return true
 end
 
-loadBass = function( loadFunc, path, settings, callback, soundID )
+loadBass = function( loadFunc, path, settings, callback, failCallback, soundID )
     if type( path ) ~= "string" then
         error( "Expected path to be a string" )
     end
@@ -179,8 +182,8 @@ loadBass = function( loadFunc, path, settings, callback, soundID )
     end
 
     loadFunc( path, flags, function( bassObj, errNum, errName )
-        local success, err
-        success, err = pcall( function()
+        local success, nonBassErr
+        success, nonBassErr = pcall( function()
             local now = realtime()
 
             if not bassObj then
@@ -272,15 +275,17 @@ loadBass = function( loadFunc, path, settings, callback, soundID )
                 bassObj:stop()
             end
 
-            if errNum and errName then
-                print( errNum, errName )
+            local retry = true
+
+            if failCallback then
+                retry = failCallback( errNum, errName, nonBassErr )
             end
 
-            print( type( err ) == "table" and ( err.message or err.msg ) or err )
-
-            timer.create( "LKL_EasyBass_RetrySound_" .. soundID, 1, 1, function()
-                loadBass( loadFunc, path, settings, callback, soundID )
-            end )
+            if retry then
+                timer.create( "LKL_EasyBass_RetrySound_" .. soundID, 1, 1, function()
+                    loadBass( loadFunc, path, settings, callback, failCallback, soundID )
+                end )
+            end
         end
     end )
 end
