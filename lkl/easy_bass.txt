@@ -187,9 +187,7 @@ loadBass = function( loadFunc, path, settings, callback, failCallback, soundID )
             local now = realtime()
 
             if not bassObj then
-                success = false
-
-                return
+                error( "Invalid bassObj" )
             end
 
             table.insert( allBassObjs, bassObj )
