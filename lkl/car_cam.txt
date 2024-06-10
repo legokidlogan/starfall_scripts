@@ -143,7 +143,7 @@ if SERVER then
         end
 
         driver = entered and ply
-        tiSetTargets( isValid( driver ) and driver )
+        targetedInput.setTargets( isValid( driver ) and driver )
 
         if not entered and not traceWhileOutOfCam then
             wire.ports.AimPos = vec0
@@ -264,7 +264,7 @@ if SERVER then
         ( myButtonFuncs[key] or function() end )( ply, key, state )
     end
 
-    hook.add( "LKL_TargetedInput_InputClk", "LKL_CarCam_KeyClk", keyClk )
+    hook.add( "LKL_FancyInput_InputClk", "LKL_CarCam_KeyClk", keyClk )
 
     for key in pairs( myButtonFuncs ) do
         if not buttonFuncs[key] then
@@ -272,8 +272,8 @@ if SERVER then
         end
     end
 
-    tiSetTargets( isValid( driver ) and driver )
-    tiSetTargetButtons( table.getKeys( buttonFuncs ) )
+    targetedInput.setTargets( isValid( driver ) and driver )
+    targetedInput.setTargetButtons( table.getKeys( buttonFuncs ) )
 
 
     net.receive( "LKL_CarCam_UseCam", function()

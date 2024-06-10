@@ -174,8 +174,8 @@ if SERVER then
         end,
     }
 
-    tiSetTargets( ownerOwnly and owner() or find.allPlayers() )
-    tiSetTargetButtons( table.getKeys( buttonFuncs ) )
+    targetedInput.setTargets( ownerOwnly and owner() or find.allPlayers() )
+    targetedInput.setTargetButtons( table.getKeys( buttonFuncs ) )
 
     local function keyClk( ply, key, state )
         ( buttonFuncs[key] or function() end )( ply, key, state )
@@ -184,7 +184,7 @@ if SERVER then
 
     hook.add( "input", "LKL_HoloTraceTester_WireInput", wireInput )
 
-    hook.add( "LKL_TargetedInput_InputClk", "LKL_HoloTraceTester_KeyClk", keyClk )
+    hook.add( "LKL_FancyInput_InputClk", "LKL_HoloTraceTester_KeyClk", keyClk )
 
 
     timer.simple( 1, function()

@@ -20,11 +20,11 @@ local targetOffsetAng = Angle( 0, 0, 0 )
 local moveInterval = 0.05
 local velAccount = 0 * 1 / 5
 local useTargetPitch = false
-local useProps = true
+local useProps = false
 local onColor = Color( 0, 127, 255, 255 )
 local offColor = Color( 0, 65, 120, 100 )
-local keySize = 12.5
-local keySlotSize = 16
+local keySize = 12.5*0.5
+local keySlotSize = 16*0.5
 --local keyMat = "models/debug/debugwhite"
 local keyMat = "model_color"
 local keysToSpawnOnInit = {
@@ -45,6 +45,8 @@ local tableInsert = table.insert
 
 --local vec0 = Vector( 0, 0, 0 )
 local ang0 = Angle( 0, 0, 0 )
+--local keySizeVec = Vector( 13.132, 3.5, 12.5 ):getNormalized() * keySize
+local keyScaleVec = Vector( keySize / 12.5 )
 local mdlCube = "models/hunter/blocks/cube025x025x025.mdl"
 local originHolo = hologram.create( chip():getPos(), ang0, mdlCube )
     originHolo:setColor( Color( 255, 255, 255, 0 ) )
@@ -518,6 +520,8 @@ local function makeHolo( parent, pos, ang, _, mdl, mat, color )
     local holo = hologram.create( parent:localToWorld( pos ), parent:localToWorldAngles( ang ), mdl or "models/hunter/blocks/cube025x025x025.mdl" )
     holo:setColor( color or Color( 255, 255, 255, 255 ) )
     --holo:setSize( size )
+    --holo:setSize( keySizeVec )
+    holo:setScale( keyScaleVec )
     holo:setMaterial( mat or keyMat )
     holo:setParent( parent )
 
@@ -529,7 +533,7 @@ end
 local function makeKey( key )
     if keyEnts[key] then return end
 
-    local btnState = tiGetButtonState( targetPly, key )
+    local btnState = fancyInput.getButtonState( targetPly, key )
     local keyData = compiledKeyLayouts[key]
     local keyParts = {}
     local failureOccured = false
@@ -578,7 +582,7 @@ local function makeKey( key )
 end
 
 
-hook.add( "LKL_TargetedInput_InputClk", "LKL_VKD_KeyClk", function( ply, key, state )
+hook.add( "LKL_FancyInput_InputClk", "LKL_VKD_KeyClk", function( ply, key, state )
     if ply ~= targetPly then return end
 
     makeKey( key )
@@ -656,7 +660,7 @@ do
     end
 
     timer.simple( 1, function()
-        tiSetTargetButtons( nil )
-        tiSetTargets( targetPly )
+        targetedInput.setTargetButtons( nil )
+        targetedInput.setTargets( targetPly )
     end )
 end

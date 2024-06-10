@@ -1,0 +1,464 @@
+--@name Fancy Input
+--@author legokidlogan
+--@shared
+--@include lkl/extra_timers.txt
+
+
+--[[
+    - A library for tracking button inputs in more complex ways, like key combos, tapping, double/triple tapping, and holding.
+    - By default, only observes input from clientside inputPressed/inputReleased hooks.
+        - Inputs can be triggered manually with fancyInput.runInput(), for networked use.
+
+
+    - Hooks:
+        LKL_FancyInput_InputClk:
+            - Called when a button is pressed or released.
+            - Called whenever the standard inputPressed/inputReleased hooks run or when fancyInput.runInput() is called.
+                - If you never use fancyInput.runInput(), this will only be called on the client, running for the local player.
+            - Related hooks (Tap, HoldStart) are called, when applicable, following this one.
+            - Args: ( ply, key, state, time )
+                - ply: The player who pressed the button.
+                - key: The button (number from KEY/MOUSE enums) that was pressed/released.
+                - state: Whether the button was pressed (true) or released (false).
+                - time: The curtime() timestamp of when the input was made.
+        LKL_FancyInput_Tap:
+            - Called when a button is tapped (pressed briefly, then released).
+                - If the key is pressed and released in rapid succession, it will result in one tap call once the streak ends.
+                - If the streak ends by holding the key instead of releasing it, it will result in a hold call instead, with no taps.
+            - Args: ( ply, key, numTaps, time )
+                - ply: The player who pressed the button.
+                - key: The button (number from KEY/MOUSE enums) that was tapped.
+                - numTaps: The number of times the button was tapped in a row.
+                - time: The curtime() timestamp of when the last tap was made.
+        LKL_FancyInput_HoldStart:
+            - Called when a button is held down long enough to not be considered a tap.
+            - Args: ( ply, key, time )
+                - ply: The player who pressed the button.
+                - key: The button (number from KEY/MOUSE enums) that was pressed.
+                - time: The curtime() timestamp of when the hold started.
+        LKL_FancyInput_HoldEnd:
+            - Called the next time a button is released after a hold has started.
+            - Args: ( ply, key, time )
+                - ply: The player who released the held button.
+                - key: The button (number from KEY/MOUSE enums) that was released.
+                - time: The curtime() timestamp of when the hold ended.
+--]]
+
+
+fancyInput = fancyInput or {}
+
+if fancyInput._alreadyLoaded then return end
+fancyInput._alreadyLoaded = true
+
+require( "lkl/extra_timers.txt" )
+
+
+local buttonDatasPerPly = {}
+local tapStreaksPerPly = {}
+local tapGap = 0.25
+
+local mathHuge = math.huge
+local mathMax = math.max
+local curtime = timer.curtime
+
+local KEY_W = KEY.W
+local KEY_S = KEY.S
+local KEY_A = KEY.A
+local KEY_D = KEY.D
+local KEY_SPACE = KEY.SPACE
+local KEY_UP = KEY.UP
+local KEY_DOWN = KEY.DOWN
+local KEY_LEFT = KEY.LEFT
+local KEY_RIGHT = KEY.RIGHT
+
+
+----- GLOBAL FUNCTIONS -----
+
+--[[
+    - Manually simulate a button press/release.
+    - Automatically tracked for player() on CLIENT, but not for other players in CLIENT or at all on SERVER.
+    - Does nothing if the button state is already the same as the new state.
+
+    ply: (Player)
+        - The player who pressed the button.
+    key: (number)
+        - The button (number from KEY/MOUSE enums) that was pressed/released.
+    state: (bool)
+        - Whether the button was pressed (true) or released (false).
+    time: (optional) (number)
+        - The curtime() timestamp of when the input was made.
+        - This is highly recommended for accurate timing when syncing over net.
+--]]
+function fancyInput.runInput( ply, key, state, time )
+    local buttonDatas = buttonDatasPerPly[ply]
+
+    if not buttonDatas then
+        buttonDatas = {}
+        buttonDatasPerPly[ply] = buttonDatas
+    end
+
+    local buttonData = buttonDatas[key]
+    if not buttonData then
+        buttonData = {
+            State = false,
+            Holding = false,
+        }
+        buttonDatas[key] = buttonData
+    end
+
+    if buttonData.State == state then return end
+
+    time = time or curtime()
+    buttonData.State = state
+    buttonData[state and "LastPress" or "LastRelease"] = time
+
+    tapCheck( ply, key, state, time )
+
+    hook.run( "LKL_FancyInput_InputClk", ply, key, state, time )
+
+    if not state and buttonData.Holding then
+        buttonData.Holding = false
+        hook.run( "LKL_FancyInput_HoldEnd", ply, key, time )
+    end
+end
+
+--[[
+    - Sets the button states for a player.
+    - Only sets states, doesn't run any hooks or trigger any tap/hold checks.
+
+    ply: (Player)
+        - The player to set the button states for.
+    states: (table)
+        - A lookup table from button key to state.
+--]]
+function fancyInput.setButtonStates( ply, states )
+    local buttonDatas = buttonDatasPerPly[ply]
+    if not buttonDatas then
+        buttonDatas = {}
+        buttonDatasPerPly[ply] = buttonDatas
+    end
+
+    local now = curtime()
+    local tapCheckTimerName = "LKL_FancyInput_TapCheck_" .. ply:getSteamID() .. "_"
+
+    for _, data in pairs( buttonDatas ) do
+        data.State = false
+        data.Held = false
+    end
+
+    for key, state in pairs( states ) do
+        local buttonData = buttonDatas[key]
+
+        if buttonData then
+            timer.removeExtra( tapCheckTimerName .. key )
+        else
+            buttonData = {}
+            buttonDatas[key] = buttonData
+        end
+
+        buttonData.State = state
+        buttonData[state and "LastPress" or "LastRelease"] = now
+
+        if state then
+            buttonData.Holding = true
+        end
+    end
+end
+
+--[[
+    - Gets a lookuptable of buttons that are being pressed by a player.
+    - Released buttons will either be false or nil, depending on if they have been pressed before.
+    - Give excludeReleased as true to make ALL released buttons be nil.
+--]]
+function fancyInput.getButtonStates( ply, excludeReleased )
+    local out = {}
+    local buttonDatas = buttonDatasPerPly[ply] or {}
+
+    if excludeReleased then
+        for key, data in pairs( buttonDatas ) do
+            if data.State then
+                out[key] = true
+            end
+        end
+    else
+        for key, data in pairs( buttonDatas ) do
+            out[key] = data.State
+        end
+    end
+
+    return out
+end
+
+-- Gets a sequential list of all buttons that are currently pressed by a player.
+function fancyInput.getPressedButtons( ply )
+    local out = {}
+    local count = 0
+    local buttonDatas = buttonDatasPerPly[ply] or {}
+
+    for key, data in pairs( buttonDatas ) do
+        if data.State then
+            count = count + 1
+            out[count] = key
+        end
+    end
+
+    return out
+end
+
+-- Gets the current button state of a player.
+function fancyInput.getButtonState( ply, key )
+    --return ( ( buttonDatasPerPly[ply or false] or {} )[key or false] or {} ).State or false
+    return ( ( buttonDatasPerPly[ply] or {} )[key] or {} ).State or false
+end
+
+-- Gets if a button is being (long) held by a player.
+function fancyInput.getButtonHolding( ply, key )
+    return ( ( buttonDatasPerPly[ply] or {} )[key] or {} ).Holding or false
+end
+
+-- Gets the curtime() timestamp of the last time a button was pressed, or nil if it hasn't been pressed.
+function fancyInput.getButtonLastPressTime( ply, key )
+    return ( ( buttonDatasPerPly[ply] or {} )[key] or {} ).LastPress
+end
+
+-- Gets the curtime() timestamp of the last time a button was released, or nil if it hasn't been released.
+function fancyInput.getButtonLastReleaseTime( ply, key )
+    return ( ( buttonDatasPerPly[ply] or {} )[key] or {} ).LastRelease
+end
+
+--[[
+    - Provides the time between now and when key was last pressed by ply.
+    - Goes based off of when the button started to be pressed, i.e. it doesn't care if the button is currently pressed or not.
+    - If a button press wasn't recorded for that key, the result will default to math.huge
+--]]
+function fancyInput.getTimeSinceLastPress( ply, key )
+    local lastPress = fancyInput.getButtonLastPressTime( ply, key )
+    if not lastPress then return mathHuge end
+
+    return curtime() - lastPress
+end
+
+--[[
+    - Provides the time between now and when key was last released by ply.
+    - Goes based off of when the button started to be released, i.e. it doesn't care if the button is currently released or not.
+    - If a button release wasn't recorded for that key, the result will default to math.huge
+--]]
+function fancyInput.getTimeSinceLastRelease( ply, key )
+    local lastRelease = fancyInput.getButtonLastReleaseTime( ply, key )
+    if not lastRelease then return mathHuge end
+
+    return curtime() - lastRelease
+end
+
+--[[
+    - Returns the amount of time that a button has been held for, according to the tap/hold system.
+    - If the button is not currently pressed, it will return -1.
+    - If the button is currently pressed, but not for long enough to be considered a hold, it will return 0.
+    - Otherwise, acts the same as fancyInput.getTimeSinceLastPress() - tapGap
+--]]
+function fancyInput.getHoldTime( ply, key )
+    local buttonData = ( buttonDatasPerPly[ply] or {} )[key] or {}
+    if not buttonData.State then return -1 end
+
+    local lastPress = buttonData.LastPress
+    if not lastPress then return -1 end
+
+    return mathMax( curtime() - lastPress - tapGap, 0 )
+end
+
+--[[
+    - Returns whether or not ply has pressed a group of keys within a certain time window.
+    - Requires that they keys STARTED being pressed within the time window, not just be held down.
+
+    ply: (Player)
+        - The player to check the combo state of.
+    comboKeys: (table)
+        - A sequential table of keys to check for.
+    comboWindow: (number)
+        - The time window to check within.
+        - If 0, it will not care about time, and only check for if all the keys are currently pressed.
+--]]
+function fancyInput.isComboActive( ply, comboKeys, comboWindow )
+    for _, key in ipairs( comboKeys ) do
+        if not fancyInput.getButtonState( ply, key ) then return false end
+        if comboWindow ~= 0 and fancyInput.getTimeSinceLastPress( ply, key ) > comboWindow then return false end
+    end
+
+    return true
+end
+
+--[[
+    - Converts the WASD and Space keys into a vector based on their states.
+        - Forward/W is 1, Back/S is -1
+        - Left/A is 1, Right/D is -1   (to match the GMod vector system)
+        - Up/Space is 1, downKey is -1
+
+    ply: (Player)
+        - The player to get the movement states for.
+    rightIsPositive: (optional) (bool)
+        - If true, right is positive, for straightforward usage with ENTITY:getRight(), etc.
+        - Otherwise, right is negative, to match the GMod vector system.
+    downKey: (optional) (number)
+        - Uses the given key as the down key.
+        - If not provided, the z axis can only be 0 or 1.
+--]]
+function fancyInput.getMoveStatesWASD( ply, rightIsPositive, downKey )
+    return fancyInput.getMoveStatesArbitrary( ply, KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE, downKey, rightIsPositive )
+end
+
+--[[
+    - Converts the Arrow and Space keys into a vector based on their states.
+        - Forward/UpArrow is 1, Back/DownArrow is -1
+        - Left/LeftArrow is 1, Right/RightArrow is -1   (to match the GMod vector system)
+        - Up/Space is 1, downKey is -1
+
+    ply: (Player)
+        - The player to get the movement states for.
+    rightIsPositive: (optional) (bool)
+        - If true, right is positive, for straightforward usage with ENTITY:getRight(), etc.
+        - Otherwise, right is negative, to match the GMod vector system.
+    downKey: (optional) (number)
+        - Uses the given key as the down key.
+        - If not provided, the z axis can only be 0 or 1.
+--]]
+function fancyInput.getMoveStatesArrows( ply, rightIsPositive, downKey )
+    return fancyInput.getMoveStatesArbitrary( ply, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_SPACE, downKey, rightIsPositive )
+end
+
+--[[
+    - Convers arbitrary keys into a vector based on their states.
+        - Forward is 1, Back is -1
+        - Left is 1, Right is -1   (to match the GMod vector system)
+        - Up is 1, Down is -1
+
+    ply: (Player)
+        - The player to get the movement states for.
+    forwardKey, backKey, leftKey, rightKey, upKey, downKey: (number or nil)
+        - All self-explanatory.
+        - If a given key isn't provided, it will be treated as though it is not being pressed.
+    rightIsPositive: (optional) (bool)
+        - If true, right is positive, for straightforward usage with ENTITY:getRight(), etc.
+        - Otherwise, right is negative, to match the GMod vector system.
+--]]
+function fancyInput.getMoveStatesArbitrary( ply, forwardKey, backKey, leftKey, rightKey, upKey, downKey, rightIsPositive )
+    local buttonDatas = buttonDatasPerPly[ply]
+    if not buttonDatas then return Vector( 0, 0, 0 ) end
+
+    local stateForward = forwardKey and ( buttonDatas[forwardKey] or {} ).State
+    local stateBack = backKey and ( buttonDatas[backKey] or {} ).State
+    local stateLeft = leftKey and ( buttonDatas[leftKey] or {} ).State
+    local stateRight = rightKey and ( buttonDatas[rightKey] or {} ).State
+    local stateUp = upKey and ( buttonDatas[upKey] or {} ).State
+    local stateDown = downKey and ( buttonDatas[downKey] or {} ).State
+
+    local horizMult = rightIsPositive and -1 or 1
+
+    return Vector(
+        ( stateForward and 1 or 0 ) - ( stateBack and 1 or 0 ),
+        ( stateLeft and horizMult or 0 ) - ( stateRight and horizMult or 0 ),
+        ( stateUp and 1 or 0 ) - ( stateDown and 1 or 0 )
+    )
+end
+
+--[[
+    - Makes a hook listener that tracks a specific key combo.
+
+    comboName: (string)
+        - The name of the combo, used to have distinct listeners.
+    comboKeys: (table)
+        - A sequential table of keys to track.
+    comboWindow: (number)
+        - The time window in which the combo must be pressed in order to be considered active.
+        - Set to 0 to ignore the window and simply call the listener when all keys are in the pressed state at the same time.
+    func: (nil or function)
+        - A function( ply, comboName ) to call when the combo gets triggered.
+        - If nil, the listener will be removed.
+--]]
+function fancyInput.trackCombo( comboName, comboKeys, comboWindow, func )
+    local hookName = "LKL_FancyInput_InputClk"
+    local hookListenerName = "LKL_FancyInput_Combo_" .. comboName
+
+    if not func then
+        hook.remove( hookName, hookListenerName )
+
+        return
+    end
+
+    local comboKeyLookup = {}
+
+    for _, key in ipairs( comboKeys ) do
+        comboKeyLookup[key] = true
+    end
+
+    hook.add( hookName, hookListenerName, function( ply, key, state )
+        if not state then return end
+        if not comboKeyLookup[key] then return end
+        if not fancyInput.isComboActive( ply, comboKeys, comboWindow ) then return end
+
+        func( ply, comboName )
+    end )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+tapCheck = function( ply, key, state, time )
+    local tapStreaks = tapStreaksPerPly[ply]
+    if not tapStreaks then
+        tapStreaks = {}
+        tapStreaksPerPly[ply] = tapStreaks
+    end
+
+    local streak = tapStreaks[key]
+    if not streak then
+        streak = 0
+        --tapStreaks[key] = streak
+    end
+
+    local timerName = "LKL_FancyInput_TapCheck_" .. ply:getSteamID() .. "_" .. key
+    local timeAdjust = time - curtime()
+    local timerDelay = mathMax( tapGap + timeAdjust, 0 )
+
+    if state then
+        streak = streak + 1
+        tapStreaks[key] = streak
+
+        timer.createExtra( timerName, timerDelay, 1, function()
+            tapStreaks[key] = 0
+            buttonDatasPerPly[ply][key].Holding = true
+
+            -- If the button is still down, it's a hold
+            hook.run( "LKL_FancyInput_HoldStart", ply, key, time )
+        end )
+
+        return
+    end
+
+    if streak == 0 then return end
+
+    timer.createExtra( timerName, timerDelay, 1, function()
+        local streakResult = tapStreaks[key]
+        tapStreaks[key] = 0
+
+        -- If the button is still up, finish the tap streak
+        hook.run( "LKL_FancyInput_Tap", ply, key, streakResult, time )
+    end )
+end
+
+
+----- SETUP -----
+
+
+if CLIENT then
+    hook.add( "inputPressed", "LKL_FancyInput_InputPressed", function( key )
+        if not isFirstTimePredicted() then return end
+
+        fancyInput.runInput( player(), key, true, curtime() )
+    end )
+
+    hook.add( "inputReleased", "LKL_FancyInput_InputReleased", function( key )
+        if not isFirstTimePredicted() then return end
+
+        fancyInput.runInput( player(), key, false, curtime() )
+    end )
+end
