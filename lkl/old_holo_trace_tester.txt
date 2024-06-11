@@ -62,7 +62,7 @@ local function blinkHolo( holo, duration, blinkColor )
     end )
 
     if not hasAccess then
-        blinker = holograms.create( holo:getPos(), holo:getAngles(), holo:getModel() )
+        blinker = hologram.create( holo:getPos(), holo:getAngles(), holo:getModel() )
         blinker:setSize( holo:obbSize() * 1.1 )
         blinker:setMaterial( holo:getMaterial() )
         blinker:setColor( blinkColor )
@@ -122,7 +122,7 @@ if SERVER then
     end
 
     local function makeTestHolo( pos, ang, model, material, color, scale, size )
-        local holo = holograms.create( pos, ang, model or "models/hunter/blocks/cube025x025x025.mdl", scale )
+        local holo = hologram.create( pos, ang, model or "models/hunter/blocks/cube025x025x025.mdl", scale )
         holo:setMaterial( material or "models/debug/debugwhite" )
         holo:setColor( color or Color( 255, 255, 255 ) )
 

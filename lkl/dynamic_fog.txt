@@ -242,7 +242,7 @@ else
         if not permissionSatisfied or not skyCenter then return end
         if isValid( skyHolo ) then return end
 
-        skyHolo = holograms.create( skyCenter, Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1, 1, 1 ) )
+        skyHolo = hologram.create( skyCenter, Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1, 1, 1 ) )
         skyHolo:setColor( fogColor )
         --skyHolo:setSize( Vector( 1, 1, 1 ) * -1000 )
         skyHolo:setSize( skyInvSize )

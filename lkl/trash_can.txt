@@ -40,7 +40,7 @@ local blockedEntLookup = {}
 local minBoundsOffset = Vector( -deletionZoneWidth / 2, -deletionZoneWidth / 2, 0 )
 local maxBoundsOffset = Vector( deletionZoneWidth / 2, deletionZoneWidth / 2, deletionZoneHeight )
 
-local soundHolo = holograms.create( chip():localToWorld( Vector( 0, 0, deletionZoneHeight ) ), Angle(), "models/hunter/plates/plate.mdl" )
+local soundHolo = hologram.create( chip():localToWorld( Vector( 0, 0, deletionZoneHeight ) ), Angle(), "models/hunter/plates/plate.mdl" )
 soundHolo:setMaterial( "engine/writestencil" )
 soundHolo:setColor( Color( 0, 0, 0, 0 ) )
 soundHolo:setParent( chip() )
@@ -104,12 +104,12 @@ end )
 
 if not showDeletionZone then return end
 
-local zoneHolo = holograms.create( chip():localToWorld( Vector( 0, 0, deletionZoneHeight ) ), Angle(), "models/hunter/blocks/cube2x2x2.mdl" )
+local zoneHolo = hologram.create( chip():localToWorld( Vector( 0, 0, deletionZoneHeight ) ), Angle(), "models/hunter/blocks/cube2x2x2.mdl" )
 zoneHolo:setSize( -Vector( deletionZoneWidth, deletionZoneWidth, deletionZoneHeight ) )
 zoneHolo:setMaterial( "model_color" )
 zoneHolo:setColor( Color( 200, 200, 255, 150 ) )
 
-local zoneHolo2 = holograms.create( chip():localToWorld( Vector( 0, 0, deletionZoneHeight ) ), Angle(), "models/hunter/blocks/cube2x2x2.mdl" )
+local zoneHolo2 = hologram.create( chip():localToWorld( Vector( 0, 0, deletionZoneHeight ) ), Angle(), "models/hunter/blocks/cube2x2x2.mdl" )
 zoneHolo2:setSize( Vector( deletionZoneWidth, deletionZoneWidth, deletionZoneHeight ) )
 zoneHolo2:setMaterial( "model_color" )
 zoneHolo2:setColor( Color( 200, 200, 255, 150 ) )

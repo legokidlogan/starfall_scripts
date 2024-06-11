@@ -680,10 +680,10 @@ local function createDirHolo( door )
     local holo = door.doorHolo or false
 
     if isValid( holo ) then return holo end
-    if not holograms.canSpawn() then return false end
+    if not hologram.canSpawn() then return false end
 
     pcall( function()
-        holo = holograms.create( door:getPos(), ang0, "models/holograms/cube.mdl", vecTiny )
+        holo = hologram.create( door:getPos(), ang0, "models/holograms/cube.mdl", vecTiny )
     end )
 
     door.doorHolo = holo
@@ -739,7 +739,7 @@ local function onLast()
         end
     end
 
-    holograms.removeAll()
+    hologram.removeAll()
 end
 
 local function relativeRotate( ent, worldPos, worldAng, axis, deg, dontMove )

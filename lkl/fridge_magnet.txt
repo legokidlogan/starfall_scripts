@@ -84,7 +84,7 @@ function FridgeMagnet:initialize( surfaceEnt, surfaceDirNum, surfaceUpDirNum, mo
 
     if type( model ) ~= "string" then error( "Expected model to be a string" ) end
 
-    local holo = holograms.create( Vector(), Angle(), model, self:getHoloScale() )
+    local holo = hologram.create( Vector(), Angle(), model, self:getHoloScale() )
     if not isValid( holo ) then error( "Failed to initialize " .. self.class.name ) end
     self._holo = holo
     holo._fridgeMagnet_FridgeMagnetObject = self
