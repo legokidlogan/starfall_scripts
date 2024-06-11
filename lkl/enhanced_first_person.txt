@@ -72,7 +72,7 @@ local holo
 local debugEnabled = false
 
 if debugEnabled and player() == owner() then
-    holo = holograms.create( Vector( 0, 0, 0 ), Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1, 1, 1 ) * 0.1 )
+    holo = hologram.create( Vector( 0, 0, 0 ), Angle( 0, 0, 0 ), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1, 1, 1 ) * 0.1 )
 end
 --
 
