@@ -7,10 +7,10 @@ require( "lkl/sound_emitter.txt" )
 
 
 -- CONFIG
-local deletionZoneWidth = 20
-local deletionZoneHeight = 40
+local deletionZoneWidth = 21
+local deletionZoneHeight = 25
 local detectionInterval = 0.1
-local showDeletionZone = true
+local showDeletionZone = false
 
 local classBlacklist = {
     gmod_wire_hologram = true,
