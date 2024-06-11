@@ -2,10 +2,10 @@
 --@author legokidlogan
 --@client
 --@include lkl/cl_check_permissions.txt
---@include lkl/targeted_input.txt
+--@include lkl/fancy_input.txt
 --@include lkl/key_globalizer.txt
 
-require( "lkl/targeted_input.txt" )
+require( "lkl/fancy_input.txt" )
 require( "lkl/key_globalizer.txt" )
 
 
@@ -277,7 +277,9 @@ end
 
 hook.add( "calcview", "LKL_EFP_Calcview", calcview )
 
-hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, state )
+hook.add( "LKL_FancyInput_InputClk", "LKL_EFP_KeyClk", function( ply, key, state )
+    if ply ~= player() then return end
+
     if key == controlKey then
         if state then return end
         if not isEditing then return end
@@ -346,7 +348,9 @@ hook.add( "LKL_TargetedInput_InputClk", "LKL_EFP_KeyClk", function( _, key, stat
     end
 end )
 
-hook.add( "LKL_TargetedInput_Tap", "LKL_EFP_Tap", function( _, key, numTaps )
+hook.add( "LKL_FancyInput_Tap", "LKL_EFP_Tap", function( ply, key, numTaps )
+    if ply ~= player() then return end
+
     if key == controlKey then
         curState = ( curState + numTaps ) % STATE_COUNT
 
@@ -358,7 +362,9 @@ hook.add( "LKL_TargetedInput_Tap", "LKL_EFP_Tap", function( _, key, numTaps )
     end
 end )
 
-hook.add( "LKL_TargetedInput_HoldStart", "LKL_EFP_HoldStart", function( _, key )
+hook.add( "LKL_FancyInput_HoldStart", "LKL_EFP_HoldStart", function( ply, key )
+    if ply ~= player() then return end
+
     if key == controlKey then
         isEditing = true
     end
@@ -474,18 +480,3 @@ if debugEnabled and holo then
         holo:setPos( result and result.origin or Vector() )
     end )
 end
-
-timer.simple( 1, function()
-    tiSetClientOnly( true )
-    tiSetTargets( plyEnt )
-    tiSetTargetButtons( {
-        [controlKey] = true,
-        [MOUSE_WHEEL_UP] = true,
-        [MOUSE_WHEEL_DOWN] = true,
-        [KEY_RIGHT] = true,
-        [KEY_LEFT] = true,
-        [KEY_UP] = true,
-        [KEY_DOWN] = true,
-        [KEY_RSHIFT] = true,
-    }, false )
-end )
