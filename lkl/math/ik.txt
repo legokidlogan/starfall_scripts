@@ -564,9 +564,9 @@ getIKBendFromTilt = function( segment, lineDir, tiltDeg )
     local bendDirLengthSqr = bendDir:getLengthSqr()
 
     -- Ensure bendDir is a unit vector.
-    if bendDirLength ~= 1 then
+    if bendDirLengthSqr ~= 1 then
         -- Fallback option if upDir == lineDir.
-        if bendDirLength == 0 then
+        if bendDirLengthSqr == 0 then
             local forwardDir = localToWorldVector( parentEnt, segment._parentToForwardDir )
             forwardDir = forwardDir:rotateAroundAxis( lineDir, tiltDeg + 90 )
 
