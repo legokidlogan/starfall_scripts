@@ -1,0 +1,54 @@
+--@name :3
+--@author legokidlogan
+--@server
+
+-- CONFIG
+local cooldown = 10
+local allowInsideSentences = true
+local faces = {
+    ">:3c",
+    ">:3",
+    ":3c",
+    ":3",
+}
+-- END CONFIG
+
+
+local onCooldown = false
+local faceLookup = {}
+
+for _, face in ipairs( faces ) do
+    faceLookup[face] = true
+end
+
+
+local function say( str )
+    onCooldown = true
+
+    timer.create( ":3", cooldown, 1, function()
+        onCooldown = false
+    end )
+
+    concmd( "say " .. str )
+end
+
+
+hook.add( "PlayerSay", ":3", function( ply, msg )
+    if onCooldown then return end
+    if ply == owner() then return end
+
+    if allowInsideSentences then
+        for _, word in ipairs( string.split( msg, " " ) ) do
+            if faceLookup[word] then
+                say( word )
+
+                return
+            end
+        end
+    else
+        -- Require the message to only consist of one of the faces
+        if faceLookup[msg] then
+            say( msg )
+        end
+    end
+end )
