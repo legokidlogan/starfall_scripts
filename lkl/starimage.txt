@@ -562,7 +562,7 @@ else
             for i2 = 1, 7 do
                 local url = info[matDirNames[i2]] or info[matDirNames[1]]
 
-                if url != "" then
+                if url ~= "" then
                     data[i2] = {}
 
                     prepareURL( url, "mat", i, i2 )
