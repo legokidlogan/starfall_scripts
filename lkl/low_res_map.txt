@@ -8,6 +8,7 @@
 
 -- CONFIG
 local faceExtend = 1
+local requireHUD = true
 -- END CONFIG
 
 
@@ -38,6 +39,28 @@ function libMapMesh.nudgeSurfaceVerts( surfaceVerts, surfaceNormal, _surfaceInd 
 end
 
 
-hook.add( "LKL_MapMesh_MeshesReady", "TEST_BigMesh", function()
+if SERVER then return end
+
+
+local function setNoDraw( holos, state )
+    for _, holo in ipairs( holos ) do
+        holo:setNoDraw( state )
+    end
+end
+
+
+hook.add( "LKL_MapMesh_MeshesReady", "LKL_LowResMap_CreateHolos", function()
     local mapHoloBase, mapHolos = libMapMesh.createMeshHolos( Vector(), Angle(), nil )
+
+    if requireHUD then
+        setNoDraw( mapHolos, not render.isHUDActive() )
+
+        hook.add( "hudconnected", "LKL_LowResMap_SetVisibility", function()
+            setNoDraw( mapHolos, false )
+        end )
+
+        hook.add( "huddisconnected", "LKL_LowResMap_SetVisibility", function()
+            setNoDraw( mapHolos, true )
+        end )
+    end
 end )
