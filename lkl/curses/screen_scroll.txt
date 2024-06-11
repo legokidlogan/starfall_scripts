@@ -1,0 +1,39 @@
+--@name Screen Scroll
+--@author legokidlogan
+--@client
+
+local speed = 0.05
+local mode = 3 -- 1 is horizontal, 2 is vertical, 3 is diagonal
+
+
+local offset = 0
+local screenMat = material.create( "UnlitGeneric" )
+screenMat:setTexture( "$basetexture", "_rt_PowerOfTwoFB" )
+
+c_white = c_white or Color( 255, 255, 255, 255 )
+
+
+hook.add( "drawhud", "LKL_ScreenMirror_Render", function()
+    local scrW, scrH = render.getResolution()
+
+    render.setColor( c_white )
+    render.setMaterial( screenMat )
+    render.overrideBlend( true, BLEND.ONE, BLEND.ZERO, BLENDFUNC.ADD, BLEND.ONE, BLEND.ZERO, BLENDFUNC.ADD )
+
+    offset = ( offset + speed * timer.frametime() ) % 1
+
+    if mode == 1 then -- Horizontal
+        render.drawTexturedRect( scrW * ( 0 + offset ), 0, scrW, scrH )
+        render.drawTexturedRect( scrW * ( -1 + offset ), 0, scrW, scrH )
+    elseif mode == 2 then -- Vertical
+        render.drawTexturedRect( 0, scrH * ( 0 + offset ), scrW, scrH )
+        render.drawTexturedRect( 0, scrH * ( -1 + offset ), scrW, scrH )
+    else -- Diagonal
+        render.drawTexturedRect( scrW * ( 0 + offset ), scrH * ( 0 + offset ), scrW, scrH )
+        render.drawTexturedRect( scrW * ( -1 + offset ), scrH * ( 0 + offset ), scrW, scrH )
+        render.drawTexturedRect( scrW * ( -1 + offset ), scrH * ( -1 + offset ), scrW, scrH )
+        render.drawTexturedRect( scrW * ( 0 + offset ), scrH * ( -1 + offset ), scrW, scrH )
+    end
+
+    render.overrideBlend( false )
+end )

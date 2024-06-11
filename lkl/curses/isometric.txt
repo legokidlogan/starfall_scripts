@@ -1,0 +1,80 @@
+--@name Isometric
+--@author legokidlogan
+--@client
+
+-- CONFIG
+local ZOOM_MIN = 50
+local ZOOM_MAX = 5000
+local ZOOM_DEFAULT = 2500
+local ZOOM_SPEED = 3000 -- Units per second
+-- END CONFIG
+
+
+local orthoAng = Angle( 45, 45 + 90 * math.random( 0, 3 ), 0 )
+local orthoAngDir = nil
+local orthoDist = ZOOM_DEFAULT
+local orthoDistDir = nil
+local scrWH, scrHH = render.getGameResolution()
+scrWH = scrWH / 2
+scrHH = scrHH / 2
+
+
+local function adjustAng( yawStep )
+    orthoAng[2] = orthoAng[2] + yawStep
+    orthoAngDir = orthoAng:getForward()
+end
+
+local function determineDistDir()
+    orthoDistDir = ( input.isKeyDown( KEY.UP ) and -1 or 0 ) + ( input.isKeyDown( KEY.DOWN ) and 1 or 0 )
+end
+
+
+adjustAng( 0 )
+determineDistDir()
+
+
+hook.add( "CalcView", "LKL_Isometric_CalcView", function( _, eyePos )
+    local zoomFrac = math.remap( orthoDist, ZOOM_MIN, ZOOM_MAX, 0.25, 1 )
+
+    return {
+        origin = eyePos - orthoAngDir * orthoDist,
+
+        --znear = ZOOM_MAX - orthoDist,
+        znear = -5000,
+        zfar = 50000,
+
+        angles = orthoAng,
+        drawviewer = true,
+        drawviewmodel = false,
+
+        ortho = {
+            left = -scrWH * zoomFrac,
+            top = -scrHH * zoomFrac,
+            right = scrWH * zoomFrac,
+            bottom = scrHH * zoomFrac,
+        },
+    }
+end )
+
+hook.add( "Think", "LKL_Isometric_Zoom", function()
+    if orthoDistDir ~= 0 then
+        orthoDist = math.clamp( orthoDist + orthoDistDir * ZOOM_SPEED * timer.frametime(), ZOOM_MIN, ZOOM_MAX )
+    end
+end )
+
+hook.add( "InputPressed", "LKL_Isometric_CameraControls", function( key )
+    if key == KEY.UP or key == KEY.DOWN then
+        determineDistDir()
+    elseif key == KEY.LEFT then
+        adjustAng( 90 )
+    elseif key == KEY.RIGHT then
+        adjustAng( -90 )
+    end
+end )
+
+hook.add( "InputReleased", "LKL_Isometric_CameraControls", function( key )
+    if key == KEY.UP or key == KEY.DOWN then
+        determineDistDir()
+    end
+end )
+

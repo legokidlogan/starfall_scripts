@@ -1,0 +1,22 @@
+--@name Screen Mirror
+--@author legokidlogan
+--@client
+
+
+local screenMat = material.create( "UnlitGeneric" )
+screenMat:setTexture( "$basetexture", "_rt_PowerOfTwoFB" )
+
+c_white = c_white or Color( 255, 255, 255, 255 )
+
+
+hook.add( "drawhud", "LKL_ScreenMirror_Render", function()
+    local scrW, scrH = render.getResolution()
+
+    render.setColor( c_white )
+    render.setMaterial( screenMat )
+    render.overrideBlend( true, BLEND.ONE, BLEND.ZERO, BLENDFUNC.ADD, BLEND.ONE, BLEND.ZERO, BLENDFUNC.ADD )
+
+    render.drawTexturedRectUV( 0, 0, scrW / 2, scrH, 1, 0, 0.5, 1 )
+
+    render.overrideBlend( false )
+end )
