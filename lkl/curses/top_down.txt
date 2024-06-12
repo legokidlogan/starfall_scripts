@@ -27,16 +27,11 @@ end
 determineDistDir()
 
 
-hook.add( "CalcView", "LKL_Isometric_CalcView", function( _, eyePos )
+hook.add( "CalcView", "LKL_Isometric_CalcView", function( eyePos )
     local zoomFrac = math.remap( orthoDist, ZOOM_MIN, ZOOM_MAX, 0.25, 1 )
 
     return {
         origin = eyePos - orthoAngDir * orthoDist,
-
-        --znear = ZOOM_MAX - orthoDist,
-        znear = -5000,
-        zfar = 50000,
-
         angles = orthoAng,
         drawviewer = true,
         drawviewmodel = false,
