@@ -1,0 +1,165 @@
+--@name Isometric Cutout
+--@author legokidlogan
+--@client
+--@include lkl/render/poly_tools.txt
+
+-- Same as the Isometric effect, but automatically shows a circular cutout for improved visibility when in a building.
+-- Uses render.renderView(), so will have a noticeable fps impact when the cutout is active.
+
+-- CONFIG
+local ZOOM_MIN = 50
+local ZOOM_MAX = 5000
+local ZOOM_DEFAULT = 2500
+local ZOOM_SPEED = 3000 -- Units per second
+
+local CUTOUT_DIAMETER = 0.25 -- Fraction of screen height
+local CUTOUT_SEGMENTS = 32
+local CUTOUT_DIST_MULT = 0.5 -- Multiplier (0-1) against the camera distance when doing the cutout. Smaller values have more agressive clipping.
+local CUTOUT_PERF = 0.5 -- Fraction for rendering perf check. Smaller numbers are safer, but result in a choppier cutout render.
+local CUTOUT_RENDER_GAP = 1 -- 1 to render the cutout every frame, 2 for every second frame, 3 for every third frame, etc. Values > 1 are prone to rapid lighting flickering.
+-- END CONFIG
+
+
+require( "lkl/render/poly_tools.txt" )
+
+
+CUTOUT_PERF = CUTOUT_PERF * cpuMax()
+
+local orthoAng = Angle( 45, 45 + 90 * 2, 0 )
+local orthoAngDir = nil
+local orthoDist = ZOOM_DEFAULT
+local orthoDistDir = nil
+local frameNum = 0
+local scrW, scrH = render.getGameResolution()
+local scrWH, scrHH = scrW / 2, scrH / 2
+
+local cutoutW, cutoutH = scrW * CUTOUT_DIAMETER, scrH * CUTOUT_DIAMETER
+local cutoutWH, cutoutHH = cutoutW / 2, cutoutH / 2
+
+local cutoutPoly = polyTools.polyMakeCircleFilled( scrWH, scrHH, scrHH * CUTOUT_DIAMETER, CUTOUT_SEGMENTS )
+local cutoutNeedsDraw = false
+local cutoutZoomFrac = nil
+local cutoutCamPos = nil
+local cutoutCamAng = nil
+
+for _, point in ipairs( cutoutPoly ) do
+    local x = point.x
+    local y = point.y
+
+    point.u = x / cutoutW - 0.5
+    point.v = y / cutoutH - 0.5
+end
+
+local rtNameCutout = "lkl_isometric_cutout"
+render.createRenderTarget( rtNameCutout )
+
+local rtMatCutout = material.create( "UnlitGeneric" )
+rtMatCutout:setTextureRenderTarget( "$basetexture", rtNameCutout )
+rtMatCutout:setInt( "$flags", 32768 )
+
+
+local function adjustAng( yawStep )
+    orthoAng[2] = orthoAng[2] + yawStep
+    orthoAngDir = orthoAng:getForward()
+end
+
+local function determineDistDir()
+    orthoDistDir = ( input.isKeyDown( KEY.UP ) and -1 or 0 ) + ( input.isKeyDown( KEY.DOWN ) and 1 or 0 )
+end
+
+
+adjustAng( 0 )
+determineDistDir()
+
+
+hook.add( "CalcView", "LKL_Isometric_CalcView", function( eyePos )
+    local zoomFrac = math.remap( orthoDist, ZOOM_MIN, ZOOM_MAX, 0.25, 1 )
+    local camPos = eyePos - orthoAngDir * orthoDist
+
+    local tr = trace.line( eyePos, camPos, find.allPlayers() )
+
+    if tr.Hit then
+        local orthoDistEff = orthoDist * tr.Fraction * CUTOUT_DIST_MULT
+
+        cutoutNeedsDraw = true
+        cutoutZoomFrac = zoomFrac
+        cutoutCamPos = eyePos - orthoAngDir * orthoDistEff
+        cutoutCamAng = orthoAng
+    else
+        cutoutNeedsDraw = false
+    end
+
+    return {
+        origin = camPos,
+        angles = orthoAng,
+        drawviewer = true,
+        drawviewmodel = false,
+
+        ortho = {
+            left = -scrWH * zoomFrac,
+            top = -scrHH * zoomFrac,
+            right = scrWH * zoomFrac,
+            bottom = scrHH * zoomFrac,
+        },
+    }
+end )
+
+hook.add( "Think", "LKL_Isometric_Zoom", function()
+    if orthoDistDir ~= 0 then
+        orthoDist = math.clamp( orthoDist + orthoDistDir * ZOOM_SPEED * timer.frametime(), ZOOM_MIN, ZOOM_MAX )
+    end
+end )
+
+hook.add( "InputPressed", "LKL_Isometric_CameraControls", function( key )
+    if key == KEY.UP or key == KEY.DOWN then
+        determineDistDir()
+    elseif key == KEY.LEFT then
+        adjustAng( 90 )
+    elseif key == KEY.RIGHT then
+        adjustAng( -90 )
+    end
+end )
+
+hook.add( "InputReleased", "LKL_Isometric_CameraControls", function( key )
+    if key == KEY.UP or key == KEY.DOWN then
+        determineDistDir()
+    end
+end )
+
+hook.add( "RenderScene", "LKL_Isometric_RenderCutout", function()
+    if render.isInRenderView() then return end
+
+    frameNum = frameNum + 1
+
+    if frameNum > 1000000 then
+        frameNum = 0
+    end
+
+    if not cutoutNeedsDraw then return end
+    if cpuTotalAverage() > CUTOUT_PERF then return end
+    if CUTOUT_RENDER_GAP > 1 and frameNum % CUTOUT_RENDER_GAP ~= 0 then return end
+
+    render.selectRenderTarget( rtNameCutout )
+    render.renderView( {
+        origin = cutoutCamPos,
+        angles = cutoutCamAng,
+        drawviewer = true,
+        drawviewmodel = false,
+
+        ortho = {
+            left = -cutoutWH * cutoutZoomFrac,
+            top = -cutoutHH * cutoutZoomFrac,
+            right = cutoutWH * cutoutZoomFrac,
+            bottom = cutoutHH * cutoutZoomFrac,
+        },
+    } )
+    render.selectRenderTarget()
+end )
+
+hook.add( "drawhud", "LKL_Isometric_DrawCutout", function()
+    if not cutoutNeedsDraw then return end
+
+    render.setMaterial( rtMatCutout )
+    render.drawPoly( cutoutPoly )
+end )
+
