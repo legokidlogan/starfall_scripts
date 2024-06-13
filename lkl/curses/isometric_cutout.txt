@@ -17,6 +17,19 @@ local CUTOUT_SEGMENTS = 32
 local CUTOUT_DIST_MULT = 0.5 -- Multiplier (0-1) against the camera distance when doing the cutout. Smaller values have more agressive clipping.
 local CUTOUT_PERF = 0.5 -- Fraction for rendering perf check. Smaller numbers are safer, but result in a choppier cutout render.
 local CUTOUT_RENDER_GAP = 1 -- 1 to render the cutout every frame, 2 for every second frame, 3 for every third frame, etc. Values > 1 are prone to rapid lighting flickering.
+
+-- Mouse control only works for the chip owner, and is imprecise due to not having :setEyeAngles().
+-- Requires cl_mouselook 0 and m_rawinput 1.
+-- cl_mouselook can only be changed while not connected to a server.
+-- Don't worry, you'll still be able to use your mose like normal while the chip is off.
+local MOUSE_CONTROL_ENABLED = false -- Control your aim via 2D mouse input. Mouse wheel for pitch, Mouse 3 for pitch reset.
+local MOUSE_CONTROL_SENSITIVITY = 0.25
+local MOUSE_CONTROL_PITCH_SENSITIVITY = 0.05
+local MOUSE_CONTROL_PRECISION = 0.997 -- 0-1
+local MOUSE_CONTROL_CURSOR_RADIUS = 8
+local MOUSE_CONTROL_CURSOR_OUTLINE_THICKNESS = 2
+local MOUSE_CONTROL_CURSOR_COLOR = Color( 255, 255, 255 )
+local MOUSE_CONTROL_CURSOR_OUTLINE_COLOR = Color( 0, 0, 0 )
 -- END CONFIG
 
 
@@ -25,13 +38,22 @@ require( "lkl/render/poly_tools.txt" )
 
 CUTOUT_PERF = CUTOUT_PERF * cpuMax()
 
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+local MOUSE_CONTROL_PRECISION_DEGREES = math.deg( math.acos( MOUSE_CONTROL_PRECISION ) )
+
 local orthoAng = Angle( 45, 45 + 90 * 2, 0 )
 local orthoAngDir = nil
 local orthoDist = ZOOM_DEFAULT
 local orthoDistDir = nil
 local frameNum = 0
+local turningPitchState = 0
+local turningYawState = 0
 local scrW, scrH = render.getGameResolution()
 local scrWH, scrHH = scrW / 2, scrH / 2
+local mouseX = scrWH
+local mouseY = scrHH
+local targetPitch = 0
 
 local cutoutW, cutoutH = scrW * CUTOUT_DIAMETER, scrH * CUTOUT_DIAMETER
 local cutoutWH, cutoutHH = cutoutW / 2, cutoutH / 2
@@ -65,6 +87,47 @@ end
 
 local function determineDistDir()
     orthoDistDir = ( input.isKeyDown( KEY.UP ) and -1 or 0 ) + ( input.isKeyDown( KEY.DOWN ) and 1 or 0 )
+end
+
+local function setTurningPitchState( state )
+    if turningPitchState == state then return end
+
+    local cmd =
+        state == -1 and "+lookdown; -lookup" or
+        state == 0 and "-lookdown; -lookup" or
+        "-lookdown; +lookup"
+
+    local success = pcall( function()
+        concmd( cmd )
+    end )
+
+    if success then
+        turningPitchState = state
+    end
+
+    return success
+end
+
+local function setTurningYawState( state )
+    if turningYawState == state then return end
+
+    local cmd =
+        state == -1 and "+left; -right" or
+        state == 0 and "-left; -right" or
+        "-left; +right"
+
+    local success = pcall( function()
+        concmd( cmd )
+    end )
+
+    if success then
+        turningYawState = state
+    end
+
+    return success
+end
+
+local function drawMouseControlHUD()
 end
 
 
@@ -156,10 +219,145 @@ hook.add( "RenderScene", "LKL_Isometric_RenderCutout", function()
     render.selectRenderTarget()
 end )
 
-hook.add( "drawhud", "LKL_Isometric_DrawCutout", function()
-    if not cutoutNeedsDraw then return end
+hook.add( "drawhud", "LKL_Isometric_DrawHUD", function()
+    if cutoutNeedsDraw then
+        render.setMaterial( rtMatCutout )
+        render.drawPoly( cutoutPoly )
+    end
 
-    render.setMaterial( rtMatCutout )
-    render.drawPoly( cutoutPoly )
+    drawMouseControlHUD()
 end )
 
+
+if MOUSE_CONTROL_ENABLED and player() == owner() then
+    local YAW_SPEED_ORIGINAL = convar.getFloat( "cl_yawspeed" )
+    local YAW_SPEED_FAST = 300
+    local YAW_SPEED_MEDIUM = 200
+    local YAW_SPEED_SLOW = 100
+
+    local cursorPoly = polyTools.polyMakeCircleFilled( 0, 0, MOUSE_CONTROL_CURSOR_RADIUS, 8 )
+    local cursorPolyOutline = polyTools.polyMakeCircleFilled( 0, 0, MOUSE_CONTROL_CURSOR_RADIUS + MOUSE_CONTROL_CURSOR_OUTLINE_THICKNESS, 8 )
+    local yawSpeed = YAW_SPEED_ORIGINAL
+
+
+    local function setYawSpeed( speed )
+        if yawSpeed == speed then return end
+
+        local success = pcall( function()
+            concmd( "cl_yawspeed " .. speed )
+        end )
+
+        if success then
+            yawSpeed = speed
+        end
+    end
+
+
+    drawMouseControlHUD = function()
+        render.setMaterial()
+
+        render.setColor( MOUSE_CONTROL_CURSOR_OUTLINE_COLOR )
+        polyTools.drawPolyUnscaled( cursorPolyOutline, mouseX, mouseY )
+
+        render.setColor( MOUSE_CONTROL_CURSOR_COLOR )
+        polyTools.drawPolyUnscaled( cursorPoly, mouseX, mouseY )
+    end
+
+
+    hook.add( "Removed", "LKL_Isometric_MouseControl_StopTurning", function()
+        concmd( "-right; -left; -lookup; -lookdown" )
+
+        if YAW_SPEED_ORIGINAL ~= 0 then
+            concmd( "cl_yawspeed " .. YAW_SPEED_ORIGINAL )
+        end
+    end )
+
+    hook.add( "huddisconnected", "LKL_Isometric_MouseControl_StopTurning", function()
+        concmd( "-right; -left; -lookup; -lookdown" )
+
+        if YAW_SPEED_ORIGINAL ~= 0 then
+            concmd( "cl_yawspeed " .. YAW_SPEED_ORIGINAL )
+        end
+    end )
+
+    hook.add( "mousemoved", "LKL_Isometric_MouseControl_MouseMoved", function( dx, dy )
+        if not render.isHUDActive() then return end
+
+        mouseX = math.clamp( mouseX + dx * MOUSE_CONTROL_SENSITIVITY, 0, scrW )
+        mouseY = math.clamp( mouseY + dy * MOUSE_CONTROL_SENSITIVITY, 0, scrH )
+    end )
+
+    hook.add( "mousewheeled", "LKL_Isometric_MouseControl_MouseMoved", function( delta )
+        if not render.isHUDActive() then return end
+
+        targetPitch = math.clamp( targetPitch - delta * 90 * MOUSE_CONTROL_PITCH_SENSITIVITY, -89.999, 89.999 )
+    end )
+
+    hook.add( "InputPressed", "LKL_Isometric_MouseControl_ResetPitch", function( key )
+        if not render.isHUDActive() then return end
+
+        if key == MOUSE.MOUSE3 then
+            targetPitch = 0
+        end
+    end )
+
+    hook.add( "Tick", "LKL_Isometric_MouseControl_Turn", function()
+        if not render.isHUDActive() then return end
+
+        local targetAng = eyeAngles()
+        local x = mouseX - scrWH
+        local y = mouseY - scrHH
+
+        if x ~= 0 and y ~= 0 then
+            local dir = localToWorld( Vector( 0, -x, -y * scrW / scrH ), ANGLE_ZERO, VECTOR_ZERO, orthoAng )
+            targetAng = dir:getAngleEx( orthoAng:getUp() )
+        end
+
+        targetAng[1] = targetPitch
+        targetAng[3] = 0
+
+        local targetDir = targetAng:getForward()
+        local eyeAng = eyeAngles()
+        local eyeDir = eyeAng:getForward()
+        local dot = eyeDir:dot( targetDir )
+
+        if dot >= MOUSE_CONTROL_PRECISION then
+            setTurningPitchState( 0 )
+            setTurningYawState( 0 )
+        else
+            if dot >= 0.5 then
+                if dot >= 0.9 then
+                    setYawSpeed( YAW_SPEED_SLOW )
+                else
+                    setYawSpeed( YAW_SPEED_MEDIUM )
+                end
+            else
+                setYawSpeed( YAW_SPEED_FAST )
+            end
+
+            local _, eyeAngLocal = worldToLocal( VECTOR_ZERO, eyeAng, VECTOR_ZERO, targetAng )
+            local pitchDiff = eyeAngLocal[1]
+            local yawDiff = eyeAngLocal[2]
+
+            if math.abs( pitchDiff ) > MOUSE_CONTROL_PRECISION_DEGREES then
+                if pitchDiff > 0 then
+                    setTurningPitchState( 1 )
+                else
+                    setTurningPitchState( -1 )
+                end
+            else
+                setTurningPitchState( 0 )
+            end
+
+            if math.abs( yawDiff ) > MOUSE_CONTROL_PRECISION_DEGREES then
+                if yawDiff > 0 then
+                    setTurningYawState( 1 )
+                else
+                    setTurningYawState( -1 )
+                end
+            else
+                setTurningYawState( 0 )
+            end
+        end
+    end )
+end
