@@ -727,7 +727,7 @@ function ccmdMulti.createToggleCommand( cmdPrefix, cmdName, stateCallback, value
         return stateFlag
     end
 
-    local function cmdFunc( _, _, _, stateStr )
+    local function cmdFunc( _, _, _, _, stateStr )
         local state = stateStrVals[stateStr]
 
         if state == nil then
