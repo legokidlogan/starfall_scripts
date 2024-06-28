@@ -319,7 +319,10 @@ if SERVER then
                     OptCount = NUMBER, -- The number of optional arguments, which all come after the required ones. If you have more names than RC + OC, the extras are assumed to be optional args.
                     [1] = {
                         Name = STRING, -- Name of the first argument, defaults to "arg1"
-                        Description = STRING OR TABLE, -- Description of the first argument. Can either be a string or a printTbl (sequential table that alternates between color and string).
+                        Description = STRING OR TABLE or BULLETLIST,
+                            -- Description of the first argument.
+                            -- Can be a string, a table of strings (each string is a new line), a table of printTbls (each printTbl is a new line), or a BulletList.
+                            -- printTbls are sequential tables that alternate between color and string.
                     },
                     [2] = {
                         Name = STRING,
