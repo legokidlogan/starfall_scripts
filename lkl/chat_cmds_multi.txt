@@ -629,7 +629,9 @@ end
     cmdName: (string or table)
         - Same as in ccmdMulti.createCommand().
     stateCallback: (optional) (function)
-        - FUNCTION:  function( oldState, newState )  return overrideState end
+        - FUNCTION:  function( oldState, newState, ply )  return overrideState end
+            - ply: (player or nil)
+                - The player who ran the command.
             - overrideState: (optional) (bool)
                 - Will override the state, used for preventing changes under certain conditions.
             - Gets called automatically by stateSetter() so you can perform actions whenever your flag changes or double-sets.
@@ -650,8 +652,9 @@ end
 
     RETURNS: stateSetter, stateGetter
         stateSetter: (function)
-            - FUNCTION:  function( state ) return end
+            - FUNCTION:  function( state, ply ) return end
             - Calls stateCallback() and sets the value of your flag accordingly.
+            - ply is optional, and gets passed to stateCallback().
         stateGetter: (function)
             - FUNCTION:  function() return state end
             - Gives the current value of your flag.
@@ -713,8 +716,8 @@ function ccmdMulti.createToggleCommand( cmdPrefix, cmdName, stateCallback, value
     local cTrue = ccmdScheme:getColor( "true" )
     local cFalse = ccmdScheme:getColor( "false" )
 
-    local function stateSetter( state )
-        local overrideState = stateCallback( stateFlag, state )
+    local function stateSetter( state, ply )
+        local overrideState = stateCallback( stateFlag, state, ply )
 
         if overrideState == nil then
             stateFlag = state
@@ -727,14 +730,14 @@ function ccmdMulti.createToggleCommand( cmdPrefix, cmdName, stateCallback, value
         return stateFlag
     end
 
-    local function cmdFunc( _, _, _, _, stateStr )
+    local function cmdFunc( _, _, ply, _, stateStr )
         local state = stateStrVals[stateStr]
 
         if state == nil then
             state = not stateFlag
         end
 
-        stateSetter( state )
+        stateSetter( state, ply )
 
         return {
             cText, valueName .. " is now ",
