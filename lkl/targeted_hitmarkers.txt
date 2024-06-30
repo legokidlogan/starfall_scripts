@@ -143,6 +143,23 @@ else
     local markerFontMini = render.createFont( "Roboto Mono", markerFontSizeMini, 500, true, false, false, false, false, false )
 
 
+    function setHitmarkerColor( color )
+        markerColor = color:clone()
+    end
+
+    function getHitmarkerColor()
+        return markerColor:clone()
+    end
+
+    function setHitmarkerColorMini( color )
+        markerColorMini = color:clone()
+    end
+
+    function getHitmarkerColorMini()
+        return markerColorMini:clone()
+    end
+
+
     local function doSound( soundType )
         local snd = soundTbl[soundType]
 
