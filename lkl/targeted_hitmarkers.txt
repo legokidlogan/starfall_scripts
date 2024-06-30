@@ -1,0 +1,284 @@
+--@name Hitmarkers
+--@author legokidlogan
+--@shared
+--@owneronly
+
+--[[
+    - A lazy edit to hitmarkers.txt which lets you view the hitmarkers of one other player.
+    - Use setHitmarkerTarget( ply ) on serverside to set the target player.
+--]]
+
+
+if SERVER then
+    local target = nil
+    local headDist = 10
+    local headDistSqr = headDist ^ 2
+    local doSounds = true
+
+
+    function setHitmarkerTarget( ply )
+        target = ply
+    end
+
+    function getHitmarkerTarget()
+        return target
+    end
+
+    function setHitmarkerDoSounds( state )
+        doSounds = state
+
+        net.start( "LKL_TargetedHitmarkers_SetDoSounds" )
+        net.writeBool( doSounds )
+        net.send( owner() )
+    end
+
+    function getHitmarkerDoSounds()
+        return doSounds
+    end
+
+
+    hook.add( "EntityTakeDamage", "LKL_HitMarkers_EntityTakeDamage", function( ent, attacker, inflictor, amount, type, pos )
+        if attacker ~= target then return end
+        if not isValid( target ) then return end
+        if not isValid( ent ) or not ent:isPlayer() or ent == attacker then return end
+
+        attacker.hitmarkerPoints = attacker.hitmarkerPoints or {}
+        attacker.hitmarkerPoints[ent] = pos
+    end )
+
+    hook.add( "PlayerHurt", "LKL_TargetedHitmarkers_PlayerHurt", function( ply, attacker, newHealth, damage )
+        if attacker ~= target then return end
+        if not isValid( target ) then return end
+
+        attacker.hitmarkerPoints = attacker.hitmarkerPoints or {}
+        local pos = attacker.hitmarkerPoints[ply] or ply:getAttachment( ply:lookupAttachment( "chest" ) ) or ply:getPos() + Vector( 0, 0, ply:obbSize().z * 2 / 3  )
+        local headShot = false
+
+        local headInd = ply:lookupAttachment( "eyes" )
+
+        if headInd ~= 0 then
+            local headPos = ply:getAttachment( headInd )
+
+            headShot = headPos:getDistanceSqr( pos ) <= headDistSqr
+        end
+
+        net.start( "LKL_TargetedHitmarkers_Hit" )
+        net.writeEntity( ply )
+        net.writeVector( pos )
+        net.writeFloat( damage )
+        net.writeBool( headShot )
+        net.send( owner() )
+
+        attacker.hitmarkerPoints[ply] = nil
+    end )
+
+    hook.add( "PlayerDeath", "LKL_TargetedHitmarkers_PlayerKill", function( ply, _, attacker )
+        if attacker ~= target then return end
+        if not isValid( target ) then return end
+
+        net.start( "LKL_TargetedHitmarkers_Kill" )
+        net.send( owner() )
+    end )
+
+    hook.add( "ClientInitialized", "LKL_TargetedHitmarkers_ClientInitialized", function( ply )
+        if ply ~= owner() then return end
+
+        timer.simple( 1, function()
+            setHitmarkerDoSounds( doSounds )
+        end )
+    end )
+else
+    local fadeTime = 3
+    local fadeTimeMini = 2.5
+    local miniHitVelMin = 1.5
+    local miniHitVelMax = 3
+    local miniHitIntertia = 0.93
+    local miniHitGravity = 0.03
+    local updateInterval = 0.01
+    local roundDecimals = 1
+
+    local doSounds = nil
+
+    local soundTbl = {
+        Hit = {
+            Path = "sound/buttons/lightswitch2.wav",
+            Bass = false,
+            Pitch = function() return math.rand( 0.9, 1.1 ) end,
+            Volume = 1.5,
+        },
+        Headshot = {
+            Path = "sound/buttons/button16.wav",
+            Bass = false,
+            Pitch = function() return math.rand( 0.95, 1.1 ) end,
+            Volume = 1,
+        },
+        Kill = {
+            Path = "sound/buttons/combine_button1.wav",
+            Bass = false,
+            Pitch = 1,
+            Volume = 1.5,
+        },
+        Template = {
+            Path = "",
+            Bass = false,
+            Pitch = 1,
+            Volume = 1.5,
+        },
+    }
+
+    local markerColor = Color( 255, 0, 0, 255 )
+    local markerColorMini = Color( 255, 100, 0, 255 )
+    local markerFontSize = 30
+    local markerFontSizeMini = 30
+
+    local hitCountMini = 0
+    local scrW
+    local hitScores = {}
+    local hitColors = {}
+    local hitTimes = {}
+    local hitPoints = {}
+    local hitPointsMini = {}
+
+    local markerFont = render.createFont( "Roboto Mono", markerFontSize, 500, true, false, false, false, false, false )
+    local markerFontMini = render.createFont( "Roboto Mono", markerFontSizeMini, 500, true, false, false, false, false, false )
+
+
+    local function doSound( soundType )
+        local snd = soundTbl[soundType]
+
+        if not snd then return end
+
+        local path = snd.Path
+        local bassObj = snd.Bass
+
+        if not bassObj then
+            if not snd.LoadingBass then
+                bass.loadFile( path, "2d mono", function( x )
+                    snd.Bass = x
+                end )
+
+                snd.LoadingBass = true
+            end
+
+            return
+        end
+
+        local pitch = snd.Pitch
+        local volume = snd.Volume
+
+        if type( pitch ) == "function" then
+            pitch = pitch()
+        end
+
+        if type( volume ) == "function" then
+            volume = volume()
+        end
+
+        bassObj:setPitch( pitch )
+        bassObj:setVolume( volume )
+        bassObj:play()
+    end
+
+
+    hook.add( "drawhud", "LKL_HitMarkers_DrawHud", function()
+        if not scrW then
+            scrW = render.getGameResolution()
+        end
+
+        render.setFont( markerFontMini )
+
+        for i = 1, hitCountMini do
+            local hitMini = hitPointsMini[i]
+            local screenPos = hitMini.Pos:toScreen()
+            local xPos = screenPos.x
+            local yPos = screenPos.y
+
+            render.setColor( hitMini.Color )
+            render.drawSimpleText( xPos, yPos, hitMini.Text, 1, 1 )
+        end
+
+        render.setFont( markerFont )
+
+        for ply, score in pairs( hitScores ) do
+            local screenPos = hitPoints[ply]:toScreen()
+            local xPos = screenPos.x
+            local yPos = screenPos.y
+
+            render.setColor( hitColors[ply] )
+            render.drawSimpleText( xPos, yPos, tostring( score ), 1, 1 )
+        end
+    end )
+
+
+    net.receive( "LKL_TargetedHitmarkers_Hit", function()
+        local ply = net.readEntity()
+        local pos = net.readVector()
+        local dmg = math.round( net.readFloat(), roundDecimals )
+        local headShot = net.readBool()
+
+        hitScores[ply] = ( hitScores[ply] or 0 ) + dmg
+        hitColors[ply] = markerColor:clone()
+        hitTimes[ply] = timer.realtime()
+        hitPoints[ply] = pos
+
+        local hitVelMini = Vector( math.rand( -1, 1 ), math.rand( -1, 1 ), math.rand( -1, 1 ) )
+        hitVelMini:normalize()
+
+        hitCountMini = hitCountMini + 1
+        hitPointsMini[hitCountMini] = {
+            Pos = pos,
+            Text = headShot and ">" .. dmg .. "<" or dmg .. "",
+            Vel = hitVelMini * math.rand( miniHitVelMin, miniHitVelMax ),
+            Color = markerColorMini:clone(),
+            Time = timer.realtime(),
+        }
+
+        if doSounds then
+            doSound( headShot and "Headshot" or "Hit" )
+        end
+    end )
+
+    net.receive( "LKL_TargetedHitmarkers_Kill", function()
+        if doSounds then
+            doSound( "Kill" )
+        end
+    end )
+
+    net.receive( "LKL_TargetedHitmarkers_SetDoSounds", function()
+        doSounds = net.readBool()
+    end )
+
+
+    timer.create( "LKL_TargetedHitmarkers_UpdatePoints", updateInterval, 0, function()
+        if not render.isHUDActive() then return end
+
+        local curTime = timer.realtime()
+
+        for ply, time in pairs( hitTimes ) do
+            local alpha = 255 * ( 1 - ( curTime - time ) / fadeTime )
+
+            if alpha < 0 then
+                hitScores[ply] = nil
+                hitColors[ply] = nil
+                hitTimes[ply] = nil
+                hitPoints[ply] = nil
+            else
+                hitColors[ply]:setA( alpha )
+            end
+        end
+
+        for i = hitCountMini, 1, -1 do
+            local hitMini = hitPointsMini[i]
+            local alpha = 255 * ( 1 - ( curTime - hitMini.Time ) / fadeTimeMini )
+
+            if alpha < 0 then
+                table.remove( hitPointsMini, i )
+                hitCountMini = hitCountMini - 1
+            else
+                hitMini.Color:setA( alpha )
+                hitMini.Pos = hitMini.Pos + hitMini.Vel
+                hitMini.Vel = hitMini.Vel * miniHitIntertia + Vector( 0, 0, - miniHitGravity )
+            end
+        end
+    end )
+end
