@@ -261,6 +261,9 @@ hook.add( "KeyPress", "LKL_SEV_RemoveChipsWhenRefreshed", function( ply, key )
 end )
 
 hook.add( "inputPressed", "LKL_SEV_KeyPress", function( key )
+    if not active then return end
+    if not isFirstTimePredicted() then return end
+
     if key == makeChipSolidKey then
         local ent = screenTrace( erroredChips, diamondSize )
         if not ent then return end
@@ -302,6 +305,7 @@ hook.add( "inputPressed", "LKL_SEV_KeyPress", function( key )
 end )
 
 hook.add( "inputPressed", "LKL_SEV_KeyPress_RestartChipCombo", function( key )
+    if not active then return end
     if not isFirstTimePredicted() then return end
     if not restartChipKeyComboLookup[key] then return end
 
