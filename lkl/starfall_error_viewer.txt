@@ -69,6 +69,35 @@ if SERVER then
         ent:setPos( net.readVector() )
     end )
 
+    net.receive( "LKL_SEV_RestartChip", function( _, ply )
+        if ply ~= owner() then return end
+
+        local ent = net.readEntity()
+        if not isValid( ent ) then return end
+
+        local success, err = pcall( function()
+            restart( ent )
+        end )
+
+        if not success then
+            if type( err ) == "table" then
+                err = err.msg
+            end
+
+            print(
+                c_white, "[SEV] ",
+                c_alert_red, "Error restarting chip on server: ",
+                c_pale_yellow, err
+            )
+
+            return
+        end
+
+        net.start( "LKL_SEV_RestartSucceeded" )
+        net.writeEntity( ent )
+        net.send( ply )
+    end )
+
     return
 end
 
@@ -85,6 +114,7 @@ local chipNameFontSize = 16
 local chipNameFontOutline = true
 local chipNameTextColor = Color( 255, 200, 200, 255 )
 local returnDiamondColor = Color( 255, 255, 255, 255 )
+local restartChipKeyCombo = { KEY.LCONTROL, KEY.R } -- Set to false to disable. Looking at an errored chip (through walls) and pressing these keys together will restart it in both realms.
 local makeChipSolidKey = KEY.E -- Set to false to disable. Looking at an errored chip (through walls) that's invisible to traces (PropNotSolid or COLLISION_GROUP_IN_VEHICLE) and pressing this key will re-solidify them.
 local toggleBringChipKey = KEY.G -- Set to false to disable. Loking at an errored chip (through walls) and pressing this key will bring it to you or teleport it back. The chip can be sent back even if it is no longer errored.
 local clearChipReturnKey = KEY.H -- Set to false to disable. Used for clearing the return position of a chip that has been brought to you.
@@ -98,6 +128,7 @@ local active = true
 local erroredChips = {}
 local erroredChipDatas = {}
 local returnableChips = {}
+local restartChipKeyComboLookup = {}
 local diamondPolyLeft = nil
 local diamondPolyRight = nil
 local diamondPolySmallLeft = nil
@@ -270,6 +301,46 @@ hook.add( "inputPressed", "LKL_SEV_KeyPress", function( key )
     end
 end )
 
+hook.add( "inputPressed", "LKL_SEV_KeyPress_RestartChipCombo", function( key )
+    if not isFirstTimePredicted() then return end
+    if not restartChipKeyComboLookup[key] then return end
+
+    for _, comboKey in ipairs( restartChipKeyCombo ) do
+        if not input.isKeyDown( comboKey ) then return end
+    end
+
+    local ent = screenTrace( erroredChips, diamondSize )
+    if not ent then return end
+
+    local success, err = pcall( function()
+        restart( ent )
+    end )
+
+    if not success then
+        if type( err ) == "table" then
+            err = err.msg
+        end
+
+        print(
+            c_white, "[SEV] ",
+            c_alert_red, "Error restarting chip: ",
+            c_pale_yellow, err
+        )
+
+        return
+    end
+
+    local errorData = erroredChipDatas[ent]
+
+    if errorData.OnServer then
+        net.start( "LKL_SEV_RestartChip" )
+        net.writeEntity( ent )
+        net.send()
+    else
+        removeErroredChip( ent )
+    end
+end )
+
 hook.add( "EntityRemoved", "LKL_SEV_RemoveDeletedChips", function( ent )
     if not erroredChipDatas[ent] then return end
 
@@ -314,6 +385,13 @@ net.receive( "LKL_SEV_TrackServerError", function()
     addErroredChip( ent, true )
 end )
 
+net.receive( "LKL_SEV_RestartSucceeded", function()
+    local ent = net.readEntity()
+    if not isValid( ent ) then return end
+
+    removeErroredChip( ent )
+end )
+
 
 do
     diamondPolyLeft = polyTools.polyScale( {
@@ -336,6 +414,11 @@ do
 
     diamondPolySmallLeft = polyTools.polyScale( diamondPolyLeft, 0.5, 0.5 )
     diamondPolySmallRight = polyTools.polyScale( diamondPolyRight, 0.5, 0.5 )
+
+
+    for _, key in ipairs( restartChipKeyCombo ) do
+        restartChipKeyComboLookup[key] = true
+    end
 
 
     enableHud( player(), true )
