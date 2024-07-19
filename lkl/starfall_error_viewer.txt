@@ -238,9 +238,10 @@ local function drawSmallDiamond( worldPos )
 end
 
 
-hook.add( "StarfallError", "LKL_SEV_TrackClientError", function( ent )
+hook.add( "StarfallError", "LKL_SEV_TrackClientError", function( ent, ply )
     if not isValid( ent ) then return end
     if ent:getOwner() ~= owner() then return end
+    if ply ~= owner() then return end
 
     addErroredChip( ent, false )
 end )
