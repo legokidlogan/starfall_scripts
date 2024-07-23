@@ -144,6 +144,11 @@ end
 
 -- GLOBAL FUNCTIONS ------------------------------------------------------------
 
+-- Whether or not glist is ready to be used.
+function glist.isReady()
+    return startupSyncComplete
+end
+
 --[[
     - Adds a player to the whitelist.
     - This and other list modification functions will be synced to all chips of the same group owned by you.
