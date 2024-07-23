@@ -23,6 +23,8 @@ local holoGroupIncrement = 0
 local spawnQueue
 
 
+----- GLOBAL FUNCTIONS -----
+
 --[[
     - Spawns holograms based off of Prop to Holo data.
 
@@ -76,13 +78,20 @@ function pthSpawner.spawn( pos, ang, dataStr, callback, scale )
     holoGroupOriginAngles[holoGroupIncrement] = ang
     holoGroupScales[holoGroupIncrement] = scale
 
-    for _, entry in ipairs( data ) do
-        entry.GroupID = holoGroupIncrement
+    if dataCount == 0 then
+        spawnQueue:addEntryAndStart( {
+            GroupID = holoGroupIncrement,
+            IsLast = true,
+            NoHolo = true,
+        } )
+    else
+        for _, entry in ipairs( data ) do
+            entry.GroupID = holoGroupIncrement
+        end
+
+        data[dataCount].IsLast = true
+        spawnQueue:addEntriesAndStart( data )
     end
-
-    data[dataCount].IsLast = true
-
-    spawnQueue:addEntriesAndStart( data )
 
     return holoGroupIncrement
 end
@@ -122,58 +131,72 @@ function pthSpawner.cancel( groupID )
 end
 
 
+----- PRIVATE FUNCTIONS -----
+
+local function processEntryHolo( entry, groupID )
+    local origin = holoGroupOrigins[groupID]
+    local originAng = holoGroupOriginAngles[groupID]
+    local overallScale = holoGroupScales[groupID]
+
+    local localPos = entry.Pos
+    local scale = entry.Scale
+
+    if overallScale then
+        localPos = localPos * overallScale
+        scale = ( scale or 1 ) * overallScale
+    end
+
+    local holo
+    local success = pcall( function()
+        local pos, ang = localToWorld( localPos, entry.Ang, origin, originAng )
+
+        holo = hologram.create( pos, ang, entry.Model, scale )
+    end )
+
+    if not success then return true end
+
+    local holoGroup = holoGroups[groupID]
+    local clips = entry.Clips
+    local color = entry.Color or COLOR_DEFAULT
+    local renderMode = entry.RenderMode or 0
+
+    -- Handle transparency for holos with default render mode
+    if color.a ~= 255 and renderMode == 0 then
+        renderMode = 4
+    end
+
+    holo:setMaterial( entry.Material )
+    submaterial.setSubMaterials( holo, entry.SubMaterials )
+    holo:setColor( color )
+    holo:setRenderMode( renderMode )
+    holo:setSkin( entry.Skin or 0 )
+    holo:suppressEngineLighting( entry.Fullbright or false )
+    table.insert( holoGroup, holo )
+
+    if clips then
+        for i, clip in ipairs( clips ) do
+            holo:setClip( i, true, clip.Origin, clip.Normal, holo )
+        end
+    end
+end
+
+
+----- SETUP -----
+
 spawnQueue = Queue:new(
     function( _, entry )
         if not hologram.canSpawn() then return true end -- Retry later
 
         local groupID = entry.GroupID
-        local origin = holoGroupOrigins[groupID]
-        local originAng = holoGroupOriginAngles[groupID]
-        local overallScale = holoGroupScales[groupID]
 
-        local localPos = entry.Pos
-        local scale = entry.Scale
-
-        if overallScale then
-            localPos = localPos * overallScale
-            scale = ( scale or 1 ) * overallScale
-        end
-
-        local holo
-        local success = pcall( function()
-            local pos, ang = localToWorld( localPos, entry.Ang, origin, originAng )
-
-            holo = hologram.create( pos, ang, entry.Model, scale )
-        end )
-
-        if not success then return true end
-
-        local holoGroup = holoGroups[groupID]
-        local clips = entry.Clips
-        local color = entry.Color or COLOR_DEFAULT
-        local renderMode = entry.RenderMode or 0
-
-        -- Handle transparency for holos with default render mode
-        if color.a ~= 255 and renderMode == 0 then
-            renderMode = 4
-        end
-
-        holo:setMaterial( entry.Material )
-        submaterial.setSubMaterials( holo, entry.SubMaterials )
-        holo:setColor( color )
-        holo:setRenderMode( renderMode )
-        holo:setSkin( entry.Skin or 0 )
-        holo:suppressEngineLighting( entry.Fullbright or false )
-        table.insert( holoGroup, holo )
-
-        if clips then
-            for i, clip in ipairs( clips ) do
-                holo:setClip( i, true, clip.Origin, clip.Normal, holo )
-            end
+        if not entry.NoHolo then
+            local result = processEntryHolo( entry, groupID )
+            if result ~= nil then return result end
         end
 
         if entry.IsLast then
             local callback = holoGroupCallbacks[groupID]
+            local holoGroup = holoGroups[groupID]
 
             callback( holoGroup )
 
