@@ -35,9 +35,10 @@ if SERVER then
         return ""
     end )
 
-    hook.add( "StarfallError", "LKL_SEV_TrackServerError", function( ent )
+    hook.add( "StarfallError", "LKL_SEV_TrackServerError", function( ent, ply )
+        if ply ~= owner() then return end
         if not isValid( ent ) then return end
-        if ent:getOwner() ~= owner() then return end -- ply arg sometimes doesn't work correctly after a recent update
+        if ent:getOwner() ~= owner() then return end
 
         net.start( "LKL_SEV_TrackServerError" )
         net.writeEntity( ent )
@@ -239,9 +240,9 @@ end
 
 
 hook.add( "StarfallError", "LKL_SEV_TrackClientError", function( ent, ply )
+    if ply ~= owner() then return end
     if not isValid( ent ) then return end
     if ent:getOwner() ~= owner() then return end
-    if ply ~= owner() then return end
 
     addErroredChip( ent, false )
 end )
