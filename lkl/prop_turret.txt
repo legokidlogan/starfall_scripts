@@ -368,8 +368,14 @@ if SERVER then
 
             if dot >= dotThreshold then
                 targetCount = targetCount + 1
-                targets[targetCount] = target
+                targets[targetCount] = { ply = target, dot = dot }
             end
+        end
+
+        table.sortByMember( targets, "dot", false )
+
+        for i = targetCount + 1, #targets do
+            targets[i] = targets[i].ply
         end
 
         return targets
