@@ -747,6 +747,56 @@ function vectorMath.dirForProjectile( startPos, targetPos, projSpeed, gravity, d
 end
 
 --[[
+    - Returns the width and height of the smallest plane containing a set of points.
+    - Assumes the points all lie along a flat plane.
+    - For use with things like map brushes/surfaces, which are flat but arbitrarily complex polygons.
+        - Note that all of the three required args can be obtained from brush/surface info.
+
+    planePoints: (table)
+        - A sequential table of vectors representing the points of the plane.
+        - Must lie flat along a plane, or the results will be garbage.
+    planeNormalAng: (Vector or Angle)
+        - The normal of the plane.
+    planeCenter: (optional) (Vector)
+        - The center of the plane, based on the midpoint of its min and max AABB bounds.
+        - If nil, will be calculated from the points.
+
+    RETURNS: planeWidth, planeHeight
+        planeWidth: (number)
+            - The width of the plane.
+        planeHeight: (number)
+            - The height of the plane.
+--]]
+function vectorMath.getPlaneSize( planePoints, planeNormalAng, planeCenter )
+    planeCenter = planeCenter or vectorMath.getCenter( points )
+
+    if type( planeNormalAng ) == "Vector" then
+        planeNormalAng = planeNormalAng:getAngle()
+    end
+
+    local planeMinX = math.huge
+    local planeMinY = math.huge
+    local planeMaxX = -math.huge
+    local planeMaxY = -math.huge
+
+    for _, point in ipairs( planePoints ) do
+        local localPoint = worldToLocal( point, ANGLE_ZERO, planeCenter, planeNormalAng ) -- Local to the plane
+        local pointX = localPoint[2] -- Local to the plane, with x along width, y along height
+        local pointY = localPoint[3]
+
+        if pointX < planeMinX then planeMinX = pointX end
+        if pointY < planeMinY then planeMinY = pointY end
+        if pointX > planeMaxX then planeMaxX = pointX end
+        if pointY > planeMaxY then planeMaxY = pointY end
+    end
+
+    local planeWidth = planeMaxX - planeMinX
+    local planeHeight = planeMaxY - planeMinY
+
+    return planeWidth, planeHeight
+end
+
+--[[
     - Retuns the minimal distance between a point and an infinite line.
 
     point: (Vector)
