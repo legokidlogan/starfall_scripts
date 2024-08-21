@@ -1,0 +1,586 @@
+--@name Spatial Partition
+--@author legokidlogan
+--@shared
+--@include lkl/destroyable.txt
+--@include lkl/math/spatial_partition_item.txt
+
+if SpatialPartition then return end
+
+require( "lkl/destroyable.txt" )
+require( "lkl/math/spatial_partition_item.txt" )
+
+
+SpatialPartition = class( "SpatialPartition", Destroyable )
+
+
+local tableInsert = table.insert
+local bitBand = bit.band
+
+local validateItem
+local scrubNode
+local recursiveGetItems
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    minBounds: (optional) (Vector)
+        - The minimum bounds of the spatial partition.
+        - Defaults to the hammer map size limit.
+    maxBounds: (optional) (Vector)
+        - The maximum bounds of the spatial partition.
+        - Defaults to the hammer map size limit.
+    maxDivisions: (optional) (integer number)
+        - The max number of divisions to make in the spatial partition.
+        - Each division is a cut in half across all three spatial axes.
+        - Defaults to max( log2( largestAxisSize ) - 8, 1 )
+            - The minus 8 is to avoid excessively small node sizes.
+            - If everything is left at default, the node size will be 256x256x256, with a grid of 64x64x64 nodes, or 262144 total nodes.
+    capacity: (optional) (integer number)
+        - The amount of items a node can hold before it will subdivide.
+        - Defaults to 8.
+
+    - Note that when a SpatialPartition is destroyed, all items in it will be destroyed as well.
+--]]
+function SpatialPartition:initialize( minBounds, maxBounds, maxDivisions, capacity )
+    minBounds = minBounds or Vector( -16384, -16384, -16384 )
+    maxBounds = maxBounds or Vector( 16384, 16384, 16384 )
+    capacity = capacity or 8
+
+    local trueMin = Vector( math.min( minBounds[1], maxBounds[1] ), math.min( minBounds[2], maxBounds[2] ), math.min( minBounds[3], maxBounds[3] ) )
+    local trueMax = Vector( math.max( minBounds[1], maxBounds[1] ), math.max( minBounds[2], maxBounds[2] ), math.max( minBounds[3], maxBounds[3] ) )
+
+    minBounds = trueMin
+    maxBounds = trueMax
+
+    local diff = maxBounds - minBounds
+    local biggestDiff = math.max( diff[1], math.max( diff[2], diff[3] ) )
+    maxDivisions = maxDivisions or math.max( math.floor( math.log( biggestDiff, 2 ) ) - 8, 1 )
+
+    local nodesPerAxis = math.pow( 2, maxDivisions )
+    local smallestSize = diff / nodesPerAxis
+
+    self._minBounds = minBounds
+    self._maxBounds = maxBounds
+    self._maxDivisions = maxDivisions
+    self._smallestNodeSize = smallestSize
+    self._capacity = capacity
+    self._itemLookup = {}
+    self._rootNode = {
+        minBounds = minBounds,
+        maxBounds = maxBounds,
+        center = ( minBounds + maxBounds ) / 2,
+        depth = 0,
+        items = {},
+        neighbors = {},
+        --children = nil,
+        --parent = nil,
+    }
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function SpatialPartition:getMinBounds()
+    return self._minBounds
+end
+
+function SpatialPartition:getMaxBounds()
+    return self._maxBounds
+end
+
+function SpatialPartition:getMaxDivisions()
+    return self._maxDivisions
+end
+
+function SpatialPartition:getSmallestNodeSize()
+    return self._smallestNodeSize
+end
+
+function SpatialPartition:getCapacity()
+    return self._capacity
+end
+
+function SpatialPartition:getRootNode()
+    return self._rootNode
+end
+
+--[[
+    - Gets the smallest existing node corresponding to the given position.
+    - Results may vary as nodes get divided and combined.
+
+    pos: (Vector)
+        - The position to get the node for.
+    node: (optional) (node from this spatial partition)
+        - The node to start the search from.
+        - Defaults to the root node.
+--]]
+function SpatialPartition:findNode( pos, node )
+    node = node or self._rootNode
+    local children = node.children
+
+    while children do
+        local center = node.center
+        local xPos = pos[1] > center[1]
+        local yPos = pos[2] > center[2]
+        local zPos = pos[3] > center[3]
+
+        local childInd = ( xPos and 1 or 0 ) + ( yPos and 2 or 0 ) + ( zPos and 4 or 0 ) + 1
+
+        node = children[childInd]
+        children = node.children
+    end
+
+    return node
+end
+
+--[[
+    - Inserts an item into the spatial partition.
+
+    item: (SpatialPartitionItem)
+        - The item to insert.
+        - Note that items are created via SpatialPartitionItem:new( contents, position ).
+
+    RETURNS: node, itemIndexInNode
+        - node: (node from this spatial partition)
+            - The node the item was inserted into.
+        - itemIndexInNode: (integer number)
+            - The index of the item in the node's item list.
+--]]
+function SpatialPartition:insert( item )
+    validateItem( item )
+
+    local itemLookup = self._itemLookup
+    if itemLookup[item] then error( "This item is already in the spatial partition" ) end
+
+    local node = self:findNode( item:getPos() )
+    local nodeItems = node.items
+    local nodeItemCount = #nodeItems
+
+    if nodeItemCount == self:getCapacity() and node.depth < self:getMaxDivisions() then
+        self:_divideNode( node )
+        node = self:findNode( item:getPos(), node )
+        nodeItems = node.items
+        nodeItemCount = #nodeItems
+    end
+
+    nodeItemCount = nodeItemCount + 1
+    nodeItems[nodeItemCount] = item
+    itemLookup[item] = true
+
+    item._node = node
+    item._spatialPartition = self
+
+    return node, nodeItemCount
+end
+
+-- Changes an item's position in the spatial partition. Returns the node it was moved to.
+function SpatialPartition:move( item, pos )
+    validateItem( item )
+
+    local itemLookup = self._itemLookup
+    if not itemLookup[item] then error( "This item isn't in the spatial partition" ) end
+
+    local oldNode = item:getNode()
+    local node = self:findNode( pos )
+    if node == oldNode then return node end
+
+    local oldItems = oldNode.items
+    local items = node.items
+
+    item._node = node
+    item._pos = pos
+
+    table.removeByValue( oldItems, item )
+    tableInsert( items, item )
+
+    if oldNode.parent ~= node.parent then
+        self:_tryCombineParentNode( oldNode )
+
+        if #items == self:getCapacity() and node.depth < self:getMaxDivisions() then
+            self:_divideNode( node )
+            node = self:findNode( item:getPos(), node )
+        end
+    end
+
+    return node
+end
+
+-- Removes an item from the spatial partition. Returns the node it used to be in and the index it was at.
+function SpatialPartition:remove( item )
+    validateItem( item )
+
+    local itemLookup = self._itemLookup
+    if not itemLookup[item] then error( "This item isn't in the spatial partition" ) end
+
+    local oldNode = item:getNode()
+    local itemIndexInNode = table.removeByValue( oldNode, item )
+
+    itemLookup[item] = nil
+    item._node = nil
+    item._spatialPartition = nil
+
+    self:_tryCombineParentNode( oldNode )
+
+    return oldNode, itemIndexInNode
+end
+
+function SpatialPartition:getItems( nodes )
+    nodes = nodes or { self._rootNode }
+
+    if nodes.center then
+        nodes = { nodes }
+    end
+
+    local items = {}
+    local seenNodes = {}
+
+    for _, node in ipairs( nodes ) do
+        recursiveGetItems( node, items, seenNodes )
+    end
+
+    return items
+end
+
+-- Finds the item closest to the given position.
+function SpatialPartition:findNearestItem( pos )
+    local node = self:findNode( pos )
+    local closestDist = math.huge
+    local closestItem = nil
+
+    for _, item in ipairs( node.items ) do
+        local itemPos = item:getPos()
+        local dist = ( itemPos - pos ):getLengthSqr()
+
+        if dist < closestDist then
+            closestDist = dist
+            closestItem = item
+        end
+    end
+
+    return closestItem
+end
+
+--[[
+    - Takes a list of nodes and add their direct (including diagonal) neighbors to the list.
+    - Self-modifies and returns.
+    - Only works on undivided nodes.
+
+    nodes: (table of nodes from this spatial partition)
+        - The nodes to expand from.
+    visitedNodes: (optional) (table of node -> boolean)
+        - A table of already-visited nodes.
+        - Defaults to makeing a lookup table from nodes.
+
+    RETURNS: nodes, visitedNodes
+--]]
+function SpatialPartition:expandToNeighbors( nodes, visitedNodes )
+    if not visitedNodes then
+        visitedNodes = {}
+
+        for _, node in ipairs( nodes ) do
+            visitedNodes[node] = true
+        end
+    end
+
+    for i = 1, #nodes do
+        local node = nodes[i]
+        local neighbors = node.neighbors
+
+        for neighbor in pairs( neighbors ) do
+            if not visitedNodes[neighbor] then
+                tableInsert( nodes, neighbor )
+                visitedNodes[neighbor] = true
+            end
+        end
+    end
+
+    return nodes, visitedNodes
+end
+
+
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function SpatialPartition:destroy()
+    local itemLookup = self._itemLookup
+
+    self._spatialPartition_destroying = true
+
+    for item in pairs( itemLookup ) do
+        if isValid( item ) then
+            item:destroy()
+        end
+
+        itemLookup[item] = nil
+    end
+
+    scrubNode( self._rootNode )
+
+    -- Should already get nil'd out by Destroyable, but for just in case.
+    self._rootNode = nil
+    self._itemLookup = nil
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+validateItem = function( item )
+    if type( item ) ~= "table" then error( "Expected item to be a SpatialPartitionItem, got a non-table value" ) end
+    if not isValid( item ) then error( "Expected item to be valid" ) end
+    if not item:isInstanceOf( SpatialPartitionItem ) then error( "Expected item to be a SpatialPartitionItem" ) end
+end
+
+-- Forcibly remove up/down links between nodes to ensure garbage collection.
+scrubNode = function( node )
+    if not node then return end
+
+    local neighbors = node.neighbors
+    local children = node.children
+
+    node.neighbors = nil
+    node.children = nil
+    node.items = nil
+    node.parent = nil
+
+    if neighbors then
+        for neighbor in pairs( neighbors ) do
+            neighbors[neighbor] = nil
+        end
+    end
+
+    if children then
+        for _, child in ipairs( children ) do
+            scrubNode( child )
+        end
+    end
+end
+
+recursiveGetItems = function( node, items, seenNodes )
+    if seenNodes[node] then return end
+    seenNodes[node] = true
+
+    local nodeItems = node.items
+    if nodeItems then
+        for _, item in ipairs( nodeItems ) do
+            tableInsert( items, item )
+        end
+    end
+
+    local children = node.children
+    if children then
+        for _, child in ipairs( children ) do
+            recursiveGetItems( child, items, seenNodes )
+        end
+    end
+end
+
+
+function SpatialPartition:_divideNode( node )
+    local items = node.items
+    if not items then return true end -- Already divided
+    if node.depth >= self._maxDivisions then return false end -- At max depth
+
+    local neighbors = node.neighbors
+    local children = {}
+    local minBounds = node.minBounds
+    local maxBounds = node.maxBounds
+    local center = node.center
+    local childDepth = node.depth + 1
+
+    node.items = nil
+    node.neighbors = nil
+    node.children = children
+
+    local minBoundsX = minBounds[1]
+    local minBoundsY = minBounds[2]
+    local minBoundsZ = minBounds[3]
+
+    local maxBoundsX = maxBounds[1]
+    local maxBoundsY = maxBounds[2]
+    local maxBoundsZ = maxBounds[3]
+
+    local centerX = center[1]
+    local centerY = center[2]
+    local centerZ = center[3]
+
+    for neighbor in pairs( neighbors ) do
+        local neighborNeighbors = neighbor.neighbors
+
+        if neighborNeighbors then
+            neighborNeighbors[node] = nil
+        end
+    end
+
+    for i = 0, 7 do
+        local xPos = bitBand( i, 1 ) == 1
+        local yPos = bitBand( i, 2 ) == 2
+        local zPos = bitBand( i, 4 ) == 4
+
+        local childMinBounds = Vector( xPos and centerX or minBoundsX, yPos and centerY or minBoundsY, zPos and centerZ or minBoundsZ )
+        local childMaxBounds = Vector( xPos and maxBoundsX or centerX, yPos and maxBoundsY or centerY, zPos and maxBoundsZ or centerZ )
+        local childCenter = ( childMinBounds + childMaxBounds ) / 2
+        local childNeighbors = {}
+
+        local child = {
+            minBounds = childMinBounds,
+            maxBounds = childMaxBounds,
+            center = childCenter,
+            depth = childDepth,
+            items = {},
+            neighbors = childNeighbors,
+            --children = nil,
+            parent = node,
+        }
+
+        children[i + 1] = child
+
+        local cMinX = childMinBounds[1]
+        local cMinY = childMinBounds[2]
+        local cMinZ = childMinBounds[3]
+
+        local cMaxX = childMaxBounds[1]
+        local cMaxY = childMaxBounds[2]
+        local cMaxZ = childMaxBounds[3]
+
+        for neighbor in pairs( neighbors ) do
+            local neighborMinBounds = neighbor.minBounds
+            local neighborMaxBounds = neighbor.maxBounds
+
+            local nMinX = neighborMinBounds[1]
+            local nMinY = neighborMinBounds[2]
+            local nMinZ = neighborMinBounds[3]
+
+            local nMaxX = neighborMaxBounds[1]
+            local nMaxY = neighborMaxBounds[2]
+            local nMaxZ = neighborMaxBounds[3]
+
+            if ( ( cMinX >= nMinX and cMinX <= nMaxX ) or ( nMinX >= cMinX and nMinX <= cMaxX ) ) and
+               ( ( cMinY >= nMinY and cMinY <= nMaxY ) or ( nMinY >= cMinY and nMinY <= cMaxY ) ) and
+               ( ( cMinZ >= nMinZ and cMinZ <= nMaxZ ) or ( nMinZ >= cMinZ and nMinZ <= cMaxZ ) )
+            then
+                childNeighbors[neighbor] = true
+
+                local neighborNeighbors = neighbor.neighbors
+
+                if neighborNeighbors then
+                    neighborNeighbors[child] = true
+                end
+            end
+        end
+    end
+
+    for i = 1, 8 do
+        local child = children[i]
+        local childNeighbors = child.neighbors
+
+        for i2 = 1, 8 do
+            if i ~= i2 then
+                local otherChild = children[i2]
+                childNeighbors[otherChild] = true
+            end
+        end
+    end
+
+    for i = 1, #items do
+        local item = items[i]
+        local pos = item:getPos()
+
+        local xPos = pos[1] > centerX
+        local yPos = pos[2] > centerY
+        local zPos = pos[3] > centerZ
+
+        local childInd = ( xPos and 1 or 0 ) + ( yPos and 2 or 0 ) + ( zPos and 4 or 0 ) + 1
+        local child = children[childInd]
+
+        tableInsert( child.items, item )
+        item._node = child
+    end
+
+    return true
+end
+
+function SpatialPartition:_combineNode( node )
+    if node.items then return true end -- Already combined
+
+    local items = {}
+    local neighbors = {}
+    local children = node.children
+
+    node.items = items
+    node.neighbors = neighbors
+    node.children = nil
+
+    for i = 1, 8 do
+        local child = children[i]
+        local childItems = child.items
+
+        if not childItems then
+            self:_combineNode( child )
+            childItems = child.items
+        end
+
+        for _, item in ipairs( childItems ) do
+            tableInsert( items, item )
+            item._node = node
+        end
+
+        local childNeighbors = child.neighbors
+
+        for neighbor in pairs( childNeighbors ) do
+            local neighborNeighbors = neighbors[neighbor]
+
+            if neighborNeighbors then
+                neighborNeighbors[child] = nil
+                neighborNeighbors[node] = true
+            end
+
+            neighbors[neighbor] = true
+            childNeighbors[neighbor] = nil -- Remove references for faster garbage collection
+        end
+
+        -- Remove references for faster garbage collection
+        child.parent = nil
+        child.items = nil
+        child.neighbors = nil
+        children[i] = nil
+    end
+
+    return true
+end
+
+function SpatialPartition:_tryCombineParentNode( node )
+    local items = node.items
+    if not items then return false end -- Current node is dividedx
+
+    local parent = node.parent
+    if not parent then return false end -- Current node is the root node
+
+    local capacity = self:getCapacity()
+    if #items >= capacity then return false end -- Current node is full, don't need to check siblings
+
+    local parentItemCount = 0
+    local siblings = parent.children
+
+    for i = 1, 8 do
+        local sibling = siblings[i]
+        local siblingItems = sibling.items
+
+        if not siblingItems then return false end -- Sibling is divided, it's already full
+
+        parentItemCount = parentItemCount + #siblingItems
+
+        if parentItemCount > capacity then return false end -- Too many items to combine
+    end
+
+    return self:_combineNode( parent )
+end
+
+
+----- SETUP -----
+

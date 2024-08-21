@@ -1,0 +1,68 @@
+--@name Spatial Partition Item
+--@author legokidlogan
+--@shared
+--@include lkl/destroyable.txt
+
+if SpatialPartitionItem then return end
+
+require( "lkl/destroyable.txt" )
+
+
+SpatialPartitionItem = class( "SpatialPartitionItem", Destroyable )
+
+
+----- STATIC FUNCTIONS -----
+
+function SpatialPartitionItem:initialize( contents, pos )
+    self._contents = contents
+    self._pos = pos
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function SpatialPartitionItem:setContents( contents )
+    self._contents = contents
+end
+
+function SpatialPartitionItem:getContents()
+    return self._contents
+end
+
+function SpatialPartitionItem:setPos( pos )
+    local spatialPartition = self._spatialPartition
+    if not isValid( spatialPartition ) then error( "Cannot set position until item is in a spatial partition" ) end
+
+    return spatialPartition:move( self, pos )
+end
+
+function SpatialPartitionItem:getPos()
+    return self._pos
+end
+
+-- Will be nil if not yet inserted into a spatial partition.
+function SpatialPartitionItem:getNode()
+    return self._node
+end
+
+-- Will be nil if not yet inserted into a spatial partition.
+function SpatialPartitionItem:getSpatialPartition()
+    return self._spatialPartition
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function SpatialPartitionItem:destroy()
+    local spatialPartition = self._spatialPartition
+
+    if isValid( spatialPartition ) and not spatialPartition._spatialPartition_destroying then
+        spatialPartition:remove( self )
+    else
+        local node = self._node
+
+        if type( node ) == "table" then
+            table.removeByValue( node, self )
+        end
+    end
+end
