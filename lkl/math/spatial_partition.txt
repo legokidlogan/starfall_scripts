@@ -272,7 +272,16 @@ end
         - A table of already-visited nodes.
         - Defaults to makeing a lookup table from nodes.
 
-    RETURNS: nodes, visitedNodes
+    RETURNS: nodes, visitedNodes, hasExpanded
+        - nodes: (table of nodes from this spatial partition)
+            - The expanded list of nodes.
+            - Exactly the same reference as the input nodes.
+        - visitedNodes: (table of node -> boolean)
+            - The expanded list of visited nodes.
+            - Exactly the same reference as the input visitedNodes, or a new table if not provided.
+        - hasExpanded: (boolean)
+            - Whether any new nodes were added.
+            - False when all nodes have already been visited.
 --]]
 function SpatialPartition:expandToNeighbors( nodes, visitedNodes )
     if not visitedNodes then
@@ -283,19 +292,22 @@ function SpatialPartition:expandToNeighbors( nodes, visitedNodes )
         end
     end
 
+    local hasExpanded = false
+
     for i = 1, #nodes do
         local node = nodes[i]
         local neighbors = node.neighbors
 
         for neighbor in pairs( neighbors ) do
             if not visitedNodes[neighbor] then
+                hasExpanded = true
                 tableInsert( nodes, neighbor )
                 visitedNodes[neighbor] = true
             end
         end
     end
 
-    return nodes, visitedNodes
+    return nodes, visitedNodes, hasExpanded
 end
 
 
