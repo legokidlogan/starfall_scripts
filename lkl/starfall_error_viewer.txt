@@ -35,16 +35,6 @@ if SERVER then
         return ""
     end )
 
-    hook.add( "StarfallError", "LKL_SEV_TrackServerError", function( ent, ply )
-        if ply ~= owner() then return end
-        if not isValid( ent ) then return end
-        if ent:getOwner() ~= owner() then return end
-
-        net.start( "LKL_SEV_TrackServerError" )
-        net.writeEntity( ent )
-        net.send( chipOwner )
-    end )
-
 
     net.receive( "LKL_SEV_MakeChipSolid", function( _, ply )
         if ply ~= owner() then return end
@@ -240,11 +230,13 @@ end
 
 
 hook.add( "StarfallError", "LKL_SEV_TrackClientError", function( ent, ply )
-    if ply ~= owner() then return end
+    local isServer = ply == game.getWorld()
+
+    if not isServer and ply ~= owner() then return end
     if not isValid( ent ) then return end
     if ent:getOwner() ~= owner() then return end
 
-    addErroredChip( ent, false )
+    addErroredChip( ent, isServer )
 end )
 
 hook.add( "KeyPress", "LKL_SEV_RemoveChipsWhenRefreshed", function( ply, key )
@@ -382,13 +374,6 @@ end )
 
 net.receive( "LKL_SEV_SetActive", function()
     active = net.readBool()
-end )
-
-net.receive( "LKL_SEV_TrackServerError", function()
-    local ent = net.readEntity()
-    if not isValid( ent ) then return end
-
-    addErroredChip( ent, true )
 end )
 
 net.receive( "LKL_SEV_RestartSucceeded", function()
