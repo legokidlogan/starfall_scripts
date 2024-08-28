@@ -96,7 +96,8 @@ hook.add( "think", "LKL_ExtraTimers_ProcessTimers", function()
     for i = timerCount, 1, -1 do
         local timerData = timers[i]
 
-        if now >= timerData.NextTrigger then
+        -- timerData can be nil if one of the previous timers in this loop called timer.removeExtra()
+        if timerData and now >= timerData.NextTrigger then
             local remCalls = timerData.RemainingCalls
             local canRepeat = true
 
