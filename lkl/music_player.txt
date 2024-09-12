@@ -780,6 +780,34 @@ ccmdMulti.createCommand(
 ccmdMulti.createCommand(
     ccmdPrefix,
     {
+        "songs",
+    },
+    function()
+        local cText = ccmdScheme:getColor( "Text" )
+        local cHighlight = ccmdScheme:getColor( "Highlight" )
+        local printTbl = {
+            cText, "The available songs are "
+        }
+
+        table.add( printTbl, easyPrint.simpleList( ccmdScheme, SONGS, function( _, item )
+            return { cHighlight, item.Name }
+        end, true, false, "" ) )
+
+        table.insert( printTbl, cText )
+        table.insert( printTbl, "." )
+
+        return printTbl
+    end,
+    nil,
+    nil,
+    "Lists the available songs.",
+    owner(),
+    false
+)
+
+ccmdMulti.createCommand(
+    ccmdPrefix,
+    {
         "playlist",
         "pl",
     },
@@ -787,15 +815,29 @@ ccmdMulti.createCommand(
         if not playlistName or playlistName == "" then
             local curPlaylistName = getCurPlaylistName()
 
+            local cText = ccmdScheme:getColor( "Text" )
+            local cHighlight = ccmdScheme:getColor( "Highlight" )
+            local playlistPrintTbl = easyPrint.simpleList( ccmdScheme, PLAYLISTS, function( _, item )
+                return { cHighlight, item.Name }
+            end, true, false, "" )
+
+            table.insert( playlistPrintTbl, 1, cText )
+            table.insert( playlistPrintTbl, 2, "The available playlists are " )
+
+            table.insert( playlistPrintTbl, cText )
+            table.insert( playlistPrintTbl, "." )
+
             if curPlaylistName == "" then
-                return "No playlist has been selected."
+                return table.add( {
+                    cText, "No playlist has been selected.\n",
+                }, playlistPrintTbl )
             end
 
-            return {
+            return table.add( {
                 ccmdScheme:getColor( "Text" ), "The current playlist is ",
                 ccmdScheme:getColor( "Highlight" ), curPlaylistName,
-                ccmdScheme:getColor( "Text" ), ".",
-            }
+                ccmdScheme:getColor( "Text" ), ".\n",
+            }, playlistPrintTbl )
         end
 
         if deselectWords[playlistName] then
@@ -830,7 +872,7 @@ ccmdMulti.createCommand(
             },
             easyPrint.simpleList( ccmdScheme, table.getKeys( deselectWords ), ccmdScheme:getColor( "Highlight" ) )
         ),
-        "Provide no arguments to show the current playlist.",
+        "Provide no arguments to show the current and available playlists.",
     },
     owner(),
     false
