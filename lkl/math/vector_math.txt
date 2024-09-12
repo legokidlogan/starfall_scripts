@@ -485,8 +485,12 @@ function vectorMath.getAverage( points )
     return Vector( sumX / pointCount, sumY / pointCount, sumZ / pointCount )
 end
 
--- Returns the midpoint of a table of Vectors.
-function vectorMath.getCenter( points )
+-- Returns the midpoint of a table or a vararg of Vectors.
+function vectorMath.getCenter( points, ... )
+    if type( points ) == "Vector" then
+        points = { points, ... }
+    end
+
     local pointCount = #points
     if pointCount == 0 then return nil end
     if pointCount == 1 then return points[1]:clone() end
