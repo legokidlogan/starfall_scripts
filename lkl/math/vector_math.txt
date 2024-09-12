@@ -519,7 +519,7 @@ function vectorMath.getAverage( points )
     return Vector( sumX / pointCount, sumY / pointCount, sumZ / pointCount )
 end
 
--- Returns the midpoint of a table or a vararg of Vectors.
+-- Returns the midpoint of the bounds of a table or a vararg of Vectors.
 function vectorMath.getCenter( points, ... )
     local min, max = vectorMath.getMinMaxPiecewise( points, ... )
 
