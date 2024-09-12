@@ -262,6 +262,40 @@ function vectorMath.maxPiecewiseMulti( ... )
     return maxVec
 end
 
+-- Returns the min and max bounds of a table or vararg of Vectors.
+function vectorMath.getMinMaxPiecewise( points, ... )
+    if type( points ) == "Vector" then
+        points = { points, ... }
+    end
+
+    local pointCount = #points
+    if pointCount == 0 then return nil end
+    if pointCount == 1 then return points[1]:clone() end
+
+    local minX = math.huge
+    local minY = math.huge
+    local minZ = math.huge
+    local maxX = -math.huge
+    local maxY = -math.huge
+    local maxZ = -math.huge
+
+    for i = 1, pointCount do
+        local point = points[i]
+        local x = point[1]
+        local y = point[2]
+        local z = point[3]
+
+        if x < minX then minX = x end
+        if x > maxX then maxX = x end
+        if y < minY then minY = y end
+        if y > maxY then maxY = y end
+        if z < minZ then minZ = z end
+        if z > maxZ then maxZ = z end
+    end
+
+    return Vector( minX, minY, minZ ), Vector( maxX, maxY, maxZ )
+end
+
 --[[
     - Scales a vector so that its length is clamped between a min and max.
 
@@ -487,36 +521,9 @@ end
 
 -- Returns the midpoint of a table or a vararg of Vectors.
 function vectorMath.getCenter( points, ... )
-    if type( points ) == "Vector" then
-        points = { points, ... }
-    end
+    local min, max = vectorMath.getMinMaxPiecewise( points, ... )
 
-    local pointCount = #points
-    if pointCount == 0 then return nil end
-    if pointCount == 1 then return points[1]:clone() end
-
-    local minX = math.huge
-    local minY = math.huge
-    local minZ = math.huge
-    local maxX = -math.huge
-    local maxY = -math.huge
-    local maxZ = -math.huge
-
-    for i = 1, pointCount do
-        local point = points[i]
-        local x = point[1]
-        local y = point[2]
-        local z = point[3]
-
-        if x < minX then minX = x end
-        if x > maxX then maxX = x end
-        if y < minY then minY = y end
-        if y > maxY then maxY = y end
-        if z < minZ then minZ = z end
-        if z > maxZ then maxZ = z end
-    end
-
-    return Vector( ( minX + maxX ) / 2, ( minY + maxY ) / 2, ( minZ + maxZ ) / 2 )
+    return ( min + max ) / 2
 end
 
 --[[
