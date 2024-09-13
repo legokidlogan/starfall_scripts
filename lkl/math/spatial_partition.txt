@@ -247,8 +247,27 @@ function SpatialPartition:findNearestItem( pos )
     local node = self:findNode( pos )
     local closestDist = math.huge
     local closestItem = nil
+    local items = node.items
 
-    for _, item in ipairs( node.items ) do
+    if #items == 0 then
+        if node == self._rootNode then return end -- No items in the partition!
+
+        local nodes = { node }
+        local expandedNodes = { [node] = true }
+        local seenNodes = { [node] = true }
+
+        items = {}
+
+        while #items == 0 do
+            if not self:expandToNeighbors( nodes, expandedNodes ) then return end -- No items in the partition!
+
+            for _, otherNode in ipairs( nodes ) do
+                recursiveGetItems( otherNode, items, seenNodes )
+            end
+        end
+    end
+
+    for _, item in ipairs( items ) do
         local itemPos = item:getPos()
         local dist = ( itemPos - pos ):getLengthSqr()
 
