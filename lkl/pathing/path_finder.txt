@@ -34,7 +34,7 @@ local finishPathFindingRequest
 --[[
     - Starts a pathfinding request.
 
-    params: table
+    params: (table)
         {
             PathGraph = PathGraph, -- The PathGraph to make a request on.
             StartPos = Vector, -- The starting position.
@@ -45,8 +45,8 @@ local finishPathFindingRequest
             Hueristic = function( pos, endPos ) return cost end, -- The hueristic to use, defaults to Euclidian distance.
         }
 
-    RETURNS: cancelRequest
-        cancelRequest: function
+    RETURNS: (cancelRequest)
+        cancelRequest: (function)
             - Cancels the request when called.
             - Doesn't call callback.
 --]]
