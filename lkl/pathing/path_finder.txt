@@ -1,0 +1,228 @@
+--@name Path Finder
+--@author legokidlogan
+--@shared
+--@include lkl/pathing/path_graph.txt
+--@include lkl/math/min_heap_lookup.txt
+
+pathFinder = pathFinder or {}
+if pathFinder._alreadyLoaded then return end
+
+
+-- CONFIG DEFAULTS:
+pathFinder.QUEUE_INTERVAL = 0.1
+pathFinder.QUEUE_BATCH_SIZE = 100
+pathFinder.QUEUE_PERF_LIMIT = 0.5
+pathFinder.QUEUE_PERF_COOLDOWN = 0.5
+-- END CONFIG DEFAULTS
+
+
+require( "lkl/pathing/path_graph.txt" )
+require( "lkl/math/min_heap_lookup.txt" )
+
+local pfRequests = {}
+local nextProcessTime = 0
+
+local getDistance = Vector().getDistance
+
+local processPathFindingRequest
+local finishPathFindingRequest
+
+
+
+----- GLOBAL FUNCTIONS -----
+
+--[[
+    - Starts a pathfinding request.
+
+    params: table
+        {
+            PathGraph = PathGraph, -- The PathGraph to make a request on.
+            StartPos = Vector, -- The starting position.
+            EndPos = Vector, -- The target position.
+            Callback = function( path ), -- The callback. path is a list of Vectors, or false if no path could be found.
+
+            UseTraces = boolean, (defaults to true) -- Does traces between nodes to ensure they are still traversable, according to pathGraph's trace settings.
+            Hueristic = function( pos, endPos ) return cost end, -- The hueristic to use, defaults to Euclidian distance.
+        }
+
+    RETURNS: cancelRequest
+        cancelRequest: function
+            - Cancels the request when called.
+            - Doesn't call callback.
+--]]
+function pathFinder.findPath( params )
+    local pathGraph = params.PathGraph
+    local startNode = pathGraph:findNode( params.StartPos )
+    local endNode = pathGraph:findNode( params.EndPos )
+    local callback = params.Callback
+
+    if startNode == endNode then
+        callback( { startNode.pos } )
+
+        return
+    end
+
+    local useTraces = params.UseTraces
+
+    if useTraces == nil then
+        useTraces = true
+    end
+
+    local pfRequest = {
+        pathGraph = pathGraph,
+        startNode = startNode,
+        endNode = endNode,
+        callback = callback,
+        useTraces = useTraces,
+        hueristic = params.Hueristic or getDistance,
+        nextProcessTime = 0,
+        visitedNodes = {},
+        pathsPerNode = {
+            [startNode] = { startNode },
+        },
+        pathLengthsPerNode = {
+            [startNode] = 0,
+        },
+        heap = MinHeapLookup:new( { { startNode, 0 } } ),
+    }
+
+    table.insert( pfRequests, pfRequest )
+
+    return function()
+        table.removeByValue( pfRequests, pfRequest )
+    end
+end
+
+-- Returns nextPos, pathComplete and reduces path when appropritate.
+function pathFinder.followPath( path, curPos, deltaLength )
+    local targetPos = path[1]
+    if not targetPos then return curPos, true end
+
+    local diff = targetPos - curPos
+    local diffLength = diff:getLength()
+
+    if diffLength <= deltaLength then
+        table.remove( path, 1 )
+
+        return targetPos, #path == 0
+    end
+
+    return curPos + diff * deltaLength / diffLength, false
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+processPathFindingRequest = function( pfRequest )
+    local perfLimit = cpuMax() * pathFinder.QUEUE_PERF_LIMIT
+    local otherPerf = cpuTotalAverage() - cpuAverage()
+    perfLimit = perfLimit - otherPerf
+
+    -- Check before the loop to reduce odds of cpu exceeding during finish callback.
+    if cpuAverage() >= perfLimit then return true end
+
+    local pathGraph = pfRequest.pathGraph
+    local heap = pfRequest.heap
+    local endNode = pfRequest.endNode
+    local useTraces = pfRequest.useTraces
+    local hueristic = pfRequest.hueristic
+    local visitedNodes = pfRequest.visitedNodes
+    local pathsPerNode = pfRequest.pathsPerNode
+    local pathLengthsPerNode = pfRequest.pathLengthsPerNode
+
+    local endPos = endNode.pos
+
+    for _ = 1, pathFinder.QUEUE_BATCH_SIZE do
+        if cpuAverage() >= perfLimit then return true end
+
+        local node = heap:pop()
+        if not node then return false, 0 end
+
+        local nodePath = pathsPerNode[node]
+        local pathLength = pathLengthsPerNode[node]
+        local neighborDists = node.neighborLookup
+
+        visitedNodes[node] = true
+
+        for _, neighbor in ipairs( node.neighbors ) do
+            if visitedNodes[neighbor] then continue end
+            if useTraces and pathGraph:traceBetweenNodes( node, neighbor ).Hit then continue end
+
+            local neighborPathLength = pathLength + neighborDists[neighbor]
+            local cost = hueristic( neighbor.pos, endPos )
+            local weight = neighborPathLength + cost
+
+            local neighborInd = heap:getItemIndex( neighbor )
+
+            if neighborInd then
+                if heap:getWeightByIndex( neighborInd ) <= weight then continue end
+
+                table.empty( pathsPerNode[neighbor] )
+                heap:changeWeight( neighborInd, weight )
+            else
+                heap:push( neighbor, weight )
+            end
+
+            local neighborPath = {}
+
+            for i, pathNode in ipairs( nodePath ) do
+                neighborPath[i] = pathNode
+            end
+
+            table.insert( neighborPath, neighbor )
+
+            pathsPerNode[neighbor] = neighborPath
+            pathLengthsPerNode[neighbor] = neighborPathLength
+
+            if neighbor == endNode then return false, 1 end
+        end
+    end
+end
+
+finishPathFindingRequest = function( pfRequest, succeeded )
+    local path
+
+    if succeeded then
+        path = {}
+
+        for i, node in ipairs( pfRequest.pathsPerNode[pfRequest.endNode] ) do
+            path[i] = node.pos
+        end
+    end
+
+    local callback = pfRequest.callback
+
+    pfRequest.heap:clear()
+    table.empty( pfRequest.visitedNodes )
+    table.empty( pfRequest.pathsPerNode )
+    table.empty( pfRequest.pathLengthsPerNode )
+    table.empty( pfRequest )
+
+    callback( path or false )
+end
+
+
+----- SETUP -----
+
+hook.add( "tick", "LKL_PathFinder_ProcessRequests", function()
+    local now = timer.curtime()
+    if nextProcessTime > now then return end
+
+    for i = #pfRequests, 1, -1 do
+        local pfRequest = pfRequests[i]
+        local perfBroke, finishedStatus = processPathFindingRequest( pfRequest )
+
+        if perfBroke then
+            nextProcessTime = nextProcessTime + pathFinder.QUEUE_PERF_COOLDOWN
+
+            return
+        end
+
+        if finishedStatus then
+            table.remove( pfRequests, i )
+            finishPathFindingRequest( pfRequest, finishedStatus == 1 )
+        end
+    end
+
+    nextProcessTime = now + pathFinder.QUEUE_INTERVAL
+end )

@@ -1,0 +1,654 @@
+--@name Path Graph
+--@author legokidlogan
+--@shared
+--@include lkl/destroyable.txt
+--@include lkl/math/spatial_partition.txt
+
+if PathGraph then return end
+
+require( "lkl/destroyable.txt" )
+require( "lkl/math/spatial_partition.txt" )
+
+
+PathGraph = class( "PathGraph", Destroyable )
+PathGraph.static.QUEUE_INTERVAL = 0.1
+PathGraph.static.QUEUE_BATCH_SIZE = 1000
+PathGraph.static.QUEUE_PERF_LIMIT = 0.5
+PathGraph.static.QUEUE_PERF_COOLDOWN = 0.5
+PathGraph.static.DEBUG_PERF_LIMIT = 0.7
+
+
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+
+local allPathGraphs = {}
+local pathGraphIncr = 0
+
+local mathRound = math.round
+
+local getVecHash
+local processNodeQueue
+local processEdgeCleanup
+local finishNodeQueue
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    params: (table)
+        {
+            -- Bounds:
+                MinBounds = Vector,
+                MaxBounds = Vector,
+                Start = Vector, (defaults to center of bounds)
+
+                OR 
+
+                Center = Vector,
+                Size = Vector,
+                Start = Vector, (defaults to Center)
+
+            -- Node Parameters:
+                NodeWidth = number, (defaults to 32)
+                NodeHeight = number, (defaults to 72)
+                NodeStepHeight = number, (defaults to 30)
+
+                NodeHoverHeight = number, (defaults to 1) -- How high off the grounds the nodes will be.
+
+                NodeAdjacencyWidth = number, (defaults to NodeWidth / 2) -- Determines the trace hull width used for seeing if adjacent (including diagonal) nodes are reachable. 
+                NodeAdjacencyHeight = number, (defaults to NodeHeight / 2) -- Determines the trace hull height used for seeing if adjacent (including diagonal) nodes are reachable.
+
+            -- Trace:
+                TraceFilter = Entity or table or function, (defaults to chip()) -- The trace filter.
+                TraceMask = number, (defaults to MASK.PLAYER_SOLID) -- The trace mask.
+                TraceCollisionGroup = number, (defaults to COLLISION_GROUP.NONE) -- The trace collision group.
+
+            -- Spatial Partition:
+                PartitionDivisions = integer number, (see lkl/math/spatial_partition.txt for defaults)
+                PartitionCapacity = integer number,
+
+            -- Debug:
+                DebugEnabled = boolean, (defaults to false) -- If true, will show the graph. Only works in the client realm. Expect a lot of lag.
+                DebugNodeLimit = integer number, (defaults to 200) -- Render limit for node debugging.
+                DebugNodeColor = Color, (defaults to Color( 255, 255, 255, 255 )) -- The color of the nodes.
+                DebugEdgeColor = Color, (defaults to Color( 255, 255, 0, 255 )) -- The color of the edges.
+        }
+
+    onReady: (optional) function( pathGraph )
+        - Called when the graph is done being built.
+--]]
+function PathGraph:initialize( params, onReady )
+    local minBounds
+    local maxBounds
+    local start
+
+    local center = params.Center
+
+    if center then
+        local size = params.Size
+        if type( size ) ~= "Vector" then error( "Expected params.Size to be a Vector" ) end
+
+        minBounds = center - size / 2
+        maxBounds = center + size / 2
+        start = params.Start or center
+    else
+        minBounds = params.MinBounds
+        if type( size ) ~= "Vector" then error( "Expected params.MinBounds to be a Vector" ) end
+
+        maxBounds = params.MaxBounds
+        if type( size ) ~= "Vector" then error( "Expected params.MaxBounds to be a Vector" ) end
+
+        minBounds, maxBounds = vectorMath.getMinMaxPiecewise( minBounds, maxBounds ) -- Just in case.
+        start = params.Start or ( minBounds + maxBounds ) / 2
+    end
+
+    if type( start ) ~= "Vector" then error( "Expected params.Start to be a Vector or nil" ) end
+
+    local nodeHoverHeight = params.NodeHoverHeight or 1
+    local nodeWidth = params.NodeWidth or 32
+    local nodeHeight = params.NodeHeight or 72
+    local nodeStepHeight = params.NodeStepHeight or 30
+    local nodeAdjacencyWidth = params.NodeAdjacencyWidth or ( nodeWidth / 2 )
+    local nodeAdjacencyHeight = params.NodeAdjacencyHeight or ( nodeHeight / 2 )
+
+    local traceFilter = params.TraceFilter or chip()
+    local traceMask = params.TraceMask or MASK.PLAYER_SOLID
+    local traceCollisionGroup = params.TraceCollisionGroup or COLLISION_GROUP.NONE
+
+    start = trace.line( start, start + Vector( 0, 0, -50000 ), traceFilter, traceMask, traceCollisionGroup ).HitPos + Vector( 0, 0, nodeHoverHeight + nodeWidth )
+
+    self._minBounds = minBounds
+    self._maxBounds = maxBounds
+    self._nodeWidth = nodeWidth
+    self._nodeHeight = nodeHeight
+    self._nodeStepHeight = nodeStepHeight
+    self._nodeHoverHeight = nodeHoverHeight
+    self._nodeAdjacencyWidth = nodeAdjacencyWidth
+    self._nodeAdjacencyHeight = nodeAdjacencyHeight
+    self._traceFilter = traceFilter
+    self._traceMask = traceMask
+    self._traceCollisionGroup = traceCollisionGroup
+    self._debugEnabled = params.DebugEnabled or false
+    self._debugNodeLimit = params.DebugNodeLimit or 200
+    self._debugNodeColor = params.DebugNodeColor or Color( 255, 255, 255, 255 )
+    self._debugEdgeColor = params.DebugEdgeColor or Color( 255, 255, 0, 255 )
+
+    self._onReady = onReady or function() end
+
+    local nodeWidthHalf = nodeWidth / 2
+
+    self._nodeHullMin = Vector( -nodeWidthHalf, -nodeWidthHalf, 0 )
+    self._nodeHullMax = Vector( nodeWidthHalf, nodeWidthHalf, nodeHeight )
+    self._sliceHullMin = Vector( -nodeWidthHalf, -nodeWidthHalf, 0 )
+    self._sliceHullMax = Vector( nodeWidthHalf, nodeWidthHalf, 0 )
+    self._adjacencyHullMin = Vector( -nodeAdjacencyWidth, -nodeAdjacencyWidth, -nodeAdjacencyHeight / 2 )
+    self._adjacencyHullMax = Vector( nodeAdjacencyWidth, nodeAdjacencyWidth, nodeAdjacencyHeight / 2 )
+    self._stepUpVec = Vector( 0, 0, nodeStepHeight )
+    self._stepDownVec = Vector( 0, 0, -nodeStepHeight )
+    self._adjacencyCenterVec = Vector( 0, 0, nodeHeight / 2 )
+
+    self._ready = false
+    self._nextQueueTime = 0
+    self._center = ( minBounds + maxBounds ) / 2
+    self._partition = SpatialPartition:new( minBounds, maxBounds, params.PartitionDivisions, params.PartitionCapacity )
+    self._nodes = {}
+    self._nodeLookup = {}
+    self._uncheckedNodes = {
+        {
+            pos = start,
+            hash = getVecHash( start, nodeWidth ),
+            neighbors = {},
+        }
+    }
+
+    pathGraphIncr = pathGraphIncr + 1
+    self._id = pathGraphIncr
+
+    table.insert( allPathGraphs, self )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function PathGraph:getMinBounds()
+    return self._minBounds
+end
+
+function PathGraph:getMaxBounds()
+    return self._maxBounds
+end
+
+function PathGraph:getNodeWidth()
+    return self._nodeWidth
+end
+
+function PathGraph:getNodeHeight()
+    return self._nodeHeight
+end
+
+function PathGraph:getNodeStepHeight()
+    return self._nodeStepHeight
+end
+
+function PathGraph:getNodeHoverHeight()
+    return self._nodeHoverHeight
+end
+
+function PathGraph:getNodeAdjacencyWidth()
+    return self._nodeWidth
+end
+
+function PathGraph:getNodeAdjacencyHeight()
+    return self._nodeHeight
+end
+
+function PathGraph:setDebugEnabled( state )
+    self._debugEnabled = state
+end
+
+function PathGraph:isDebugEnabled()
+    return self._debugEnabled
+end
+
+function PathGraph:setDebugNodeLimit( limit )
+    self._debugNodeLimit = limit
+end
+
+function PathGraph:getDebugNodeLimit()
+    return self._debugNodeLimit
+end
+
+function PathGraph:setDebugNodeColor( color )
+    self._debugNodeColor = color
+end
+
+function PathGraph:getDebugNodeColor()
+    return self._debugNodeColor
+end
+
+function PathGraph:setDebugEdgeColor( color )
+    self._debugEdgeColor = color
+end
+
+function PathGraph:getDebugEdgeColor()
+    return self._debugEdgeColor
+end
+
+function PathGraph:setTraceFilter( filter )
+    self._traceFilter = filter
+end
+
+function PathGraph:getTraceFilter()
+    return self._traceFilter
+end
+
+function PathGraph:setTraceMask( mask )
+    self._traceMask = mask
+end
+
+function PathGraph:getTraceMask()
+    return self._traceMask
+end
+
+function PathGraph:setTraceCollisionGroup( colGroup )
+    self._traceCollisionGroup = colGroup
+end
+
+function PathGraph:getTraceCollisionGroup()
+    return self._traceCollisionGroup
+end
+
+-- Whether or not the graph has finished building.
+function PathGraph:isReady()
+    return self._ready
+end
+
+--[[
+    - Returns by reference. Do not modify.
+    - Nodes are tables with the following: {
+        pos = Vector,
+        neighbors = table of nodes,
+        neighborLookup = table of neighborNode -> neigborDistance,
+    }
+--]]
+function PathGraph:getNodes()
+    return self._nodes
+end
+
+function PathGraph:findNode( pos )
+    return self._partition:findNearestItem( pos ):getContents()
+end
+
+-- Returns a hull trace between two nodes.
+function PathGraph:traceBetweenNodes( node1, node2 )
+    if not self._ready then error( "This PathGraph is not ready yet" ) end
+
+    local adjacencyCenterVec = self._adjacencyCenterVec
+
+    return trace.hull(
+        node1.pos + adjacencyCenterVec,
+        node2.pos + adjacencyCenterVec,
+        self._adjacencyHullMin,
+        self._adjacencyHullMax,
+        self._traceFilter,
+        self._traceMask,
+        self._traceCollisionGroup
+    )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function PathGraph:onDestroyed()
+    local partition = self._partition
+
+    if isValid( partition ) then
+        partition:destroy()
+    end
+
+    table.removeByValue( allPathGraphs, self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+local function markNodeBad( node )
+    local nodeHash = node.hash
+    local neighbors = node.neighbors
+
+    for otherHash, otherNode in pairs( neighbors ) do
+        local otherNeighbors = otherNode.neighbors
+        neighbors[otherHash] = nil -- Also empty node.neighbors so GC doesn't need to later
+
+        if otherNeighbors then
+            otherNeighbors[nodeHash] = nil
+        end
+    end
+
+    node.pos = nil
+    node.hash = nil
+    node.neighbors = nil
+end
+
+
+getVecHash = function( vec, nodeWidth )
+    return
+        mathRound( vec[1] / nodeWidth ) .. " " ..
+        mathRound( vec[2] / nodeWidth ) .. " " ..
+        mathRound( vec[3] / nodeWidth )
+end
+
+processNodeQueue = function( pathGraph )
+    if pathGraph._nextNodeIndToClean then
+        return processEdgeCleanup( pathGraph )
+    end
+
+    local uncheckedNodes = pathGraph._uncheckedNodes
+
+    if #uncheckedNodes == 0 then
+        pathGraph._nextNodeIndToClean = 1
+
+        return
+    end
+
+    local now = timer.curtime()
+    if pathGraph._nextQueueTime > now then return end
+
+    local nodes = pathGraph._nodes
+    local nodeLookup = pathGraph._nodeLookup
+    local partition = pathGraph._partition
+
+    local minBounds = pathGraph._minBounds
+    local maxBounds = pathGraph._maxBounds
+
+    local nodeWidth = pathGraph._nodeWidth
+    local nodeHoverHeight = pathGraph._nodeHoverHeight
+
+    local traceFilter = pathGraph._traceFilter
+    local traceMask = pathGraph._traceMask
+    local traceCollisionGroup = pathGraph._traceCollisionGroup
+
+    local nodeHullMin = pathGraph._nodeHullMin
+    local nodeHullMax = pathGraph._nodeHullMax
+    local sliceHullMin = pathGraph._sliceHullMin
+    local sliceHullMax = pathGraph._sliceHullMax
+    local adjacencyHullMin = pathGraph._adjacencyHullMin
+    local adjacencyHullMax = pathGraph._adjacencyHullMax
+    local stepUpVec = pathGraph._stepUpVec
+    local stepDownVec = pathGraph._stepDownVec
+    local adjacencyCenterVec = pathGraph._adjacencyCenterVec
+
+    local batchSize = pathGraph.class.QUEUE_BATCH_SIZE
+    local perfCooldown = pathGraph.class.QUEUE_PERF_COOLDOWN
+    local perfLimit = cpuMax() * pathGraph.class.QUEUE_PERF_LIMIT
+    local otherPerf = cpuTotalAverage() - cpuAverage()
+    perfLimit = perfLimit - otherPerf
+
+    for i = #uncheckedNodes, math.max( #uncheckedNodes - batchSize, 1 ), -1 do
+        if cpuAverage() >= perfLimit then
+            pathGraph._nextQueueTime = now + perfCooldown
+
+            return true
+        end
+
+        local node = table.remove( uncheckedNodes, i )
+        local nodeHash = node.hash
+        local neighbors = node.neighbors
+
+        local existingNode = nodeLookup[nodeHash]
+
+        if existingNode then
+            if existingNode == node then continue end
+
+            -- Merge the nodes
+            local existingNeighbors = existingNode.neighbors
+
+            for otherNodeHash, otherNode in pairs( neighbors ) do
+                local otherNeighbors = otherNode.neighbors
+
+                existingNeighbors[otherNodeHash] = otherNode
+                otherNeighbors[nodeHash] = existingNode
+                neighbors[otherNodeHash] = nil -- Reduce GC work
+            end
+
+            node.pos = nil
+            node.hash = nil
+            node.neighbors = nil
+
+            continue
+        end
+
+        local pos = node.pos
+
+        if not pos:withinAABox( minBounds, maxBounds ) then
+            markNodeBad( node )
+
+            continue
+        end
+
+        -- Check player hull
+        local htrace = trace.hull( pos, pos, nodeHullMin, nodeHullMax, traceFilter, traceMask, traceCollisionGroup )
+
+        if htrace.Hit then
+            markNodeBad( node )
+
+            continue
+        end
+
+        local ltrace = trace.line( pos + stepUpVec, pos + stepDownVec, traceFilter, traceMask, traceCollisionGroup )
+        local oldHash = nodeHash
+
+        pos[3] = ltrace.HitPos[3] + nodeHoverHeight
+        nodeHash = getVecHash( pos, nodeWidth )
+
+        if nodeHash ~= oldHash then
+            existingNode = nodeLookup[nodeHash]
+
+            if existingNode then
+                -- Merge the nodes
+                local existingNeighbors = existingNode.neighbors
+
+                existingNeighbors[oldHash] = nil
+
+                for otherNodeHash, otherNode in pairs( neighbors ) do
+                    local otherNeighbors = otherNode.neighbors
+
+                    existingNeighbors[otherNodeHash] = otherNode
+
+                    otherNeighbors[oldHash] = nil
+                    otherNeighbors[nodeHash] = existingNode
+
+                    neighbors[otherNodeHash] = nil -- Reduce GC work
+                end
+
+                node.pos = nil
+                node.hash = nil
+                node.neighbors = nil
+
+                continue
+            end
+
+            node.hash = nodeHash
+
+            -- Update neighbors
+            for _, otherNode in pairs( neighbors ) do
+                local otherNeighbors = otherNode.neighbors
+
+                otherNeighbors[oldHash] = nil
+                otherNeighbors[nodeHash] = node
+            end
+        end
+
+        -- check around the node
+        for x = -nodeWidth, nodeWidth, nodeWidth do
+            for y = -nodeWidth, nodeWidth, nodeWidth do
+                if x == 0 and y == 0 then continue end
+
+                local nextPos = pos + Vector( x, y, 0 )
+                local htrace2 = trace.hull( nextPos + stepUpVec, nextPos + stepDownVec, sliceHullMin, sliceHullMax, traceFilter, traceMask, traceCollisionGroup )
+                nextPos[3] = htrace2.HitPos[3] + nodeHoverHeight
+
+                local nextHash = getVecHash( nextPos, nodeWidth )
+                local nextNode = nodeLookup[nextPos]
+                local nextNeighbors
+
+                if nextNode then
+                    nextNeighbors = nextNode.neighbors
+                else
+                    nextNeighbors = {}
+                    nextNode = {
+                        pos = nextPos,
+                        hash = nextHash,
+                        neighbors = nextNeighbors,
+                    }
+                end
+
+                if not htrace2.Hit then continue end
+                if not trace.hull( pos + adjacencyCenterVec, nextPos + adjacencyCenterVec, adjacencyHullMin, adjacencyHullMax, traceFilter, traceMask, traceCollisionGroup ).Hit then
+                    neighbors[nextHash] = nextNode
+                    nextNeighbors[nodeHash] = node
+                end
+
+                table.insert( uncheckedNodes, nextNode )
+            end
+        end
+
+        table.insert( nodes, node )
+        nodeLookup[nodeHash] = node
+        partition:insert( SpatialPartitionItem:new( node, pos ) )
+    end
+
+    pathGraph._nextQueueTime = now + pathGraph.class.QUEUE_INTERVAL
+end
+
+processEdgeCleanup = function( pathGraph )
+    local now = timer.curtime()
+    if pathGraph._nextQueueTime > now then return end
+
+    local startInd = pathGraph._nextNodeIndToClean
+    local nodes = pathGraph._nodes
+
+    if startInd > #nodes then
+        finishNodeQueue( pathGraph )
+
+        return
+    end
+
+    local batchSize = pathGraph.class.QUEUE_BATCH_SIZE
+    local perfCooldown = pathGraph.class.QUEUE_PERF_COOLDOWN
+    local perfLimit = cpuMax() * pathGraph.class.QUEUE_PERF_LIMIT
+    local otherPerf = cpuTotalAverage() - cpuAverage()
+    perfLimit = perfLimit - otherPerf
+
+    local endInd = math.min( startInd + batchSize - 1, #nodes )
+
+    for i = startInd, endInd do
+        if cpuAverage() >= perfLimit then
+            pathGraph._nextQueueTime = now + perfCooldown
+            pathGraph._nextNodeIndToClean = i
+
+            return true
+        end
+
+        local node = nodes[i]
+        local nodePos = node.pos
+        local oldNeighbors = node.neighbors
+        local neighbors = {}
+        local neighborLookup = {}
+
+        for _, neighbor in pairs( oldNeighbors ) do
+            table.insert( neighbors, neighbor )
+            neighborLookup[neighbor] = nodePos:getDistance( neighbor.pos )
+        end
+
+        node.neighbors = neighbors
+        node.neighborLookup = neighborLookup
+
+        table.empty( oldNeighbors ) -- Reduce GC work
+    end
+
+    pathGraph._nextNodeIndToClean = endInd + 1
+end
+
+finishNodeQueue = function( pathGraph )
+    table.empty( pathGraph._uncheckedNodes )
+    table.empty( pathGraph._nodeLookup )
+
+    pathGraph._uncheckedNodes = nil
+    pathGraph._nodeLookup = nil
+    pathGraph._nextNodeIndToClean = nil
+
+    pathGraph._ready = true
+    pathGraph._onReady( pathGraph )
+end
+
+
+----- SETUP -----
+
+hook.add( "tick", "LKL_PathGraph_ProcessQueues", function()
+    for _, pathGraph in ipairs( allPathGraphs ) do
+        if not pathGraph._ready then
+            local perfBroke = processNodeQueue( pathGraph )
+            if perfBroke then break end
+        end
+    end
+end )
+
+
+
+if CLIENT then
+    hook.add( "postdrawtranslucentrenderables", "LKL_PathGraph_DrawNodes", function( _, skybox, skybox3d )
+        if skybox or skybox3d then return end
+
+        for _, pathGraph in ipairs( allPathGraphs ) do
+            if pathGraph:isDebugEnabled() then
+                if cpuTotalAverage() >= cpuMax() * pathGraph.class.DEBUG_PERF_LIMIT then continue end
+
+                render.setColor( pathGraph:getDebugNodeColor() )
+
+                local nodes = pathGraph._nodes
+                local count = #nodes
+                local nodeHullMin = pathGraph._nodeHullMin
+                local nodeHullMax = pathGraph._nodeHullMax
+
+                for i = math.max( 1, count - pathGraph:getDebugNodeLimit() + 1 ), count do
+                    local node = nodes[i]
+
+                    render.draw3DWireframeBox( node.pos, ANGLE_ZERO, nodeHullMin, nodeHullMax, false )
+                end
+            end
+        end
+    end )
+
+    hook.add( "postdrawtranslucentrenderables", "LKL_PathGraph_DrawEdges", function( _, skybox, skybox3d )
+        if skybox or skybox3d then return end
+
+        for _, pathGraph in ipairs( allPathGraphs ) do
+            if pathGraph:isDebugEnabled() then
+                if cpuTotalAverage() >= cpuMax() * pathGraph.class.DEBUG_PERF_LIMIT then continue end
+
+                render.setColor( pathGraph:getDebugEdgeColor() )
+
+                local nodes = pathGraph._nodes
+                local count = #nodes
+
+                for i = math.max( 1, count - pathGraph:getDebugNodeLimit() + 1 ), count do
+                    local node = nodes[i]
+                    local pos = node.pos
+
+                    for _, otherNode in pairs( node.neighbors ) do
+                        render.draw3DLine( pos, otherNode.pos )
+                    end
+                end
+            end
+        end
+    end )
+
+
+    if player() == owner() then
+        enableHud( owner(), true )
+    end
+end

@@ -1,0 +1,188 @@
+--@name Path Finder Test
+--@author legokidlogan
+--@client
+--@owneronly
+--@include lkl/pathing/path_finder.txt
+
+require( "lkl/pathing/path_finder.txt" )
+
+
+-- CONFIG:
+local followerSpeed = 300
+local useTracesInPathFinding = true
+local stopDebugOnceGraphIsBuilt = false
+
+local traceFilter = { chip() }
+
+local pathGraphParams = {
+    -- Bounds:
+    Center = chip():getPos(),
+    Size = Vector( 1000, 1000, 1000 ),
+    Start = nil,
+
+    -- Node Parameters:
+    NodeWidth = nil,
+    NodeHeight = nil,
+    NodeStepHeight = nil,
+
+    NodeHoverHeight = nil,
+
+    NodeAdjacencyWidth = nil,
+    NodeAdjacencyHeight = nil,
+
+    -- Trace:
+    TraceFilter = traceFilter,
+    TraceMask = nil,
+    TraceCollisionGroup = nil,
+
+    -- Spatial Partition:
+    PartitionDivisions = nil,
+    PartitionCapacity = nil,
+
+    -- Debug:
+    DebugEnabled = true,
+    DebugNodeLimit = 400,
+    DebugNodeColor = Color( 255, 255, 255, 255 ),
+    DebugEdgeColor = Color( 255, 255, 0, 255 ),
+}
+-- END CONFIG
+
+
+local pgReady = false
+local pg = PathGraph:new(
+    pathGraphParams,
+    function( pathGraph )
+        pgReady = true
+
+        if stopDebugOnceGraphIsBuilt then
+            pathGraph:setDebugEnabled( false )
+        end
+
+        print( "Graph ready" )
+    end
+)
+
+local startHolo = hologram.create( Vector(), Angle(), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1.25 ) )
+startHolo:setMaterial( "models/debug/debugwhite" )
+startHolo:setColor( Color( 255, 0, 0, 100 ) )
+
+local endHolo = hologram.create( Vector(), Angle(), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1.25 ) )
+endHolo:setMaterial( "models/debug/debugwhite" )
+endHolo:setColor( Color( 0, 255, 0, 100 ) )
+
+local followerHolo = hologram.create( Vector(), Angle(), "models/hunter/blocks/cube025x025x025.mdl", Vector( 1.5 ) )
+followerHolo:setMaterial( "models/debug/debugwhite" )
+followerHolo:setColor( Color( 0, 0, 255, 150 ) )
+
+local pathHolos = {}
+local startHasBeenSet = false
+local cancelRequest = nil
+local pathToFollow = nil
+local pathComplete = false
+
+
+local function cancelPath()
+    if cancelRequest then
+        cancelRequest()
+        cancelRequest = nil
+    end
+
+    if pathToFollow or pathComplete then
+        for i = #pathHolos, 1, -1 do
+            pathHolos[i]:remove()
+            pathHolos[i] = nil
+        end
+
+        pathToFollow = nil
+        pathComplete = false
+    end
+
+    startHasBeenSet = false
+end
+
+
+hook.add( "KeyPress", "LKL_PathingTest_KeyPress", function( ply, key )
+    if not isFirstTimePredicted() then return end
+    if not pgReady then return end
+
+    if key == IN_KEY.USE then
+        if cancelRequest or pathToFollow or pathComplete then
+            cancelPath()
+            endHolo:setPos( Vector() )
+            followerHolo:setPos( Vector() )
+        end
+
+        local pos = ply:getEyeTrace().HitPos
+
+
+        local partition = pg._partition
+        local items = partition:getItems( partition:findNode( pos ).parent )
+        local hashLookup = {}
+        for _, item in ipairs( items ) do
+            local pgNode = item:getContents()
+            local hash = pgNode.hash
+
+            if hashLookup[hash] then
+                print( "Found a duplicate!" )
+            end
+
+            hashLookup[hash] = true
+        end
+
+        if not startHasBeenSet then
+            startHasBeenSet = true
+            startHolo:setPos( pos )
+            followerHolo:setPos( pos )
+        else
+            endHolo:setPos( pos )
+            cancelRequest = pathFinder.findPath( {
+                PathGraph = pg,
+                StartPos = startHolo:getPos(),
+                EndPos = pos,
+                Callback = function( path )
+                    cancelRequest = nil
+                    pathToFollow = path
+
+                    if not path then
+                        pathToFollow = nil
+                        pathComplete = true
+
+                        print( "No path found!" )
+
+                        return
+                    end
+
+                    for i, pathPos in ipairs( path ) do
+                        local holo = hologram.create( pathPos, Angle(), "models/hunter/blocks/cube025x025x025.mdl" )
+                        holo:setMaterial( "models/debug/debugwhite" )
+                        holo:setColor( Color( 255, 255, 255, 150 ) )
+
+                        pathHolos[i] = holo
+                    end
+                end,
+
+                UseTraces = useTracesInPathFinding,
+                Hueristic = nil,
+            } )
+        end
+    elseif key == IN_KEY.RELOAD then
+        cancelPath()
+        startHolo:setPos( Vector() )
+        endHolo:setPos( Vector() )
+        followerHolo:setPos( Vector() )
+    end
+end )
+
+hook.add( "think", "LKL_PathingTest_Move", function()
+    if not pathToFollow then return end
+
+    local dt = timer.frametime()
+    local newPos, done = pathFinder.followPath( pathToFollow, followerHolo:getPos(), followerSpeed * dt )
+
+    followerHolo:setPos( newPos )
+
+    if done then
+        pathToFollow = nil
+        pathComplete = true
+    end
+end )
