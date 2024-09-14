@@ -1,0 +1,292 @@
+--@name Min Heap
+--@author legokidlogan
+--@shared
+--@include lkl/standard_printable.txt
+--@include lkl/table_clone_deep.txt
+
+
+if MinHeap then return end
+
+require( "lkl/standard_printable.txt" )
+require( "lkl/table_clone_deep.txt" )
+
+MinHeap = class( "MinHeap", StandardPrintable )
+
+
+local mathFloor = math.floor
+local mathMin = math.min
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    initialItems: (table or nil)
+        - The initial items to add to the heap.
+        - Defaults to {}.
+        - If initialWeights is nil, this should be a list of tables { item, weight }.
+        - If initialWeights is not nil, this should be a list of items.
+    initialWeights: (table or nil)
+        - The initial weights to add to the heap.
+        - If initialItems is nil or empty, this becomes {}.
+    name: (optional) (string)
+        - A name to give the MinHeap, for debugging purposes.
+--]]
+function MinHeap:initialize( initialItems, initialWeights, name )
+    if initialItems ~= nil and type( initialItems ) ~= "table" then error( "Expected initialItems to be a table or nil" ) end
+    if initialWeights ~= nil and type( initialWeights ) ~= "table" then error( "Expected initialWeights to be a table or nil" ) end
+    if name ~= nil and type( name ) ~= "string" then error( "Expected name to be a string or nil" ) end
+
+    self._name = name
+    self._items = {}
+    self._weights = {}
+
+    if initialItems == nil or table.isEmpty( initialItems ) then return end
+
+    self:pushMulti( initialItems, initialWeights )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+-- Push an item onto the heap with some weight. If the item is a table, it will be stored by reference.
+function MinHeap:push( item, weight )
+    if item == nil then error( "Expected item to be non-nil" ) end
+    if not isnumber( weight ) then error( "Expected weight to be a number" ) end
+
+    local items = self._items
+    local weights = self._weights
+    local ind = #items + 1
+
+    items[ind] = item
+    weights[ind] = weight
+
+    self:_siftUp( ind, item, weight )
+end
+
+-- If weights is nil, expects items to be a list of tables { item, weight }.
+function MinHeap:pushMulti( items, weights )
+    if type( items ) ~= "table" then error( "Expected items to be a table" ) end
+    if weights ~= nil and type( weights ) ~= "table" then error( "Expected weights to be a table or nil" ) end
+
+    if weights == nil then
+        for _, item in ipairs( items ) do
+            self:push( item[1], item[2] )
+        end
+
+        return
+    end
+
+    local count = #items
+    if count ~= #weights then error( "Expected items and weights to have the same length" ) end
+
+    for i = 1, #items do
+        self:push( items[i], weights[i] )
+    end
+end
+
+-- View the item and its weight at the top of the heap.
+function MinHeap:peek()
+    return self._items[1], self._weights[1]
+end
+
+-- Remove the item at the top of the heap, then return the item and its weight.
+function MinHeap:pop()
+    local items = self._items
+    local count = #items
+    if count == 0 then return nil, nil end
+
+    local weights = self._weights
+
+    local item = items[1]
+    local weight = weights[1]
+    local lastItem = items[count]
+    local lastWeight = weights[count]
+
+    items[1] = lastItem
+    weights[1] = lastWeight
+
+    items[count] = nil
+    weights[count] = nil
+
+    self:_siftDown( 1, lastItem, lastWeight )
+
+    return item, weight
+end
+
+--[[
+    - Pop multiple items.
+
+    amount: (number or nil)
+        - The number of items to pop.
+        - Defaults to the current number of items in the heap.
+    returnInPairs: (boolean)
+        - If true, will return a list of tables { item, weight }.
+        - If false, will return two lists: items and weights.
+        - Defaults to false.
+--]]
+function MinHeap:popMulti( amount, returnInPairs )
+    local count = #self._items
+    amount = mathMin( amount or count, count )
+
+    if returnInPairs then
+        if amount <= 0 then return {} end
+
+        local out = {}
+
+        for i = 1, amount do
+            local item, weight = self:pop()
+
+            out[i] = { item, weight }
+        end
+
+        return out
+    end
+
+    if amount <= 0 then return {}, {} end
+
+    local items = {}
+    local weights = {}
+
+    for i = 1, amount do
+        local item, weight = self:pop()
+
+        items[i] = item
+        weights[i] = weight
+    end
+
+    return items, weights
+end
+
+-- Removes the item at the given index, then returns the item and its weight.
+function MinHeap:remove( ind )
+    if not isnumber( ind ) then error( "Expected ind to be a number" ) end
+    if ind < 1 then return nil, nil end
+    if ind == 1 then return self:pop() end
+
+    local items = self._items
+    local count = #items
+    if ind > count then return nil, nil end
+
+    local weights = self._weights
+
+    local item = items[ind]
+    local weight = weights[ind]
+    local lastItem = items[count]
+    local lastWeight = weights[count]
+
+    items[ind] = lastItem
+    weights[ind] = lastWeight
+
+    items[count] = nil
+    weights[count] = nil
+
+    if ind == count then return item, weight end
+    if weight == lastWeight then return item, weight end
+
+    if lastWeight < weight then
+        self:_siftDown( ind, lastItem, lastWeight )
+    else
+        self:_siftUp( ind, lastItem, lastWeight )
+    end
+
+    return item, weight
+end
+
+function MinHeap:clear()
+    table.empty( self._items )
+    table.empty( self._weights )
+end
+
+function MinHeap:getLength()
+    return #self._items
+end
+
+function MinHeap:getName()
+    return self._name
+end
+
+function MinHeap:cloneDeep()
+    local items = table.cloneDeep( self._items )
+    local weights = table.cloneDeep( self._weights )
+    local heap = MinHeap:new( nil, nil, self._name )
+
+    heap._items = items
+    heap._weights = weights
+
+    return heap
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function MinHeap:tostringInner()
+    return self:getName()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+function MinHeap:_siftUp( ind, item, weight )
+    if ind <= 1 then return end
+
+    local items = self._items
+    local weights = self._weights
+
+    local parentInd = mathFloor( ind / 2 )
+    local parentWeight = weights[parentInd]
+
+    while parentInd > 0 and parentWeight > weight do
+        items[ind] = items[parentInd]
+        weights[ind] = parentWeight
+
+        items[parentInd] = item
+        weights[parentInd] = weight
+
+        ind = parentInd
+        parentInd = mathFloor( ind / 2 )
+        parentWeight = weights[parentInd]
+    end
+end
+
+function MinHeap:_siftDown( ind, item, weight )
+    local items = self._items
+    local count = #items
+    if ind >= count then return end
+
+    local weights = self._weights
+
+    local leftInd = mathFloor( ind * 2 )
+    local rightInd = leftInd + 1
+    local leftWeight = weights[leftInd]
+    local rightWeight = weights[rightInd]
+
+    while leftInd <= count do
+        local smallestChildInd
+        local smallestChildWeight
+
+        if rightWeight == nil or leftWeight < rightWeight then
+            smallestChildInd = leftInd
+            smallestChildWeight = leftWeight
+        else -- Note: on a tie, right is chosen, yielding LIFO behavior (great for A*).
+            smallestChildInd = rightInd
+            smallestChildWeight = rightWeight
+        end
+
+        if weight <= smallestChildWeight then break end
+
+        -- Swap
+        items[smallestChildInd], items[ind] = item, items[smallestChildInd]
+        weights[smallestChildInd], weights[ind] = weight, smallestChildWeight
+        ind = smallestChildInd
+
+        -- Next iteration
+        leftInd = ind * 2
+        rightInd = leftInd + 1
+        leftWeight = weights[leftInd]
+        rightWeight = weights[rightInd]
+    end
+end
