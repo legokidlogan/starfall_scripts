@@ -15,10 +15,12 @@ SpatialPartition = class( "SpatialPartition", Destroyable )
 
 local tableInsert = table.insert
 local bitBand = bit.band
+local mathClamp = math.clamp
 
 local validateItem
 local scrubNode
 local recursiveGetItems
+local vectorClampPiecewise
 
 
 ----- STATIC FUNCTIONS -----
@@ -248,13 +250,14 @@ function SpatialPartition:findNearestItem( pos )
     local closestDist = math.huge
     local closestItem = nil
     local items = node.items
+    local seenNodes = { [node] = true }
 
+    -- If the node is empty, expand until at least one non-empty node is found, collecting items along the way.
     if #items == 0 then
         if node == self._rootNode then return end -- No items in the partition!
 
         local nodes = { node }
         local expandedNodes = { [node] = true }
-        local seenNodes = { [node] = true }
 
         items = {}
 
@@ -267,13 +270,40 @@ function SpatialPartition:findNearestItem( pos )
         end
     end
 
+    -- Find the closest item out of those found.
     for _, item in ipairs( items ) do
-        local itemPos = item:getPos()
-        local dist = ( itemPos - pos ):getLengthSqr()
+        local dist = pos:getDistance( item:getPos() )
 
         if dist < closestDist then
             closestDist = dist
             closestItem = item
+        end
+    end
+
+    node = closestItem:getNode()
+
+    -- Also check neighbors of the current item's node if their bounds are closer to the target position than the item is.
+    -- This covers cases where the position is inside a node with far-away items and right next to a neighbor node with a closer item.
+    local neighbors, _, hasExpanded = self:expandToNeighbors( { node }, seenNodes )
+
+    if hasExpanded then
+        table.remove( neighbors, 1 ) -- Remove the current node from the list.
+
+        for _, neighbor in ipairs( neighbors ) do
+            local posClamped = vectorClampPiecewise( pos, neighbor.minBounds, neighbor.maxBounds )
+
+            if pos:getDistance( posClamped ) < closestDist then
+                local neighborItems = neighbor.items
+
+                for _, item in ipairs( neighborItems ) do
+                    local dist = pos:getDistance( item:getPos() )
+
+                    if dist < closestDist then
+                        closestDist = dist
+                        closestItem = item
+                    end
+                end
+            end
         end
     end
 
@@ -409,6 +439,14 @@ recursiveGetItems = function( node, items, seenNodes )
             recursiveGetItems( child, items, seenNodes )
         end
     end
+end
+
+vectorClampPiecewise = function( vec, minBounds, maxBounds )
+    return Vector(
+        mathClamp( vec[1], minBounds[1], maxBounds[1] ),
+        mathClamp( vec[2], minBounds[2], maxBounds[2] ),
+        mathClamp( vec[3], minBounds[3], maxBounds[3] )
+    )
 end
 
 
