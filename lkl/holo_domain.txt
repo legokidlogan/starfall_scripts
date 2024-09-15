@@ -59,7 +59,8 @@ function HoloDomain:initialize( base, radius, originPos, originAng )
     self._loopingBassObjs = {}
     self._localPlayerIsInside = false
     self._creationTime = timer.curtime()
-    self._lastAnimTime = timer.curtime()
+    self._lastInsideAnimTime = timer.curtime()
+    self._lastOutsideAnimTime = timer.curtime()
 
     local originHolo = self:createHolo( base, originPos, originAng, "models/hunter/plates/plate.mdl", nil, true )
     originHolo:setColor( Color( 0, 0, 0, 0 ) )
@@ -362,6 +363,7 @@ end
 
 --[[
     - Handle custom animation stuff here.
+    - This only plays while the player is inside the domain.
 
     time: (number)
         - The time elapsed since the domain was created.
@@ -369,7 +371,12 @@ end
         - The time elapsed since the last frame.
         - Note that domains do not animate while the local player is outside, so dt could be very large.
 --]]
-function HoloDomain:handleAnimation( _time, _dt )
+function HoloDomain:handleInsideAnimation( _time, _dt )
+
+end
+
+-- Handles custom animations, but only when the player is outside the domain.
+function HoloDomain:handleOutsideAnimation( _time, _dt )
 
 end
 
@@ -469,12 +476,18 @@ hook.add( "think", "LKL_HoloDomain_Animate", function()
     local now = timer.curtime()
 
     for _, holoDomain in ipairs( allHoloDomains ) do
-        if holoDomain:isLocalPlayerInside() then
-            local timeSince = now - holoDomain:getCreationTime()
-            local dt = now - holoDomain._lastAnimTime
+        local timeSinceCreation = now - holoDomain:getCreationTime()
 
-            holoDomain:handleAnimation( timeSince, dt )
-            holoDomain._lastAnimTime = now
+        if holoDomain:isLocalPlayerInside() then
+            local dt = now - holoDomain._lastInsideAnimTime
+
+            holoDomain:handleInsideAnimation( timeSinceCreation, dt )
+            holoDomain._lastInsideAnimTime = now
+        else
+            local dt = now - holoDomain._lastOutsideAnimTime
+
+            holoDomain:handleOutsideAnimation( timeSinceCreation, dt )
+            holoDomain._lastOutsideAnimTime = now
         end
     end
 end )
