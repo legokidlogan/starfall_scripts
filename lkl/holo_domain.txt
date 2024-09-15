@@ -26,6 +26,7 @@ local mathAbs = math.abs
 
 local equalWithin
 local tripletEqualWithin
+local detectOtherPlayers
 
 
 ----- STATIC FUNCTIONS -----
@@ -57,10 +58,12 @@ function HoloDomain:initialize( base, radius, originPos, originAng )
     self._radius = radius
     self._holos = {}
     self._loopingBassObjs = {}
-    self._localPlayerIsInside = false
+    self._localPlayerIsInside = render.getEyePos():getDistance( base:localToWorld( originPos ) ) <= radius
+    self._playerInsideStates = {}
     self._creationTime = timer.curtime()
     self._lastInsideAnimTime = timer.curtime()
     self._lastOutsideAnimTime = timer.curtime()
+    self._detectOtherPlayers = false
 
     local originHolo = self:createHolo( base, originPos, originAng, "models/hunter/plates/plate.mdl", nil, true )
     originHolo:setColor( Color( 0, 0, 0, 0 ) )
@@ -76,6 +79,31 @@ end
 
 
 ----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Allows :onPlayerEntered() and :onPlayerExited() to be called when other players enter/exit the domain, instead of just the local player.
+
+    state: (boolean)
+        - Whether to detect other players.
+        - This starts as false for newly-created domains.
+    doRunEvents: (optional) (boolean)
+        - Whether to run the enter/exit events for any immediate updates caused by providing state as true.
+        - Doesn't affect event triggers caused from normal player detection later on.
+        - Defaults to false.
+--]]
+function HoloDomain:setDetectOtherPlayers( state, doRunEvents )
+    self._detectOtherPlayers = state
+    detectOtherPlayers( self, doRunEvents )
+end
+
+function HoloDomain:doesDetectOtherPlayers()
+    return self._detectOtherPlayers
+end
+
+-- Unreliable if other-player detection is disabled.
+function HoloDomain:isPlayerInside( ply )
+    return self._playerInsideStates[ply] or false
+end
 
 -- Returns by reference. Do not modify.
 function HoloDomain:getHolos()
@@ -393,6 +421,28 @@ function HoloDomain:handleOutsideAnimation( _time, _dt )
 
 end
 
+--[[
+    - Called when a player enteres the domain.
+    - Only plays for the local player, unless :setDetectOtherPlayers( true ) is set.
+
+    ply: (Player)
+        - The player that entered the domain.
+--]]
+function HoloDomain:onPlayerEntered( _ply )
+
+end
+
+--[[
+    - Called when a player exits the domain.
+    - Only plays for the local player, unless :setDetectOtherPlayers( true ) is set.
+
+    ply: (Player)
+        - The player that exited the domain.
+--]]
+function HoloDomain:onPlayerExited( _ply )
+
+end
+
 
 ----- IMPLEMENTED FUNCTIONS -----
 
@@ -455,6 +505,33 @@ removeHoloRecursive = function( holoDomain, holo )
     holo:remove()
 end
 
+detectOtherPlayers = function( holoDomain, doRunEvents )
+    if not holoDomain:doesDetectOtherPlayers() then return end
+
+    local originPos = holoDomain:getOriginPos()
+    local radius = holoDomain:getRadius()
+    local states = holoDomain._playerInsideStates
+
+    for _, ply in ipairs( find.allPlayers() ) do
+        if ply == player() then continue end
+
+        local eyePos = ply:getEyePos()
+        local isInside = originPos:getDistance( eyePos ) <= radius
+
+        if isInside ~= states[ply] then
+            states[ply] = isInside
+
+            if doRunEvents then
+                if isInside then
+                    holoDomain:onPlayerEntered( ply )
+                else
+                    holoDomain:onPlayerExited( ply )
+                end
+            end
+        end
+    end
+end
+
 
 ----- SETUP -----
 
@@ -465,6 +542,7 @@ hook.add( "RenderScene", "LKL_HoloDomain_UpdateInsideStatus", function( eyePos )
 
         if isInside ~= holoDomain:isLocalPlayerInside() then
             holoDomain._localPlayerIsInside = isInside
+            holoDomain._playerInsideStates[player()] = isInside
 
             for _, holo in ipairs( holoDomain._holos ) do
                 if isValid( holo ) then
@@ -480,6 +558,12 @@ hook.add( "RenderScene", "LKL_HoloDomain_UpdateInsideStatus", function( eyePos )
                         bassObj:_setVolume( 0 )
                     end
                 end
+            end
+
+            if isInside then
+                holoDomain:onPlayerEntered( player() )
+            else
+                holoDomain:onPlayerExited( player() )
             end
         end
     end
@@ -530,6 +614,12 @@ hook.add( "think", "LKL_HoloDomain_MoveBassObjs", function()
                 table.remove( loopingBassObjs, i )
             end
         end
+    end
+end )
+
+hook.add( "tick", "LKL_HoloDomain_DetectOtherPlayers", function()
+    for _, holoDomain in ipairs( allHoloDomains ) do
+        detectOtherPlayers( holoDomain, true )
     end
 end )
 
