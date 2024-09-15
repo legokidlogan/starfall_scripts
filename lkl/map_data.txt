@@ -14,6 +14,7 @@ libMapData._alreadyRequired = true
 libMapData.OWNER_ONLY = libMapData.OWNER_ONLY or false -- If true, then the owner will be the only client to receive map data.
 libMapData.FORCE_REGENERATE = libMapData.FORCE_REGENERATE or false -- If true, then this version's map data will be cleared and regenerated.
 libMapData.HIDE_PROGRESS_PRINTS = libMapData.HIDE_PROGRESS_PRINTS or false -- If true, then while generating new data, per-step progress prints will be hidden.
+libMapData.PERF_LIMIT = libMapData.PERF_LIMIT or 0.4 -- Perf limit.
 -- END CONFIG
 
 
@@ -411,7 +412,6 @@ local BOUNCE_OFFSETS = {
     Vector( -1, -1, -1 ):getNormalized() * TRACE_LENGTH,
 }
 
-local perfLimitFrac = 0.5
 local iterationInterval = 0.1
 
 local playableRegionBouncesPerChain = 400
@@ -463,7 +463,7 @@ local traceLine = trace.line
 
 
 local function getPerfLimit()
-    local perfLimit = cpuMax() * perfLimitFrac
+    local perfLimit = cpuMax() * libMapData.PERF_LIMIT
     local totalPerf = cpuTotalAverage()
     if totalPerf >= perfLimit then return end
 
