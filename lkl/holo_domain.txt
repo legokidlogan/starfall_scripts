@@ -58,7 +58,7 @@ function HoloDomain:initialize( base, radius, originPos, originAng )
     self._radius = radius
     self._holos = {}
     self._loopingBassObjs = {}
-    self._localPlayerIsInside = render.getEyePos():getDistance( base:localToWorld( originPos ) ) <= radius
+    self._localPlayerIsInside = false
     self._playerInsideStates = {}
     self._creationTime = timer.curtime()
     self._lastInsideAnimTime = timer.curtime()
