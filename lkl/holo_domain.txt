@@ -1,0 +1,526 @@
+--@name Holo Domain
+--@author legokidlogan
+--@client
+--@include lkl/destroyable.txt
+
+--[[
+    - A spherical domain where 
+--]]
+
+if HoloDomain then return end
+
+require( "lkl/destroyable.txt" )
+
+
+HoloDomain = class( "HoloDomain", Destroyable )
+
+
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+
+local allHoloDomains = {}
+local holoDomainIncr = 0
+local bassIncr = 0
+
+local mathAbs = math.abs
+
+local equalWithin
+local tripletEqualWithin
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    base: (Entity)
+        - The base entity to parent the domain to.
+    radius: (number > 0)
+        - The radius of the domain.
+    originPos: (optional) (Vector)
+        - The origin of the domain, local to the base entity.
+        - Defaults to Vector( 0, 0, 0 ).
+    originAng: (optional) (Angle)
+        - The angles of the domain, local to the base entity.
+        - Defaults to Angle( 0, 0, 0 ).
+--]]
+function HoloDomain:initialize( base, radius, originPos, originAng )
+    if not isValid( base ) then error( "Expected base to be a valid Entity" ) end
+    if not isnumber( radius ) then error( "Expected radius to be a number" ) end
+    if radius <= 0 then error( "Expected radius to be greater than 0" ) end
+
+    originPos = originPos or Vector( 0, 0, 0 )
+    originAng = originAng or Angle( 0, 0, 0 )
+
+    if type( originPos ) ~= "Vector" then error( "Expected originPos to be a Vector or nil" ) end
+    if type( originAng ) ~= "Angle" then error( "Expected originAng to be an Angle or nil" ) end
+
+    self._base = base
+    self._radius = radius
+    self._holos = {}
+    self._loopingBassObjs = {}
+    self._localPlayerIsInside = false
+    self._creationTime = timer.curtime()
+    self._lastAnimTime = timer.curtime()
+
+    local originHolo = self:createHolo( base, originPos, originAng, "models/hunter/plates/plate.mdl", nil, true )
+    originHolo:setColor( Color( 0, 0, 0, 0 ) )
+    originHolo:setMaterial( "engine/writestencil" )
+    originHolo:setNoDraw( true )
+    originHolo._isOrigin = true
+    self._originHolo = originHolo
+
+    holoDomainIncr = holoDomainIncr + 1
+    self._id = holoDomainIncr
+    table.insert( allHoloDomains, self )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+-- Returns by reference. Do not modify.
+function HoloDomain:getHolos()
+    return self._holos
+end
+
+function HoloDomain:getOriginHolo()
+    return self._originHolo
+end
+
+function HoloDomain:getOriginPos()
+    return self._originHolo:getPos()
+end
+
+function HoloDomain:getOriginAngles()
+    return self._originHolo:getAngles()
+end
+
+function HoloDomain:getRadius()
+    return self._radius
+end
+
+function HoloDomain:getID()
+    return self._id
+end
+
+function HoloDomain:getTimerName( timerName )
+    return "HoloDomain_" .. self:getID() .. "_" .. timerName
+end
+
+function HoloDomain:getCreationTime()
+    return self._creationTime
+end
+
+function HoloDomain:getTimeSinceCreation()
+    return timer.curtime() - self._creationTime
+end
+
+function HoloDomain:isLocalPlayerInside()
+    return self._localPlayerIsInside
+end
+
+--[[
+    - Creates a holo for use with this HoloDomain.
+    - You should never create a holo manually when using it with a HoloDomain.
+        - Likewise, use the HoloDomain's functions in place of :setPos(), :setAngles(), and :remove().
+        - You cannot change the holo's parent after creating it, nor use :setNoDraw().
+        - Other functions are fine, like :setColor() and :setMaterial().
+
+    parent: (optional) (Entity, Hologram, or nil)
+        - The parent of the holo.
+        - Defaults to the origin holo.
+    pos: (optional) (Vector)
+        - The position of the holo, local to the parent.
+        - Defaults to Vector( 0, 0, 0 ).
+    ang: (optional) (Angle)
+        - The angles of the holo, local to the parent.
+        - Defaults to Angle( 0, 0, 0 ).
+    model: (string)
+        - The model of the holo.
+    scale: (optional) (Vector)
+        - The scale of the holo.
+    isExternal: (optional) (boolean)
+        - Whether the holo is external to the domain.
+        - Defaults to false.
+--]]
+function HoloDomain:createHolo( parent, pos, ang, model, scale, isExternal )
+    parent = parent or self:getOriginHolo()
+    if not isValid( parent ) then error( "Expected parent to be a valid Entity, Hologram, or nil" ) end
+
+    pos = pos or Vector( 0, 0, 0 )
+    ang = ang or Angle( 0, 0, 0 )
+
+    local worldPos, worldAng = localToWorld( pos, ang, parent:getPos(), parent:getAngles() )
+    local holo = hologram.create( worldPos, worldAng, model, scale )
+    local isInternal = not isExternal
+
+    holo:setParent( parent )
+    holo._domain = self
+    holo._children = {}
+    holo._internal = isInternal
+
+    if type( parent ) == "Hologram" then
+        if parent._domain ~= self then error( "Cannot parent to the holo of another domain" ) end
+
+        table.insert( parent._children, holo )
+    else
+        holo._localPos = pos
+        holo._localAng = ang
+    end
+
+    if isInternal and not self:isLocalPlayerInside() then
+        holo:setNoDraw( true )
+    end
+
+    table.insert( self._holos, holo )
+
+    return holo
+end
+
+-- Sets the holo's position, local to its parent.
+function HoloDomain:setHoloPos( holo, pos )
+    if holo._isOrigin then error( "Cannot set the position of the origin holo" ) end
+
+    holo:setPos( holo:getParent():localToWorld( pos ) )
+
+    if holo._localPos then
+        holo._localPos = pos
+    end
+end
+
+-- Sets the holo's angles, local to its parent.
+function HoloDomain:setHoloAng( holo, ang )
+    if holo._isOrigin then error( "Cannot set the angles of the origin holo" ) end
+
+    holo:setAngles( holo:getParent():localToWorldAngles( ang ) )
+
+    if holo._localAng then
+        holo._localAng = ang
+    end
+end
+
+-- Sets the holo's position and angles, local to its parent.
+function HoloDomain:setHoloPosAng( holo, pos, ang )
+    if holo._isOrigin then error( "Cannot set the position or angles of the origin holo" ) end
+
+    local parent = holo:getParent()
+    local worldPos, worldAng = localToWorld( pos, ang, parent:getPos(), parent:getAngles() )
+
+    holo:setPos( worldPos )
+    holo:setAngles( worldAng )
+
+    if holo._localPos then
+        holo._localPos = pos
+        holo._localAng = ang
+    end
+end
+
+-- Removes the holo and all of its children.
+function HoloDomain:removeHolo( holo )
+    if holo._isOrigin then error( "Cannot remove the origin holo" ) end
+
+    local parent = holo:getParent()
+    local parentChildren = parent._children
+
+    if parentChildren then
+        table.removeByValue( parentChildren, holo )
+    end
+
+    removeHoloRecursive( self, holo )
+end
+
+--[[
+    - Adds a looping, url-based sound to this HoloDomain.
+    - Won't actually load until the local player enters the domain.
+
+    params: (table)
+        {
+            URL = string, -- The URL of the sound.
+            Entity = Entity, (default origin holo) -- The entity to parent the sound to.
+            Pos = Vector, (default Vector( 0, 0, 0 )) -- The position of the sound, local to the entity.
+            Volume = number, (default 1) -- The volume of the sound. 
+            Pitch = number, (default 1) -- The pitch of the sound.
+            FadeStart = number, (default 1000) -- The distance at which the sound starts to fade out.
+            FadeEnd = number, (default 20000) -- The distance at which the sound is completely silent.
+            SyncPlaytime = boolean, (default true) -- Will adjust the playtime of the sound upon loading to sync up as if it loaded instantly.
+            Callback = function( bassObj ), -- A function to call when the sound is created.
+        }
+
+    RETURNS: cancelFunc
+        - A function to cancel the sound from loading, or destroy it if it has already loaded.
+--]]
+function HoloDomain:addLoopingURLSound( params )
+    local url = params.URL
+    if type( url ) ~= "string" then error( "Expected URL to be a string" ) end
+    if not hasPermission( "bass.loadURL", url ) then return end
+
+    local startTime = timer.curtime()
+    local selfObj = self
+
+    local ent = params.Entity or self:getOriginHolo()
+    local pos = params.Pos or Vector( 0, 0, 0 )
+    local volume = params.Volume or 1
+    local pitch = params.Pitch or 1
+    local fadeStart = params.FadeStart or 1000
+    local fadeEnd = params.FadeEnd or 20000
+    local syncPlaytime = params.SyncPlaytime == nil or params.SyncPlaytime
+    local callback = params.Callback or function() end
+
+    bassIncr = bassIncr + 1
+    local bassID = bassIncr
+
+    local canceled = false
+    local timerName = self:getTimerName( "LKL_HoloDomain_LoadBass_" .. bassID )
+    local bassObj
+
+    timer.create( timerName, 0.1, 0, function()
+        if not isValid( selfObj ) then
+            timer.remove( timerName )
+
+            return
+        end
+
+        if not selfObj:isLocalPlayerInside() then return end
+
+        timer.remove( timerName )
+
+        bass.loadURL( url, "3d noblock noplay", function( x, errNum, errName )
+            bassObj = x
+
+            if canceled or not isValid( selfObj ) or not isValid( ent ) then
+                pcall( function()
+                    bassObj:stop()
+                end )
+
+                bassObj = nil
+
+                return
+            end
+
+            if not isValid( bassObj ) then
+                bassObj = nil
+                print( tostring( selfObj ) .. " bass error " .. errNum .. ": " .. errName )
+
+                return
+            end
+
+            bassObj._volume = volume
+            bassObj._ent = ent
+            bassObj._pos = pos
+
+            bassObj._setVolume = bassObj.setVolume
+            function bassObj:setVolume( vol )
+                selfObj._volume = vol
+
+                if selfObj:isLocalPlayerInside() then
+                    bassObj:_setVolume( vol )
+                end
+            end
+
+            bassObj._stop = bassObj.stop
+            function bassObj:stop()
+                if isValid( selfObj ) and selfObj._loopingBassObjs then
+                    table.removeByValue( selfObj._loopingBassObjs, bassObj )
+                end
+
+                bassObj:_stop()
+
+                function bassObj:stop() end
+            end
+
+            bassObj:_setVolume( 0 )
+            bassObj:setVolume( volume )
+            bassObj:setPitch( pitch )
+            bassObj:setFade( fadeStart, fadeEnd )
+            bassObj:setPos( ent:localToWorld( pos ) )
+            bassObj:play()
+
+            if syncPlaytime then
+                local timeSince = timer.curtime() - startTime
+                local soundDuration = bassObj:getLength() * pitch
+
+                bassObj:setTime( timeSince % soundDuration )
+            end
+
+            table.insert( selfObj._loopingBassObjs, bassObj )
+            callback( bassObj )
+        end )
+    end )
+
+    return function()
+        if canceled then return end
+
+        canceled = true
+        timer.remove( timerName )
+
+        if isValid( bassObj ) then
+            bassObj:stop()
+        end
+    end
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+--[[
+    - Handle custom animation stuff here.
+
+    time: (number)
+        - The time elapsed since the domain was created.
+    dt: (number)
+        - The time elapsed since the last frame.
+        - Note that domains do not animate while the local player is outside, so dt could be very large.
+--]]
+function HoloDomain:handleAnimation( _time, _dt )
+
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function HoloDomain:tostringInner()
+    return "ID " .. self:getID()
+end
+
+function HoloDomain:onDestroyed()
+    local holos = self._holos
+
+    for i = #holos, 1, -1 do
+        local holo = holos[i]
+
+        if isValid( holo ) then
+            holo:remove()
+        end
+
+        holos[i] = nil
+        holo._domain = nil
+        holo._children = nil
+    end
+
+    local loopingBassObjs = self._loopingBassObjs
+    self._loopingBassObjs = nil
+
+    for i = #loopingBassObjs, 1, -1 do
+        local bassObj = loopingBassObjs[i]
+
+        pcall( function()
+            bassObj:stop()
+        end )
+
+        loopingBassObjs[i] = nil
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+equalWithin = function( a, b, precision )
+    return mathAbs( a - b ) <= precision
+end
+
+tripletEqualWithin = function( a, b, precision )
+    return equalWithin( a[1], b[2], precision ) and equalWithin( a[2], b[2], precision ) and equalWithin( a[3], b[3], precision )
+end
+
+removeHoloRecursive = function( holoDomain, holo )
+    table.removeByValue( holoDomain._holos, holo )
+
+    if not isValid( holo ) then return end
+
+    local children = holo._children
+
+    for i = #children, 1, -1 do
+        removeHoloRecursive( holoDomain, children[i] )
+        children[i] = nil
+    end
+
+    holo:remove()
+end
+
+
+----- SETUP -----
+
+hook.add( "RenderScene", "LKL_HoloDomain_UpdateInsideStatus", function( eyePos )
+    for _, holoDomain in ipairs( allHoloDomains ) do
+        local originPos = holoDomain:getOriginPos()
+        local isInside = originPos:getDistance( eyePos ) <= holoDomain:getRadius()
+
+        if isInside ~= holoDomain:isLocalPlayerInside() then
+            holoDomain._localPlayerIsInside = isInside
+
+            for _, holo in ipairs( holoDomain._holos ) do
+                if isValid( holo ) then
+                    holo:setNoDraw( holo._internal ~= isInside )
+                end
+            end
+
+            for _, bassObj in ipairs( holoDomain._loopingBassObjs ) do
+                if isValid( bassObj ) then
+                    if isInside then
+                        bassObj:_setVolume( bassObj._volume )
+                    else
+                        bassObj:_setVolume( 0 )
+                    end
+                end
+            end
+        end
+    end
+end )
+
+hook.add( "think", "LKL_HoloDomain_Animate", function()
+    local now = timer.curtime()
+
+    for _, holoDomain in ipairs( allHoloDomains ) do
+        if holoDomain:isLocalPlayerInside() then
+            local timeSince = now - holoDomain:getCreationTime()
+            local dt = now - holoDomain._lastAnimTime
+
+            holoDomain:handleAnimation( timeSince, dt )
+            holoDomain._lastAnimTime = now
+        end
+    end
+end )
+
+hook.add( "think", "LKL_HoloDomain_MoveBassObjs", function()
+    for _, holoDomain in ipairs( allHoloDomains ) do
+        local loopingBassObjs = holoDomain._loopingBassObjs
+
+        for i = #loopingBassObjs, 1, -1 do
+            local bassObj = loopingBassObjs[i]
+
+            if isValid( bassObj ) then
+                local ent = bassObj._ent
+
+                if isValid( ent ) then
+                    bassObj:setPos( ent:localToWorld( bassObj._pos ) )
+                else
+                    bassObj:stop()
+                    table.remove( loopingBassObjs, i )
+                end
+            else
+                table.remove( loopingBassObjs, i )
+            end
+        end
+    end
+end )
+
+
+-- Full game updates and other rare occurences can desync client-only entities.
+timer.create( "LKL_HoloDomain_CheckForHolosDesyncing", 2, 0, function()
+    for _, holoDomain in ipairs( allHoloDomains ) do
+        for _, holo in ipairs( holoDomain._holos ) do
+            local localPos = holo._localPos
+
+            if localPos and isValid( holo ) then
+                local parent = holo:getParent()
+                local localAng = holo._localAng
+
+                if tripletEqualWithin( holo:getPos(), localPos, 1 ) and not tripletEqualWithin( parent:getPos(), VECTOR_ZERO, 1 ) then
+                    holo:setPos( parent:localToWorld( localPos ) )
+                end
+
+                if tripletEqualWithin( holo:getAngles(), parent:getAngles(), 1 ) and not tripletEqualWithin( localAng, ANGLE_ZERO, 1 ) then
+                    holo:setAngles( parent:localToWorldAngles( localAng ) )
+                end
+            end
+        end
+    end
+end )
