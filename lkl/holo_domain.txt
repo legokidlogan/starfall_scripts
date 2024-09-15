@@ -306,6 +306,7 @@ function HoloDomain:addLoopingURLSound( params )
             bassObj._volume = volume
             bassObj._ent = ent
             bassObj._pos = pos
+            bassObj._playing = true
 
             bassObj._setVolume = bassObj.setVolume
             function bassObj:setVolume( vol )
@@ -325,6 +326,18 @@ function HoloDomain:addLoopingURLSound( params )
                 bassObj:_stop()
 
                 function bassObj:stop() end
+            end
+
+            bassObj._play = bassObj.play
+            function bassObj:play()
+                bassObj._playing = true
+                bassObj:_play()
+            end
+
+            bassObj._pause = bassObj.pause
+            function bassObj:pause()
+                bassObj._playing = false
+                bassObj:_pause()
             end
 
             bassObj:_setVolume( 0 )
@@ -504,6 +517,11 @@ hook.add( "think", "LKL_HoloDomain_MoveBassObjs", function()
 
                 if isValid( ent ) then
                     bassObj:setPos( ent:localToWorld( bassObj._pos ) )
+
+                    -- Ensure stopsound and snd_restart doesn't pause the sound.
+                    if not bassObj:isPlaying() and bassObj._playing then
+                        bassObj:play()
+                    end
                 else
                     bassObj:stop()
                     table.remove( loopingBassObjs, i )
