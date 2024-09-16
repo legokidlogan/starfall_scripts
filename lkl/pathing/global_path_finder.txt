@@ -1,0 +1,804 @@
+--@name Global Path Finder
+--@author legokidlogan
+--@shared
+--@owneronly
+--@include lkl/global_data_manager.txt
+--@include lkl/pathing/path_finder.txt
+
+
+--[[
+    - Allows one chip to host a PathGraph on the owner's client while itself and other chips make
+        pathfinding requests on that graph from the server realm.
+    - Works best when the owner stays within PVS range of the area.
+--]]
+
+
+if SERVER then
+    globalPathFinder = globalPathFinder or {}
+    if globalPathFinder._alreadyLoaded then return end
+    globalPathFinder._alreadyLoaded = true
+
+    require( "lkl/global_data_manager.txt" )
+
+
+    local onReadyCallbacks = {}
+    local pfRequestCallbacks = {}
+    local pfRequestIncr = 0
+
+    local validateGlobalData
+    local getChipUID
+    local hasValidInstance
+    local setGraphVarOnOtherChip
+
+
+    ----- GLOBAL FUNCTIONS -----
+
+    --[[
+        - Creates a graph.
+        - Note that the graph will be made on the owner's client.
+            - As such, entities may not get traced correctly unless you are within PVS of the entire area.
+            - Make sure to wait until the owner's instance is initialized and ready for net messages!
+
+        graphName: (string)
+            - The name of the graph.
+        params: (table)
+            - The same params as used when creating a PathGraph.
+            - The TraceFilter param cannot be a function.
+        onReady: (optional) (function( graphName ) end)
+            - A callback for when the graph is ready.
+
+        RETURNS: status
+            status: (integer number)
+                - 0: The graph already exists and is ready.
+                - 1: A new creation request has been sent to the client.
+                - 2: The client has already been told to create the graph, but hasn't received the net message yet.
+                - 3: The graph is instantiated, but not ready.
+    --]]
+    function globalPathFinder.createGraph( graphName, params, onReady )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+        if type( params.TraceFilter ) == "function" then error( "Expected params.TraceFilter to not be a function" ) end
+
+        validateGlobalData()
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+        local chipUIDToGraphNames = GDM.OwnerData.GlobalPathFinder.ChipUIDToGraphNames
+
+        local chipInfo = graphNameToChipInfo[graphName]
+
+        if chipInfo then
+            local otherChip = chipInfo.chip
+            if hasValidInstance( otherChip ) then return chipInfo.ready and 0 or 3 end
+
+            -- Shouldn't happen, but for just in case.
+            graphNameToChipInfo[graphName] = nil
+            chipUIDToGraphNames[chipInfo.chipUID] = nil
+            GDM.pushOwnerData()
+        end
+
+        local graphCreationRequesters = GDM.OwnerData.GlobalPathFinder.GraphCreationRequesters
+        local requestingChip = graphCreationRequesters[graphName]
+        if hasValidInstance( requestingChip ) then return 2 end
+
+        onReadyCallbacks[graphName] = onReady or function() end
+
+        graphCreationRequesters[graphName] = chip()
+        GDM.pushOwnerData()
+
+        net.start( "LKL_GlobalPathFinder_CreateGraph" )
+            net.writeString( graphName )
+            net.writeTable( params )
+        net.send( owner() )
+
+        return 1
+    end
+
+    -- Destroys a graph.
+    function globalPathFinder.destroyGraph( graphName )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+
+        validateGlobalData()
+
+        local graphCreationRequesters = GDM.OwnerData.GlobalPathFinder.GraphCreationRequesters
+        local requestingChip = graphCreationRequesters[graphName]
+
+        if requestingChip then
+            graphCreationRequesters[graphName] = nil
+            GDM.pushOwnerData()
+
+            if requestingChip == chip() then
+                -- Rely on the fact that net messages are sent in order.
+                net.start( "LKL_GlobalPathFinder_DestroyGraph" )
+                    net.writeString( graphName )
+                net.send( owner() )
+
+                hookRunRemoteByOwner( owner(), "LKL_GlobalPathFinder_GraphDestroyed", graphName )
+            elseif hasValidInstance( requestingChip ) then
+                hookRunRemoteFixed( requestingChip, "LKL_GlobalPathFinder_DestroyGraph", graphName )
+            else
+                hookRunRemoteByOwner( owner(), "LKL_GlobalPathFinder_GraphDestroyed", graphName )
+            end
+
+            return
+        end
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+        local chipInfo = graphNameToChipInfo[graphName]
+        if not chipInfo then return end -- The graph doesn't exist.
+
+        local otherChip = chipInfo.chip
+
+        if otherChip ~= chip() then
+            if not hasValidInstance( otherChip ) then return end -- Shouldn't happen.
+
+            hookRunRemoteFixed( otherChip, "LKL_GlobalPathFinder_DestroyGraph", graphName )
+
+            return
+        end
+
+        local chipUIDToGraphNames = GDM.OwnerData.GlobalPathFinder.ChipUIDToGraphNames
+        local myChipUID = getChipUID( chip() )
+        local myGraphNames = chipUIDToGraphNames[myChipUID] or {}
+
+        table.removeByValue( myGraphNames, graphName )
+        graphNameToChipInfo[graphName] = nil
+        GDM.pushOwnerData()
+
+        net.start( "LKL_GlobalPathFinder_DestroyGraph" )
+            net.writeString( graphName )
+        net.send( owner() )
+
+        hookRunRemoteByOwner( owner(), "LKL_GlobalPathFinder_GraphDestroyed", graphName )
+    end
+
+    function globalPathFinder.isGraphReady( graphName )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+
+        validateGlobalData()
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+        local chipInfo = graphNameToChipInfo[graphName]
+        if not chipInfo then return false end
+
+        return chipInfo.ready
+    end
+
+    --[[
+        - Makes a pathfinding request.
+        - Note that if there's not enough bits remaining to send the path back to the server,
+            it will be streamed with the coords rounded to integer values.
+
+        graphName: (string)
+            - The name of the graph to make the request on.
+        params: (table)
+            - The same as params in pathFinder.findPath().
+            - The PathGraph param will be excluded, as it is determined by graphName.
+            - The Hueristic param will be excluded, as functions cannot be sent between chips or sf networking.
+
+        RETURNS: (cancelRequest)
+            cancelRequest: (function)
+                - Cancels the request when called.
+                - Doesn't call callback.
+    --]]
+    function globalPathFinder.findPath( graphName, params )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+
+        validateGlobalData()
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+        local chipInfo = graphNameToChipInfo[graphName]
+        if not chipInfo then error( "Graph doesn't exist" ) end
+        if not chipInfo.ready then error( "Graph isn't ready" ) end
+
+        pfRequestIncr = pfRequestIncr + 1
+        local pfRequestID = pfRequestIncr
+        local callback = params.Callback or function() end
+
+        pfRequestCallbacks[pfRequestID] = callback
+        params.Callback = nil
+        params.Hueristic = nil
+
+        local cancelRequest
+        local otherChip = chipInfo.chip
+
+        if otherChip == chip() then
+            cancelRequest = function()
+                if not pfRequestCallbacks[pfRequestID] then return end
+
+                pfRequestCallbacks[pfRequestID] = nil
+
+                net.start( "LKL_GlobalPathFinder_CancelPathRequest" )
+                    net.writeUInt( pfRequestID, 32 )
+                net.send( owner() )
+            end
+
+            net.start( "LKL_GlobalPathFinder_MakePathRequest" )
+                net.writeString( graphName )
+                net.writeUInt( pfRequestID, 32 )
+                net.writeTable( params )
+            net.send( owner() )
+        else
+            local otherPFRequestID = hookRunRemoteFixed( otherChip, "LKL_GlobalPathFinder_MakePathRequest", graphName, params, pfRequestID )[1][1]
+
+            cancelRequest = function()
+                if not pfRequestCallbacks[pfRequestID] then return end
+
+                pfRequestCallbacks[pfRequestID] = nil
+
+                if not hasValidInstance( otherChip ) then return end
+
+                hookRunRemoteFixed( otherChip, "LKL_GlobalPathFinder_CancelPathRequest", otherPFRequestID )
+            end
+        end
+
+        return cancelRequest
+    end
+
+    -- Sets the trace filter of a graph. Cannot be a function.
+    function globalPathFinder.setGraphTraceFilter( graphName, traceFilter )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+
+        traceFilter = traceFilter or {}
+
+        if type( traceFilter ) == "function" then error( "Expected traceFilter to not be a function" ) end
+
+        if type( traceFilter ) ~= "table" then
+            traceFilter = { traceFilter }
+        end
+
+        if setGraphVarOnOtherChip( graphName, "TraceFilter", traceFilter ) then return end
+
+        net.start( "LKL_GlobalPathFinder_SetGraphTraceFilter" )
+            net.writeString( graphName )
+            net.writeUInt( #traceFilter, 16 )
+
+            for _, ent in ipairs( traceFilter ) do
+                net.writeEntity( ent )
+            end
+        net.send( owner() )
+    end
+
+    -- Sets the trace mask of a graph.
+    function globalPathFinder.setGraphTraceMask( graphName, traceMask )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+
+        traceMask = traceMask or MASK.PLAYER_SOLID
+
+        if type( traceMask ) ~= "number" then error( "Expected traceMask to be a number or nil" ) end
+        if setGraphVarOnOtherChip( graphName, "TraceMask", traceMask ) then return end
+
+        net.start( "LKL_GlobalPathFinder_SetGraphTraceMask" )
+            net.writeString( graphName )
+            net.writeUInt( traceMask, 32 )
+        net.send( owner() )
+    end
+
+    -- Sets the trace collision group of a graph.
+    function globalPathFinder.setGraphTraceCollisionGroup( graphName, traceCollisionGroup )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+
+        traceCollisionGroup = traceCollisionGroup or COLLISION_GROUP.NONE
+
+        if type( traceCollisionGroup ) ~= "number" then error( "Expected traceCollisionGroup to be a number or nil" ) end
+        if setGraphVarOnOtherChip( graphName, "TraceCollisionGroup", traceCollisionGroup ) then return end
+
+        net.start( "LKL_GlobalPathFinder_SetGraphTraceCollisionGroup" )
+            net.writeString( graphName )
+            net.writeUInt( traceCollisionGroup, 32 )
+        net.send( owner() )
+    end
+
+    -- Sets the debug enabled state of a graph.
+    function globalPathFinder.setGraphDebugEnabled( graphName, debugEnabled )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+
+        debugEnabled = debugEnabled or false
+
+        if type( debugEnabled ) ~= "boolean" then error( "Expected debugEnabled to be a boolean or nil" ) end
+        if setGraphVarOnOtherChip( graphName, "DebugEnabled", debugEnabled ) then return end
+
+        net.start( "LKL_GlobalPathFinder_SetGraphDebugEnabled" )
+            net.writeString( graphName )
+            net.writeBool( debugEnabled )
+        net.send( owner() )
+    end
+
+    -- Sets the debug node limit of a graph.
+    function globalPathFinder.setGraphDebugNodeLimit( graphName, debugNodeLimit )
+        if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
+
+        debugNodeLimit = debugNodeLimit or 200
+
+        if type( debugNodeLimit ) ~= "number" then error( "Expected debugNodeLimit to be a number or nil" ) end
+        if setGraphVarOnOtherChip( graphName, "DebugNodeLimit", debugNodeLimit ) then return end
+
+        net.start( "LKL_GlobalPathFinder_SetGraphDebugNodeLimit" )
+            net.writeString( graphName )
+            net.writeUInt( debugNodeLimit, 32 )
+        net.send( owner() )
+    end
+
+
+    ----- PRIVATE FUNCTIONS -----
+
+    local hasValidated = false
+    validateGlobalData = function()
+        if hasValidated then return end
+
+        hasValidated = true
+
+        local shouldPushGDM = false
+
+
+        -- GDM
+        if not GDM.OwnerData.GlobalPathFinder then
+            GDM.OwnerData.GlobalPathFinder = {}
+            shouldPushGDM = true
+        end
+
+        if not GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo then
+            GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo = {}
+            shouldPushGDM = true
+        end
+
+        if not GDM.OwnerData.GlobalPathFinder.ChipUIDToGraphNames then
+            GDM.OwnerData.GlobalPathFinder.ChipUIDToGraphNames = {}
+            shouldPushGDM = true
+        end
+
+        if not GDM.OwnerData.GlobalPathFinder.GraphCreationRequesters then
+            GDM.OwnerData.GlobalPathFinder.GraphCreationRequesters = {}
+            shouldPushGDM = true
+        end
+
+
+        if shouldPushGDM then
+            GDM.pushOwnerData()
+        end
+    end
+
+    getChipUID = function( ent )
+        return ent:entIndex() .. "_" .. ent:getCreationTime()
+    end
+
+    hasValidInstance = function( ent )
+        return isValid( ent ) and ent.hasInstance and ent:hasInstance()
+    end
+
+    setGraphVarOnOtherChip = function( graphName, varName, ... )
+        validateGlobalData()
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+        local chipInfo = graphNameToChipInfo[graphName]
+        if not chipInfo then error( "Graph doesn't exist" ) end
+
+        local otherChip = chipInfo.chip
+        if otherChip == chip() then return false end
+
+        hookRunRemoteFixed( otherChip, "LKL_GlobalPathFinder_SetGraphVar", graphName, varName, ... )
+
+        return true
+    end
+
+
+    ----- SETUP -----
+
+    hook.add( "Remote_LKL_GlobalPathFinder_DestroyGraph", "LKL_GlobalPathFinder_DestroyGraph", function( _, callingPly, graphName )
+        if callingPly ~= owner() then return end
+
+        globalPathFinder.destroyGraph( graphName )
+    end )
+
+    hook.add( "Remote_LKL_GlobalPathFinder_MakePathRequest", "LKL_GlobalPathFinder_MakePathRequest", function( callingChip, callingPly, graphName, params, otherPFRequestID )
+        if callingPly ~= owner() then return end
+
+        local pfRequestID = pfRequestIncr + 1
+
+        params.Callback = function( path )
+            if not hasValidInstance( callingChip ) then return end
+
+            hookRunRemoteFixed( callingChip, "LKL_GlobalPathFinder_PathRequestResults", otherPFRequestID, path )
+        end
+
+        globalPathFinder.findPath( graphName, params )
+
+        return pfRequestID
+    end )
+
+    hook.add( "Remote_LKL_GlobalPathFinder_PathRequestResults", "LKL_GlobalPathFinder_PathRequestResults", function( _, callingPly, pfRequestID, path )
+        if callingPly ~= owner() then return end
+
+        local callback = pfRequestCallbacks[pfRequestID]
+        if not callback then return end
+
+        pfRequestCallbacks[pfRequestID] = nil
+        callback( path )
+    end )
+
+    hook.add( "Remote_LKL_GlobalPathFinder_CancelPathRequest", "LKL_GlobalPathFinder_CancelPathRequest", function( _, callingPly, pfRequestID )
+        if callingPly ~= owner() then return end
+
+        local callback = pfRequestCallbacks[pfRequestID]
+        if not callback then return end
+
+        pfRequestCallbacks[pfRequestID] = nil
+
+        net.start( "LKL_GlobalPathFinder_CancelPathRequest" )
+            net.writeUInt( pfRequestID, 32 )
+        net.send( owner() )
+    end )
+
+    hook.add( "Remote_LKL_GlobalPathFinder_SetGraphVar", "LKL_GlobalPathFinder_SetGraphVar", function( _, callingPly, graphName, varName, ... )
+        if callingPly ~= owner() then return end
+
+        local func = globalPathFinder["setGraph" .. varName]
+        if not func then return end
+
+        func( graphName, ... )
+    end )
+
+
+    hook.add( "Removed", "LKL_GlobalPathFinder_ScrubMyGraphs", function()
+        validateGlobalData()
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+        local chipUIDToGraphNames = GDM.OwnerData.GlobalPathFinder.ChipUIDToGraphNames
+        local graphCreationRequesters = GDM.OwnerData.GlobalPathFinder.GraphCreationRequesters
+
+        local myChipUID = getChipUID( chip() )
+        local myGraphNames = chipUIDToGraphNames[myChipUID]
+
+        chipUIDToGraphNames[myChipUID] = nil
+
+        if myGraphNames then
+            for _, graphName in ipairs( myGraphNames ) do
+                graphNameToChipInfo[graphName] = nil
+            end
+        end
+
+        for graphName in pairs( onReadyCallbacks ) do
+            graphCreationRequesters[graphName] = nil
+        end
+
+        GDM.pushOwnerData()
+
+        -- Don't need to send destroy requests to the client, since it will be cleaned up by Starfall.
+    end )
+
+    hook.add( "StarfallError", "LKL_GlobalPathFinder_ClearErroredGraphs", function( errChip, ply )
+        if errChip:getOwner() ~= owner() then return end
+
+        local isServerErr = ply == game.getWorld()
+        if not isServerErr and ply ~= owner() then return end
+
+        local chipUID = getChipUID( errChip )
+
+        validateGlobalData()
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+        local chipUIDToGraphNames = GDM.OwnerData.GlobalPathFinder.ChipUIDToGraphNames
+        local graphCreationRequesters = GDM.OwnerData.GlobalPathFinder.GraphCreationRequesters
+
+        local shouldPushGDM = false
+        local graphNames = chipUIDToGraphNames[chipUID]
+
+        if graphNames then
+            for _, graphName in ipairs( graphNames ) do
+                graphNameToChipInfo[graphName] = nil
+            end
+
+            chipUIDToGraphNames[chipUID] = nil
+            shouldPushGDM = true
+        end
+
+        for graphName, otherChip in pairs( graphCreationRequesters ) do
+            if otherChip == errChip then
+                graphCreationRequesters[graphName] = nil
+                shouldPushGDM = true
+            end
+        end
+
+        if shouldPushGDM then
+            GDM.pushOwnerData()
+        end
+    end )
+
+
+    net.receive( "LKL_GlobalPathFinder_CreateGraphAcknowledged", function( _, ply )
+        if ply ~= owner() then return end
+
+        local graphName = net.readString()
+
+        validateGlobalData()
+
+        local graphCreationRequesters = GDM.OwnerData.GlobalPathFinder.GraphCreationRequesters
+        if not graphCreationRequesters[graphName] then return end -- Destroyed before it was acknowledged.
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+        local chipUIDToGraphNames = GDM.OwnerData.GlobalPathFinder.ChipUIDToGraphNames
+
+        local myChipUID = getChipUID( chip() )
+        local myGraphNames = chipUIDToGraphNames[myChipUID]
+
+        if not myGraphNames then
+            myGraphNames = {}
+            chipUIDToGraphNames[myChipUID] = myGraphNames
+        end
+
+        table.insert( myGraphNames, graphName )
+        graphCreationRequesters[graphName] = nil
+        graphNameToChipInfo[graphName] = {
+            chip = chip(),
+            chipUID = myChipUID,
+            ready = false,
+        }
+        GDM.pushOwnerData()
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_GraphReady", function( _, ply )
+        if ply ~= owner() then return end
+
+        local graphName = net.readString()
+
+        validateGlobalData()
+
+        local graphNameToChipInfo = GDM.OwnerData.GlobalPathFinder.GraphNameToChipInfo
+
+        local chipInfo = graphNameToChipInfo[graphName]
+        if not chipInfo then return end
+        if chipInfo.chip ~= chip() then print( "[GlobalPathFinder] chip info got desynced when building graph! This shouldn't happen!" ) return end
+
+        chipInfo.ready = true
+        GDM.pushOwnerData()
+
+        onReadyCallbacks[graphName]( graphName )
+        onReadyCallbacks[graphName] = nil
+
+        hookRunRemoteByOwner( owner(), "LKL_GlobalPathFinder_GraphReady", graphName )
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_PathRequestResults", function( _, ply )
+        if ply ~= owner() then return end
+
+        local pfRequestID = net.readUInt( 32 )
+        local pathLength = net.readUInt( 32 )
+
+        local callback = pfRequestCallbacks[pfRequestID]
+        if not callback then return end
+
+        if pathLength == 0 then
+            pfRequestCallbacks[pfRequestID] = nil
+            callback( false )
+
+            return
+        end
+
+        local streamed = net.readBool()
+        local path = {}
+
+        pfRequestCallbacks[pfRequestID] = nil
+
+        if not streamed then
+            for i = 1, pathLength do
+                path[i] = net.readVector()
+            end
+
+            callback( path )
+
+            return
+        end
+
+        net.readStream( function( dataStr )
+            local pointStrs = string.split( dataStr, " " )
+
+            for i = 1, pathLength do
+                local pointParts = string.split( pointStrs[i], "," )
+                path[i] = Vector( tonumber( pointParts[1] ), tonumber( pointParts[2] ), tonumber( pointParts[3] ) )
+            end
+
+            callback( path )
+        end )
+    end )
+
+
+
+else
+    require( "lkl/pathing/path_finder.txt" )
+
+
+    local BIT_BUFFER = 300 * 8
+
+    local myGraphs = {}
+    local cancelRequestFuncs = {}
+
+
+    hook.add( "StarfallError", "LKL_GlobalPathFinder_ClearErroredGraphs", function( errChip, ply )
+        if errChip ~= chip() then return end
+
+        local isServerErr = ply == game.getWorld()
+        if not isServerErr then return end
+
+        -- Clean up graphs if the server errors without the client erroring, to free up memory and visually remove graphs with debug enabled.
+        for _, pathGraph in pairs( myGraphs ) do
+            if isValid( pathGraph ) then
+                pathGraph:destroy()
+            end
+        end
+    end )
+
+
+    net.receive( "LKL_GlobalPathFinder_CreateGraph", function()
+        local graphName = net.readString()
+        local params = net.readTable()
+
+        local oldGraph = myGraphs[graphName]
+
+        -- Shouldn't happen, but just in case.
+        if isValid( oldGraph ) then
+            oldGraph:destroy()
+        end
+
+        local pathGraph = PathGraph:new( params, function()
+            net.start( "LKL_GlobalPathFinder_GraphReady" )
+                net.writeString( graphName )
+            net.send()
+        end )
+
+        myGraphs[graphName] = pathGraph
+
+        net.start( "LKL_GlobalPathFinder_CreateGraphAcknowledged" )
+            net.writeString( graphName )
+        net.send()
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_DestroyGraph", function()
+        local graphName = net.readString()
+
+        local pathGraph = myGraphs[graphName]
+        if not pathGraph then return end
+
+        if isValid( pathGraph ) then
+            pathGraph:destroy()
+        end
+
+        myGraphs[graphName] = nil
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_MakePathRequest", function()
+        local graphName = net.readString()
+        local pfRequestID = net.readUInt( 32 )
+        local params = net.readTable()
+
+        local pathGraph = myGraphs[graphName]
+        if not pathGraph then return end
+
+        params.PathGraph = pathGraph
+        params.Callback = function( path )
+            if not path then
+                net.start( "LKL_GlobalPathFinder_PathRequestResults" )
+                    net.writeUInt( pfRequestID, 32 )
+                    net.writeUInt( 0, 32 )
+                net.send()
+
+                return
+            end
+
+            local bitsRequired = 32 + 32 + 1 + ( #path * 4 * 8 )
+
+            if net.getBitsLeft() - BIT_BUFFER > bitsRequired then
+                net.start( "LKL_GlobalPathFinder_PathRequestResults" )
+                    net.writeUInt( pfRequestID, 32 )
+                    net.writeUInt( #path, 32 )
+                    net.writeBool( false )
+
+                    for _, pos in ipairs( path ) do
+                        net.writeVector( pos )
+                    end
+                net.send()
+            else
+                local timerName = "LKL_GlobalPathFinder_PathRequestResults_" .. pfRequestID
+
+                timer.create( timerName, 0.5, 0, function()
+                    if net.isStreaming() then return end
+
+                    if not cancelRequestFuncs[pfRequestID] then
+                        timer.remove( timerName )
+
+                        return
+                    end
+
+                    net.start( "LKL_GlobalPathFinder_PathRequestResults" )
+                        net.writeUInt( pfRequestID, 32 )
+                        net.writeUInt( #path, 32 )
+                        net.writeBool( true )
+
+                        local dataStr = ""
+
+                        for _, point in ipairs( path ) do
+                            -- Can't use string.format( "%i" ) because it rounds/truncates differently based on the OS.
+                            dataStr = dataStr ..
+                                math.round( point[1] ) .. "," ..
+                                math.round( point[2] ) .. "," ..
+                                math.round( point[3] ) .. " "
+                        end
+
+                        -- Don't need to worry about the trailing space since the server will use the path length, not ipairs on the split string.
+
+                        net.writeStream( dataStr, false )
+                    net.send()
+                end )
+            end
+        end
+
+        cancelRequestFuncs[pfRequestID] = pathFinder.findPath( params )
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_CancelPathRequest", function()
+        local pfRequestID = net.readUInt( 32 )
+
+        local cancelRequest = cancelRequestFuncs[pfRequestID]
+        if not cancelRequest then return end
+
+        cancelRequestFuncs[pfRequestID] = nil
+        cancelRequest()
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_SetGraphTraceFilter", function()
+        local graphName = net.readString()
+        local traceFilterLength = net.readUInt( 16 )
+
+        local traceFilter = {}
+
+        for _ = 1, traceFilterLength do
+            local ent = net.readEntity()
+
+            if isValid( ent ) then
+                table.insert( traceFilter, ent )
+            end
+        end
+
+        local pathGraph = myGraphs[graphName]
+        if not pathGraph then return end
+
+        pathGraph:setTraceFilter( traceFilter )
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_SetGraphTraceMask", function()
+        local graphName = net.readString()
+        local traceMask = net.readUInt( 32 )
+
+        local pathGraph = myGraphs[graphName]
+        if not pathGraph then return end
+
+        pathGraph:setTraceMask( traceMask )
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_SetGraphTraceCollisionGroup", function()
+        local graphName = net.readString()
+        local traceCollisionGroup = net.readUInt( 32 )
+
+        local pathGraph = myGraphs[graphName]
+        if not pathGraph then return end
+
+        pathGraph:setTraceCollisionGroup( traceCollisionGroup )
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_SetGraphDebugEnabled", function()
+        local graphName = net.readString()
+        local debugEnabled = net.readBool()
+
+        local pathGraph = myGraphs[graphName]
+        if not pathGraph then return end
+
+        pathGraph:setDebugEnabled( debugEnabled )
+    end )
+
+    net.receive( "LKL_GlobalPathFinder_SetGraphDebugNodeLimit", function()
+        local graphName = net.readString()
+        local debugNodeLimit = net.readUInt( 32 )
+
+        local pathGraph = myGraphs[graphName]
+        if not pathGraph then return end
+
+        pathGraph:setDebugNodeLimit( debugNodeLimit )
+    end )
+end

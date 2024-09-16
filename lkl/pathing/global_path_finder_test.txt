@@ -1,0 +1,99 @@
+--@name Global Path Finder Test
+--@author legokidlogan
+--@shared
+--@owneronly
+--@include lkl/pathing/global_path_finder.txt
+
+require( "lkl/pathing/global_path_finder.txt" )
+
+if CLIENT then return end
+
+
+local myColor = Color( math.random( 0, 255 ), math.random( 0, 255 ), math.random( 0, 255 ), 255 )
+local myColorFaded = Color( myColor.r, myColor.g, myColor.b, 100 )
+
+
+local _print = print
+print = function( ... )
+    _print( myColor, "Entity[" .. chip():entIndex() .. "] ", ... )
+end
+
+local function makeTempHolo( pos, ang, scale, lifetime, color )
+    local holo = hologram.create( pos, ang, "models/hunter/blocks/cube025x025x025.mdl", scale )
+    holo:setMaterial( "model_color" )
+
+    if color then
+        holo:setColor( color )
+    end
+
+    timer.simple( lifetime, function()
+        if not isValid( holo ) then return end
+
+        holo:remove()
+    end )
+
+    return holo
+end
+
+
+timer.simple( 2, function()
+    local result = globalPathFinder.createGraph(
+        "test1",
+        {
+            Center = chip():getPos(),
+            Size = Vector( 2000, 2000, 2000 ),
+            DebugEnabled = true,
+        },
+        function()
+        end
+    )
+
+    print( "create( test1 ): " .. result )
+end )
+
+timer.simple( 5, function()
+    --error( "e" )
+
+    --globalPathFinder.destroyGraph( "test1" )
+
+    if globalPathFinder.isGraphReady( "test1" ) then
+        globalPathFinder.findPath( "test1", {
+            StartPos = chip():getPos() + Vector( 100, 0, 0 ),
+            EndPos = chip():getPos() + Vector( -100, 0, 0 ),
+            Callback = function( path )
+                if not path then
+                    print( "no path" )
+                    return
+                end
+    
+                for _, point in ipairs( path ) do
+                    makeTempHolo( point, Angle(), nil, 4, myColorFaded )
+                end
+            end,
+        } )
+    end
+
+    --globalPathFinder.setGraphDebugEnabled( "test1", false )
+end )
+
+hook.add( "Remote_LKL_GlobalPathFinder_GraphReady", "test", function( _, callingPly, graphName )
+    if callingPly ~= owner() then return end
+    if graphName ~= "test1" then return end
+
+    globalPathFinder.findPath( "test1", {
+        StartPos = chip():getPos(),
+        EndPos = chip():getPos() + Vector( 1000, 0, 0 ),
+        Callback = function( path )
+            if not path then
+                print( "no path" )
+                return
+            end
+
+            for _, point in ipairs( path ) do
+                makeTempHolo( point, Angle(), nil, 4, myColorFaded )
+            end
+        end,
+    } )
+end )
+
+
