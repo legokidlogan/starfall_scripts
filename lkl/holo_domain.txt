@@ -58,7 +58,6 @@ function HoloDomain:initialize( base, radius, originPos, originAng )
     self._radius = radius
     self._holos = {}
     self._loopingBassObjs = {}
-    self._localPlayerIsInside = false
     self._playerInsideStates = {}
     self._creationTime = timer.curtime()
     self._lastInsideAnimTime = timer.curtime()
@@ -427,8 +426,10 @@ end
 
     ply: (Player)
         - The player that entered the domain.
+    fromStartup: (boolean)
+        - True if this was triggered due to the chip starting or the player joining the server.
 --]]
-function HoloDomain:onPlayerEntered( _ply )
+function HoloDomain:onPlayerEntered( _ply, _fromStartup )
 
 end
 
@@ -438,8 +439,10 @@ end
 
     ply: (Player)
         - The player that exited the domain.
+    fromStartup: (boolean)
+        - True if this was triggered due to the chip starting or the player leaving the server.
 --]]
-function HoloDomain:onPlayerExited( _ply )
+function HoloDomain:onPlayerExited( _ply, _fromStartup )
 
 end
 
@@ -517,15 +520,16 @@ detectOtherPlayers = function( holoDomain, doRunEvents )
 
         local eyePos = ply:getEyePos()
         local isInside = originPos:getDistance( eyePos ) <= radius
+        local wasInside = states[ply]
 
-        if isInside ~= states[ply] then
+        if isInside ~= wasInside then
             states[ply] = isInside
 
             if doRunEvents then
                 if isInside then
-                    holoDomain:onPlayerEntered( ply )
+                    holoDomain:onPlayerEntered( ply, wasInside == nil )
                 else
-                    holoDomain:onPlayerExited( ply )
+                    holoDomain:onPlayerExited( ply, wasInside == nil )
                 end
             end
         end
@@ -539,8 +543,9 @@ hook.add( "RenderScene", "LKL_HoloDomain_UpdateInsideStatus", function( eyePos )
     for _, holoDomain in ipairs( allHoloDomains ) do
         local originPos = holoDomain:getOriginPos()
         local isInside = originPos:getDistance( eyePos ) <= holoDomain:getRadius()
+        local wasInside = holoDomain._localPlayerIsInside
 
-        if isInside ~= holoDomain:isLocalPlayerInside() then
+        if isInside ~= wasInside then
             holoDomain._localPlayerIsInside = isInside
             holoDomain._playerInsideStates[player()] = isInside
 
@@ -561,9 +566,9 @@ hook.add( "RenderScene", "LKL_HoloDomain_UpdateInsideStatus", function( eyePos )
             end
 
             if isInside then
-                holoDomain:onPlayerEntered( player() )
+                holoDomain:onPlayerEntered( player(), wasInside == nil )
             else
-                holoDomain:onPlayerExited( player() )
+                holoDomain:onPlayerExited( player(), wasInside == nil )
             end
         end
     end
