@@ -6,6 +6,7 @@
 
 pathFinder = pathFinder or {}
 if pathFinder._alreadyLoaded then return end
+pathFinder._alreadyLoaded = true
 
 
 -- CONFIG DEFAULTS:
