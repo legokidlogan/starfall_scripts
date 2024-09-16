@@ -53,6 +53,9 @@ local finishPathFindingRequest
 --]]
 function pathFinder.findPath( params )
     local pathGraph = params.PathGraph
+    if not isValid( pathGraph ) then error( "Expected pathGraph to be valid" ) end
+    if not pathGraph:isReady() then error( "pathGraph is not ready yet" ) end
+
     local startNode = pathGraph:findNode( params.StartPos )
     local endNode = pathGraph:findNode( params.EndPos )
     local callback = params.Callback
