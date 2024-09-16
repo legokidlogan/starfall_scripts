@@ -59,7 +59,7 @@ local finishNodeQueue
 
             -- Trace:
                 TraceFilter = Entity or table or function, (defaults to chip()) -- The trace filter.
-                TraceMask = number, (defaults to MASK.PLAYER_SOLID) -- The trace mask.
+                TraceMask = number, (defaults to MASK.PLAYERSOLID) -- The trace mask.
                 TraceCollisionGroup = number, (defaults to COLLISION_GROUP.NONE) -- The trace collision group.
 
             -- Spatial Partition:
@@ -111,7 +111,7 @@ function PathGraph:initialize( params, onReady )
     local nodeAdjacencyHeight = params.NodeAdjacencyHeight or ( nodeHeight / 2 )
 
     local traceFilter = params.TraceFilter or chip()
-    local traceMask = params.TraceMask or MASK.PLAYER_SOLID
+    local traceMask = params.TraceMask or MASK.PLAYERSOLID
     local traceCollisionGroup = params.TraceCollisionGroup or COLLISION_GROUP.NONE
 
     start = trace.line( start, start + Vector( 0, 0, -50000 ), traceFilter, traceMask, traceCollisionGroup ).HitPos + Vector( 0, 0, nodeHoverHeight + nodeWidth )

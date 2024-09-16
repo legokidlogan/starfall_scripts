@@ -261,7 +261,7 @@ if SERVER then
     function globalPathFinder.setGraphTraceMask( graphName, traceMask )
         if type( graphName ) ~= "string" then error( "Expected graphName to be a string" ) end
 
-        traceMask = traceMask or MASK.PLAYER_SOLID
+        traceMask = traceMask or MASK.PLAYERSOLID
 
         if type( traceMask ) ~= "number" then error( "Expected traceMask to be a number or nil" ) end
         if setGraphVarOnOtherChip( graphName, "TraceMask", traceMask ) then return end
