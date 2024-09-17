@@ -22,7 +22,7 @@ require( "lkl/gcolors.txt" )
 
 local data = nil
 local dataIsReady = false
-local versionID = "v2"
+local versionID = "v3"
 local hasSentReadyHook = false
 local acknowledgementTimeout = 5
 
@@ -868,9 +868,20 @@ local function generateMapData()
     -- Use a subset of the soundscape entities to get more bounce origins, in case the spawn points are in a separate, teleport-only area.
     local soundscapeEnts = find.byClass( "env_soundscape*" )
 
-    for i = 1, math.min( #soundscapeEnts, 20 ) do
+    for i = 1, math.min( #soundscapeEnts, 10 ) do
         local soundscapeEnt = soundscapeEnts[i]
         local pos = soundscapeEnt:getPos()
+
+        expandPlayableRegion( pos )
+        addOriginToPlayableRegionBounces( pos )
+    end
+
+    -- Subset of info_teleport_destination entities.
+    local teleportDestEnts = find.byClass( "info_teleport_destination" )
+
+    for i = 1, math.min( #teleportDestEnts, 10 ) do
+        local teleportDestEnt = teleportDestEnts[i]
+        local pos = teleportDestEnt:getPos()
 
         expandPlayableRegion( pos )
         addOriginToPlayableRegionBounces( pos )
