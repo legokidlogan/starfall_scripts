@@ -391,6 +391,8 @@ local function startCreatingMesh()
 end
 
 local function tryAddSkyboxBrushIntoWorld( surface, surfaceInd, verts, vertCount )
+    if not MAP_HAS_SKYBOX then return end
+
     local worldVerts = {}
     local surfaceCenter = Vector()
 
