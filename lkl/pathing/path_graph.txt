@@ -92,10 +92,10 @@ function PathGraph:initialize( params, onReady )
         start = params.Start or center
     else
         minBounds = params.MinBounds
-        if type( size ) ~= "Vector" then error( "Expected params.MinBounds to be a Vector" ) end
+        if type( minBounds ) ~= "Vector" then error( "Expected params.MinBounds to be a Vector" ) end
 
         maxBounds = params.MaxBounds
-        if type( size ) ~= "Vector" then error( "Expected params.MaxBounds to be a Vector" ) end
+        if type( maxBounds ) ~= "Vector" then error( "Expected params.MaxBounds to be a Vector" ) end
 
         minBounds, maxBounds = vectorMath.getMinMaxPiecewise( minBounds, maxBounds ) -- Just in case.
         start = params.Start or ( minBounds + maxBounds ) / 2
