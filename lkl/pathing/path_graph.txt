@@ -3,11 +3,13 @@
 --@shared
 --@include lkl/destroyable.txt
 --@include lkl/math/spatial_partition.txt
+--@include lkl/math/vector_math.txt
 
 if PathGraph then return end
 
 require( "lkl/destroyable.txt" )
 require( "lkl/math/spatial_partition.txt" )
+require( "lkl/math/vector_math.txt" )
 
 
 PathGraph = class( "PathGraph", Destroyable )
