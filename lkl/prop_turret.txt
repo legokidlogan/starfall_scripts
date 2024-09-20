@@ -934,6 +934,7 @@ function PropTurret:targetFilter( ent )
 
     if self:doesTargetNPCs() then
         if not ent.isNPC or not ent:isNPC() then return false end
+        if ent:getNoDraw() then return false end
 
         return true
     end
