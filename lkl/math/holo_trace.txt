@@ -72,6 +72,26 @@ local getNearbyHolos
 --]]
 function holoTrace.traceLine( startPos, endPos, filter )
     local holos = getTraceableHolos( filter )
+
+    return holoTrace.traceLineDirect( startPos, endPos, holos )
+end
+
+--[[
+    - Identical to holoTrace.traceLine(), but you specify the list of holograms to trace, instead of what to ignore.
+    - This allows clientside holos to be traced.
+
+    startPos: (Vector)
+        - The starting position for the trace line.
+    endPos: (Vector)
+        - The ending position for the trace line.
+    holos: (table)
+        - A list of holograms to trace.
+
+    RETURNS: traceResults
+        traceResults: (table)
+            - Identical to the traceResults returned by holoTrace.traceLine().
+--]]
+function holoTrace.traceLineDirect( startPos, endPos, holos )
     local startToEnd = endPos - startPos
     if startToEnd == VECTOR_ZERO then return traceZeroLength( startPos, holos ) end
 
