@@ -97,7 +97,7 @@ else
             for _, ent in ipairs( extraEntList ) do
                 if isValid( ent ) then
                     count = count + 1
-                    combinedEnts[count] = ent
+                    combinedProps[count] = ent
                 end
             end
         end
