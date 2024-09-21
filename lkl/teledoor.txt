@@ -210,10 +210,15 @@ hook.add( "KeyPress", "LKL_TeleDoor_UseDoor", function( ply, key )
 
     if not isValid( ent ) then return end
 
-    local ind = doorMap[ent]
-
+    local ind = hook.run( "LKL_TeleDoor_SelectDoorInd", ply, tr ) or doorMap[ent]
     if not ind then return end
-    if tr.StartPos:getDistanceSqr( tr.HitPos ) > useRangeSqr then return end
+
+    if
+        not hook.run( "LKL_TeleDoor_IgnoreUseRange", ply, tr, ind ) and
+        tr.StartPos:getDistanceSqr( tr.HitPos ) > useRangeSqr
+      then
+        return
+    end
 
     chair.teledoorTargetInd = ind
     chair:setPos( ply:getEyePos() + ply:getEyeAngles():getForward() * 10 + doorOffsetPos )
