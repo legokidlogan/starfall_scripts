@@ -480,6 +480,8 @@ function HoloDomain:onDestroyed()
 
         loopingBassObjs[i] = nil
     end
+
+    table.removeByValue( allHoloDomains, self )
 end
 
 
