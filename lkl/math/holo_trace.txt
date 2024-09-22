@@ -289,7 +289,7 @@ traceZeroLength = function( startPos, holos )
     local holosInsideOfCount = 0
 
     for _, holo in ipairs( holos ) do
-        if startPos:withinAABox( getScaledRotatedWorldSpaceAABB( holo ) ) then
+        if isValid( holo ) and startPos:withinAABox( getScaledRotatedWorldSpaceAABB( holo ) ) then
             holosInsideOfCount = holosInsideOfCount + 1
             holosInsideOf[holosInsideOfCount] = holo
         end
