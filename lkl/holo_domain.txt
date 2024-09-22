@@ -637,14 +637,17 @@ timer.create( "LKL_HoloDomain_CheckForHolosDesyncing", 2, 0, function()
 
             if localPos and isValid( holo ) then
                 local parent = holo:getParent()
-                local localAng = holo._localAng
 
-                if tripletEqualWithin( holo:getPos(), localPos, 1 ) and not tripletEqualWithin( parent:getPos(), VECTOR_ZERO, 1 ) then
-                    holo:setPos( parent:localToWorld( localPos ) )
-                end
+                if isValid( parent ) then
+                    local localAng = holo._localAng
 
-                if tripletEqualWithin( holo:getAngles(), parent:getAngles(), 1 ) and not tripletEqualWithin( localAng, ANGLE_ZERO, 1 ) then
-                    holo:setAngles( parent:localToWorldAngles( localAng ) )
+                    if tripletEqualWithin( holo:getPos(), localPos, 1 ) and not tripletEqualWithin( parent:getPos(), VECTOR_ZERO, 1 ) then
+                        holo:setPos( parent:localToWorld( localPos ) )
+                    end
+
+                    if tripletEqualWithin( holo:getAngles(), parent:getAngles(), 1 ) and not tripletEqualWithin( localAng, ANGLE_ZERO, 1 ) then
+                        holo:setAngles( parent:localToWorldAngles( localAng ) )
+                    end
                 end
             end
         end
