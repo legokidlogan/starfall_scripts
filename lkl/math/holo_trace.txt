@@ -335,17 +335,19 @@ getNearbyHolos = function( holos, startPos, endPos, traceDir, traceLength )
             if not success then continue end
         end
 
-        local holoCenter = getScaledRotatedOBBCenterW( holo )
-        local holoRadius = getScaledBoundingRadius( holo )
-        local closestPoint = vectorMath.closestPointOnLine( holoCenter, startPos, traceDir )
+        if isValid( holo ) then
+            local holoCenter = getScaledRotatedOBBCenterW( holo )
+            local holoRadius = getScaledBoundingRadius( holo )
+            local closestPoint = vectorMath.closestPointOnLine( holoCenter, startPos, traceDir )
 
-        local canAdd =
-            closestPoint:getDistanceSqr( holoCenter ) <= holoRadius * holoRadius and -- Is the holo close to the line?
-            closestPoint:getDistanceSqr( traceMidPoint ) <= ( traceLengthHalf + holoRadius ) ^ 2 -- Is the holo within the length of the line segment?
+            local canAdd =
+                closestPoint:getDistanceSqr( holoCenter ) <= holoRadius * holoRadius and -- Is the holo close to the line?
+                closestPoint:getDistanceSqr( traceMidPoint ) <= ( traceLengthHalf + holoRadius ) ^ 2 -- Is the holo within the length of the line segment?
 
-        if canAdd then
-            nearbyHoloCount = nearbyHoloCount + 1
-            nearbyHolos[nearbyHoloCount] = holo
+            if canAdd then
+                nearbyHoloCount = nearbyHoloCount + 1
+                nearbyHolos[nearbyHoloCount] = holo
+            end
         end
     end
 
