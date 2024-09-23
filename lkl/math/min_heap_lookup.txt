@@ -1,7 +1,7 @@
 --@name Min Heap Lookup
 --@author legokidlogan
 --@shared
---@include lkl/min_heap.txt
+--@include lkl/math/min_heap.txt
 
 --[[
     - Similar to MinHeap, but allows for O(1) retreival of an item's index.
@@ -11,7 +11,7 @@
 
 if MinHeapLookup then return end
 
-require( "lkl/min_heap.txt" )
+require( "lkl/math/min_heap.txt" )
 
 MinHeapLookup = class( "MinHeapLookup", MinHeap )
 
