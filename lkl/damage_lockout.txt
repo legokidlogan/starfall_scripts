@@ -1,0 +1,252 @@
+--@name Damage Lockout
+--@author legokidlogan
+--@shared
+--@owneronly
+
+-- For use with CFC PvP, which prevents entity spawning if you recently took damage.
+-- This simply mimics the lockout, to provide an indicator of when it is in effect.
+
+
+damageLockout = damageLockout or {}
+if damageLockout._alreadyLoaded then return end
+damageLockout._alreadyLoaded = true
+
+
+-- CONFIG DEFAULTS:
+damageLockout.PRINT_STATUS = damageLockout.PRINT_STATUS or false
+damageLockout.SHOW_CROSSHAIR = damageLockout.SHOW_CROSSHAIR or false
+if damageLockout.CROSSHAIR_FANCY == nil then damageLockout.CROSSHAIR_FANCY = true end
+damageLockout.CROSSHAIR_COLOR = damageLockout.CROSSHAIR_COLOR or Color( 255, 0, 0, 255 )
+damageLockout.CROSSHAIR_BACKGROUND_COLOR = damageLockout.CROSSHAIR_BACKGROUND_COLOR or Color( 255, 0, 0, 50 )
+damageLockout.CROSSHAIR_RADIUS = damageLockout.CROSSHAIR_RADIUS or 11
+damageLockout.CROSSHAIR_WIDTH_BONUS = damageLockout.CROSSHAIR_WIDTH_BONUS or 1
+damageLockout.CROSSHAIR_THICKNESS = damageLockout.CROSSHAIR_THICKNESS or 1
+-- END CONFIG DEFAULTS
+
+
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+local COLOR_RED = Color( 255, 0, 0, 255 )
+local COLOR_GREEN = Color( 0, 255, 0, 255 )
+
+local DIR_RIGHT = 1
+local DIR_LEFT = 2
+local DIR_DOWN = 3
+local DIR_UP = 4
+
+local lockedOut = false
+local lockoutDuration = 5
+
+-- Starfall doesn't give a PostEntityTakeDamage hook, and some weapons deal damage that they immediately block, so they have to be handled accordingly.
+local ignoredInflictorClasses = {
+    ["cfc_simple_ent_antigrav_grenade"] = true,
+    ["cfc_simple_ent_curse_grenade"] = true,
+    ["cfc_simple_ent_discombob"] = true,
+}
+
+local fancyCrosshairSegments = {
+    { x1 = 0.5, y1 = 0, x2 = 0, y2 = 0, tLength = 0.125, topLeftX = 0, topLeftY = 0, rectLength = 0.5, expandDir = DIR_LEFT, thicknessDir = DIR_DOWN },
+    { x1 = 0, y1 = 0, x2 = 0, y2 = 1, tLength = 0.25, topLeftX = 0, topLeftY = 0, rectLength = 1, expandDir = DIR_DOWN, thicknessDir = DIR_RIGHT },
+    { x1 = 0, y1 = 1, x2 = 1, y2 = 1, tLength = 0.25, topLeftX = 0, topLeftY = 1, rectLength = 1, expandDir = DIR_RIGHT, thicknessDir = DIR_UP },
+    { x1 = 1, y1 = 1, x2 = 1, y2 = 0, tLength = 0.25, topLeftX = 1, topLeftY = 0, rectLength = 1, expandDir = DIR_UP, thicknessDir = DIR_LEFT },
+    { x1 = 1, y1 = 0, x2 = 0.5, y2 = 0, tLength = 0.125, topLeftX = 0.5, topLeftY = 0, rectLength = 0.5, expandDir = DIR_LEFT, thicknessDir = DIR_DOWN },
+}
+
+
+
+----- GLOBAL FUNCTIONS -----
+
+function damageLockout.isLockedOut()
+    return lockedOut
+end
+
+
+----- SETUP -----
+
+if SERVER then
+    local function endLockout()
+        lockedOut = false
+
+        if damageLockout.PRINT_STATUS then
+            print(
+                COLOR_WHITE, "[DamageLockout] ",
+                COLOR_GREEN, "Lockout has ended."
+            )
+        end
+
+        net.start( "LKL_DamageLockout_LockoutEnd" )
+        net.send( owner() )
+
+        hook.run( "LKL_DamageLockout_LockoutEnded" )
+    end
+
+
+    hook.add( "EntityTakeDamage", "LKL_DamageLockout_DetectLockout", function( victim, attacker, inflictor, _, dmgType )
+        if victim ~= owner() then return end
+        if bit.band( dmgType, DAMAGE.FALL ) ~= 0 then return end
+        if victim:isInBuild() then return end
+
+        if not isValid( inflictor ) and isValid( attacker ) and attacker:isPlayer() then
+            inflictor = attacker:getActiveWeapon()
+        end
+
+        if isValid( inflictor ) and ignoredInflictorClasses[inflictor:getClass()] then return end
+
+        if not lockedOut and damageLockout.PRINT_STATUS then
+            print(
+                COLOR_WHITE, "[DamageLockout] ",
+                COLOR_RED, "Lockout is in effect."
+            )
+        end
+
+        lockedOut = true
+
+        net.start( "LKL_DamageLockout_LockoutStart" )
+        net.writeFloat( timer.curtime() )
+        net.send( owner() )
+
+        timer.create( "LKL_DamageLockout_LockoutEnd", lockoutDuration, 1, endLockout )
+
+        hook.run( "LKL_DamageLockout_LockoutStarted" )
+    end )
+
+    hook.add( "PlayerSpawn", "LKL_DamageLockout_ResetLockout", function( ply )
+        if ply ~= owner() then return end
+        if not lockedOut then return end
+
+        timer.remove( "LKL_DamageLockout_LockoutEnd" )
+        endLockout()
+    end )
+else
+    local scrW, scrH = render.getGameResolution()
+    local scrWH, scrHH = scrW / 2, scrH / 2
+    local lockoutStartTime = 0
+
+
+    local function drawFancyCrosshair( t )
+        if t == 0 then return end
+
+        local cRadius = damageLockout.CROSSHAIR_RADIUS
+        local cWidthBonus = damageLockout.CROSSHAIR_WIDTH_BONUS
+        local cThickness = damageLockout.CROSSHAIR_THICKNESS
+
+        local cWidth = cRadius * 2 + cWidthBonus
+        local ctlX, ctlY = scrWH - cRadius, scrHH - cRadius
+
+        if t == 1 then
+            render.setColor( damageLockout.CROSSHAIR_COLOR )
+            render.drawRectOutline( ctlX, ctlY, cWidth, cWidth, cThickness )
+
+            return
+        end
+
+        render.setColor( damageLockout.CROSSHAIR_BACKGROUND_COLOR )
+        render.drawRectOutline( ctlX, ctlY, cWidth, cWidth, cThickness )
+
+        render.setColor( damageLockout.CROSSHAIR_COLOR )
+
+        if cThickness == 1 then
+            -- Lines
+            for _, segment in ipairs( fancyCrosshairSegments ) do
+                local tLength = segment.tLength
+                local tAfter = t - tLength
+
+                local x1, x2, y1, y2 = segment.x1, segment.x2, segment.y1, segment.y2
+
+                if tAfter >= 0 then
+                    render.drawLine( ctlX + x1 * cWidth, ctlY + y1 * cWidth, ctlX + x2 * cWidth, ctlY + y2 * cWidth )
+
+                    if tAfter == 0 then break end
+                else
+                    local length = cWidth * t / tLength
+                    local xStart = ctlX + x1 * cWidth
+                    local yStart = ctlY + y1 * cWidth
+
+                    render.drawLine( xStart, yStart, xStart + ( x2 - x1 ) * length, yStart + ( y2 - y1 ) * length )
+
+                    break
+                end
+
+                t = tAfter
+            end
+        else
+            -- Rectangles
+            for _, segment in ipairs( fancyCrosshairSegments ) do
+                local tLength = segment.tLength
+                local tAfter = t - tLength
+
+                local x = ctlX + segment.topLeftX * cWidth
+                local y = ctlY + segment.topLeftY * cWidth
+                local rectLength = segment.rectLength * cWidth
+                local expandDir = segment.expandDir
+                local thicknessDir = segment.thicknessDir
+
+                local frac = math.min( t / tLength, 1 )
+                local length = frac * rectLength
+                local width = 0
+                local height = 0
+
+                if expandDir == DIR_RIGHT then
+                    width = length
+                elseif expandDir == DIR_LEFT then
+                    x = x + ( 1 - frac ) * rectLength
+                    width = length
+                elseif expandDir == DIR_DOWN then
+                    height = length
+                elseif expandDir == DIR_UP then
+                    y = y + ( 1 - frac ) * rectLength
+                    height = length
+                end
+
+                if thicknessDir == DIR_RIGHT then
+                    width = width + cThickness
+                elseif thicknessDir == DIR_LEFT then
+                    x = x - cThickness
+                    width = width + cThickness
+                elseif thicknessDir == DIR_DOWN then
+                    height = height + cThickness
+                elseif thicknessDir == DIR_UP then
+                    y = y - cThickness
+                    height = height + cThickness
+                end
+
+                render.drawRect( x, y, width, height )
+
+                if tAfter <= 0 then break end
+
+                t = tAfter
+            end
+        end
+    end
+
+
+    hook.add( "drawhud", "LKL_DamageLockout_DrawCrosshair", function()
+        if not lockedOut then return end
+        if player():isInBuild() then return end
+        if not damageLockout.SHOW_CROSSHAIR then return end
+
+        if damageLockout.CROSSHAIR_FANCY then
+            local elapsed = timer.curtime() - lockoutStartTime
+
+            drawFancyCrosshair( 1 - ( elapsed / lockoutDuration ) )
+            return
+        end
+
+        local radius = damageLockout.CROSSHAIR_RADIUS
+        local width = radius * 2 + damageLockout.CROSSHAIR_WIDTH_BONUS
+
+        render.setColor( damageLockout.CROSSHAIR_COLOR )
+        render.drawRectOutline( scrWH - radius, scrHH - radius, width, width, damageLockout.CROSSHAIR_THICKNESS )
+    end )
+
+
+    net.receive( "LKL_DamageLockout_LockoutStart", function()
+        lockedOut = true
+        lockoutStartTime = net.readFloat()
+        hook.run( "LKL_DamageLockout_LockoutStarted" )
+    end )
+
+    net.receive( "LKL_DamageLockout_LockoutEnd", function()
+        lockedOut = false
+        hook.run( "LKL_DamageLockout_LockoutEnded" )
+    end )
+end

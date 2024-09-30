@@ -1,0 +1,13 @@
+--@name Damage Lockout Indicator
+--@author legokidlogan
+--@shared
+--@include lkl/damage_lockout.txt
+
+if CLIENT and player() ~= owner() then return end
+
+if not pvp then return end
+
+require( "lkl/damage_lockout.txt" )
+
+
+damageLockout.SHOW_CROSSHAIR = true
