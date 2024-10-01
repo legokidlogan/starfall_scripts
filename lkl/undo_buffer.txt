@@ -22,6 +22,7 @@ local offsetBufferPropRadially
 
 
 -- CONFIG: -----------------------------------------------------------------
+local refreshCommand = "/ubr" -- Chat command for removing the buffer props and respawning them.
 local centerMaterial = "model_color"
 local centerColor = Color( 255, 255, 255, 255 )
 local bufferModel = "models/hunter/geometric/hex1x1.mdl"
@@ -461,6 +462,19 @@ hook.add( "KeyPress", "LKL_UndoBuffer_TogglePause", function( ply, key )
     if tr.HitPos:getDistanceSqr( tr.StartPos ) > 500^2 then return end
 
     animIsUsePaused = not animIsUsePaused
+end )
+
+hook.add( "PlayerSay", "LKL_UndoBuffer_Refresh", function( ply, msg )
+    if ply ~= owner() then return end
+    if msg ~= refreshCommand then return end
+
+    for _, ent in pairs( bufferProps ) do
+        if isValid( ent ) then
+            ent:remove()
+        end
+    end
+
+    return ""
 end )
 
 
