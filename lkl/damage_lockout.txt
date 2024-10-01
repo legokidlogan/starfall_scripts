@@ -228,6 +228,7 @@ else
             local elapsed = timer.curtime() - lockoutStartTime
 
             drawFancyCrosshair( 1 - ( elapsed / lockoutDuration ) )
+
             return
         end
 
