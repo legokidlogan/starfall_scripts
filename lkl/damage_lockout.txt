@@ -132,7 +132,7 @@ else
         local cWidth = cRadius * 2 + cWidthBonus
         local ctlX, ctlY = scrWH - cRadius, scrHH - cRadius
 
-        if t == 1 then
+        if t >= 1 then
             render.setColor( damageLockout.CROSSHAIR_COLOR )
             render.drawRectOutline( ctlX, ctlY, cWidth, cWidth, cThickness )
 
