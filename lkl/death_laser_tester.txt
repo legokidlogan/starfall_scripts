@@ -10,6 +10,18 @@ local baseEnt = prop.create( chip():getPos() + Vector( 0, 0, 150 ), Angle(), "mo
 local deathLaser = DeathLaser:new( baseEnt )
 
 
+local _makeTargetFilter = DeathLaser.makeTargetFilter
+function DeathLaser:makeTargetFilter()
+    local filter = _makeTargetFilter( self )
+
+    return function( ent )
+        if ent == owner() then return false end
+
+        return filter( ent )
+    end
+end
+
+
 hook.add( "KeyPress", "TEST", function( ply, key )
     if ply ~= owner() then return end
     if key ~= IN_KEY.USE then return end
