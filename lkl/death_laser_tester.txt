@@ -6,7 +6,9 @@
 require( "lkl/death_laser.txt" )
 
 
-local baseEnt = prop.create( chip():getPos() + Vector( 0, 0, 150 ), Angle(), "models/hunter/blocks/cube025x025x025.mdl", true )
+local baseEnt = prop.create( chip():getPos() + Vector( 0, 0, 150 ), Angle(), "models/hunter/blocks/cube05x05x05.mdl", true )
+baseEnt:setMass( 1000 )
+
 local deathLaser = DeathLaser:new( baseEnt )
 
 
