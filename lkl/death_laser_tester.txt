@@ -10,6 +10,14 @@ local baseEnt = prop.create( chip():getPos() + Vector( 0, 0, 150 ), Angle(), "mo
 baseEnt:setMass( 1000 )
 
 local deathLaser = DeathLaser:new( baseEnt )
+deathLaser:setTraceIgnore( owner(), true )
+
+local weldedTo = chip():isWeldedTo()
+
+if isValid( weldedTo ) then
+    deathLaser:setTraceIgnore( chip():getAllConstrained(), true )
+    baseEnt:setParent( weldedTo )
+end
 
 
 local _makeTargetFilter = DeathLaser.makeTargetFilter
