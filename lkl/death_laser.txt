@@ -190,6 +190,7 @@ function DeathLaser:initialize( baseEnt )
     self._beamInnerHolo = beamInnerHolo
     beamInnerHolo._deathLaser = self
     beamInnerHolo:setColor( COLOR_EMPTY )
+    beamInnerHolo:setDrawShadow( false )
     beamInnerHolo:setClip( 1, true, Vector( 0, 0, -beamStartLength ), VECTOR_BEAM_INNER_CLIP_1, beamInnerHolo )
 
     local beamOuterHolo = linkedCreate.holo( Vector(), Angle( 0, 0, -90 ), "models/sprops/misc/tubes/size_84/tube_84x144.mdl", nil, linkedEnts )
@@ -197,6 +198,7 @@ function DeathLaser:initialize( baseEnt )
     self._beamOuterHolo = beamOuterHolo
     beamOuterHolo._deathLaser = self
     beamOuterHolo:setColor( COLOR_EMPTY )
+    beamOuterHolo:setDrawShadow( false )
     beamOuterHolo:setClip( 1, true, Vector( 0, beamStartLength, 0 ), VECTOR_BEAM_OUTER_CLIP_1, beamOuterHolo )
     beamOuterHolo:setParent( beamInnerHolo )
     beamOuterHolo:setMaterial( self.class.BEAM_OUTER_MATERIAL )
@@ -207,6 +209,7 @@ function DeathLaser:initialize( baseEnt )
     self._beamSoundHolo = beamSoundHolo
     beamSoundHolo._deathLaser = self
     beamSoundHolo:setColor( COLOR_EMPTY )
+    beamSoundHolo:setDrawShadow( false )
     beamSoundHolo:setMaterial( "engine/writestencil" )
 
     beamInnerHolo:setPos( baseEnt:getPos() )
