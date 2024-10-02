@@ -180,7 +180,7 @@ function DeathLaser:initialize( baseEnt )
 
     local linkedEnts = {}
 
-    local beamInnerHolo = linkedCreate.holo( Vector(), Angle(), "models/sprops/cylinders/size_5/cylinder_12x12.mdl", nil, linkedEnts )
+    local beamInnerHolo = linkedCreate.holo( Vector(), Angle(), "models/sprops/cylinders/size_5/cylinder_12x240.mdl", nil, linkedEnts )
     if not beamInnerHolo then error( "Failed to initialize " .. self.class.name ) end
     self._beamInnerHolo = beamInnerHolo
     beamInnerHolo._deathLaser = self
