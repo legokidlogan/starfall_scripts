@@ -44,6 +44,8 @@ DeathLaser.static.TARGET_IGNORE_VEHICLES = true
 DeathLaser.static.BEAM_TRACE_INTERVAL = 0.1
 DeathLaser.static.BEAM_TRACE_WIDTH = 20
 
+DeathLaser.static.BEAM_START_LENGTH = 0 -- Moves the start of the beam visual forwards, if you have some emitter model ahead of the base entity.
+
 --[[
     - Sounds for use with :startSound()
     - If you modify this in a subclass, you need to disconnect the table reference first:
@@ -248,6 +250,8 @@ function DeathLaser:initialize( baseEnt )
     self._beamTraceInterval = self.class.BEAM_TRACE_INTERVAL
     self._beamTraceRadius = beamTraceRadius
 
+    self._beamStartLength = self.class.BEAM_START_LENGTH
+
     self:setTraceIgnore( baseEnt, true )
 
     propBuffer.registerModel( explosiveModel, explosiveBufferSize )
@@ -354,6 +358,10 @@ end
 
 function DeathLaser:getSoundEmitter()
     return self._soundEmitter
+end
+
+function DeathLaser:getBeamStartLength()
+    return self._beamStartLength
 end
 
 function DeathLaser:isDestroyedFromBaseEnt()
@@ -483,6 +491,9 @@ function DeathLaser:updateBeam( forceTrace )
     local aimDir = aimAng:getForward()
     local aimLength = self:getAimLength()
 
+    local beamStartLength = self:getBeamStartLength()
+    local beamLength = math.max( aimLength - beamStartLength, 0 )
+
     local beamInnerHolo = self:getBeamInnerHolo()
 
     if forceTrace or now >= self._nextBeamTraceTime then
@@ -490,7 +501,9 @@ function DeathLaser:updateBeam( forceTrace )
 
         local tr = trace.hull( basePos, basePos + aimDir * 10000, self._beamTraceHullMin, self._beamTraceHullMax, self:makeTraceFilter() )
         local hitPos = tr.HitPos + aimDir * self._beamTraceRadius
+
         aimLength = ( hitPos - basePos ):getLength()
+        beamLength = math.max( aimLength - beamStartLength, 0 )
 
         self._aimLength = aimLength
 
@@ -498,11 +511,11 @@ function DeathLaser:updateBeam( forceTrace )
         local beamOuterWidth = self._beamOuterWidth
         local beamOuterHolo = self:getBeamOuterHolo()
 
-        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, aimLength ) )
-        beamOuterHolo:setSize( Vector( beamOuterWidth, aimLength, beamOuterWidth ) )
+        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, beamLength ) )
+        beamOuterHolo:setSize( Vector( beamOuterWidth, beamLength, beamOuterWidth ) )
     end
 
-    local beamMidPoint = basePos + aimDir * aimLength / 2
+    local beamMidPoint = basePos + aimDir * ( beamLength / 2 + beamStartLength )
 
     beamInnerHolo:setPos( beamMidPoint )
     beamInnerHolo:setAngles( aimAng:rotateAroundAxis( aimAng:getRight(), 90 ) )
