@@ -36,5 +36,10 @@ end )
 
 
 timer.create( "TEST_SetAimPos", 0.1, 0, function()
-    deathLaser:setAimPos( owner():getEyeTrace().HitPos )
+    local traceFilter = deathLaser:makeTraceFilter()
+    local startPos = owner():getShootPos()
+    local dir = owner():getAimVector()
+    local tr = trace.line( startPos, startPos + dir * 10000, traceFilter )
+
+    deathLaser:setAimPos( tr.HitPos )
 end )
