@@ -1,0 +1,692 @@
+--@name Death Laser
+--@author legokidlogan
+--@server
+--@include lkl/destroyable.txt
+--@include lkl/sound_emitter.txt
+--@include lkl/prop_buffer.txt
+--@include lkl/linked_create.txt
+
+if DeathLaser then return end
+
+require( "lkl/destroyable.txt" )
+require( "lkl/sound_emitter.txt" )
+require( "lkl/prop_buffer.txt" )
+require( "lkl/linked_create.txt" )
+
+
+DeathLaser = class( "DeathLaser", Destroyable )
+
+-- Changing these right before creating a DeathLaser instance will apply the settings to it:
+DeathLaser.static.BEAM_PREVIEW_WIDTH = 15
+DeathLaser.static.BEAM_PREVIEW_COLOR = Color( 255, 50, 0, 100 )
+DeathLaser.static.BEAM_PREVIEW_MATERIAL = "model_color"
+DeathLaser.static.BEAM_PREVIEW_RENDERMODE = RENDERMODE.TRANSCOLOR
+
+DeathLaser.static.BEAM_INNER_WIDTH = 20
+DeathLaser.static.BEAM_INNER_COLOR = Color( 255, 50, 0, 150 )
+DeathLaser.static.BEAM_INNER_MATERIAL = "model_color"
+DeathLaser.static.BEAM_INNER_RENDERMODE = RENDERMODE.TRANSCOLOR
+
+DeathLaser.static.BEAM_OUTER_WIDTH = 150
+DeathLaser.static.BEAM_OUTER_COLOR = Color( 255, 0, 0, 255 )
+DeathLaser.static.BEAM_OUTER_MATERIAL = "models/alyx/emptool_glow"
+DeathLaser.static.BEAM_OUTER_RENDERMODE = RENDERMODE.NORMAL
+
+DeathLaser.static.EXPLOSIVE_MODEL = "models/props_phx/misc/potato_launcher_explosive.mdl"
+DeathLaser.static.EXPLOSIVE_FIRE_RATE = 10 -- This many per second.
+DeathLaser.static.EXPLOSIVE_BUFFER_SIZE = 50
+
+DeathLaser.static.TARGET_SEARCH_INTERVAL = 0.5
+DeathLaser.static.TARGET_SEARCH_WIDTH = 150
+DeathLaser.static.TARGET_MODE = 2 -- 0 = players only, 1 = npcs only, 2 = players and npcs.
+DeathLaser.static.TARGET_IGNORE_VEHICLES = true
+
+DeathLaser.static.BEAM_TRACE_INTERVAL = 0.1
+DeathLaser.static.BEAM_TRACE_WIDTH = 20
+
+--[[
+    - Sounds for use with :startSound()
+    - If you modify this in a subclass, you need to disconnect the table reference first:
+        MyClass = class( "MyClass", DeathLaser )
+        MyClass.SOUNDS = table.copy( DeathLaser.SOUNDS )
+
+        MyClass.SOUNDS.SHOOT.PATH = "path/to/sound.wav"
+        -- etc
+--]]
+DeathLaser.static.SOUNDS = {
+    PREVIEW_START_BASE = {
+        PATH = "ambient/levels/canals/headcrab_canister_ambient2.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 1.2,
+        LEVEL = 100,
+        DELAY = nil,
+    },
+
+    PREVIEW_START_BEAM = {
+        PATH = "ambient/levels/canals/headcrab_canister_ambient2.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 1.2,
+        LEVEL = 110,
+        DELAY = nil,
+    },
+
+    PREVIEW_STOP_BASE = {
+        PATH = "ambient/levels/prison/radio_random12.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.8,
+        LEVEL = 100,
+        DELAY = nil,
+    },
+
+    PREVIEW_STOP_BEAM = {
+        PATH = "ambient/levels/prison/radio_random12.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.8,
+        LEVEL = 110,
+        DELAY = nil,
+    },
+
+    FIRE_START_BASE = {
+        PATH = "ambient/energy/weld2.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.9,
+        LEVEL = 100,
+        DELAY = nil,
+    },
+
+    FIRE_START_BEAM = {
+        PATH = "ambient/energy/weld2.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.9,
+        LEVEL = 110,
+        DELAY = nil,
+    },
+
+    FIRE_LOOP_BASE = {
+        PATH = "ambient/energy/force_field_loop1.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.6,
+        LEVEL = 100,
+        DELAY = nil,
+    },
+
+    FIRE_LOOP_BEAM = {
+        PATH = "ambient/energy/force_field_loop1.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.6,
+        LEVEL = 110,
+        DELAY = nil,
+    },
+
+    FIRE_STOP_BASE = {
+        PATH = "ambient/levels/prison/radio_random12.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.8,
+        LEVEL = 100,
+        DELAY = nil,
+    },
+
+    FIRE_STOP_BEAM = {
+        PATH = "ambient/levels/prison/radio_random12.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.8,
+        LEVEL = 110,
+        DELAY = nil,
+    },
+
+    FIRE_EMPTY_BASE = {
+        PATH = "ambient/levels/citadel/weapon_disintegrate1.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.9,
+        LEVEL = 100,
+        DELAY = nil,
+    },
+
+    FIRE_EMPTY_BEAM = {
+        PATH = "ambient/levels/citadel/weapon_disintegrate1.wav",
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 0.9,
+        LEVEL = 110,
+        DELAY = nil,
+    },
+}
+
+
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local allDeathLasers = {}
+local deathLaserIncr = 0
+
+
+----- STATIC FUNCTIONS -----
+
+function DeathLaser:initialize( baseEnt )
+    if not isValid( baseEnt ) then error( "Expected baseEnt to be a valid Entity" ) end
+    if baseEnt._deathLaser then error( "baseEnt already has a DeathLaser attached to it" ) end
+
+    local linkedEnts = {}
+
+    local beamInnerHolo = linkedCreate.holo( Vector(), Angle(), "models/sprops/cylinders/size_5/cylinder_12x12.mdl", nil, linkedEnts )
+    if not beamInnerHolo then error( "Failed to initialize " .. self.class.name ) end
+    self._beamInnerHolo = beamInnerHolo
+    beamInnerHolo._deathLaser = self
+    beamInnerHolo:setColor( COLOR_EMPTY )
+
+    local beamOuterHolo = linkedCreate.holo( Vector(), Angle( 0, 0, -90 ), "models/sprops/misc/tubes/size_84/tube_84x144.mdl", nil, linkedEnts )
+    if not beamOuterHolo then error( "Failed to initialize " .. self.class.name ) end
+    self._beamOuterHolo = beamOuterHolo
+    beamOuterHolo._deathLaser = self
+    beamOuterHolo:setColor( COLOR_EMPTY )
+    beamOuterHolo:setParent( beamInnerHolo )
+    beamOuterHolo:setMaterial( self.class.BEAM_OUTER_MATERIAL )
+    beamOuterHolo:setRenderMode( self.class.BEAM_OUTER_RENDERMODE )
+
+    local soundEmitter = SoundEmitter:new()
+    self._soundEmitter = soundEmitter
+    soundEmitter:setSoundReplacements( self.class.SOUNDS )
+
+    local explosiveModel = self.class.EXPLOSIVE_MODEL
+    local explosiveBufferSize = self.class.EXPLOSIVE_BUFFER_SIZE
+    local targetSearchRadius = self.class.TARGET_SEARCH_WIDTH / 2
+    local beamTraceRadius = self.class.BEAM_TRACE_WIDTH / 2
+
+    deathLaserIncr = deathLaserIncr + 1
+    self._id = deathLaserIncr
+
+    table.insert( allDeathLasers, self )
+
+    baseEnt._deathLaser = self
+    baseEnt._deathLaser_isBaseEnt = true
+
+    self._baseEnt = baseEnt
+    self._status = 0
+    self._nextTargetSearchTime = 0
+    self._nextBeamTraceTime = 0
+    self._nextShootTime = 0
+    self._aimAng = baseEnt:getAngles()
+    self._aimLength = 10
+    self._targetIgnoreLookup = {}
+    self._traceIgnoreLookup = {}
+    self._targets = {}
+
+    self._beamPreviewWidth = self.class.BEAM_PREVIEW_WIDTH
+    self._beamPreviewColor = self.class.BEAM_PREVIEW_COLOR
+    self._beamPreviewMaterial = self.class.BEAM_PREVIEW_MATERIAL
+    self._beamPreviewRenderMode = self.class.BEAM_PREVIEW_RENDERMODE
+
+    self._beamInnerWidth = self.class.BEAM_INNER_WIDTH
+    self._beamInnerColor = self.class.BEAM_INNER_COLOR
+    self._beamInnerMaterial = self.class.BEAM_INNER_MATERIAL
+    self._beamInnerRenderMode = self.class.BEAM_INNER_RENDERMODE
+
+    self._beamOuterWidth = self.class.BEAM_OUTER_WIDTH
+    self._beamOuterColor = self.class.BEAM_OUTER_COLOR
+
+    self._explosiveModel = explosiveModel
+    self._explosiveFireInterval = 1 / self.class.EXPLOSIVE_FIRE_RATE
+
+    self._targetSearchHullMin = Vector( -targetSearchRadius, -targetSearchRadius, -targetSearchRadius )
+    self._targetSearchHullMax = Vector( targetSearchRadius, targetSearchRadius, targetSearchRadius )
+    self._targetSearchInterval = self.class.TARGET_SEARCH_INTERVAL
+    self._targetMode = self.class.TARGET_MODE
+    self._targetIgnoreVehicles = self.class.TARGET_IGNORE_VEHICLES
+
+    self._beamTraceHullMin = Vector( -beamTraceRadius, -beamTraceRadius, -beamTraceRadius )
+    self._beamTraceHullMax = Vector( beamTraceRadius, beamTraceRadius, beamTraceRadius )
+    self._beamTraceInterval = self.class.BEAM_TRACE_INTERVAL
+    self._beamTraceRadius = beamTraceRadius
+
+    self:setTraceIgnore( baseEnt, true )
+
+    propBuffer.registerModel( explosiveModel, explosiveBufferSize )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Sets the status, if possible.
+
+    status: (number)
+        - 0 = off, 1 = preview on, 2 = firing.
+        - If trying to set the status to 2 and the prop buffer is empty, nothing will happen.
+    dontPlayStopSounds: (optional) (boolean)
+        - If true, doesn't play the STOP_ sounds.
+
+    returns: success
+        - (boolean) Whether the status was able to be set.
+--]]
+function DeathLaser:setStatus( status, dontPlayStopSounds )
+    if status ~= 0 and status ~= 1 and status ~= 2 then error( "Expected status to be 0, 1, or 2" ) end
+
+    local oldStatus = self._status
+    if oldStatus == status then return true end
+    if status == 2 and propBuffer.getReadyCount( self._explosiveModel ) == 0 then return false end
+
+    self._status = status
+
+    local baseEnt = self:getBaseEnt()
+    local beamInnerHolo = self:getBeamInnerHolo()
+    local beamOuterHolo = self:getBeamOuterHolo()
+
+    if oldStatus == 0 then
+        self._nextBeamTraceTime = 0
+        self:updateBeam()
+    elseif oldStatus == 1 then
+        if not dontPlayStopSounds then
+            self:startSound( baseEnt, "PREVIEW_STOP_BASE" )
+            self:startSound( beamInnerHolo, "PREVIEW_STOP_BEAM" )
+        end
+    else--if oldStatus == 2 then
+        self:stopSound( baseEnt, "FIRE_LOOP_BASE" )
+        self:stopSound( beamInnerHolo, "FIRE_LOOP_BEAM" )
+
+        if propBuffer.getReadyCount( self._explosiveModel ) == 0 then
+            self:startSound( baseEnt, "FIRE_EMPTY_BASE" )
+            self:startSound( beamInnerHolo, "FIRE_EMPTY_BEAM" )
+        elseif not dontPlayStopSounds then
+            self:startSound( baseEnt, "FIRE_STOP_BASE" )
+            self:startSound( beamInnerHolo, "FIRE_STOP_BEAM" )
+        end
+    end
+
+    if status == 0 then
+        beamInnerHolo:setColor( COLOR_EMPTY )
+        beamOuterHolo:setColor( COLOR_EMPTY )
+    elseif status == 1 then
+        self:startSound( baseEnt, "PREVIEW_START_BASE" )
+        self:startSound( beamInnerHolo, "PREVIEW_START_BEAM" )
+
+        beamInnerHolo:setMaterial( self._beamPreviewMaterial )
+        beamInnerHolo:setRenderMode( self._beamPreviewRenderMode )
+        beamInnerHolo:setColor( self._beamPreviewColor )
+
+        beamOuterHolo:setColor( COLOR_EMPTY )
+    else--if status == 2 then
+        self:startSound( baseEnt, "FIRE_START_BASE" )
+        self:startSound( beamInnerHolo, "FIRE_START_BEAM" )
+
+        self:startSound( baseEnt, "FIRE_LOOP_BASE" )
+        self:startSound( beamInnerHolo, "FIRE_LOOP_BEAM" )
+
+        beamInnerHolo:setMaterial( self._beamInnerMaterial )
+        beamInnerHolo:setRenderMode( self._beamInnerRenderMode )
+        beamInnerHolo:setColor( self._beamInnerColor )
+
+        beamOuterHolo:setColor( self._beamOuterColor )
+    end
+
+    return true
+end
+
+-- 0 = off, 1 = preview on, 2 = firing.
+function DeathLaser:getStatus()
+    return self._status
+end
+
+function DeathLaser:getID()
+    return self._id
+end
+
+function DeathLaser:getBaseEnt()
+    return self._baseEnt
+end
+
+function DeathLaser:getBeamInnerHolo()
+    return self._beamInnerHolo
+end
+
+function DeathLaser:getBeamOuterHolo()
+    return self._beamOuterHolo
+end
+
+function DeathLaser:getSoundEmitter()
+    return self._soundEmitter
+end
+
+function DeathLaser:isDestroyedFromBaseEnt()
+    return self._destroyedFromBaseEnt
+end
+
+function DeathLaser:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+function DeathLaser:startSound( ent, soundName, overrides )
+    return self:getSoundEmitter():startSound( ent or self:getBaseEnt(), soundName, overrides )
+end
+
+function DeathLaser:stopSound( ent, soundName )
+    return self:getSoundEmitter():stopSound( ent or self:getBaseEnt(), soundName )
+end
+
+function DeathLaser:stopAllSounds()
+    return self:getSoundEmitter():stopAllSounds()
+end
+
+function DeathLaser:setAimPos( pos )
+    self._aimPos = pos
+    self._aimAng = nil
+end
+
+function DeathLaser:getAimPos()
+    return self._aimPos
+end
+
+function DeathLaser:setAimAng( ang )
+    if type( ang ) == "Vector" then
+        ang = ang:getAngle()
+    end
+
+    self._aimPos = nil
+    self._aimAng = ang
+end
+
+function DeathLaser:getAimAng()
+    return self._aimAng
+end
+
+function DeathLaser:getAimAngEff()
+    local aimAng = self:getAimAng()
+    if aimAng then return aimAng:clone() end
+
+    local aimPos = self:getAimPos()
+    local basePos = self:getBaseEnt():getPos()
+
+    return ( aimPos - basePos ):getAngle()
+end
+
+function DeathLaser:getAimLength()
+    return self._aimLength
+end
+
+-- Modifies the target ignore lookup by adding or removing ents. Pass ents as nil to clear the ignore lookup.
+function DeathLaser:setTargetIgnore( ents, shouldIgnore )
+    if not ents then
+        table.empty( self._targetIgnoreLookup )
+
+        return
+    end
+
+    if type( ents ) ~= "table" then ents = { ents } end
+
+    shouldIgnore = shouldIgnore and true or nil
+
+    local targetIgnoreLookup = self._targetIgnoreLookup
+
+    for _, ent in ipairs( ents ) do
+        targetIgnoreLookup[ent] = shouldIgnore
+    end
+end
+
+-- Returns by reference, do not modify.
+function DeathLaser:getTargetIgnoreLookup()
+    return self._targetIgnoreLookup
+end
+
+-- Modifies the trace ignore lookup by adding or removing ents. Pass ents as nil to clear the ignore lookup.
+function DeathLaser:setTraceIgnore( ents, shouldIgnore )
+    if not ents then
+        table.empty( self._traceIgnoreLookup )
+        self._traceIgnoreLookup[self:getBaseEnt()] = true
+
+        return
+    end
+
+    if type( ents ) ~= "table" then ents = { ents } end
+
+    shouldIgnore = shouldIgnore and true or nil
+
+    local traceIgnoreLookup = self._traceIgnoreLookup
+
+    for _, ent in ipairs( ents ) do
+        traceIgnoreLookup[ent] = shouldIgnore
+    end
+end
+
+-- Returns by reference, do not modify.
+function DeathLaser:getTraceIgnoreLookup()
+    return self._traceIgnoreLookup
+end
+
+function DeathLaser:getTargetMode()
+    return self._targetMode
+end
+
+function DeathLaser:getTargetIgnoreVehicles()
+    return self._targetIgnoreVehicles
+end
+
+-- Returns by reference, do not modify. The reference will frequently change.
+function DeathLaser:getTargets()
+    return self._targets
+end
+
+function DeathLaser:updateBeam( forceTrace )
+    local now = timer.curtime()
+    local basePos = self:getBaseEnt():getPos()
+    local aimAng = self:getAimAngEff()
+    local aimDir = aimAng:getForward()
+    local aimLength = self:getAimLength()
+
+    local beamInnerHolo = self:getBeamInnerHolo()
+
+    if forceTrace or now >= self._nextBeamTraceTime then
+        self._nextBeamTraceTime = now + self._beamTraceInterval
+
+        local tr = trace.hull( basePos, basePos + aimDir * 10000, self._beamTraceHullMin, self._beamTraceHullMax, self:makeTraceFilter() )
+        local hitPos = tr.HitPos + aimDir * self._beamTraceRadius
+        aimLength = ( hitPos - basePos ):getLength()
+
+        self._aimLength = aimLength
+
+        local beamInnerWidth = self:getStatus() == 1 and self._beamPreviewWidth or self._beamInnerWidth
+        local beamOuterWidth = self._beamOuterWidth
+        local beamOuterHolo = self:getBeamOuterHolo()
+
+        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, aimLength ) )
+        beamOuterHolo:setSize( Vector( beamOuterWidth, aimLength, beamOuterWidth ) )
+    end
+
+    local beamMidPoint = basePos + aimDir * aimLength / 2
+
+    beamInnerHolo:setPos( beamMidPoint )
+    beamInnerHolo:setAngles( aimAng:rotateAroundAxis( aimAng:getRight(), 90 ) )
+end
+
+function DeathLaser:updateTargets( force )
+    local now = timer.curtime()
+    if not force and now < self._nextTargetSearchTime then return end
+
+    self._nextTargetSearchTime = now + self._targetSearchInterval
+
+    local basePos = self:getBaseEnt():getPos()
+    local aimAng = self:getAimAngEff()
+    local aimDir = aimAng:getForward()
+    local aimLength = self:getAimLength()
+
+    self._targets = find.inRay( basePos, basePos + aimDir * aimLength, self._targetSearchHullMin, self._targetSearchHullMax, self:makeTargetFilter() )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function DeathLaser:think()
+    local status = self:getStatus()
+    if status == 0 then return end
+
+    self:updateBeam()
+    self:updateTargets()
+    self:_shootThink()
+
+    -- TODO
+end
+
+function DeathLaser:makeTargetFilter()
+    local targetIgnoreLookup = self:getTargetIgnoreLookup()
+    local targetMode = self:getTargetMode()
+    local ignoreVehicles = self:getTargetIgnoreVehicles()
+
+    return function( ent )
+        if not isValid( ent ) then return false end
+        if targetIgnoreLookup[ent] then return false end
+
+        if targetMode == 0 then
+            if not ent:isPlayer() then return false end
+        elseif targetMode == 1 then
+            if not ent:isNPC() then return false end
+        elseif targetMode == 2 then
+            if not ( ent:isPlayer() or ent:isNPC() ) then return false end
+        end
+
+        if ent.isAlive and not ent:isAlive() then return false end
+        if ent.isInPvp and not ent:isInPvp() then return false end
+        if ent:getColor().a ~= 255 then return false end -- Ignore cloaked and (on CFC) spawn-protected players.
+        if ignoreVehicles and ent.inVehicle and ent:inVehicle() then return false end
+
+        return true
+    end
+end
+
+function DeathLaser:makeTraceFilter()
+    local traceIgnoreLookup = self:getTraceIgnoreLookup()
+
+    return function( ent )
+        if traceIgnoreLookup[ent] then return false end
+
+        return true
+    end
+end
+
+-- When the DeathLaser tries to shoot but the prop buffer is empty. It should set the status to something other than 2.
+function DeathLaser:onEmptyShoot()
+    self:setStatus( 0 )
+end
+
+-- target may be nil.
+function DeathLaser:detonateExplosive( explosive, _target )
+    if owner().isInBuild and owner():isInBuild() then
+        explosive:breakEnt()
+    else
+        explosive:applyDamage( 50000, owner() )
+    end
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function DeathLaser:onDestroyed()
+    local baseEnt = self:getBaseEnt()
+    local beamInnerHolo = self:getBeamInnerHolo()
+    local beamOuterHolo = self:getBeamOuterHolo()
+    local soundEmitter = self:getSoundEmitter()
+
+    if soundEmitter then
+        soundEmitter:destroy()
+    end
+
+    if isValid( baseEnt ) then
+        baseEnt._deathLaser = nil
+        baseEnt._deathLaser_isBaseEnt = nil
+    end
+
+    if isValid( beamInnerHolo ) then
+        beamInnerHolo:remove()
+    end
+
+    if isValid( beamOuterHolo ) then
+        beamOuterHolo:remove()
+    end
+
+    table.removeValue( allDeathLasers, self )
+
+    DeathLaser.super.onDestroyed( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+function DeathLaser:_shootThink()
+    if self:getStatus() ~= 2 then return end
+
+    local now = timer.curtime()
+    if now < self._nextShootTime then return end
+
+    self._nextShootTime = now + self._explosiveFireInterval
+
+    local explosive = propBuffer.takeProp( self._explosiveModel )
+
+    if not explosive then
+        self:onEmptyShoot()
+
+        return
+    end
+
+    local targets = self:getTargets()
+    local targetFilter = self:makeTargetFilter()
+
+    for i = #targets, 1, -1 do
+        local target = targets[i]
+
+        if not targetFilter( target ) then
+            table.remove( targets, i )
+        end
+    end
+
+    local targetCount = #targets
+    local target
+
+    if targetCount == 0 then
+        local basePos = self:getBaseEnt():getPos()
+        local aimDir = self:getAimAngEff():getForward()
+        local aimLength = self:getAimLength()
+
+        explosive:setPos( basePos + aimDir * math.max( aimLength - 10, 5 ) )
+    else
+        target = targets[math.random( 1, targetCount )]
+
+        explosive:setPos( target:obbCenterW() )
+    end
+
+    self:detonateExplosive( explosive, target )
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_deathLaser_BaseEntDestroyed", function( ent )
+    if not ent then return end
+    if not ent._deathLaser_isBaseEnt then return end
+
+    local deathLaser = ent._deathLaser
+
+    if not isValid( deathLaser ) then
+        ent._deathLaser = nil
+        ent._deathLaser_isBaseEnt = nil
+
+        return
+    end
+
+    deathLaser._destroyedFromBaseEnt = true
+    deathLaser:destroy()
+end )
+
+hook.add( "think", "LKL_DeathLaser_Think", function()
+    for _, deathLaser in ipairs( allDeathLasers ) do
+        deathLaser:think()
+    end
+end )

@@ -1,0 +1,26 @@
+--@name Death Laser Tester
+--@author legokidlogan
+--@server
+--@include lkl/death_laser.txt
+
+require( "lkl/death_laser.txt" )
+
+
+local baseEnt = prop.create( chip():getPos() + Vector( 0, 0, 150 ), Angle(), "models/hunter/blocks/cube025x025x025.mdl", true )
+local deathLaser = DeathLaser:new( baseEnt )
+
+
+hook.add( "KeyPress", "TEST", function( ply, key )
+    if ply ~= owner() then return end
+    if key ~= IN_KEY.USE then return end
+
+    local state = ( deathLaser:getStatus() + 1 ) % 3
+    local dontPlayStopSounds = state ~= 0
+
+    deathLaser:setStatus( state, dontPlayStopSounds )
+end )
+
+
+timer.create( "TEST_SetAimPos", 0.1, 0, function()
+    deathLaser:setAimPos( owner():getEyeTrace().HitPos )
+end )
