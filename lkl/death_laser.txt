@@ -191,7 +191,7 @@ function DeathLaser:initialize( baseEnt )
     beamInnerHolo._deathLaser = self
     beamInnerHolo:setColor( COLOR_EMPTY )
     beamInnerHolo:setDrawShadow( false )
-    beamInnerHolo:setClip( 1, true, Vector( 0, 0, -beamStartLength ), VECTOR_BEAM_INNER_CLIP_1, beamInnerHolo )
+    beamInnerHolo:setClip( 1, true, Vector( 0, 0, beamStartLength ), VECTOR_BEAM_INNER_CLIP_1, beamInnerHolo )
 
     local beamOuterHolo = linkedCreate.holo( Vector(), Angle( 0, 0, -90 ), "models/sprops/misc/tubes/size_84/tube_84x144.mdl", nil, linkedEnts )
     if not beamOuterHolo then error( "Failed to initialize " .. self.class.name ) end
@@ -199,7 +199,7 @@ function DeathLaser:initialize( baseEnt )
     beamOuterHolo._deathLaser = self
     beamOuterHolo:setColor( COLOR_EMPTY )
     beamOuterHolo:setDrawShadow( false )
-    beamOuterHolo:setClip( 1, true, Vector( 0, beamStartLength, 0 ), VECTOR_BEAM_OUTER_CLIP_1, beamOuterHolo )
+    beamOuterHolo:setClip( 1, true, Vector( 0, -beamStartLength, 0 ), VECTOR_BEAM_OUTER_CLIP_1, beamOuterHolo )
     beamOuterHolo:setParent( beamInnerHolo )
     beamOuterHolo:setMaterial( self.class.BEAM_OUTER_MATERIAL )
     beamOuterHolo:setRenderMode( self.class.BEAM_OUTER_RENDERMODE )
