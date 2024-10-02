@@ -576,8 +576,6 @@ function DeathLaser:think()
     self:updateBeam()
     self:updateTargets()
     self:_shootThink()
-
-    -- TODO
 end
 
 function DeathLaser:makeTargetFilter()
