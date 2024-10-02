@@ -61,7 +61,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 1.2,
-        LEVEL = 100,
+        LEVEL = 110,
         DELAY = nil,
     },
 
@@ -70,7 +70,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 1.2,
-        LEVEL = 110,
+        LEVEL = 140,
         DELAY = nil,
     },
 
@@ -79,7 +79,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.8,
-        LEVEL = 100,
+        LEVEL = 110,
         DELAY = nil,
     },
 
@@ -88,7 +88,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.8,
-        LEVEL = 110,
+        LEVEL = 140,
         DELAY = nil,
     },
 
@@ -97,7 +97,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.9,
-        LEVEL = 100,
+        LEVEL = 110,
         DELAY = nil,
     },
 
@@ -106,7 +106,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.9,
-        LEVEL = 110,
+        LEVEL = 140,
         DELAY = nil,
     },
 
@@ -115,7 +115,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.6,
-        LEVEL = 100,
+        LEVEL = 110,
         DELAY = nil,
     },
 
@@ -124,7 +124,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.6,
-        LEVEL = 110,
+        LEVEL = 140,
         DELAY = nil,
     },
 
@@ -133,7 +133,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.8,
-        LEVEL = 100,
+        LEVEL = 110,
         DELAY = nil,
     },
 
@@ -142,7 +142,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.8,
-        LEVEL = 110,
+        LEVEL = 140,
         DELAY = nil,
     },
 
@@ -151,7 +151,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.9,
-        LEVEL = 100,
+        LEVEL = 110,
         DELAY = nil,
     },
 
@@ -160,7 +160,7 @@ DeathLaser.static.SOUNDS = {
         DURATION = nil,
         VOLUME = 1,
         PITCH = 0.9,
-        LEVEL = 110,
+        LEVEL = 140,
         DELAY = nil,
     },
 }
