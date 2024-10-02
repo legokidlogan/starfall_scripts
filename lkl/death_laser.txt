@@ -612,7 +612,7 @@ function DeathLaser:onDestroyed()
         beamOuterHolo:remove()
     end
 
-    table.removeValue( allDeathLasers, self )
+    table.removeByValue( allDeathLasers, self )
 
     DeathLaser.super.onDestroyed( self )
 end
