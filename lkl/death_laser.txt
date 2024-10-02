@@ -167,6 +167,10 @@ DeathLaser.static.SOUNDS = {
 
 
 local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+local VECTOR_BEAM_INNER_CLIP_1 = Vector( 0, 0, 1 )
+local VECTOR_BEAM_INNER_CLIP_2 = Vector( 0, 0, -1 )
+local VECTOR_BEAM_OUTER_CLIP_1 = Vector( 0, -1, 0 )
+local VECTOR_BEAM_OUTER_CLIP_2 = Vector( 0, 1, 0 )
 
 local allDeathLasers = {}
 local deathLaserIncr = 0
@@ -179,21 +183,27 @@ function DeathLaser:initialize( baseEnt )
     if baseEnt._deathLaser then error( "baseEnt already has a DeathLaser attached to it" ) end
 
     local linkedEnts = {}
+    local beamStartLength = self.class.BEAM_START_LENGTH
 
     local beamInnerHolo = linkedCreate.holo( Vector(), Angle(), "models/sprops/cylinders/size_5/cylinder_12x240.mdl", nil, linkedEnts )
     if not beamInnerHolo then error( "Failed to initialize " .. self.class.name ) end
     self._beamInnerHolo = beamInnerHolo
     beamInnerHolo._deathLaser = self
     beamInnerHolo:setColor( COLOR_EMPTY )
+    beamInnerHolo:setClip( 1, true, Vector( 0, 0, -beamStartLength ), VECTOR_BEAM_INNER_CLIP_1, beamInnerHolo )
 
     local beamOuterHolo = linkedCreate.holo( Vector(), Angle( 0, 0, -90 ), "models/sprops/misc/tubes/size_84/tube_84x144.mdl", nil, linkedEnts )
     if not beamOuterHolo then error( "Failed to initialize " .. self.class.name ) end
     self._beamOuterHolo = beamOuterHolo
     beamOuterHolo._deathLaser = self
     beamOuterHolo:setColor( COLOR_EMPTY )
+    beamOuterHolo:setClip( 1, true, Vector( 0, beamStartLength, 0 ), VECTOR_BEAM_OUTER_CLIP_1, beamOuterHolo )
     beamOuterHolo:setParent( beamInnerHolo )
     beamOuterHolo:setMaterial( self.class.BEAM_OUTER_MATERIAL )
     beamOuterHolo:setRenderMode( self.class.BEAM_OUTER_RENDERMODE )
+
+    beamInnerHolo:setPos( baseEnt:getPos() )
+    beamInnerHolo:setParent( baseEnt )
 
     local soundEmitter = SoundEmitter:new()
     self._soundEmitter = soundEmitter
@@ -250,7 +260,7 @@ function DeathLaser:initialize( baseEnt )
     self._beamTraceInterval = self.class.BEAM_TRACE_INTERVAL
     self._beamTraceRadius = beamTraceRadius
 
-    self._beamStartLength = self.class.BEAM_START_LENGTH
+    self._beamStartLength = beamStartLength
 
     self:setTraceIgnore( baseEnt, true )
 
@@ -318,6 +328,12 @@ function DeathLaser:setStatus( status, dontPlayStopSounds )
         beamInnerHolo:setColor( self._beamPreviewColor )
 
         beamOuterHolo:setColor( COLOR_EMPTY )
+
+        local beamInnerWidth = self._beamPreviewWidth
+        local beamOuterWidth = self._beamOuterWidth
+
+        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, 30000 ) )
+        beamOuterHolo:setSize( Vector( beamOuterWidth, 30000, beamOuterWidth ) )
     else--if status == 2 then
         self:startSound( baseEnt, "FIRE_START_BASE" )
         self:startSound( beamInnerHolo, "FIRE_START_BEAM" )
@@ -330,6 +346,12 @@ function DeathLaser:setStatus( status, dontPlayStopSounds )
         beamInnerHolo:setColor( self._beamInnerColor )
 
         beamOuterHolo:setColor( self._beamOuterColor )
+
+        local beamInnerWidth = self._beamInnerWidth
+        local beamOuterWidth = self._beamOuterWidth
+
+        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, 30000 ) )
+        beamOuterHolo:setSize( Vector( beamOuterWidth, 30000, beamOuterWidth ) )
     end
 
     return true
@@ -491,9 +513,6 @@ function DeathLaser:updateBeam( forceTrace )
     local aimDir = aimAng:getForward()
     local aimLength = self:getAimLength()
 
-    local beamStartLength = self:getBeamStartLength()
-    local beamLength = math.max( aimLength - beamStartLength, 0 )
-
     local beamInnerHolo = self:getBeamInnerHolo()
 
     if forceTrace or now >= self._nextBeamTraceTime then
@@ -503,22 +522,16 @@ function DeathLaser:updateBeam( forceTrace )
         local hitPos = tr.HitPos + aimDir * self._beamTraceRadius
 
         aimLength = ( hitPos - basePos ):getLength()
-        beamLength = math.max( aimLength - beamStartLength, 0 )
 
         self._aimLength = aimLength
 
-        local beamInnerWidth = self:getStatus() == 1 and self._beamPreviewWidth or self._beamInnerWidth
-        local beamOuterWidth = self._beamOuterWidth
         local beamOuterHolo = self:getBeamOuterHolo()
 
-        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, beamLength ) )
-        beamOuterHolo:setSize( Vector( beamOuterWidth, beamLength, beamOuterWidth ) )
+        beamInnerHolo:setClip( 2, true, Vector( 0, 0, aimLength ), VECTOR_BEAM_INNER_CLIP_2, beamInnerHolo )
+        beamOuterHolo:setClip( 2, true, Vector( 0, -aimLength, 0 ), VECTOR_BEAM_OUTER_CLIP_2, beamOuterHolo )
     end
 
-    local beamMidPoint = basePos + aimDir * ( beamLength / 2 + beamStartLength )
-
-    beamInnerHolo:setPos( beamMidPoint )
-    beamInnerHolo:setAngles( aimAng:rotateAroundAxis( aimAng:getRight(), 90 ) )
+    beamInnerHolo:setAngles( aimAng:rotateAroundAxis( aimAng:getRight(), -90 ) )
 end
 
 function DeathLaser:updateTargets( force )
