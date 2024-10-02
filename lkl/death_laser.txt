@@ -202,6 +202,13 @@ function DeathLaser:initialize( baseEnt )
     beamOuterHolo:setMaterial( self.class.BEAM_OUTER_MATERIAL )
     beamOuterHolo:setRenderMode( self.class.BEAM_OUTER_RENDERMODE )
 
+    local beamSoundHolo = linkedCreate.holo( Vector(), Angle(), "models/hunter/plates/plate.mdl", nil, linkedEnts )
+    if not beamSoundHolo then error( "Failed to initialize " .. self.class.name ) end
+    self._beamSoundHolo = beamSoundHolo
+    beamSoundHolo._deathLaser = self
+    beamSoundHolo:setColor( COLOR_EMPTY )
+    beamSoundHolo:setMaterial( "engine/writestencil" )
+
     beamInnerHolo:setPos( baseEnt:getPos() )
     beamInnerHolo:setParent( baseEnt )
 
@@ -294,6 +301,7 @@ function DeathLaser:setStatus( status, dontPlayStopSounds )
     local baseEnt = self:getBaseEnt()
     local beamInnerHolo = self:getBeamInnerHolo()
     local beamOuterHolo = self:getBeamOuterHolo()
+    local beamSoundHolo = self:getBeamSoundHolo()
 
     if oldStatus == 0 then
         self._nextBeamTraceTime = 0
@@ -301,18 +309,18 @@ function DeathLaser:setStatus( status, dontPlayStopSounds )
     elseif oldStatus == 1 then
         if not dontPlayStopSounds then
             self:startSound( baseEnt, "PREVIEW_STOP_BASE" )
-            self:startSound( beamInnerHolo, "PREVIEW_STOP_BEAM" )
+            self:startSound( beamSoundHolo, "PREVIEW_STOP_BEAM" )
         end
     else--if oldStatus == 2 then
         self:stopSound( baseEnt, "FIRE_LOOP_BASE" )
-        self:stopSound( beamInnerHolo, "FIRE_LOOP_BEAM" )
+        self:stopSound( beamSoundHolo, "FIRE_LOOP_BEAM" )
 
         if propBuffer.getReadyCount( self._explosiveModel ) == 0 then
             self:startSound( baseEnt, "FIRE_EMPTY_BASE" )
-            self:startSound( beamInnerHolo, "FIRE_EMPTY_BEAM" )
+            self:startSound( beamSoundHolo, "FIRE_EMPTY_BEAM" )
         elseif not dontPlayStopSounds then
             self:startSound( baseEnt, "FIRE_STOP_BASE" )
-            self:startSound( beamInnerHolo, "FIRE_STOP_BEAM" )
+            self:startSound( beamSoundHolo, "FIRE_STOP_BEAM" )
         end
     end
 
@@ -321,7 +329,7 @@ function DeathLaser:setStatus( status, dontPlayStopSounds )
         beamOuterHolo:setColor( COLOR_EMPTY )
     elseif status == 1 then
         self:startSound( baseEnt, "PREVIEW_START_BASE" )
-        self:startSound( beamInnerHolo, "PREVIEW_START_BEAM" )
+        self:startSound( beamSoundHolo, "PREVIEW_START_BEAM" )
 
         beamInnerHolo:setMaterial( self._beamPreviewMaterial )
         beamInnerHolo:setRenderMode( self._beamPreviewRenderMode )
@@ -336,10 +344,10 @@ function DeathLaser:setStatus( status, dontPlayStopSounds )
         beamOuterHolo:setSize( Vector( beamOuterWidth, 30000, beamOuterWidth ) )
     else--if status == 2 then
         self:startSound( baseEnt, "FIRE_START_BASE" )
-        self:startSound( beamInnerHolo, "FIRE_START_BEAM" )
+        self:startSound( beamSoundHolo, "FIRE_START_BEAM" )
 
         self:startSound( baseEnt, "FIRE_LOOP_BASE" )
-        self:startSound( beamInnerHolo, "FIRE_LOOP_BEAM" )
+        self:startSound( beamSoundHolo, "FIRE_LOOP_BEAM" )
 
         beamInnerHolo:setMaterial( self._beamInnerMaterial )
         beamInnerHolo:setRenderMode( self._beamInnerRenderMode )
@@ -376,6 +384,10 @@ end
 
 function DeathLaser:getBeamOuterHolo()
     return self._beamOuterHolo
+end
+
+function DeathLaser:getBeamSoundHolo()
+    return self._beamSoundHolo
 end
 
 function DeathLaser:getSoundEmitter()
@@ -514,6 +526,7 @@ function DeathLaser:updateBeam( forceTrace )
     local aimLength = self:getAimLength()
 
     local beamInnerHolo = self:getBeamInnerHolo()
+    local beamSoundHolo = self:getBeamSoundHolo()
 
     if forceTrace or now >= self._nextBeamTraceTime then
         self._nextBeamTraceTime = now + self._beamTraceInterval
@@ -532,6 +545,8 @@ function DeathLaser:updateBeam( forceTrace )
     end
 
     beamInnerHolo:setAngles( aimAng:rotateAroundAxis( aimAng:getRight(), -90 ) )
+
+    beamSoundHolo:setPos( basePos + aimDir * ( aimLength - 10 ) )
 end
 
 function DeathLaser:updateTargets( force )
@@ -619,6 +634,7 @@ function DeathLaser:onDestroyed()
     local baseEnt = self:getBaseEnt()
     local beamInnerHolo = self:getBeamInnerHolo()
     local beamOuterHolo = self:getBeamOuterHolo()
+    local beamSoundHolo = self:getBeamSoundHolo()
     local soundEmitter = self:getSoundEmitter()
 
     if soundEmitter then
@@ -636,6 +652,10 @@ function DeathLaser:onDestroyed()
 
     if isValid( beamOuterHolo ) then
         beamOuterHolo:remove()
+    end
+
+    if isValid( beamSoundHolo ) then
+        beamSoundHolo:remove()
     end
 
     table.removeByValue( allDeathLasers, self )
