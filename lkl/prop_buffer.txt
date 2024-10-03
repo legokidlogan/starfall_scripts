@@ -269,6 +269,7 @@ hook.add( "EntityRemoved", "LKL_PropBuffer_MaintainBuffer", function( ent )
 
     local model = ent:getModel()
 
+    propLookup[ent] = nil
     usedPropLookup[ent] = nil
     table.removeByValue( propsByModel[model], ent )
     table.removeByValue( readyPropsByModel[model], ent )
