@@ -265,6 +265,7 @@ end
 ----- SETUP -----
 
 hook.add( "EntityRemoved", "LKL_PropBuffer_MaintainBuffer", function( ent )
+    if not ent then return end -- If ent was unsanitizable, starfall passes it as nil
     if not propLookup[ent] then return end
 
     local model = ent:getModel()
