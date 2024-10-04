@@ -1,0 +1,223 @@
+--@name Parent Viewer
+--@author legokidlogan
+--@shared
+--@owneronly
+
+
+--[[
+    - Walk + use (alt + e) to select a contraption to view
+    - Arrows point from the parents to the children, and the IDs of the parents are shown at the end of the arrows.
+    - Colors are the same for arrows associated with the same parent.
+--]]
+
+
+-- CONFIG
+local fontSize = 100
+local fontOutlined = true
+local textMatrixScale = 0.05
+
+local lookingAtAlpha = 255
+local notLookingAtAlpha = 100
+
+local arrowTipAng = 45
+local arrowTipLength = 10
+local arrowIgnoreZ = true
+-- END CONFIG
+
+
+if SERVER then
+    hook.add( "KeyPress", "LKL_ParentViewer_SelectContraption", function( ply, key )
+        if ply ~= owner() then return end
+        if key ~= IN_KEY.USE then return end
+        if not ply:keyDown( IN_KEY.WALK ) then return end
+
+        local ent = ply:getEyeTrace().Entity
+        local contraption = isValid( ent ) and ent:getAllConstrained() or {}
+
+        net.start( "LKL_ParentViewer_SetContraption" )
+            net.writeUInt( #contraption, 16 )
+
+            for i = 1, #contraption do
+                net.writeEntity( contraption[i] )
+            end
+        net.send( ply )
+    end )
+
+
+    return
+end
+
+
+
+local contraption = {}
+local contraptionLookup = {}
+local arrowColorsPerParent = {}
+local arrowColorCount = 0
+local wasLookingAtContraption = false
+local arrowWriteZ = not arrowIgnoreZ
+textMatrixScale = Vector( textMatrixScale )
+
+
+local font = render.createFont( "Roboto Mono", fontSize, 500, true, false, false, fontOutlined, false, false )
+
+enableHud( owner(), true )
+
+
+local function drawArrow( startPos, endPos, color )
+    local dir = ( endPos - startPos ):getNormalized()
+    local dirUp = dir:getAngle():getUp()
+    local tipVec = -dir:rotateAroundAxis( dirUp, arrowTipAng ) * arrowTipLength
+
+    if color then
+        render.setColor( color )
+    end
+
+    render.draw3DLine( startPos, endPos, arrowWriteZ )
+    render.draw3DLine( endPos, endPos + tipVec, arrowWriteZ )
+    render.draw3DLine( endPos, endPos + tipVec:rotateAroundAxis( dir, 180 ), arrowWriteZ )
+end
+
+
+hook.add( "PostDrawTranslucentRenderables", "LKL_ParentViewer_Draw", function( _, skybox, skybox3d )
+    if skybox or skybox3d then return end
+
+    -- Calculate arrow colors
+    local needToUpdateColors = false
+
+    for _, ent in ipairs( contraption ) do
+        if isValid( ent ) then
+            local parent = ent:getParent()
+
+            if isValid( parent ) and not arrowColorsPerParent[parent] then
+                arrowColorCount = arrowColorCount + 1
+                arrowColorsPerParent[parent] = "temp"
+                needToUpdateColors = true
+
+                -- Add parent to contraption
+                if not contraptionLookup[parent] then
+                    contraptionLookup[parent] = true
+                    table.insert( contraption, parent )
+                end
+            end
+        end
+    end
+
+    if needToUpdateColors then
+        -- Make new colors
+
+        local hueStep = 360 / arrowColorCount
+        local i = 0
+
+        for parent in pairs( arrowColorsPerParent ) do
+            arrowColorsPerParent[parent] = Color( i * hueStep, 1, 1 ):hsvToRGB()
+            i = i + 1
+        end
+    elseif wasLookingAtContraption then
+        -- Reset alpha
+        for _, color in pairs( arrowColorsPerParent ) do
+            color.a = notLookingAtAlpha
+        end
+
+        wasLookingAtContraption = false
+    end
+
+    -- Aim entity
+    local aimEnt = owner():getEyeTrace().Entity
+
+    if contraptionLookup[aimEnt] then
+        wasLookingAtContraption = true
+
+        local color = arrowColorsPerParent[aimEnt]
+
+        if color then
+            color.a = lookingAtAlpha
+        end
+    end
+
+    local eyePos = render.getEyePos()
+    --local eyeAng = render.getAngles()
+
+    render.setFont( font )
+
+    -- Draw the arrows
+    for _, ent in ipairs( contraption ) do
+        if isValid( ent ) then
+            local parent = ent:getParent()
+
+            if isValid( parent ) then
+                local startPos = parent:getPos()
+                local endPos = ent:getPos()
+                local color = arrowColorsPerParent[parent]
+                local oldAlpha
+
+                if ent == aimEnt then
+                    oldAlpha = color.a
+                    color.a = lookingAtAlpha
+                end
+
+                drawArrow( startPos, endPos, color )
+
+                local toEyes = eyePos - endPos
+                local matrixAng = toEyes:getAngle()
+                matrixAng = matrixAng:rotateAroundAxis( matrixAng:getUp(), 90 )
+                matrixAng = matrixAng:rotateAroundAxis( matrixAng:getForward(), -90 )
+
+                local m = Matrix()
+                m:setTranslation( endPos + toEyes / 2 )
+                m:setAngles( matrixAng )
+                m:setScale( textMatrixScale )
+
+                render.pushMatrix( m )
+                    render.drawSimpleText( 0, fontSize, tostring( parent:entIndex() ), 1, 1 )
+                render.popMatrix()
+
+                if oldAlpha then
+                    color.a = oldAlpha
+                end
+            end
+        end
+    end
+end )
+
+
+net.receive( "LKL_ParentViewer_SetContraption", function()
+    local count = net.readUInt( 16 )
+
+    contraption = {}
+    contraptionLookup = {}
+    arrowColorsPerParent = {}
+    arrowColorCount = 0
+    wasLookingAtContraption = false
+
+    for _ = 1, count do
+        local ent = net.readEntity()
+
+        if isValid( ent ) then
+            table.insert( contraption, ent )
+            contraptionLookup[ent] = true
+        end
+    end
+end )
+
+
+timer.create( "LKL_ParentViewer_LookForNewChildren", 1, 0, function()
+    for i = #contraption, 1, -1 do
+        local ent = contraption[i]
+
+        if not isValid( ent ) then
+            contraptionLookup[ent] = nil
+            table.remove( contraption, i )
+        end
+    end
+
+    for i = 1, #contraption do
+        local ent = contraption[i]
+
+        for _, child in ipairs( ent:getChildren() ) do
+            if not contraptionLookup[child] then
+                contraptionLookup[child] = true
+                table.insert( contraption, child )
+            end
+        end
+    end
+end )
