@@ -1,0 +1,125 @@
+--@name Swap Grid Game
+--@author legokidlogan
+--@server
+
+-- Place directly onto a wall, the wall will provide trace collisions.
+-- If the owner presses E on the chip, it will shuffle the grid.
+
+
+-- CONFIG
+local rowCount = 5
+local colCount = 5
+local cellSize = 10
+local shuffleMin = 30
+local shuffleMax = 50
+local colorOn = Color( 255, 0, 0 )
+local colorOff = Color( 0, 0, 0 )
+-- END CONFIG
+
+
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+
+local grid = {}
+local gridAng = chip():getUp():getAngle()
+local gridTopLeft = chip():localToWorld( Vector( -( rowCount * cellSize + 10 ), -( colCount - 1 ) * cellSize / 2 ), 0 )
+local gridTraceMinBounds = nil
+local gridTraceMaxBounds = nil
+
+do
+    local rowDir = -gridAng:getUp()
+    local colDir = -gridAng:getRight()
+    local cellThickness = 1
+    local holoSize = Vector( cellThickness, cellSize, cellSize )
+
+    for r = 1, rowCount do
+        local row = {}
+        grid[r] = row
+
+        for c = 1, colCount do
+            local holo = hologram.create( gridTopLeft + rowDir * ( r - 1 ) * cellSize + colDir * ( c - 1 ) * cellSize, gridAng, "models/hunter/blocks/cube025x025x025.mdl" )
+            holo:setMaterial( "model_color" )
+            holo:setColor( colorOff )
+            holo:setSize( holoSize )
+
+            local cell = {
+                state = false,
+                holo = holo,
+            }
+
+            row[c] = cell
+        end
+    end
+
+    gridTopLeft = gridTopLeft - ( rowDir + colDir ) * cellSize / 2
+
+    local bounds1 = gridTopLeft + gridAng:getForward() * cellThickness / 2
+    local bounds2 = gridTopLeft + rowDir * rowCount * cellSize + colDir * colCount * cellSize - gridAng:getForward() * cellThickness / 2
+
+    gridTraceMinBounds = Vector( math.min( bounds1.x, bounds2.x ), math.min( bounds1.y, bounds2.y ), math.min( bounds1.z, bounds2.z ) )
+    gridTraceMaxBounds = Vector( math.max( bounds1.x, bounds2.x ), math.max( bounds1.y, bounds2.y ), math.max( bounds1.z, bounds2.z ) )
+end
+
+
+local function toggleCell( r, c, supressColorChange )
+    if r < 1 or r > rowCount or c < 1 or c > colCount then return end
+
+    local cell = grid[r][c]
+    local state = not cell.state
+
+    cell.state = state
+
+    if not supressColorChange then
+        cell.holo:setColor( state and colorOn or colorOff )
+    end
+end
+
+local function toggleCellAndNeighbors( r, c, supressColorChange )
+    toggleCell( r, c, supressColorChange )
+    toggleCell( r - 1, c, supressColorChange )
+    toggleCell( r + 1, c, supressColorChange )
+    toggleCell( r, c - 1, supressColorChange )
+    toggleCell( r, c + 1, supressColorChange )
+end
+
+local function updateColors()
+    for r = 1, rowCount do
+        for c = 1, colCount do
+            local cell = grid[r][c]
+            cell.holo:setColor( cell.state and colorOn or colorOff )
+        end
+    end
+end
+
+local function shuffleCells()
+    for _ = 1, math.random( shuffleMin, shuffleMax ) do
+        toggleCellAndNeighbors( math.random( 1, rowCount ), math.random( 1, colCount ), true )
+    end
+
+    updateColors()
+end
+
+
+hook.add( "KeyPress", "LKL_SwapGridGame_Interact", function( ply, key )
+    if key ~= IN_KEY.USE then return end
+
+    local tr = ply:getEyeTrace()
+
+    if tr.Entity == chip() then
+        if ply ~= owner() then return end
+
+        shuffleCells()
+
+        return
+    end
+
+    local hitPos = tr.HitPos
+    if not hitPos:withinAABox( gridTraceMinBounds, gridTraceMaxBounds ) then return end
+
+    local localPos = worldToLocal( hitPos, ANGLE_ZERO, gridTopLeft, gridAng )
+    local r = math.floor( -localPos.z / cellSize ) + 1
+    local c = math.floor( localPos.y / cellSize ) + 1
+
+    if r < 1 or r > rowCount or c < 1 or c > colCount then return end
+
+    toggleCellAndNeighbors( r, c )
+end )
