@@ -1,0 +1,13 @@
+--@name Align AngVel
+--@author legokidlogan
+--@server
+
+-- Like applytorque alignment, but far superior.
+function alignAngVel( ent, desAng, strength )
+    local CQ = ent:getAngles():getQuaternion()
+    local TQ = desAng:getQuaternion()
+    local Q = TQ / CQ
+    local torque = ent:worldToLocalVector( Q:getRotationVector() )
+
+    ent:getPhysicsObject():setAngleVelocity( torque * strength )
+end
