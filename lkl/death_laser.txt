@@ -343,8 +343,8 @@ function DeathLaser:setStatus( status, dontPlayStopSounds )
         local beamInnerWidth = self._beamPreviewWidth
         local beamOuterWidth = self._beamOuterWidth
 
-        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, 30000 ) )
-        beamOuterHolo:setSize( Vector( beamOuterWidth, 30000, beamOuterWidth ) )
+        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, 60000 ) )
+        beamOuterHolo:setSize( Vector( beamOuterWidth, 60000, beamOuterWidth ) )
     else--if status == 2 then
         self:startSound( baseEnt, "FIRE_START_BASE" )
         self:startSound( beamSoundHolo, "FIRE_START_BEAM" )
@@ -361,8 +361,8 @@ function DeathLaser:setStatus( status, dontPlayStopSounds )
         local beamInnerWidth = self._beamInnerWidth
         local beamOuterWidth = self._beamOuterWidth
 
-        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, 30000 ) )
-        beamOuterHolo:setSize( Vector( beamOuterWidth, 30000, beamOuterWidth ) )
+        beamInnerHolo:setSize( Vector( beamInnerWidth, beamInnerWidth, 60000 ) )
+        beamOuterHolo:setSize( Vector( beamOuterWidth, 60000, beamOuterWidth ) )
     end
 
     return true
@@ -534,7 +534,7 @@ function DeathLaser:updateBeam( forceTrace )
     if forceTrace or now >= self._nextBeamTraceTime then
         self._nextBeamTraceTime = now + self._beamTraceInterval
 
-        local tr = trace.hull( basePos, basePos + aimDir * 10000, self._beamTraceHullMin, self._beamTraceHullMax, self:makeTraceFilter() )
+        local tr = trace.hull( basePos, basePos + aimDir * 30000, self._beamTraceHullMin, self._beamTraceHullMax, self:makeTraceFilter() )
         local hitPos = tr.HitPos + aimDir * self._beamTraceRadius
 
         aimLength = ( hitPos - basePos ):getLength()
