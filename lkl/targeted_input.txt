@@ -111,7 +111,7 @@ if SERVER then
         plys = getHumans( plys )
 
         if tableIsEmpty( plys ) then
-            for _, ply in find.allPlayers() do
+            for _, ply in ipairs( find.allPlayers() ) do
                 fancyInput.setButtonStates( ply, {} )
             end
 
