@@ -1,0 +1,45 @@
+--@name Holo Domain Example
+--@author
+--@client
+--@include lkl/holo_domain.txt
+
+require( "lkl/holo_domain.txt" )
+
+
+local radius = 400
+local domain = HoloDomain:new( chip(), radius )
+
+
+-- parent, pos, ang, model, scale, isExternal
+local innerSphere = domain:createHolo( nil, nil, nil, "models/holograms/hq_sphere.mdl", nil, false )
+innerSphere:setSize( Vector( 30 ) )
+innerSphere:setColor( Color( 0, 255, 0, 100 ) )
+
+local innerCube = domain:createHolo( nil, Vector( 0, 0, 30 ), nil, "models/hunter/blocks/cube025x025x025.mdl", nil, false )
+innerCube:setSize( Vector( 50 ) )
+innerCube:setColor( Color( 0, 255, 0, 100 ) )
+
+
+local outerSphere = domain:createHolo( nil, nil, nil, "models/holograms/hq_sphere.mdl", nil, true )
+outerSphere:setSize( Vector( radius * 2 ) )
+outerSphere:setColor( Color( 255, 0, 0, 100 ) )
+
+local outerCube = domain:createHolo( nil, nil, nil, "models/hunter/blocks/cube025x025x025.mdl", nil, true )
+outerCube:setSize( Vector( radius * 2 ) )
+outerCube:setColor( Color( 255, 0, 0, 100 ) )
+
+
+domain:addLoopingURLSound( {
+    URL = "URL_GOES_HERE",
+    Volume = 0.25,
+    Pitch = 1,
+} )
+
+
+function domain:handleInsideAnimation( time, dt )
+    self:setHoloAng( innerCube, Angle( 0, time * 15, 0 ) )
+end
+
+function domain:handleOutsideAnimation( time, dt )
+    self:setHoloAng( outerCube, Angle( 0, -time * 15, 0 ) )
+end
