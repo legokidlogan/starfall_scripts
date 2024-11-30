@@ -49,14 +49,14 @@ function ThisClass:initialize( replicateOnClient, pos, ang, ... )
     self._groupedHolos.ScreenHolo = {}
     self._screenHoloHolosAreStowed = true
 
-    self:setScreenHoloModel( ThisClass.static.SCREEN_HOLO_MODEL )
-    self:setScreenHoloRadius( ThisClass.static.SCREEN_HOLO_RADIUS )
-    self:setScreenHoloFollowEyeAng( ThisClass.static.SCREEN_HOLO_FOLOW_EYE_ANG )
-    self:setScreenHoloMaterials( ThisClass.static.SCREEN_HOLO_MATERIALS )
-    self:setScreenHoloColors( ThisClass.static.SCREEN_HOLO_COLORS )
-    self:setScreenHoloAngs( ThisClass.static.SCREEN_HOLO_ANGS )
+    self:setScreenHoloModel( self.class.SCREEN_HOLO_MODEL )
+    self:setScreenHoloRadius( self.class.SCREEN_HOLO_RADIUS )
+    self:setScreenHoloFollowEyeAng( self.class.SCREEN_HOLO_FOLOW_EYE_ANG )
+    self:setScreenHoloMaterials( self.class.SCREEN_HOLO_MATERIALS )
+    self:setScreenHoloColors( self.class.SCREEN_HOLO_COLORS )
+    self:setScreenHoloAngs( self.class.SCREEN_HOLO_ANGS )
     self._screenHoloHolosAreReadyToSpawn = true
-    self:setScreenHoloCount( ThisClass.static.SCREEN_HOLO_COUNT )
+    self:setScreenHoloCount( self.class.SCREEN_HOLO_COUNT )
 
     self:setScreenHoloVisible( true )
 end

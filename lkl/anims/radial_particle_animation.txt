@@ -342,7 +342,7 @@ local mathMax = math.max
 ----- STATIC FUNCTIONS -----
 
 function ThisClass:initialize( replicateOnClient, pos, ang, particleLimit, ... )
-    particleLimit = particleLimit or ThisClass.static.PARTICLE_LIMIT
+    particleLimit = particleLimit or self.class.PARTICLE_LIMIT
 
     ThisClass.super.initialize( self, replicateOnClient, pos, ang, particleLimit, ... )
 
@@ -352,10 +352,10 @@ function ThisClass:initialize( replicateOnClient, pos, ang, particleLimit, ... )
 
     applyAutoBuildParams( self )
 
-    self:setInterpEaseOverall( ThisClass.static.INTERP_EASE_OVERALL )
-    self:setInterpEaseParticleDistance( ThisClass.static.INTERP_EASE_PARTICLE_DISTANCE )
-    self:setInterpEaseParticleScale( ThisClass.static.INTERP_EASE_PARTICLE_SCALE )
-    self:setInterpEaseParticleColor( ThisClass.static.INTERP_EASE_PARTICLE_COLOR )
+    self:setInterpEaseOverall( self.class.INTERP_EASE_OVERALL )
+    self:setInterpEaseParticleDistance( self.class.INTERP_EASE_PARTICLE_DISTANCE )
+    self:setInterpEaseParticleScale( self.class.INTERP_EASE_PARTICLE_SCALE )
+    self:setInterpEaseParticleColor( self.class.INTERP_EASE_PARTICLE_COLOR )
 
     if SERVER then return end
 
@@ -402,7 +402,7 @@ end
             - ex: "ls:function( frac ) return frac end"
 --]]
 function ThisClass:setInterpEaseOverall( funcName )
-    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_OVERALL end
+    if funcName == nil then funcName = self.class.INTERP_EASE_OVERALL end
     if funcName == self._interpEaseOverall then return end
 
     self._interpEaseOverallFunc = resolveEaseFuncName( funcName )
@@ -422,7 +422,7 @@ end
 
 -- Same as :setInterpEaseOverall(), but for how each particle moves radially over their lifetime.
 function ThisClass:setInterpEaseParticleDistance( funcName )
-    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_PARTICLE_DISTANCE end
+    if funcName == nil then funcName = self.class.INTERP_EASE_PARTICLE_DISTANCE end
     if funcName == self._interpEaseParticleDistance then return end
 
     self._interpEaseParticleDistanceFunc = resolveEaseFuncName( funcName )
@@ -440,7 +440,7 @@ end
 
 -- Same as :setInterpEaseOverall(), but for how each particle scales over their lifetime.
 function ThisClass:setInterpEaseParticleScale( funcName )
-    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_PARTICLE_SCALE end
+    if funcName == nil then funcName = self.class.INTERP_EASE_PARTICLE_SCALE end
     if funcName == self._interpEaseParticleScale then return end
 
     self._interpEaseParticleScaleFunc = resolveEaseFuncName( funcName )
@@ -458,7 +458,7 @@ end
 
 -- Same as :setInterpEaseOverall(), but for how each particle's color changes over their lifetime.
 function ThisClass:setInterpEaseParticleColor( funcName )
-    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_PARTICLE_COLOR end
+    if funcName == nil then funcName = self.class.INTERP_EASE_PARTICLE_COLOR end
     if funcName == self._interpEaseParticleColor then return end
 
     self._interpEaseParticleColorFunc = resolveEaseFuncName( funcName )

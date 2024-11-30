@@ -146,7 +146,7 @@ function ThisClass:initialize( replicateOnClient, pos, ang, ... )
 
     local holo
     pcall( function()
-        holo = hologram.create( pos, ang, ThisClass.static.SPHERE_MODEL )
+        holo = hologram.create( pos, ang, self.class.SPHERE_MODEL )
     end )
     if not holo then error( "Failed to initialize " .. self.class.name ) end
     self._sphereHolo = holo
@@ -154,8 +154,8 @@ function ThisClass:initialize( replicateOnClient, pos, ang, ... )
 
     applyAutoBuildParams( self )
 
-    self:setInterpEaseSphereScale( ThisClass.static.INTERP_EASE_SPHERE_SCALE )
-    self:setInterpEaseSphereColor( ThisClass.static.INTERP_EASE_SPHERE_COLOR )
+    self:setInterpEaseSphereScale( self.class.INTERP_EASE_SPHERE_SCALE )
+    self:setInterpEaseSphereColor( self.class.INTERP_EASE_SPHERE_COLOR )
 end
 
 
@@ -180,7 +180,7 @@ end
             - ex: "ls:function( frac ) return frac end"
 --]]
 function ThisClass:setInterpEaseSphereScale( funcName )
-    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_SPHERE_SCALE end
+    if funcName == nil then funcName = self.class.INTERP_EASE_SPHERE_SCALE end
     if funcName == self._interpEaseSphereScale then return end
 
     self._interpEaseSphereScaleFunc = resolveEaseFuncName( funcName )
@@ -200,7 +200,7 @@ end
 
 -- Same as :setInterpEaseSphereScale(), but for the color of the sphere.
 function ThisClass:setInterpEaseSphereColor( funcName )
-    if funcName == nil then funcName = ThisClass.static.INTERP_EASE_SPHERE_COLOR end
+    if funcName == nil then funcName = self.class.INTERP_EASE_SPHERE_COLOR end
     if funcName == self._interpEaseSphereColor then return end
 
     self._interpEaseSphereColorFunc = resolveEaseFuncName( funcName )
