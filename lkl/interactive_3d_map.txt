@@ -167,7 +167,7 @@ if SERVER then
 
 
     local function doHoloMapPing( ply )
-        local worldHitPos, _, holoMapHitPos, holoMapHitNormal = libI3DMap.holoMapTraceAlt( ply )
+        local worldHitPos, worldHitNormal, holoMapHitPos, holoMapHitNormal = libI3DMap.holoMapTraceAlt( ply )
         if not worldHitPos then return end
 
         local pingHolo = playerPingHolos[ply]
@@ -198,6 +198,8 @@ if SERVER then
             pingHolo:remove()
             playerPingHolos[ply] = nil
         end )
+
+        hook.run( "LKL_I3DMap_Ping", ply, worldHitPos, worldHitNormal, holoMapHitPos, holoMapHitNormal )
     end
 
     local function wireInput( name, value )
