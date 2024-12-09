@@ -2,36 +2,52 @@
 --@author legokidlogan
 --@server
 
-projectNameID = "CarCon"
-printName = "[" .. projectNameID .. "]"
+projectNameID = projectNameID or "CarCon"
+printName = printName or ( "[" .. projectNameID .. "]" )
 
 
 -- CONFIG
-local forwardSpeed = 16 -- Speed for driving forwards
-local backwardSpeed = 12 -- Speed for drving backwards
-local boostMult = 1.5 -- Speed multiplier when holding shift
+local gearChangeDoPrint = true
+local gearChangeDoSound = true
+local gears = { -- Properties not defined in additional gears will default to what they are in the first gear.
+    {
+        name = "Normal",
 
-local turnAssistSpeed = 10 -- Strength of torque used to assist in making sharper turns
-local turnAssistSpeedBackwards = 10 -- Strength of torque used to assist in making sharper turns while driving backwards
-local turnAssistBoostMult = 1.25 -- Multiplier for turn assist strength when holding shift
+        forwardSpeed = 16, -- Speed for driving forwards
+        backwardSpeed = 12, -- Speed for drving backwards
+        boostMult = 1.5, -- Speed multiplier when holding shift
 
-local pushdownStrength = 0.75 -- Strength of force used to push the car into the ground, hugging it more closely.
-local pushdownStrengthWall = 14 -- Strength of force used to cling against walls.
-local flipUprightStrength = 2.5 --Strength of force used to upright the car when using a or d when it's upside-down.
-local uprightDetectionInterval = 0.05 -- The time between updates for determining what direction is 'up' relative to the current ground.
-local carHeight = 35 -- The approximate height of your car from the ground to the middle of the base.
-local wallAntiGravityStrength = 18
+        turnAssistSpeed = 15, -- Strength of torque used to assist in making sharper turns
+        turnAssistSpeedBackwards = 15, -- Strength of torque used to assist in making sharper turns while driving backwards
+        turnAssistBoostMult = 1.25, -- Multiplier for turn assist strength when holding shift
+        turnAngle = 30, -- When turning, rotates the forward/backward force by this many degrees
 
-local dampenMultPassive = 0.009 -- Passive dampening multiplier, acts like air resistance.
-local dampenMultBrake = 0.055 -- Active dampening multiplier, makes braking faster.
+        pushdownStrength = 0.75, -- Strength of force used to push the car into the ground, hugging it more closely.
+        pushdownStrengthWall = 14 * 0, -- Strength of force used to cling against walls.
+        wallAntiGravityStrength = 18 * 0, -- Strength of force used to counteract gravity when clinging to a wall.
+        flipUprightStrength = 10, -- Strength of force used to upright the car when using a or d when it's upside-down.
+
+        dampenMultPassive = 0.01, -- Passive dampening multiplier, acts like air resistance.
+        dampenMultBrake = 0.1, -- Active dampening multiplier, makes braking faster.
+        dampenMultPark = 0.1, -- Dampening when the car is at or below the park speed.
+        dampenMultParkSpeed = 300, -- Spark speed.
+
+        dampenMultAngPassive = 0.12, -- Passive dampening multiplier for angular velocity.
+        dampenMultAngBrake = 0.25, -- Active dampening multiplier for angular velocity.
+
+        wheelPropertySpeed = 500, -- Speed threshold for changing wheel properties.
+    },
+}
+
 local dampenMultParkEnabled = true -- When at a slow speed and the driver is making no inputs, apply park dampening.
-local dampenMultPark = 0.1
-local dampenMultParkSpeed = 300
 
 local wheelPropertyEnabled = true
 local wheelPropertySlow = "jeeptire"
 local wheelPropertyFast = "ice"
-local wheelPropertySpeed = 500
+
+local uprightDetectionInterval = 0.05 -- The time between updates for determining what direction is 'up' relative to the current ground.
+local carHeight = 35 -- The approximate height of your car from the ground to the middle of the base.
+local wallAntiGravityThreshold = 0.25
 
 local soundUpdateInterval = 0.1
 local soundConfig = {
@@ -78,7 +94,6 @@ local orientProp
 local baseBoxSize
 local groundTraceLength = carHeight * 1.05 + 20
 local uprightThreshold = 0.2
-local wallAntiGravityThreshold = 0.25
 local driveForceForward = 0
 local driveForceTurn = 0
 local contraptionMass = 0
@@ -98,6 +113,35 @@ local soundObjects = {}
 local contraption = {}
 local wheels = {}
 local wheelPropertyState = false
+local gearNum = -1
+local gearCount = #gears
+local cycleGearUpVal = 0
+local cycleGearDownVal = 0
+
+-- Gear defaults
+local forwardSpeed = 16
+local backwardSpeed = 12
+local boostMult = 1.5
+
+local turnAssistSpeed = 15
+local turnAssistSpeedBackwards = 15
+local turnAssistBoostMult = 1.25
+local turnAngle = 30
+
+local pushdownStrength = 0.75
+local pushdownStrengthWall = 14
+local wallAntiGravityStrength = 18
+local flipUprightStrength = 10
+
+local dampenMultPassive = 0.01
+local dampenMultBrake = 0.1
+local dampenMultPark = 0.1
+local dampenMultParkSpeed = 300
+local dampenMultAngPassive = 0.12
+local dampenMultAngBrake = 0.25
+
+local wheelPropertySpeed = 500
+-- End gear defaults
 
 local tableInsert = table.insert
 
@@ -142,14 +186,130 @@ tableInsert( inputTypes, "NUMBER" )
 tableInsert( inputNames, "Shift" )
 tableInsert( inputTypes, "NUMBER" )
 
---[[
-tableInsert( outputNames, "" )
-tableInsert( outputTypes, "" )
---]]
+tableInsert( inputNames, "CycleGearUp" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "CycleGearDown" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "SetGearTo" )
+tableInsert( inputTypes, "NUMBER" )
+
+
+tableInsert( outputNames, "GearNum" )
+tableInsert( outputTypes, "NUMBER" )
+
+tableInsert( outputNames, "GearCount" )
+tableInsert( outputTypes, "NUMBER" )
+
+tableInsert( outputNames, "Gear" )
+tableInsert( outputTypes, "TABLE" )
+
 
 wire.adjustInputs( inputNames, inputTypes )
 wire.adjustOutputs( outputNames, outputTypes )
 
+wire.ports.GearCount = gearCount
+
+
+local function checkWheelProperty( force )
+    if not wheelPropertyEnabled then return end
+    if not isValid( base ) then return end
+
+    local oldState = wheelPropertyState
+    wheelPropertyState = base:getVelocity():getLength() >= wheelPropertySpeed
+
+    if not force and wheelPropertyState == oldState then return end
+
+    local physMat = wheelPropertyState and wheelPropertyFast or wheelPropertySlow
+
+    for _, wheel in ipairs( wheels ) do
+        if isValid( wheel ) then
+            local physObj = wheel:getPhysicsObject()
+
+            if isValid( physObj ) then
+                physObj:setMaterial( physMat )
+            end
+        end
+    end
+end
+
+local function changeGear( ind )
+    if ind == true then
+        ind = gearNum % gearCount + 1
+    elseif ind == false then
+        ind = gearNum - 1
+        if ind < 1 then ind = gearCount end
+    end
+
+    if ind == gearNum then return end
+    if ind < 1 or ind > gearCount then return end
+
+    local oldGearNum = gearNum
+    gearNum = ind
+
+    local gear = gears[ind]
+    local firstGear = gears[1]
+
+    forwardSpeed = gear.forwardSpeed or firstGear.forwardSpeed
+    backwardSpeed = gear.backwardSpeed or firstGear.backwardSpeed
+    boostMult = gear.boostMult or firstGear.boostMult
+
+    turnAssistSpeed = gear.turnAssistSpeed or firstGear.turnAssistSpeed
+    turnAssistSpeedBackwards = gear.turnAssistSpeedBackwards or firstGear.turnAssistSpeedBackwards
+    turnAssistBoostMult = gear.turnAssistBoostMult or firstGear.turnAssistBoostMult
+    turnAngle = gear.turnAngle or firstGear.turnAngle
+
+    pushdownStrength = gear.pushdownStrength or firstGear.pushdownStrength
+    pushdownStrengthWall = gear.pushdownStrengthWall or firstGear.pushdownStrengthWall
+    wallAntiGravityStrength = gear.wallAntiGravityStrength or firstGear.wallAntiGravityStrength
+    flipUprightStrength = gear.flipUprightStrength or firstGear.flipUprightStrength
+
+    dampenMultPassive = gear.dampenMultPassive or firstGear.dampenMultPassive
+    dampenMultBrake = gear.dampenMultBrake or firstGear.dampenMultBrake
+    dampenMultPark = gear.dampenMultPark or firstGear.dampenMultPark
+    dampenMultParkSpeed = gear.dampenMultParkSpeed or firstGear.dampenMultParkSpeed
+
+    dampenMultAngPassive = gear.dampenMultAngPassive or firstGear.dampenMultAngPassive
+    dampenMultAngBrake = gear.dampenMultAngBrake or firstGear.dampenMultAngBrake
+
+    wheelPropertySpeed = gear.wheelPropertySpeed or firstGear.wheelPropertySpeed
+
+    if isValid( base ) then
+        checkWheelProperty( true )
+    end
+
+    local gearName = gear.name
+
+    if gearChangeDoPrint and driver == owner() then
+        local printTbl = {
+            Color( 255, 255, 255 ), printName .. " Changed gear to ",
+            Color( 255, 255, 0 ), tostring( gearNum ),
+            Color( 255, 255, 255 ), "/",
+            Color( 255, 255, 150 ), tostring( gearCount ),
+        }
+
+        if gearName then
+            table.insert( printTbl, Color( 255, 255, 255 ) )
+            table.insert( printTbl, " (" )
+            table.insert( printTbl, Color( 255, 255, 0 ) )
+            table.insert( printTbl, gearName )
+            table.insert( printTbl, Color( 255, 255, 255 ) )
+            table.insert( printTbl, ")" )
+        end
+
+        print( unpack( printTbl ) )
+    end
+
+    if gearChangeDoSound and isValid( chair ) then
+        chair:emitSound( "buttons/lever7.wav", 75, math.lerp( gearNum / gearCount, 90, 110 ) )
+    end
+
+    hook.run( "LKL_CarCon_ChangeGear", oldGearNum, gearNum, gearName )
+
+    wire.ports.GearNum = gearNum
+    wire.ports.Gear = gear
+end
 
 local function baseWidthInDirection( worldDir )
     if not isValid( base ) then return Vector( 0, 0, 0 ) end
@@ -228,28 +388,6 @@ local function updateDriveDirections()
         driveForceTurn = btnStateShift and ( -turnSpeedBase * turnAssistBoostMult ) or -turnSpeedBase
     else
         driveForceTurn = 0
-    end
-end
-
-local function checkWheelProperty( force )
-    if not wheelPropertyEnabled then return end
-    if not isValid( base ) then return end
-
-    local oldState = wheelPropertyState
-    wheelPropertyState = base:getVelocity():getLength() >= wheelPropertySpeed
-
-    if not force and wheelPropertyState == oldState then return end
-
-    local physMat = wheelPropertyState and wheelPropertyFast or wheelPropertySlow
-
-    for _, wheel in ipairs( wheels ) do
-        if isValid( wheel ) then
-            local physObj = wheel:getPhysicsObject()
-
-            if isValid( physObj ) then
-                physObj:setMaterial( physMat )
-            end
-        end
     end
 end
 
@@ -349,14 +487,31 @@ local function wireInput( name, value )
     elseif name == "Shift" then
         btnStateShift = value ~= 0
         updateDriveDirections()
+    elseif name == "CycleGearUp" then
+        if value ~= 0 and value ~= cycleGearUpVal then
+            changeGear( true )
+        end
+
+        cycleGearUpVal = value
+    elseif name == "CycleGearDown" then
+        if value ~= 0 and value ~= cycleGearDownVal then
+            changeGear( false )
+        end
+
+        cycleGearDownVal = value
+    elseif name == "SetGearTo" then
+        changeGear( value )
     end
 end
 
 
+changeGear( 1 )
+
 hook.add( "input", "LKL_CarCon_WireInput", wireInput )
 
 hook.add( "think", "LKL_CarCon_DriveCar", function()
-    if not isValid( base ) or not isValid( driver ) then return end
+    --if not isValid( base ) or not isValid( driver ) then return end
+    if not isValid( base ) then return end
 
     if not isValid( orientProp ) then
         orientProp = base
@@ -384,11 +539,43 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
             end
         end
 
+        carVel[3] = 0
+
         base:applyForceCenter( carVel * -dampenMultEff * mass )
     end
 
+    if dampenMultAngPassive ~= 0 or dampenMultAngBrake ~= 0 then
+        local physObj = base:getPhysicsObject()
+        local angVel = physObj:getAngleVelocity()
+        local dampenMultEff
+
+        if driveForceTurn == 0 then
+            dampenMultEff = dampenMultAngPassive
+        else
+            local angVelLocal = orientProp:worldToLocalVector( base:localToWorldVector( angVel ) )
+            local angVelSign = math.sign( angVelLocal[3] )
+
+            if angVelSign == math.sign( driveForceTurn ) then
+                dampenMultEff = dampenMultAngPassive
+            else
+                dampenMultEff = dampenMultAngBrake
+            end
+        end
+
+        physObj:addAngleVelocity( -angVel * dampenMultEff )
+    end
+
+    if not isValid( driver ) then return end
+
     if driveForceForward ~= 0 then
-        base:applyForceCenter( orientProp:getForward() * driveForceForward * mass )
+        --base:applyForceCenter( orientProp:getForward() * driveForceForward * mass )
+        local dir = orientProp:getForward()
+
+        if driveForceTurn ~= 0 then
+            dir = dir:rotateAroundAxis( orientProp:getUp(), turnAngle * math.sign( driveForceTurn ) )
+        end
+
+        base:applyForceCenter( dir * driveForceForward * mass )
     end
 
     if driveForceTurn ~= 0 then
