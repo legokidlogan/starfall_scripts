@@ -11,9 +11,11 @@
 --]]
 
 
-require( "lkl/sgui/panel.txt" )
+SGUI = SGUI or {}
 
 if SGUI.Label then return end -- Don't run twice
+
+require( "lkl/sgui/panel.txt" )
 
 
 SGUI.Label = class( "Label", SGUI.Panel )

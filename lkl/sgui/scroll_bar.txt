@@ -11,11 +11,13 @@
 --]]
 
 
+SGUI = SGUI or {}
+
+if SGUI.ScrollBar then return end -- Don't run twice
+
 require( "lkl/sgui/panel.txt" )
 require( "lkl/sgui/scroll_button.txt" )
 require( "lkl/sgui/scroll_thumb.txt" )
-
-if SGUI.ScrollBar then return end -- Don't run twice
 
 
 SGUI.ScrollBar = class( "ScrollBar", SGUI.Panel )

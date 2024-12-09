@@ -11,10 +11,12 @@
 --]]
 
 
-require( "lkl/sgui/scrollable_list.txt" )
-require( "lkl/sgui/button.txt" )
+SGUI = SGUI or {}
 
 if SGUI.ComboBox then return end -- Don't run twice
+
+require( "lkl/sgui/scrollable_list.txt" )
+require( "lkl/sgui/button.txt" )
 
 
 SGUI.ComboBox = class( "ComboBox", SGUI.Button )

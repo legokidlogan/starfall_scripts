@@ -12,12 +12,14 @@
 --]]
 
 
+SGUI = SGUI or {}
+
+if SGUI.Grid then return end -- Don't run twice
+
 require( "lkl/sgui/panel.txt" )
 require( "lkl/sgui/grid_node.txt" )
 require( "lkl/table_clone_deep.txt" )
 require( "lkl/table_flatten.txt" )
-
-if SGUI.Grid then return end -- Don't run twice
 
 
 SGUI.Grid = class( "Grid", SGUI.Panel )

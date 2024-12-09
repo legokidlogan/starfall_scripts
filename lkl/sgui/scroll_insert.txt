@@ -9,9 +9,11 @@
 --]]
 
 
-require( "lkl/sgui/panel.txt" )
+SGUI = SGUI or {}
 
 if SGUI.ScrollInsert then return end -- Don't run twice
+
+require( "lkl/sgui/panel.txt" )
 
 
 SGUI.ScrollInsert = class( "ScrollInsert", SGUI.Panel )

@@ -9,9 +9,11 @@
 --]]
 
 
-require( "lkl/sgui/toggle_button.txt" )
+SGUI = SGUI or {}
 
 if SGUI.CheckBox then return end -- Don't run twice
+
+require( "lkl/sgui/toggle_button.txt" )
 
 
 SGUI.CheckBox = class( "CheckBox", SGUI.ToggleButton )

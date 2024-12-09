@@ -15,13 +15,15 @@
 --]]
 
 
+SGUI = SGUI or {}
+
+if SGUI.Window then return end -- Don't run twice
+
 require( "lkl/sgui/collapsible.txt" )
 require( "lkl/sgui/close_button.txt" )
 require( "lkl/sgui/draggable.txt" )
 require( "lkl/sgui/label.txt" )
 require( "lkl/sgui/resizable.txt" )
-
-if SGUI.Window then return end -- Don't run twice
 
 
 SGUI.Window = class( "Window", SGUI.Collapsible )

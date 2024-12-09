@@ -9,9 +9,11 @@
 --]]
 
 
-require( "lkl/sgui/panel.txt" )
+SGUI = SGUI or {}
 
 if SGUI.Resizable then return end -- Don't run twice
+
+require( "lkl/sgui/panel.txt" )
 
 
 SGUI.Resizable = class( "Resizable", SGUI.Panel )

@@ -11,10 +11,12 @@
 --]]
 
 
-require( "lkl/sgui/slider.txt" )
-require( "lkl/sgui/label.txt" )
+SGUI = SGUI or {}
 
 if SGUI.LabeledSlider then return end -- Don't run twice
+
+require( "lkl/sgui/slider.txt" )
+require( "lkl/sgui/label.txt" )
 
 
 SGUI.LabeledSlider = class( "LabeledSlider", SGUI.Panel )

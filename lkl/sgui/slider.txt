@@ -13,11 +13,13 @@
 --]]
 
 
+SGUI = SGUI or {}
+
+if SGUI.Slider then return end -- Don't run twice
+
 require( "lkl/sgui/panel.txt" )
 require( "lkl/sgui/slider_button.txt" )
 require( "lkl/math/nearest_multiple.txt" )
-
-if SGUI.Slider then return end -- Don't run twice
 
 
 SGUI.Slider = class( "Slider", SGUI.Panel )

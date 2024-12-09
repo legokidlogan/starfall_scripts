@@ -9,9 +9,11 @@
 --]]
 
 
-require( "lkl/sgui/panel.txt" )
+SGUI = SGUI or {}
 
 if SGUI.ProgressBar then return end -- Don't run twice
+
+require( "lkl/sgui/panel.txt" )
 
 
 SGUI.ProgressBar = class( "ProgressBar", SGUI.Panel )

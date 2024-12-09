@@ -58,10 +58,11 @@
 --]]
 
 
-require( "lkl/sgui/base.txt" )
+SGUI = SGUI or {}
 
 if SGUI.Panel then return end -- Don't run twice
 
+require( "lkl/sgui/base.txt" )
 require( "lkl/middleclass_extras.txt" )
 require( "lkl/destroyable.txt" )
 require( "lkl/render/poly_tools.txt" )

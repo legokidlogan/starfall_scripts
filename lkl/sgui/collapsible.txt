@@ -11,9 +11,11 @@
 --]]
 
 
-require( "lkl/sgui/collapse_button.txt" )
+SGUI = SGUI or {}
 
 if SGUI.Collapsible then return end -- Don't run twice
+
+require( "lkl/sgui/collapse_button.txt" )
 
 
 SGUI.Collapsible = class( "Collapsible", SGUI.Panel )

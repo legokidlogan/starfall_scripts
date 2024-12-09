@@ -9,9 +9,11 @@
 --]]
 
 
-require( "lkl/sgui/draggable.txt" )
+SGUI = SGUI or {}
 
 if SGUI.ScrollThumb then return end -- Don't run twice
+
+require( "lkl/sgui/draggable.txt" )
 
 
 SGUI.ScrollThumb = class( "ScrollThumb", SGUI.Draggable )

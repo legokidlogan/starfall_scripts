@@ -7,7 +7,10 @@
 -- Base library for SGUI
 
 
-if SGUI then return end -- Don't run twice
+SGUI = SGUI or {}
+
+if SGUI._alreadyLoaded then return end -- Don't run twice
+SGUI._alreadyLoaded = true
 
 require( "lkl/color_scheme.txt" )
 require( "lkl/cl_check_permissions.txt" )

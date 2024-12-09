@@ -9,9 +9,11 @@
 --]]
 
 
-require( "lkl/sgui/toggle_button.txt" )
+SGUI = SGUI or {}
 
 if SGUI.CollapseButton then return end -- Don't run twice
+
+require( "lkl/sgui/toggle_button.txt" )
 
 
 SGUI.CollapseButton = class( "CollapseButton", SGUI.ToggleButton )

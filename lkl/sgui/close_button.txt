@@ -9,9 +9,11 @@
 --]]
 
 
-require( "lkl/sgui/button.txt" )
+SGUI = SGUI or {}
 
 if SGUI.CloseButton then return end -- Don't run twice
+
+require( "lkl/sgui/button.txt" )
 
 
 SGUI.CloseButton = class( "CloseButton", SGUI.Button )

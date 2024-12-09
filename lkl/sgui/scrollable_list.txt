@@ -10,10 +10,12 @@
 --]]
 
 
-require( "lkl/sgui/list.txt" )
-require( "lkl/sgui/scrollable.txt" )
+SGUI = SGUI or {}
 
 if SGUI.ScrollableList then return end -- Don't run twice
+
+require( "lkl/sgui/list.txt" )
+require( "lkl/sgui/scrollable.txt" )
 
 
 SGUI.ScrollableList = class( "ScrollableList", SGUI.List )
