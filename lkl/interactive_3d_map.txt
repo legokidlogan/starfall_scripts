@@ -151,8 +151,6 @@ if SERVER then
     local playerHolos = {}
     local playerHoloPlys = {}
     local playerPingHolos = {}
-    local validModelLookup = {}
-    local modelToIdleAnimLookup = {}
     local replicatedEnts = {}
     local replicatedEntHolos = nil
     local replicatedEntLastGroupID = nil
@@ -167,49 +165,6 @@ if SERVER then
         wire.adjustInputs( inputNames, inputTypes )
     end )
 
-    do
-        for _, model in pairs( game.getPlayerModels() ) do
-            validModelLookup[model] = true
-        end
-    end
-
-
-    local function isModelValid( model )
-        if validModelLookup[model] then return true end
-
-        local goodStart =
-            string.startWith( model, "models/pac3_cache/" ) or
-            string.startWith( model, "models/player/" )
-
-        if goodStart then
-            validModelLookup[model] = true
-
-            return true
-        end
-
-        return false
-    end
-
-    local function getSafeModel( model )
-        if isModelValid( model ) then return model end
-
-        --return "models/player/kleiner.mdl"
-        --return "models/zombie/classic_legs.mdl"
-        return "models/error.mdl"
-    end
-
-    local function getIdleAnim( ply )
-        local model = ply:getModel()
-        local anim = modelToIdleAnimLookup[model]
-        if anim then return anim end
-
-        local sequences = ply:getSequenceList()
-        anim = table.keyFromValue( sequences, "idle_all_01" ) or table.keyFromValue( sequences, "idle" ) or 0
-
-        modelToIdleAnimLookup[model] = anim
-
-        return anim
-    end
 
     local function doHoloMapPing( ply )
         local worldHitPos, _, holoMapHitPos, holoMapHitNormal = libI3DMap.holoMapTraceAlt( ply )
@@ -335,13 +290,12 @@ if SERVER then
 
                     local holo
                     local _ = pcall( function()
-                        holo = hologram.create( Vector(), Angle(), getSafeModel( ply:getModel() ) )
+                        holo = hologram.create( Vector(), Angle(), "models/player/kleiner.mdl" )
                     end )
 
                     if not holo then return end
 
                     holo:setPlayerColor( ply:getPlayerColor() )
-                    holo:setAnimation( getIdleAnim( ply ) )
                     jiggleFixer.setHoloScale( holo, Vector( libMapMesh.getMeshScale() * holoMapPlayerScale ) )
 
                     playerHolos[i] = holo
@@ -376,9 +330,8 @@ if SERVER then
             local holo = playerHolos[i]
 
             if playerHoloPlys[i] ~= ply then
-                jiggleFixer.setHoloModel( holo, getSafeModel( ply:getModel() ) )
+                jiggleFixer.setHoloModel( holo, "models/player/kleiner.mdl" )
                 holo:setPlayerColor( ply:getPlayerColor() )
-                holo:setAnimation( getIdleAnim( ply ) )
 
                 net.start( "LKL_I3DMap_ChangePlayerHoloPlayer" )
                 net.writeUInt( i, 8 )
@@ -386,12 +339,6 @@ if SERVER then
                 net.send()
 
                 playerHoloPlys[i] = ply
-            elseif ply:getModel() ~= holo:getModel() then
-                -- Update the model in case the player changed it.
-                pcall( function() -- Starfall throws an error if we use a model from an unmounted game. Funnily enough, the client still receives the update anyway.
-                    jiggleFixer.setHoloModel( holo, getSafeModel( ply:getModel() ) )
-                    holo:setAnimation( getIdleAnim( ply ) )
-                end )
             end
 
             local pos = libMapMesh.worldPosToMeshPos( ply:getPos() )
@@ -461,6 +408,7 @@ local recursiveHoloBase = nil
 local playerHolos = {}
 local playerHoloPlys = {}
 local playerHoloLookup = {}
+local modelToIdleAnimLookup = {}
 
 
 function libI3DMap.getMapHoloBase()
@@ -469,6 +417,20 @@ end
 
 function libI3DMap.getPlayerHolos()
     return playerHolos
+end
+
+
+local function getIdleAnim( ply )
+    local model = ply:getModel()
+    local anim = modelToIdleAnimLookup[model]
+    if anim then return anim end
+
+    local sequences = ply:getSequenceList()
+    anim = table.keyFromValue( sequences, "idle_all_01" ) or table.keyFromValue( sequences, "idle" ) or 0
+
+    modelToIdleAnimLookup[model] = anim
+
+    return anim
 end
 
 
@@ -532,6 +494,7 @@ net.receive( "LKL_I3DMap_SetPlayerHolos", function()
             playerHolos[i] = holo
             playerHoloPlys[i] = ply
             playerHoloLookup[holo] = i
+            holo._i3dmap_PlayerHoloNeedsUpdate = true
         end
     end
 end )
@@ -543,6 +506,12 @@ net.receive( "LKL_I3DMap_ChangePlayerHoloPlayer", function()
     if not isValid( ply ) then return end
 
     playerHoloPlys[ind] = ply
+
+    local holo = playerHolos[ind]
+
+    if holo then
+        holo._i3dmap_PlayerHoloNeedsUpdate = true
+    end
 end )
 
 
@@ -556,6 +525,22 @@ timer.create( "LKL_I3DMap_StartLoading", 0.2, 0, function()
         timer.create( "LKL_I3DMap_ShowProgress", 0.1, 0, function()
             setName( "Interactive 3D Map\n(" .. math.round( libMapMesh.getMeshProgress() * 100 ) .. "%)" )
         end )
+    end
+end )
+
+timer.create( "LKL_I3DMap_MatchPlayermodels", 5, 0, function()
+    for i, ply in ipairs( playerHoloPlys ) do
+        local holo = playerHolos[i]
+
+        if isValid( ply ) and isValid( holo ) then
+            local model = ply:getModel()
+
+            if holo._i3dmap_PlayerHoloNeedsUpdate or model ~= holo:getModel() then
+                jiggleFixer.setHoloModel( holo, model )
+                holo:setAnimation( getIdleAnim( ply ) )
+                holo._i3dmap_PlayerHoloNeedsUpdate = false
+            end
+        end
     end
 end )
 
