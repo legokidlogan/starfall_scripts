@@ -429,7 +429,7 @@ local function wireInput( name, value )
                     sndObj:destroy()
                 end
 
-                sndObj = sounds.create( base, sndData.Path, false )
+                sndObj = sound.create( base, sndData.Path, false )
                 sndObj:stop()
                 soundObjects[sndName] = sndObj
             end
