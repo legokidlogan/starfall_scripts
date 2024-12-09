@@ -1,11 +1,9 @@
 --@name Car Controller
 --@author legokidlogan
---@shared
+--@server
 
 projectNameID = "CarCon"
 printName = "[" .. projectNameID .. "]"
-
-if CLIENT then return end
 
 
 -- CONFIG
@@ -13,8 +11,8 @@ local forwardSpeed = 16 -- Speed for driving forwards
 local backwardSpeed = 12 -- Speed for drving backwards
 local boostMult = 1.5 -- Speed multiplier when holding shift
 
-local turnAssistSpeed = 0.75 -- Strength of torque used to assist in making sharper turns
-local turnAssistSpeedBackwards = 0.75 -- Strength of torque used to assist in making sharper turns while driving backwards
+local turnAssistSpeed = 10 -- Strength of torque used to assist in making sharper turns
+local turnAssistSpeedBackwards = 10 -- Strength of torque used to assist in making sharper turns while driving backwards
 local turnAssistBoostMult = 1.25 -- Multiplier for turn assist strength when holding shift
 
 local pushdownStrength = 0.75 -- Strength of force used to push the car into the ground, hugging it more closely.
@@ -26,6 +24,14 @@ local wallAntiGravityStrength = 18
 
 local dampenMultPassive = 0.009 -- Passive dampening multiplier, acts like air resistance.
 local dampenMultBrake = 0.055 -- Active dampening multiplier, makes braking faster.
+local dampenMultParkEnabled = true -- When at a slow speed and the driver is making no inputs, apply park dampening.
+local dampenMultPark = 0.1
+local dampenMultParkSpeed = 300
+
+local wheelPropertyEnabled = true
+local wheelPropertySlow = "jeeptire"
+local wheelPropertyFast = "ice"
+local wheelPropertySpeed = 500
 
 local soundUpdateInterval = 0.1
 local soundConfig = {
@@ -90,6 +96,8 @@ local worldUp = Vector( 0, 0, 1 )
 local groundUp = Vector( 0, 0, 1 )
 local soundObjects = {}
 local contraption = {}
+local wheels = {}
+local wheelPropertyState = false
 
 local tableInsert = table.insert
 
@@ -100,6 +108,9 @@ inputTypes = inputTypes or {}
 outputNames = outputNames or {}
 outputTypes = outputTypes or {}
 
+
+tableInsert( inputNames, "Wheels" )
+tableInsert( inputTypes, "ARRAY" )
 
 tableInsert( inputNames, "Base" )
 tableInsert( inputTypes, "ENTITY" )
@@ -220,8 +231,34 @@ local function updateDriveDirections()
     end
 end
 
+local function checkWheelProperty( force )
+    if not wheelPropertyEnabled then return end
+    if not isValid( base ) then return end
+
+    local oldState = wheelPropertyState
+    wheelPropertyState = base:getVelocity():getLength() >= wheelPropertySpeed
+
+    if not force and wheelPropertyState == oldState then return end
+
+    local physMat = wheelPropertyState and wheelPropertyFast or wheelPropertySlow
+
+    for _, wheel in ipairs( wheels ) do
+        if isValid( wheel ) then
+            local physObj = wheel:getPhysicsObject()
+
+            if isValid( physObj ) then
+                physObj:setMaterial( physMat )
+            end
+        end
+    end
+end
+
 local function wireInput( name, value )
-    if name == "Base" then
+    if name == "Wheels" then
+        wheels = value or {}
+
+        checkWheelProperty( true )
+    elseif name == "Base" then
         base = isValid( value ) and value
 
         if base then
@@ -258,6 +295,8 @@ local function wireInput( name, value )
                 sndObj:stop()
                 soundObjects[sndName] = sndObj
             end
+
+            checkWheelProperty( true )
         else
             for sndName, sndObj in pairs( soundObjects ) do
                 if isValid( sndObj ) then
@@ -287,7 +326,7 @@ local function wireInput( name, value )
     elseif name == "Driver" then
         driver = isValid( value ) and value:isPlayer() and value
 
-        --tiSetTargets( driver )
+        --targetedInput.setTargets( driver )
         timer.simple( 0.3, updateDriveDirections )
 
         if driver then
@@ -330,7 +369,11 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
         local dampenMultEff
 
         if driveForceForward == 0 then
-            dampenMultEff = dampenMultPassive
+            if dampenMultParkEnabled and driveForceTurn == 0 and carVel:getLength() <= dampenMultParkSpeed then
+                dampenMultEff = dampenMultPark
+            else
+                dampenMultEff = dampenMultPassive
+            end
         else
             local driveDir = orientProp:getForward() * driveForceForward
 
@@ -468,3 +511,7 @@ timer.create( "LKL_CarCon_UpdateActiveDriveSound", soundUpdateInterval, 0, funct
     activeDriveSound:setVolume( slowVolume + ( fastVolume - slowVolume ) * frac, soundUpdateInterval )
     activeDriveSound:setPitch( slowPitch + ( fastPitch - slowPitch ) * frac, soundUpdateInterval )
 end )
+
+if wheelPropertyEnabled then
+    timer.create( "LKL_CarCon_CheckWheelProperty", 0.5, 0, checkWheelProperty )
+end
