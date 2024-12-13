@@ -17,10 +17,10 @@ local gears = { -- Properties not defined in additional gears will default to wh
         backwardSpeed = 12, -- Speed for drving backwards
         boostMult = 1.5, -- Speed multiplier when holding shift
 
-        turnAssistSpeed = 15, -- Strength of torque used to assist in making sharper turns
-        turnAssistSpeedBackwards = 15, -- Strength of torque used to assist in making sharper turns while driving backwards
-        turnAssistBoostMult = 1.25, -- Multiplier for turn assist strength when holding shift
-        turnAngle = 30, -- When turning, rotates the forward/backward force by this many degrees
+        turnTorque = 15, -- Strength of torque used to assist in making sharper turns
+        turnTorqueBackwards = 15, -- Strength of torque used to assist in making sharper turns while driving backwards
+        turnTorqueBoostMult = 1.25, -- Multiplier for turn assist strength when holding shift
+        turnAngle = 35, -- When turning, rotates the forward/backward force by this many degrees
 
         pushdownStrength = 0.75, -- Strength of force used to push the car into the ground, hugging it more closely.
         pushdownStrengthWall = 14 * 0, -- Strength of force used to cling against walls.
@@ -123,9 +123,9 @@ local forwardSpeed = 16
 local backwardSpeed = 12
 local boostMult = 1.5
 
-local turnAssistSpeed = 15
-local turnAssistSpeedBackwards = 15
-local turnAssistBoostMult = 1.25
+local turnTorque = 15
+local turnTorqueBackwards = 15
+local turnTorqueBoostMult = 1.25
 local turnAngle = 30
 
 local pushdownStrength = 0.75
@@ -255,9 +255,9 @@ local function changeGear( ind )
     backwardSpeed = gear.backwardSpeed or firstGear.backwardSpeed
     boostMult = gear.boostMult or firstGear.boostMult
 
-    turnAssistSpeed = gear.turnAssistSpeed or firstGear.turnAssistSpeed
-    turnAssistSpeedBackwards = gear.turnAssistSpeedBackwards or firstGear.turnAssistSpeedBackwards
-    turnAssistBoostMult = gear.turnAssistBoostMult or firstGear.turnAssistBoostMult
+    turnTorque = gear.turnTorque or firstGear.turnTorque
+    turnTorqueBackwards = gear.turnTorqueBackwards or firstGear.turnTorqueBackwards
+    turnTorqueBoostMult = gear.turnTorqueBoostMult or firstGear.turnTorqueBoostMult
     turnAngle = gear.turnAngle or firstGear.turnAngle
 
     pushdownStrength = gear.pushdownStrength or firstGear.pushdownStrength
@@ -374,18 +374,18 @@ local function updateDriveDirections()
         driveForceForward = 0
     end
 
-    if turnAssistSpeed == 0 then return end
+    if turnTorque == 0 then return end
 
-    local turnSpeedBase = isBackwards and -turnAssistSpeedBackwards or turnAssistSpeed
+    local turnTorqueBase = isBackwards and -turnTorqueBackwards or turnTorque
 
     if btnStateA then
         if btnStateD then
             driveForceTurn = 0
         else
-            driveForceTurn = btnStateShift and ( turnSpeedBase * turnAssistBoostMult ) or turnSpeedBase
+            driveForceTurn = btnStateShift and ( turnTorqueBase * turnTorqueBoostMult ) or turnTorqueBase
         end
     elseif btnStateD then
-        driveForceTurn = btnStateShift and ( -turnSpeedBase * turnAssistBoostMult ) or -turnSpeedBase
+        driveForceTurn = btnStateShift and ( -turnTorqueBase * turnTorqueBoostMult ) or -turnTorqueBase
     else
         driveForceTurn = 0
     end
