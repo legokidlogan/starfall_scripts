@@ -21,6 +21,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
         turnTorqueBackwards = 15, -- Strength of torque used to assist in making sharper turns while driving backwards
         turnTorqueBoostMult = 1.25, -- Multiplier for turn assist strength when holding shift
         turnAngle = 35, -- When turning, rotates the forward/backward force by this many degrees
+        turnRedirect = 0.1, -- A fraction of the car's velocity will be redirected to whichever way the wheels are facing. Reduces drifting, and helps with spherical wheels.
 
         pushdownStrength = 0.75, -- Strength of force used to push the car into the ground, hugging it more closely.
         pushdownStrengthWall = 14 * 0, -- Strength of force used to cling against walls.
@@ -96,12 +97,14 @@ local groundTraceLength = carHeight * 1.05 + 20
 local uprightThreshold = 0.2
 local driveForceForward = 0
 local driveForceTurn = 0
+local turnState = 0
 local contraptionMass = 0
 local btnStateW = false
 local btnStateA = false
 local btnStateS = false
 local btnStateD = false
 local btnStateShift = false
+local drivingBackwards = false
 local stoppingActiveDrive = false
 local activeDriveSoundReady = true
 local isUpright = true
@@ -117,6 +120,7 @@ local gearNum = -1
 local gearCount = #gears
 local cycleGearUpVal = 0
 local cycleGearDownVal = 0
+local turnRedirectThreshold = math.cos( math.rad( 5 ) )
 
 -- Gear defaults
 local forwardSpeed = 16
@@ -127,6 +131,7 @@ local turnTorque = 15
 local turnTorqueBackwards = 15
 local turnTorqueBoostMult = 1.25
 local turnAngle = 30
+local turnRedirect = 0.1
 
 local pushdownStrength = 0.75
 local pushdownStrengthWall = 14
@@ -355,11 +360,12 @@ local function updateDriveDirections()
     if not driver then
         driveForceForward = 0
         driveForceTurn = 0
+        turnState = 0
 
         return
     end
 
-    local isBackwards = false
+    drivingBackwards = false
 
     if btnStateW then
         if btnStateS then
@@ -369,25 +375,27 @@ local function updateDriveDirections()
         end
     elseif btnStateS then
         driveForceForward = btnStateShift and ( -backwardSpeed * boostMult ) or -backwardSpeed
-        isBackwards = true
+        drivingBackwards = true
     else
         driveForceForward = 0
     end
 
-    if turnTorque == 0 then return end
-
-    local turnTorqueBase = isBackwards and -turnTorqueBackwards or turnTorque
-
     if btnStateA then
         if btnStateD then
-            driveForceTurn = 0
+            turnState = 0
         else
-            driveForceTurn = btnStateShift and ( turnTorqueBase * turnTorqueBoostMult ) or turnTorqueBase
+            turnState = 1
         end
     elseif btnStateD then
-        driveForceTurn = btnStateShift and ( -turnTorqueBase * turnTorqueBoostMult ) or -turnTorqueBase
+        turnState = -1
     else
-        driveForceTurn = 0
+        turnState = 0
+    end
+
+    driveForceTurn = ( drivingBackwards and -turnTorqueBackwards or turnTorque ) * turnState
+
+    if btnStateShift then
+        driveForceTurn = driveForceTurn * turnTorqueBoostMult
     end
 end
 
@@ -607,6 +615,34 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
 
             base:applyForceOffset( uprightRightDir * flipUprightStrength * mass, basePos + uprightRightOffset )
             base:applyForceOffset( -uprightRightDir * flipUprightStrength * mass, basePos - uprightRightOffset )
+        end
+    end
+
+    if turnRedirect > 0 then
+        local carVel = base:getVelocity()
+        local carSpeed = carVel:getLength()
+
+        if carSpeed > 0 then
+            local wheelDir = orientProp:getForward()
+
+            if turnState ~= 0 then
+                wheelDir = wheelDir:rotateAroundAxis( orientProp:getUp(), turnAngle * turnState )
+            end
+
+            if drivingBackwards then
+                wheelDir = -wheelDir
+            end
+
+            local carVelDir = carVel / carSpeed
+            local dot = carVelDir:dot( wheelDir )
+
+            -- If not more than 90 degrees away, and not too close where it would be redundant
+            if dot > 0 and dot < turnRedirectThreshold then
+                local forceCounteract = -carVel * turnRedirect * mass
+                local forceRedirected = wheelDir * carSpeed * turnRedirect * mass
+
+                base:applyForceCenter( forceCounteract + forceRedirected )
+            end
         end
     end
 
