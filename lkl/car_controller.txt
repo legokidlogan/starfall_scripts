@@ -569,7 +569,7 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
 
     local mass = base:getMass()
 
-    if dampenMultPassive ~= 0 or dampenMultBrake ~= 0 then
+    if isNearGround and ( dampenMultPassive ~= 0 or dampenMultBrake ~= 0 ) then
         local carVel = base:getVelocity()
         local dampenMultEff
 
@@ -594,7 +594,7 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
         base:applyForceCenter( carVel * -dampenMultEff * mass )
     end
 
-    if dampenMultAngPassive ~= 0 or dampenMultAngBrake ~= 0 then
+    if isNearGround and ( dampenMultAngPassive ~= 0 or dampenMultAngBrake ~= 0 ) then
         local physObj = base:getPhysicsObject()
         local angVel = physObj:getAngleVelocity()
         local dampenMultEff
@@ -616,21 +616,6 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
     end
 
     if not isValid( driver ) then return end
-
-    if driveForceForward ~= 0 then
-        --base:applyForceCenter( orientProp:getForward() * driveForceForward * mass )
-        local dir = orientProp:getForward()
-
-        if driveForceTurn ~= 0 then
-            dir = dir:rotateAroundAxis( orientProp:getUp(), turnAngle * math.sign( driveForceTurn ) )
-        end
-
-        base:applyForceCenter( dir * driveForceForward * mass )
-    end
-
-    if driveForceTurn ~= 0 then
-        base:applyTorque( orientProp:getUp() * driveForceTurn * mass )
-    end
 
     if isUpright then
         if isNearGround then
@@ -658,6 +643,23 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
             base:applyForceOffset( uprightRightDir * flipUprightStrength * mass, basePos + uprightRightOffset )
             base:applyForceOffset( -uprightRightDir * flipUprightStrength * mass, basePos - uprightRightOffset )
         end
+    end
+
+    if not isNearGround then return end
+
+    if driveForceForward ~= 0 then
+        --base:applyForceCenter( orientProp:getForward() * driveForceForward * mass )
+        local dir = orientProp:getForward()
+
+        if driveForceTurn ~= 0 then
+            dir = dir:rotateAroundAxis( orientProp:getUp(), turnAngle * math.sign( driveForceTurn ) )
+        end
+
+        base:applyForceCenter( dir * driveForceForward * mass )
+    end
+
+    if driveForceTurn ~= 0 then
+        base:applyTorque( orientProp:getUp() * driveForceTurn * mass )
     end
 
     if turnRedirect > 0 then
