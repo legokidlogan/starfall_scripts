@@ -17,16 +17,16 @@ local gears = { -- Properties not defined in additional gears will default to wh
         backwardSpeed = 12, -- Speed for drving backwards
         boostMult = 1.5, -- Speed multiplier when holding shift
 
-        turnTorque = 15, -- Strength of torque used to assist in making sharper turns
-        turnTorqueBackwards = 15, -- Strength of torque used to assist in making sharper turns while driving backwards
+        turnTorque = 20, -- Strength of torque used to assist in making sharper turns
+        turnTorqueBackwards = 20, -- Strength of torque used to assist in making sharper turns while driving backwards
         turnTorqueBoostMult = 1.25, -- Multiplier for turn assist strength when holding shift
         turnAngle = 35, -- When turning, rotates the forward/backward force by this many degrees
         turnRedirect = 0.1, -- A fraction of the car's velocity will be redirected to whichever way the wheels are facing. Reduces drifting, and helps with spherical wheels.
 
         pushdownStrength = 0.75, -- Strength of force used to push the car into the ground, hugging it more closely.
-        pushdownStrengthWall = 14 * 0, -- Strength of force used to cling against walls.
-        wallAntiGravityStrength = 18 * 0, -- Strength of force used to counteract gravity when clinging to a wall.
-        flipUprightStrength = 10, -- Strength of force used to upright the car when using a or d when it's upside-down.
+        pushdownStrengthWall = 0, -- Strength of force used to cling against walls.
+        wallAntiGravityStrength = 0, -- Strength of force used to counteract gravity when clinging to a wall.
+        flipUprightStrength = 15, -- Strength of force used to upright the car when using a or d when it's upside-down.
 
         dampenMultPassive = 0.01, -- Passive dampening multiplier, acts like air resistance.
         dampenMultBrake = 0.1, -- Active dampening multiplier, makes braking faster.
@@ -37,6 +37,48 @@ local gears = { -- Properties not defined in additional gears will default to wh
         dampenMultAngBrake = 0.25, -- Active dampening multiplier for angular velocity.
 
         wheelPropertySpeed = 500, -- Speed threshold for changing wheel properties.
+    },
+
+    {
+        name = "Normal Cling",
+
+        pushdownStrengthWall = 14,
+        wallAntiGravityStrength = 9,
+    },
+
+    {
+        name = "Fast",
+
+        forwardSpeed = 16 * 1.5,
+        backwardSpeed = 12 * 1.5,
+        turnRedirect = 0.1 / 1.5,
+    },
+
+    {
+        name = "Fast Cling",
+
+        forwardSpeed = 16 * 1.5,
+        backwardSpeed = 12 * 1.5,
+        turnRedirect = 0.1 / 1.5,
+
+        pushdownStrengthWall = 14,
+        wallAntiGravityStrength = 9,
+    },
+
+    {
+        name = "Faster",
+
+        forwardSpeed = 16 * 2,
+        backwardSpeed = 12 * 2,
+        turnRedirect = 0.1 / 2,
+    },
+
+    {
+        name = "Fasterer",
+
+        forwardSpeed = 16 * 3,
+        backwardSpeed = 12 * 3,
+        turnRedirect = 0.1 / 3,
     },
 }
 
@@ -127,15 +169,15 @@ local forwardSpeed = 16
 local backwardSpeed = 12
 local boostMult = 1.5
 
-local turnTorque = 15
-local turnTorqueBackwards = 15
+local turnTorque = 20
+local turnTorqueBackwards = 20
 local turnTorqueBoostMult = 1.25
 local turnAngle = 30
 local turnRedirect = 0.1
 
 local pushdownStrength = 0.75
 local pushdownStrengthWall = 14
-local wallAntiGravityStrength = 18
+local wallAntiGravityStrength = 9
 local flipUprightStrength = 10
 
 local dampenMultPassive = 0.01
