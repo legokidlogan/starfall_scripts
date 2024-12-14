@@ -311,6 +311,7 @@ local function changeGear( ind )
     turnTorqueBackwards = gear.turnTorqueBackwards or firstGear.turnTorqueBackwards
     turnTorqueBoostMult = gear.turnTorqueBoostMult or firstGear.turnTorqueBoostMult
     turnAngle = gear.turnAngle or firstGear.turnAngle
+    turnRedirect = gear.turnRedirect or firstGear.turnRedirect
 
     pushdownStrength = gear.pushdownStrength or firstGear.pushdownStrength
     pushdownStrengthWall = gear.pushdownStrengthWall or firstGear.pushdownStrengthWall
