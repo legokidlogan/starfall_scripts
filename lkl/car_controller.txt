@@ -27,6 +27,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
         pushdownStrengthWall = 0, -- Strength of force used to cling against walls.
         wallAntiGravityStrength = 0, -- Strength of force used to counteract gravity when clinging to a wall.
         flipUprightStrength = 15, -- Strength of force used to upright the car when using a or d when it's upside-down.
+        antiFlipStrength = 10, -- Strength of torque used to keep the car from flipping over while turning.
 
         dampenMultPassive = 0.01, -- Passive dampening multiplier, acts like air resistance.
         dampenMultBrake = 0.1, -- Active dampening multiplier, makes braking faster.
@@ -137,6 +138,7 @@ local orientProp
 local baseBoxSize
 local groundTraceLength = carHeight * 1.05 + 20
 local uprightThreshold = 0.2
+local antiFlipThreshold = 1 - math.cos( math.rad( 5 ) )
 local driveForceForward = 0
 local driveForceTurn = 0
 local turnState = 0
@@ -150,6 +152,8 @@ local drivingBackwards = false
 local stoppingActiveDrive = false
 local activeDriveSoundReady = true
 local isUpright = true
+local isFlipping = false
+local antiFlipDir = 0
 local isNearGround = true
 local isOnWall = false
 local worldUp = Vector( 0, 0, 1 )
@@ -179,6 +183,7 @@ local pushdownStrength = 0.75
 local pushdownStrengthWall = 14
 local wallAntiGravityStrength = 9
 local flipUprightStrength = 10
+local antiFlipStrength = 10
 
 local dampenMultPassive = 0.01
 local dampenMultBrake = 0.1
@@ -311,6 +316,7 @@ local function changeGear( ind )
     pushdownStrengthWall = gear.pushdownStrengthWall or firstGear.pushdownStrengthWall
     wallAntiGravityStrength = gear.wallAntiGravityStrength or firstGear.wallAntiGravityStrength
     flipUprightStrength = gear.flipUprightStrength or firstGear.flipUprightStrength
+    antiFlipStrength = gear.antiFlipStrength or firstGear.antiFlipStrength
 
     dampenMultPassive = gear.dampenMultPassive or firstGear.dampenMultPassive
     dampenMultBrake = gear.dampenMultBrake or firstGear.dampenMultBrake
@@ -660,6 +666,10 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
 
     if driveForceTurn ~= 0 then
         base:applyTorque( orientProp:getUp() * driveForceTurn * mass )
+
+        if antiFlipStrength > 0 and isUpright then
+            base:applyTorque( orientProp:getForward() * antiFlipStrength * antiFlipDir * mass )
+        end
     end
 
     if turnRedirect > 0 then
@@ -714,8 +724,15 @@ timer.create( "LKL_CarCon_UpdateGroundDirection", uprightDetectionInterval, 0, f
         groundUp = Vector( 0, 0, 1 )
     end
 
-    isUpright = orientUp:dot( groundUp ) >= uprightThreshold
+    local dot = orientUp:dot( groundUp )
+
+    isUpright = dot >= uprightThreshold
+    isFlipping = isUpright and dot < antiFlipThreshold
     isOnWall = isNearGround and groundUp:dot( worldUp ) <= wallAntiGravityThreshold
+
+    if isFlipping then
+        antiFlipDir = math.sign( orientProp:getRight().z )
+    end
 end )
 
 timer.create( "LKL_CarCon_UpdateActiveDriveSound", soundUpdateInterval, 0, function()
