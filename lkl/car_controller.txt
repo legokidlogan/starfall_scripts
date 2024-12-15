@@ -138,7 +138,7 @@ local orientProp
 local baseBoxSize
 local groundTraceLength = carHeight * 1.05 + 20
 local uprightThreshold = 0.2
-local antiFlipThreshold = 1 - math.cos( math.rad( 5 ) )
+local antiFlipThreshold = math.cos( math.rad( 5 ) )
 local driveForceForward = 0
 local driveForceTurn = 0
 local turnState = 0
@@ -668,7 +668,7 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
     if driveForceTurn ~= 0 then
         base:applyTorque( orientProp:getUp() * driveForceTurn * mass )
 
-        if antiFlipStrength > 0 and isUpright then
+        if antiFlipStrength > 0 and isFlipping then
             base:applyTorque( orientProp:getForward() * antiFlipStrength * antiFlipDir * mass )
         end
     end
