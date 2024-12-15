@@ -22,6 +22,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
         turnTorqueBoostMult = 1.25, -- Multiplier for turn assist strength when holding shift
         turnAngle = 35, -- When turning, rotates the forward/backward force by this many degrees
         turnRedirect = 0.1, -- A fraction of the car's velocity will be redirected to whichever way the wheels are facing. Reduces drifting, and helps with spherical wheels.
+        turnRedirectTime = 0.5, -- When starting to turn or changing directions, turn redirect will take this many seconds to reach full strength.
 
         pushdownStrength = 0.75, -- Strength of force used to push the car into the ground, hugging it more closely.
         pushdownStrengthWall = 0, -- Strength of force used to cling against walls.
@@ -167,6 +168,7 @@ local gearCount = #gears
 local cycleGearUpVal = 0
 local cycleGearDownVal = 0
 local turnRedirectThreshold = math.cos( math.rad( 5 ) )
+local turnRedirectStartTime = 0
 
 -- Gear defaults
 local forwardSpeed = 16
@@ -178,6 +180,7 @@ local turnTorqueBackwards = 20
 local turnTorqueBoostMult = 1.25
 local turnAngle = 30
 local turnRedirect = 0.1
+local turnRedirectTime = 0.5
 
 local pushdownStrength = 0.75
 local pushdownStrengthWall = 14
@@ -312,6 +315,7 @@ local function changeGear( ind )
     turnTorqueBoostMult = gear.turnTorqueBoostMult or firstGear.turnTorqueBoostMult
     turnAngle = gear.turnAngle or firstGear.turnAngle
     turnRedirect = gear.turnRedirect or firstGear.turnRedirect
+    turnRedirectTime = gear.turnRedirectTime or firstGear.turnRedirectTime
 
     pushdownStrength = gear.pushdownStrength or firstGear.pushdownStrength
     pushdownStrengthWall = gear.pushdownStrengthWall or firstGear.pushdownStrengthWall
@@ -414,6 +418,8 @@ local function updateDriveDirections()
         return
     end
 
+    local oldTurnState = turnState
+
     drivingBackwards = false
 
     if btnStateW then
@@ -445,6 +451,10 @@ local function updateDriveDirections()
 
     if btnStateShift then
         driveForceTurn = driveForceTurn * turnTorqueBoostMult
+    end
+
+    if turnState ~= oldTurnState then
+        turnRedirectStartTime = timer.curtime()
     end
 end
 
@@ -693,8 +703,15 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
 
             -- If not more than 90 degrees away, and not too close where it would be redundant
             if dot > 0 and dot < turnRedirectThreshold then
-                local forceCounteract = -carVel * turnRedirect * mass
-                local forceRedirected = wheelDir * carSpeed * turnRedirect * mass
+                local turnRedirectEff = turnRedirect * mass
+
+                if turnRedirectTime > 0 then
+                    local timeSince = timer.curtime() - turnRedirectStartTime
+                    turnRedirectEff = turnRedirectEff * math.min( timeSince / turnRedirectTime, 1 )
+                end
+
+                local forceCounteract = -carVel * turnRedirectEff
+                local forceRedirected = wheelDir * carSpeed * turnRedirectEff
 
                 base:applyForceCenter( forceCounteract + forceRedirected )
             end
