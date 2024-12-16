@@ -267,6 +267,26 @@ wire.adjustOutputs( outputNames, outputTypes )
 wire.ports.GearCount = gearCount
 
 
+-- Starfall traces throw an error if any entities in a filter table are invalid, so use this instead to auto-purge invalid entities.
+-- startPos, andPos, and filterTable are required, the rest are optional. filterTable must be a table.
+local function safeTraceLine( startPos, endPos, filterTable, mask, colgroup, ignworld )
+    local tr
+
+    pcall( function()
+        tr = trace.line( startPos, endPos, filterTable, mask, colgroup, ignworld )
+    end )
+
+    if tr then return tr end
+
+    for i = #filterTable, 1, -1 do
+        if not isValid( filterTable[i] ) then
+            table.remove( filterTable, i )
+        end
+    end
+
+    return trace.line( startPos, endPos, filterTable, mask, colgroup, ignworld )
+end
+
 local function checkWheelProperty( force )
     if not wheelPropertyEnabled then return end
     if not isValid( base ) then return end
@@ -732,7 +752,7 @@ timer.create( "LKL_CarCon_UpdateGroundDirection", uprightDetectionInterval, 0, f
     local orientUp = orientProp:getUp()
     local startPos = base:getPos()
     local endPos = startPos - orientUp * groundTraceLength
-    local tr = trace.trace( startPos, endPos, contraption )
+    local tr = safeTraceLine( startPos, endPos, contraption )
 
     isNearGround = tr.Hit
 
