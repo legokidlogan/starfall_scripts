@@ -3,14 +3,16 @@
 --@server
 
 boxSelector = boxSelector or {}
+if boxSelector._alreadyLoaded then return end
+boxSelector._alreadyLoaded = true
+
+-- CONFIG DEFAULTS
 boxSelector.boxColor = boxSelector.boxColor or Color( 180, 180, 255, 100 )
 boxSelector.lineColor = boxSelector.lineColor or Color( 255, 255, 255, 100 )
 boxSelector.advanceSelectionKey = boxSelector.advanceSelectionKey or IN_KEY.ATTACK2
 boxSelector.planeHeight = boxSelector.planeHeight or 4
 boxSelector.lineWidth = boxSelector.lineWidth or 10
-
-
-if boxSelector.startSelecting then return end
+-- END CONFIG DEFAULTS
 
 
 local COLOR_EMPTY = Color( 0, 0, 0, 0 )
