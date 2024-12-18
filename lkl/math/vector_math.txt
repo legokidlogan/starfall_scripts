@@ -1247,7 +1247,7 @@ function vectorMath.lineIntersectionWithSphere( lineOrigin, lineDir, spherePos, 
     local intersectionPoint2 = lineOrigin + lineDir * delta2
 
     -- Two intersections
-    if math.abs( delta1 ) <= math.abs( delta2 ) then
+    if mAbs( delta1 ) <= mAbs( delta2 ) then
         return intersectionPoint1, intersectionPoint2, delta1, delta2
     end
 
