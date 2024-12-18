@@ -1199,6 +1199,116 @@ function vectorMath.lineSegmentIntersectionWithPlane( segmentStart, segmentEnd, 
 end
 
 --[[
+    - Returns the intersection point(s) between an infinite line and a sphere.
+
+    lineOrigin: (Vector)
+        - A point on the line.
+    lineDir: (Vector)
+        - The direction of the line.
+    spherePos: (Vector)
+        - The center of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+    precision: (optional) (number >= 0)
+        - The maximum distance between intersections for them to be considered as just one.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+
+    RETURNS: intersectionPoint1, intersectionPoint2, delta1, delta2
+        intersectionPoint1: (Vector or nil)
+            - The first point where the line and sphere intersect, or nil if they don't.
+        intersectionPoint2: (Vector or nil)
+            - The second point where the line and sphere intersect, or nil if they don't.
+            - If there are two intersections, intersectionPoint1 will be the one closest to lineOrigin.
+        delta1: (number or nil)
+            - The signed distance from lineOrigin to intersectionPoint1 by lineDir.
+            - If there is only one intersection, you will receive Vector, nil, number, nil.
+        delta2: (number or nil)
+            - The signed distance from lineOrigin to intersectionPoint2 by lineDir.
+--]]
+function vectorMath.lineIntersectionWithSphere( lineOrigin, lineDir, spherePos, radius, precision )
+    precision = precision or PRECISION_TINY
+
+    -- Solution from https://en.wikipedia.org/wiki/Line%E2%80%93sphere_intersection
+    local diff = lineOrigin - spherePos
+    local diffDot = diff:dot( lineDir )
+    local separationSqr = diffDot ^ 2 - ( diff:dot( diff ) - radius ^ 2 )
+
+    if separationSqr < 0 then return end -- No intersection
+
+    local separation = mSqrt( separationSqr )
+    local delta1 = -diffDot + separation
+    local intersectionPoint1 = lineOrigin + lineDir * delta1
+
+    -- One intersection
+    if separation <= precision then return intersectionPoint1, nil, delta1 end
+
+    local delta2 = -diffDot - separation
+    local intersectionPoint2 = lineOrigin + lineDir * delta2
+
+    -- Two intersections
+    if math.abs( delta1 ) <= math.abs( delta2 ) then
+        return intersectionPoint1, intersectionPoint2, delta1, delta2
+    end
+
+    -- Two intersections, swapped order
+    return intersectionPoint2, intersectionPoint1, delta2, delta1
+end
+
+--[[
+    - Returns the intersection point(s) between a line segment and a sphere.
+
+    segmentStart: (Vector)
+        - The start of the line segment.
+    segmentEnd: (Vector)
+        - The end of the line segment.
+    spherePos: (Vector)
+        - The center of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+    precision: (optional) (number >= 0)
+        - The maximum distance between intersections for them to be considered as just one.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+
+    RETURNS: intersectionPoint1, intersectionPoint2, delta1, delta2
+        intersectionPoint1: (Vector or nil)
+            - The first point where the line segment and sphere intersect, or nil if they don't.
+        intersectionPoint2: (Vector or nil)
+            - The second point where the line segment and sphere intersect, or nil if they don't.
+            - If there are two intersections, intersectionPoint1 will be the one closest to segmentStart.
+        delta1: (number or nil)
+            - The signed distance from segmentStart to intersectionPoint1 by segmentDir.
+            - If there is only one intersection, you will receive Vector, nil, number, nil.
+        delta2: (number or nil)
+            - The signed distance from segmentStart to intersectionPoint2 by segmentDir.
+--]]
+function vectorMath.lineSegmentIntersectionWithSphere( segmentStart, segmentEnd, spherePos, radius, precision )
+    precision = precision or PRECISION_TINY
+
+    local segmentDir, segmentLength = vectorMath.getDirectionAndLength( segmentEnd - segmentStart )
+
+    local intersectionPoint1, intersectionPoint2, delta1, delta2 = vectorMath.lineIntersectionWithSphere( segmentStart, segmentDir, spherePos, radius, precision )
+    if not intersectionPoint1 then return end
+
+    -- Drop point 2 if it's not on the segment.
+    if intersectionPoint2 and ( delta2 < -precision or delta2 > ( segmentLength + precision ) ) then
+        intersectionPoint2 = nil
+        delta2 = nil
+    end
+
+    -- Replace point 1 with point 2 (which may be nil) if point 1 is not on the segment.
+    if intersectionPoint1 and ( delta1 < -precision or delta1 > ( segmentLength + precision ) ) then
+        intersectionPoint1 = intersectionPoint2
+        delta1 = delta2
+        intersectionPoint2 = nil
+        delta2 = nil
+    end
+
+    return intersectionPoint1, intersectionPoint2, delta1, delta2
+end
+
+--[[
     - Returns whether or not two vectors are equal, within a given precision.
 
     vec1: (Vector)
@@ -1396,6 +1506,46 @@ end
 --]]
 function vectorMath.doesLineIntersectWithPlane( lineOrigin, lineDir, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision )
     return vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision ) ~= nil
+end
+
+--[[
+    - Returns whether or not an infinite line intersects a sphere.
+
+    lineOrigin: (Vector)
+        - A point on the line.
+    lineDir: (Vector)
+        - The direction of the line.
+    spherePos: (Vector)
+        - The center of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+    precision: (optional) (number >= 0)
+        - The maximum distance at the intersection area them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+--]]
+function vectorMath.doesLineIntersectWithSphere( lineOrigin, lineDir, spherePos, radius, precision )
+    return vectorMath.lineIntersectionWithSphere( lineOrigin, lineDir, spherePos, radius, precision ) ~= nil
+end
+
+--[[
+    - Returns whether or not a line segment intersects a sphere.
+
+    segmentStart: (Vector)
+        - The start of the line segment.
+    segmentEnd: (Vector)
+        - The end of the line segment.
+    spherePos: (Vector)
+        - The center of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+    precision: (optional) (number >= 0)
+        - The maximum distance at the intersection area for them to be considered intersecting.
+        - Smaller values are more precise.
+        - Default is 10^-5.
+--]]
+function vectorMath.doesLineSegmentIntersectWithSphere( segmentStart, segmentEnd, spherePos, radius, precision )
+    return vectorMath.lineSegmentIntersectionWithSphere( segmentStart, segmentEnd, spherePos, radius, precision ) ~= nil
 end
 
 --[[
