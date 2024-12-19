@@ -1,0 +1,420 @@
+--@name Sphere Selector
+--@author legokidlogan
+--@server
+--@include lkl/math/vector_math.txt
+
+sphereSelector = boxSelector or {}
+if sphereSelector._alreadyLoaded then return end
+sphereSelector._alreadyLoaded = true
+
+require( "lkl/math/vector_math.txt" )
+
+
+-- CONFIG DEFAULTS
+sphereSelector.sphereModel = sphereSelector.sphereModel or "models/sprops/geometry/sphere_144.mdl" -- Use models/hunter/misc/sphere375x375.mdl if you don't have sprops.
+sphereSelector.sphereColor = sphereSelector.sphereColor or Color( 180, 180, 255, 100 )
+sphereSelector.lineColor = sphereSelector.lineColor or Color( 255, 255, 255, 100 )
+sphereSelector.noduleColor = sphereSelector.noduleColor or Color( 50, 50, 255, 200 )
+sphereSelector.planeColor = sphereSelector.planeColor or Color( 180, 100, 255, 100 )
+sphereSelector.advanceSelectionKey = sphereSelector.advanceSelectionKey or IN_KEY.ATTACK2
+sphereSelector.disableSnappingKey = sphereSelector.disableSnappingKey or IN_KEY.WALK
+sphereSelector.finishClippingPlanesKey = sphereSelector.finishClippingPlanesKey or IN_KEY.RELOAD
+sphereSelector.planeHeight = sphereSelector.planeHeight or 4
+sphereSelector.lineWidth = sphereSelector.lineWidth or 10
+sphereSelector.clipUpdateInterval = sphereSelector.clipUpdateInterval or 0.1
+-- END CONFIG DEFAULTS
+
+
+local VECTOR_X = Vector( 1, 0, 0 )
+local VECTOR_Y = Vector( 0, 1, 0 )
+local VECTOR_Z = Vector( 0, 0, 1 )
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local selecting = false
+local finishCallback = nil
+local curPoint = nil
+local centerHorizontal = nil
+local center = nil
+local chosenRadius = nil
+local clippingPlanes = nil
+local clippingPlaneNormal = nil
+local clippingPlaneNil = true
+
+local sphereDotSize = Vector( sphereSelector.lineWidth * 2 )
+local sphereHolo1 = nil
+local sphereHolo2 = nil
+local sphereHolo3 = nil
+local lineHoloX = nil
+local lineHoloY = nil
+local lineHoloZ = nil
+local planeHolo = nil
+local nextClipTime = 0
+local makeHolo
+local getOpaqueColor
+local updateClip
+local getHorizontalPoint
+local getClosestVerticalIntersection
+local getVerticalPoint
+local snapToThreeAxes
+local calcCurPoint
+local moveHolos
+
+
+--[[
+    callback: function( success, center, radius, clippingPlanes )
+        success = boolean
+        center = nil or Vector
+        radius = nil or number
+        clippingPlanes = nil or { { origin = Vector, normal = Vector }, ... }  (world coords)
+    end
+--]]
+function sphereSelector.startSelecting( callback )
+    if selecting then error( "Already selecting" ) end
+    if type( callback ) ~= "function" then error( "Expected callback to be a function" ) end
+
+    selecting = true
+    finishCallback = callback
+    centerHorizontal = nil
+    center = nil
+    chosenRadius = nil
+    clippingPlanes = {}
+
+    lineHoloZ:setPos( Vector() )
+    lineHoloZ:setColor( sphereSelector.lineColor )
+end
+
+function sphereSelector.stopSelecting()
+    if not selecting then return end
+
+    if finishCallback then
+        finishCallback( false )
+    end
+
+    selecting = false
+    finishCallback = nil
+    centerHorizontal = nil
+    center = nil
+    chosenRadius = nil
+    clippingPlanes = nil
+
+    sphereHolo1:setPos( Vector() )
+    sphereHolo2:setPos( Vector() )
+    sphereHolo3:setPos( Vector() )
+    lineHoloX:setPos( Vector() )
+    lineHoloY:setPos( Vector() )
+    lineHoloZ:setPos( Vector() )
+    planeHolo:setPos( Vector() )
+
+    sphereHolo1:setColor( COLOR_EMPTY )
+    sphereHolo2:setColor( COLOR_EMPTY )
+    sphereHolo3:setColor( COLOR_EMPTY )
+    lineHoloX:setColor( COLOR_EMPTY )
+    lineHoloY:setColor( COLOR_EMPTY )
+    lineHoloZ:setColor( COLOR_EMPTY )
+    planeHolo:setColor( COLOR_EMPTY )
+end
+
+function sphereSelector.isSelecting()
+    return selecting
+end
+
+
+makeHolo = function( model )
+    local holo = hologram.create( Vector(), Angle(), model or "models/hunter/blocks/cube4x4x4.mdl" )
+    holo:setMaterial( "models/debug/debugwhite" )
+    holo:setColor( COLOR_EMPTY )
+
+    return holo
+end
+
+getOpaqueColor = function( color )
+    return Color( color.r, color.g, color.b, 255 )
+end
+
+updateClip = function( ind, pos, normal, force )
+    local now = timer.curtime()
+    if not force and now < nextClipTime then return end
+
+    nextClipTime = now + sphereSelector.clipUpdateInterval
+
+    if not pos then
+        sphereHolo1:setClip( ind, false )
+        sphereHolo2:setClip( ind, false )
+
+        return
+    end
+
+    sphereHolo1:setClip( ind, true, pos, normal, nil )
+    sphereHolo2:setClip( ind, true, pos, normal, nil )
+end
+
+getHorizontalPoint = function( tr )
+    return tr.HitPos
+end
+
+getClosestVerticalIntersection = function( tr, aimDir, horizontalPoint )
+    local rayStart = tr.StartPos
+    local rayDelta = aimDir * 10000
+    local yzIntersection = trace.intersectRayWithPlane( rayStart, rayDelta, horizontalPoint, Vector( 1, 0, 0 ) )
+    local xzIntersection = trace.intersectRayWithPlane( rayStart, rayDelta, horizontalPoint, Vector( 0, 1, 0 ) )
+
+    if yzIntersection then
+        if xzIntersection then
+            if rayStart:getDistanceSqr( yzIntersection ) < rayStart:getDistanceSqr( xzIntersection ) then
+                return yzIntersection
+            else
+                return xzIntersection
+            end
+        else
+            return yzIntersection
+        end
+    elseif xzIntersection then
+        return xzIntersection
+    end
+end
+
+getVerticalPoint = function( tr, aimDir, horizontalPoint )
+    local intersection = getClosestVerticalIntersection( tr, aimDir, horizontalPoint )
+    local z
+
+    if intersection then
+        z = intersection[3]
+    else
+        z = tr.HitPos[3]
+    end
+
+    return Vector( horizontalPoint[1], horizontalPoint[2], z )
+end
+
+snapToThreeAxes = function( tr, aimDir, axesCenter )
+    local rayStart = tr.StartPos
+    local bestDist = math.huge
+    local bestPoint = tr.HitPos
+
+    local function tryAxis( dir )
+        local rayPoint, axisPoint, t1 = vectorMath.closestPointsBetweenLines( rayStart, aimDir, axesCenter, dir )
+        if t1 <= 0 then return end -- Parallel or closest is behind the ray.
+
+        local dist = axisPoint:getDistance( rayPoint )
+        if dist >= bestDist then return end
+
+        bestDist = dist
+        bestPoint = axisPoint
+    end
+
+    tryAxis( VECTOR_X )
+    tryAxis( VECTOR_Y )
+    tryAxis( VECTOR_Z )
+
+    return bestPoint
+end
+
+getFirstForwardIntersectionWithSphere = function( tr, aimDir, pos, radius )
+    local intersect1, intersect2, delta1, delta2 = vectorMath.lineIntersectionWithSphere( tr.StartPos, aimDir, pos, radius )
+
+    if delta2 and delta2 < 0 then
+        -- Behind the ray, discard the second intersection.
+        intersect2 = nil
+        delta2 = nil
+    end
+
+    if delta1 and delta1 < 0 then
+        -- Behind the ray, use the second intersection over the first.
+        intersect1 = intersect2
+        delta1 = delta2
+    end
+
+    return intersect1
+end
+
+calcCurPoint = function()
+    local aimDir = owner():getEyeAngles():getForward()
+    local tr = owner():getEyeTrace()
+
+    if centerHorizontal == nil then
+        curPoint = getHorizontalPoint( tr )
+    elseif center == nil then
+        curPoint = getVerticalPoint( tr, aimDir, centerHorizontal )
+    elseif chosenRadius == nil then
+        curPoint = owner():keyDown( sphereSelector.disableSnappingKey ) and tr.HitPos or snapToThreeAxes( tr, aimDir, center )
+    elseif clippingPlaneNormal == nil then
+        local clippingPlaneWasNil = clippingPlaneNil
+
+        if owner():keyDown( sphereSelector.disableSnappingKey ) then
+            curPoint = tr.HitPos
+        else
+            curPoint = getFirstForwardIntersectionWithSphere( tr, aimDir, center, chosenRadius )
+        end
+
+        clippingPlaneNil = curPoint == nil
+
+        if clippingPlaneNil ~= clippingPlaneWasNil then
+            lineHoloX:setColor( clippingPlaneNil and COLOR_EMPTY or sphereSelector.lineColor )
+        end
+    else--if clippingPlanePos == nil then
+        local clippingPlaneWasNil = clippingPlaneNil
+        local _, closestPoint, t1 = vectorMath.closestPointsBetweenLines( tr.StartPos, aimDir, center, clippingPlaneNormal )
+
+        if t1 <= 0 then
+            curPoint = nil
+        else
+            curPoint = closestPoint
+        end
+
+        clippingPlaneNil = curPoint == nil
+
+        if clippingPlaneNil ~= clippingPlaneWasNil then
+            planeHolo:setColor( clippingPlaneNil and COLOR_EMPTY or sphereSelector.planeColor )
+
+            updateClip( #clippingPlanes + 1, curPoint, clippingPlaneNormal, true )
+        else
+            updateClip( #clippingPlanes + 1, curPoint, clippingPlaneNormal, false )
+        end
+    end
+end
+
+moveHolos = function()
+    if curPoint == nil then return end
+
+    if centerHorizontal == nil then
+        lineHoloZ:setPos( curPoint )
+    elseif center == nil then
+        sphereHolo1:setPos( curPoint )
+        sphereHolo2:setPos( curPoint )
+    elseif chosenRadius == nil then
+        local radius = curPoint:getDistance( center )
+        local size = Vector( radius * 2 )
+
+        sphereHolo3:setPos( curPoint )
+
+        sphereHolo1:setSize( size )
+        sphereHolo2:setSize( -size )
+    elseif clippingPlaneNormal == nil then
+        local ang = ( curPoint - center ):getAngle()
+
+        sphereHolo3:setPos( curPoint )
+
+        lineHoloX:setAngles( ang )
+    else--if clippingPlanePos == nil then
+        sphereHolo3:setPos( curPoint )
+        planeHolo:setPos( curPoint )
+    end
+end
+
+
+hook.add( "think", "LKL_SphereSelector_UpdatePoint", function()
+    if not selecting then return end
+
+    calcCurPoint()
+    moveHolos()
+end )
+
+hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
+    if ply ~= owner() then return end
+    if not selecting then return end
+
+    if key == sphereSelector.finishClippingPlanesKey then
+        if not chosenRadius then return end
+
+        finishCallback( true, center, chosenRadius, clippingPlanes )
+        finishCallback = nil
+
+        sphereSelector.stopSelecting()
+
+        return
+    end
+
+    if key ~= sphereSelector.advanceSelectionKey then return end
+    if not curPoint then return end
+
+    if not centerHorizontal then
+        centerHorizontal = curPoint
+
+        lineHoloZ:setPos( curPoint )
+
+        sphereHolo1:setColor( sphereSelector.sphereColor )
+        sphereHolo2:setColor( sphereSelector.sphereColor )
+
+        sphereHolo1:setSize( sphereDotSize )
+        sphereHolo2:setSize( -sphereDotSize )
+    elseif not center then
+        center = curPoint
+
+        lineHoloX:setPos( center )
+        lineHoloY:setPos( center )
+        lineHoloZ:setPos( center )
+
+        lineHoloX:setColor( sphereSelector.lineColor )
+        lineHoloY:setColor( sphereSelector.lineColor )
+        lineHoloZ:setColor( sphereSelector.lineColor )
+
+        sphereHolo3:setColor( sphereSelector.noduleColor )
+        sphereHolo3:setSize( sphereDotSize )
+    elseif not chosenRadius then
+        chosenRadius = curPoint:getDistance( center )
+
+        lineHoloX:setPos( center )
+
+        lineHoloX:setColor( COLOR_EMPTY )
+        lineHoloY:setColor( COLOR_EMPTY )
+        lineHoloZ:setColor( COLOR_EMPTY )
+
+        clippingPlaneNil = true
+    elseif clippingPlaneNormal == nil then
+        local ang = ( curPoint - center ):getAngle()
+        local planeSize = chosenRadius * 2.25
+
+        clippingPlaneNormal = ang:getForward()
+
+        lineHoloX:setAngles( ang )
+        planeHolo:setAngles( ang )
+
+        lineHoloX:setColor( sphereSelector.lineColor )
+        sphereHolo1:setColor( getOpaqueColor( sphereSelector.sphereColor ) )
+        sphereHolo2:setColor( getOpaqueColor( sphereSelector.sphereColor ) )
+        sphereHolo3:setColor( COLOR_EMPTY )
+
+        planeHolo:setSize( Vector( 1, planeSize, planeSize ) )
+
+        clippingPlaneNil = true
+    else--if clippingPlanePos == nil then
+        updateClip( #clippingPlanes + 1, curPoint, clippingPlaneNormal, true )
+        table.insert( clippingPlanes, {
+            origin = curPoint,
+            normal = clippingPlaneNormal,
+        } )
+
+        lineHoloX:setColor( COLOR_EMPTY )
+        sphereHolo1:setColor( sphereSelector.sphereColor )
+        sphereHolo2:setColor( sphereSelector.sphereColor )
+        sphereHolo3:setColor( sphereSelector.noduleColor )
+        planeHolo:setColor( COLOR_EMPTY )
+
+        clippingPlaneNil = true
+        clippingPlaneNormal = nil
+    end
+
+    curPoint = nil
+end )
+
+
+do
+    local sphereModel = sphereSelector.sphereModel
+    local lineWidth = sphereSelector.lineWidth
+
+    sphereHolo1 = makeHolo( sphereModel )
+    sphereHolo2 = makeHolo( sphereModel )
+    sphereHolo3 = makeHolo( sphereModel )
+
+    lineHoloX = makeHolo()
+    lineHoloX:setSize( Vector( 10000, lineWidth, lineWidth ) )
+
+    lineHoloY = makeHolo()
+    lineHoloY:setSize( Vector( lineWidth, 10000, lineWidth ) )
+
+    lineHoloZ = makeHolo()
+    lineHoloZ:setSize( Vector( lineWidth, lineWidth, 10000 ) )
+
+    planeHolo = makeHolo()
+    planeHolo:setMaterial( "model_color" )
+end

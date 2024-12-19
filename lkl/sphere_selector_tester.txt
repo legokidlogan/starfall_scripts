@@ -1,0 +1,21 @@
+--@name Sphere Selector Tester
+--@author legokidlogan
+--@server
+--@include lkl/sphere_selector.txt
+
+require( "lkl/sphere_selector.txt" )
+
+-- Confirm key is right click by default.
+-- By default, use left alt to stop adding clipping planes.
+
+
+sphereSelector.startSelecting( function( success, center, radius, clippingPlanes )
+    print(
+        tostring( success ) .. "\n" ..
+        tostring( center ) .. "\n" ..
+        tostring( radius )
+    )
+
+    printTable( clippingPlanes )
+    print()
+end )
