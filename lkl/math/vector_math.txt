@@ -1841,6 +1841,34 @@ function vectorMath.isPointWithinSphereSqr( point, spherePos, radiusSqr )
 end
 
 --[[
+    - Returns whether or not a point is inside a sphere with clipping planes.
+
+    point: (Vector)
+        - The position of the point.
+    spherePos: (Vector)
+        - The position of the sphere.
+    radius: (number)
+        - The radius of the sphere.
+    clippingPlanes: (table)
+        - A list of planes to clip the sphere with.
+        - Each plane should be a table with the following keys:
+            - origin: (Vector)
+                - The center of the plane.
+            - normal: (Vector)
+                - The normal of the plane.
+        - Anything below a plane is considered outside of the sphere.
+--]]
+function vectorMath.isPointWithinClippedSphere( point, spherePos, radius, clippingPlanes )
+    if point:getDistance( spherePos ) > radius then return false end
+
+    for _, plane in ipairs( clippingPlanes ) do
+        if vectorMath.isPointBelowPlane( point, plane.origin, plane.normal ) then return false end
+    end
+
+    return true
+end
+
+--[[
     - Clamps a point to be along the surface area of a sphere.
 
     point: (Vector)
