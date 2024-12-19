@@ -877,6 +877,102 @@ function vectorMath.pointDistanceFromPlane( point, planeOrigin, planeNormal )
 end
 
 --[[
+    - Returns the distance between two infinite lines.
+
+    lineOrigin1: (Vector)
+        - A point on the first line.
+    lineDir1: (Vector)
+        - The direction of the first line.
+    lineOrigin2: (Vector)
+        - A point on the second line.
+    lineDir2: (Vector)
+        - The direction of the second line.
+    precision: (optional) (number >= 0)
+        - A cutoff point for considring the lines parallel.
+        - Values of 1 and above will result in it always thinking the lines are parallel.
+        - Default is 10^-5.
+
+    RETURNS: dist, cross
+        dist: (number)
+            - The distance between the two lines.
+        crossUnit: (Vector or nil)
+            - A direction vector perpendicular to both lines, roughly pointing from the first line to the second.
+            - If the lines are parallel, this is nil.
+--]]
+function vectorMath.lineDistanceFromLine( lineOrigin1, lineDir1, lineOrigin2, lineDir2, precision )
+    precision = precision or PRECISION_TINY
+
+    local cross = lineDir1:cross( lineDir2 )
+    local crossLength = cross:getLength()
+
+    if crossLength <= precision then
+        -- Parallel lines.
+        return vectorMath.pointDistanceFromLine( lineOrigin1, lineOrigin2, lineDir2 )
+    end
+
+    local crossUnit = cross / crossLength
+    local dist = crossUnit:dot( lineOrigin2 - lineOrigin1 )
+
+    if dist < 0 then
+        dist = -dist
+        crossUnit = -crossUnit
+    end
+
+    return dist, crossUnit
+end
+
+--[[
+    - Returns the closest pair of points between two infinite lines.
+
+    lineOrigin1: (Vector)
+        - A point on the first line.
+    lineDir1: (Vector)
+        - The direction of the first line.
+    lineOrigin2: (Vector)
+        - A point on the second line.
+    lineDir2: (Vector)
+        - The direction of the second line.
+    precision: (optional) (number >= 0)
+        - A cutoff point for considring the lines parallel.
+        - Values of 1 and above will result in it always thinking the lines are parallel.
+        - Default is 10^-5.
+
+    RETURNS: closest1, closest2, t1, t2
+        closest1: (Vector)
+            - The closest point on the first line.
+        closest2: (Vector)
+            - The closest point on the second line.
+        t1: (number)
+            - The signed distance along the first line to reach closest1 from lineOrigin1.
+            - Exactly 0 if the lines are parallel.
+        t2: (number)
+            - The signed distance along the second line to reach closest2 from lineOrigin2.
+--]]
+function vectorMath.closestPointsBetweenLines( lineOrigin1, lineDir1, lineOrigin2, lineDir2, precision )
+    precision = precision or PRECISION_TINY
+
+    local cross = lineDir1:cross( lineDir2 )
+    local crossLengthSqr = cross:getLengthSqr()
+    local crossLength = mSqrt( crossLengthSqr )
+
+    if crossLength <= precision then
+        -- Parallel lines.
+        local closest2 = vectorMath.closestPointOnLine( lineOrigin1, lineOrigin2, lineDir2 )
+
+        return lineOrigin1:clone(), closest2, 0, ( closest2 - lineOrigin2 ):dot( lineDir2 )
+    end
+
+    local diff = lineOrigin2 - lineOrigin1
+    local t1 = lineDir2:cross( cross ):dot( diff ) / crossLengthSqr
+    local t2 = lineDir1:cross( cross ):dot( diff ) / crossLengthSqr
+
+    local closest1 = lineOrigin1 + lineDir1 * t1
+    local closest2 = lineOrigin2 + lineDir2 * t2
+
+    return closest1, closest2, t1, t2
+end
+
+--[[
     - Returns the closest point on an infinite line to a given point.
 
     point: (Vector)
