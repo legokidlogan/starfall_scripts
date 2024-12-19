@@ -35,6 +35,13 @@ local moveBoxHolos
 
 
 --[[
+    - Prompts the owner to define a box in the world through a series of button presses.
+        1. Select the X,Y coords of the first corner.
+        2. Select the Z coords of the first corner.
+        3. Select the X,Y coords of the second corner.
+        4. Select the Z coords of the second corner.
+    - Useful for quickly defining box regions that don't need to be perfectly precise.
+
     callback: function( success, pointOne, pointTwo, minBounds, maxBounds )
         success = boolean
         pointOne = nil or Vector
