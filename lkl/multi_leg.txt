@@ -1,0 +1,798 @@
+--@name Multi Leg
+--@author legokidlogan
+--@server
+--@include lkl/destroyable.txt
+--@include lkl/linked_create.txt
+--@include lkl/sound_emitter.txt
+--@include lkl/math/ik.txt
+
+if MultiLeg then return end
+
+require( "lkl/destroyable.txt" )
+require( "lkl/linked_create.txt" )
+require( "lkl/sound_emitter.txt" )
+require( "lkl/math/ik.txt" )
+
+function math.easeLinear( x ) return x end
+function math.randomFrom( items ) return items[math.random( 1, #items )] end
+
+
+MultiLeg = class( "MultiLeg", Destroyable )
+
+-- These apply globally to all instances, regardless of creation time.
+MultiLeg.static.MUTE_SOUNDS = false
+
+-- These can be set per-instance, only when creating them.
+MultiLeg.static.UPDATE_INTERVAL = 0.1
+MultiLeg.static.PERF_LIMIT = 0.75 -- Fractional performance limit.
+MultiLeg.static.LEGS_PER_SIDE = 2
+MultiLeg.static.LEG_PROPERTIES = { -- Properties for the leg segments. Currently only supports 2, 3, or 4 segments.
+    {
+        SIZE = Vector( 60, 10, 10 ),
+        COLOR = Color( 255, 255, 255, 255 ),
+        MODEL = "models/hunter/blocks/cube4x4x4.mdl",
+        MATERIAL = "models/debug/debugwhite",
+        GLOW = false, -- Whether to use WORLDGLOW instead oF TRANSCOLOR if alpha < 255.
+        FULLBRIGHT = false, -- Whether to use fullbright.
+    },
+    {
+        SIZE = Vector( 80, 10, 10 ),
+        COLOR = Color( 255, 255, 255, 255 ),
+        MODEL = "models/hunter/blocks/cube4x4x4.mdl",
+        MATERIAL = "models/debug/debugwhite",
+        GLOW = false,
+        FULLBRIGHT = false,
+    },
+}
+MultiLeg.static.LEG_EXTRA_SEGMENT_LENGTHS = {} -- For every segment beyond 2, you need to add a number in here for a pseudo segment legnth. See lkl/math/ik.txt for info.
+
+-- These can be set per-instance, at any time.
+MultiLeg.static.STEP_THRESHOLD = 60 -- How far a leg must be from its target position to start stepping.
+MultiLeg.static.STEP_THRESHOLD_IDLE = 10 -- Step threshold for when the body is considered idle (near-zero velocity).
+MultiLeg.static.STEP_UNCOMFORTABLE_THRESHOLD = MultiLeg.STEP_THRESHOLD * 2 -- Legs will ignore the grounded adjacents requirement if they are this far from their target position.
+MultiLeg.static.STEP_SCAN_UP = 60 -- When tracing for the ground, start this high above the leg's natural position.
+MultiLeg.static.STEP_SCAN_DOWN = 60 -- When tracing for the ground, end this low below the leg's natural position.
+MultiLeg.static.STEP_AHEAD = 40 -- How far ahead of the rest position the leg should step by.
+MultiLeg.static.STEP_AHEAD_VEL_MULT = 0.2 -- Adds to the step-ahead distance by this times the current body velocity.
+MultiLeg.static.STEP_AHEAD_MAX = 200 -- The maximum step-ahead distance.
+MultiLeg.static.STEP_HEIGHT = 20 -- The peak height for the leg's step animation, from where it started.
+MultiLeg.static.STEP_HEIGHT_IDLE = 10 -- Step height for when the body is idle.
+MultiLeg.static.STEP_DURATION = 0.25 -- How long a step should last.
+MultiLeg.static.STEP_DURATION_IDLE = 0.125 -- Step duration for when the body is idle.
+MultiLeg.static.STEP_SELF_COOLDOWN = 0.1 -- When a leg steps, it cannot step for this many seconds.
+MultiLeg.static.STEP_DIAGONAL_COOLDOWN = 0.03 -- A step cooldown placed onto a leg's diagonals when it steps.
+MultiLeg.static.STEP_ADJACENT_COOLDOWN = 0.03 -- A step cooldown placed onto a leg's adjacents when it steps.
+MultiLeg.static.STEP_CURVE = math.easeLinear -- Easing curve for how to progress the step animation.
+
+MultiLeg.static.IDLE_SPEED_THRESHOLD = 1 -- The maximum speed at which the body is considered idle.
+
+-- Sounds are applied to an instance upon creation, but can be later changed with :setSoundReplacements() on a MultiLeg's SoundEmitter.
+MultiLeg.static.SOUNDS = {
+    STEP_START = {
+        PATH = false,
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 1,
+        LEVEL = 75,
+        DELAY = nil,
+    },
+
+    STEP_END = {
+        PATH = function() return "npc/stalker/stalker_footstep_" .. math.randomFrom( { "left", "right" } ) .. math.random( 1, 2 ) .. ".wav" end,
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = math.rand( 0.9, 1.1 ),
+        LEVEL = 75,
+        DELAY = nil,
+    },
+
+    STEP_IDLE_START = {
+        PATH = false,
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = 1,
+        LEVEL = 75,
+        DELAY = nil,
+    },
+
+    STEP_IDLE_END = {
+        PATH = function() return "npc/stalker/stalker_footstep_" .. math.randomFrom( { "left", "right" } ) .. math.random( 1, 2 ) .. ".wav" end,
+        DURATION = nil,
+        VOLUME = 1,
+        PITCH = math.rand( 0.9, 1.1 ),
+        LEVEL = 75,
+        DELAY = nil,
+    },
+}
+
+
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local VECTOR_TINY = Vector( 0.001, 0.001, 0.001 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local allMultilegs = {}
+local multilegIncr = 0
+
+local setUpLegs
+local makeLeg
+local makeHolo
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    - Creates a MultiLeg.
+    - A MultiLeg is a collection of legs that automatically animate as the body moves.
+    - This will work regardless of whether the body moves with velocity or with :setPos().
+    - These legs will not control the body's motion in any way, they are purely cosmetic.
+
+    bodyEnt: (entity)
+        - The main body. Can be frozen or unfrozen.
+        - If you need an angle or position offset from the body, just parent a holo to it and use that instead.
+--]]
+function MultiLeg:initialize( bodyEnt )
+    if not isValid( bodyEnt ) then error( "Expected bodyEnt to be valid" ) end
+    if isValid( bodyEnt._MultiLeg_multileg ) then error( "Cannot put two MultiLegs on the same bodyEnt" ) end
+
+    self._bodyEnt = bodyEnt
+
+    setUpLegs( self )
+
+    local soundEmitter = SoundEmitter:new()
+    self._soundEmitter = soundEmitter
+    soundEmitter:setSoundReplacements( self.class.SOUNDS )
+
+    bodyEnt._MultiLeg_multileg = self
+    self._velApprox = Vector( 0, 0, 0 )
+    self._lastPos = bodyEnt:getPos()
+    self._lastTime = timer.curtime()
+
+    multilegIncr = multilegIncr + 1
+    table.insert( allMultilegs, self )
+    self._id = multilegIncr
+
+    local perfLimit = self:getPerfLimit() * cpuMax()
+
+    timer.create( self:getTimerName( "LKL_MultiLeg_Think" ), self.class.UPDATE_INTERVAL, 0, function()
+        if cpuTotalAverage() > perfLimit then return end
+
+        self:think( perfLimit )
+    end )
+end
+
+-- Returns by reference. Do not modify.
+function MultiLeg.static:getAll()
+    return allMultilegs
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function MultiLeg:getBodyEnt()
+    return self._bodyEnt
+end
+
+function MultiLeg:getID()
+    return self._id
+end
+
+function MultiLeg:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+-- Returns by reference. Do not modify.
+function MultiLeg:getLegs()
+    return self._legs
+end
+
+-- Returns by reference. Do not modify.
+function MultiLeg:getLegsBySide()
+    return self._legsBySide
+end
+
+-- Returns by reference. Do not modify.
+function MultiLeg:getLegExtraLengths()
+    return self._legExtraLengths
+end
+
+function MultiLeg:getLegsPerSide()
+    return self._legsPerSide
+end
+
+function MultiLeg:getLegSegmentCount()
+    return self._legSegmentCount
+end
+
+function MultiLeg:getLegLength()
+    return self._legLength
+end
+
+function MultiLeg:getVelApprox()
+    return self._velApprox
+end
+
+function MultiLeg:setStepThreshold( threshold )
+    self._threshold = threshold
+end
+
+function MultiLeg:getStepThreshold()
+    return self._threshold or self.class.STEP_THRESHOLD
+end
+
+function MultiLeg:setStepThresholdIdle( threshold )
+    self._thresholdIdle = threshold
+end
+
+function MultiLeg:getStepThresholdIdle()
+    return self._thresholdIdle or self.class.STEP_THRESHOLD_IDLE
+end
+
+function MultiLeg:setStepUncomfortableThreshold( threshold )
+    self._uncomfortableThreshold = threshold
+end
+
+function MultiLeg:getStepUncomfortableThreshold()
+    return self._uncomfortableThreshold or self.class.STEP_UNCOMFORTABLE_THRESHOLD
+end
+
+function MultiLeg:setStepScanUp( scanUp )
+    self._scanUp = scanUp
+end
+
+function MultiLeg:getStepScanUp()
+    return self._scanUp or self.class.STEP_SCAN_UP
+end
+
+function MultiLeg:setStepScanDown( scanDown )
+    self._scanDown = scanDown
+end
+
+function MultiLeg:getStepScanDown()
+    return self._scanDown or self.class.STEP_SCAN_DOWN
+end
+
+function MultiLeg:setStepAhead( ahead )
+    self._ahead = ahead
+end
+
+function MultiLeg:getStepAhead()
+    return self._ahead or self.class.STEP_AHEAD
+end
+
+function MultiLeg:setStepAheadVelMult( aheadVelMult )
+    self._aheadVelMult = aheadVelMult
+end
+
+function MultiLeg:getStepAheadVelMult()
+    return self._aheadVelMult or self.class.STEP_AHEAD_VEL_MULT
+end
+
+function MultiLeg:setStepAheadMax( aheadMax )
+    self._aheadMax = aheadMax
+end
+
+function MultiLeg:getStepAheadMax()
+    return self._aheadMax or self.class.STEP_AHEAD_MAX
+end
+
+function MultiLeg:setStepHeight( height )
+    self._height = height
+end
+
+function MultiLeg:getStepHeight()
+    return self._height or self.class.STEP_HEIGHT
+end
+
+function MultiLeg:setStepHeightIdle( height )
+    self._heightIdle = height
+end
+
+function MultiLeg:getStepHeightIdle()
+    return self._heightIdle or self.class.STEP_HEIGHT_IDLE
+end
+
+function MultiLeg:setStepDuration( duration )
+    self._duration = duration
+end
+
+function MultiLeg:getStepDuration()
+    return self._duration or self.class.STEP_DURATION
+end
+
+function MultiLeg:setStepDurationIdle( duration )
+    self._durationIdle = duration
+end
+
+function MultiLeg:getStepDurationIdle()
+    return self._durationIdle or self.class.STEP_DURATION_IDLE
+end
+
+function MultiLeg:setStepSelfCooldown( cooldown )
+    self._selfCooldown = cooldown
+end
+
+function MultiLeg:getStepSelfCooldown()
+    return self._selfCooldown or self.class.STEP_SELF_COOLDOWN
+end
+
+function MultiLeg:setStepDiagonalCooldown( cooldown )
+    self._diagonalCooldown = cooldown
+end
+
+function MultiLeg:getStepDiagonalCooldown()
+    return self._diagonalCooldown or self.class.STEP_DIAGONAL_COOLDOWN
+end
+
+function MultiLeg:setStepAdjacentCooldown( cooldown )
+    self._adjacentCooldown = cooldown
+end
+
+function MultiLeg:getStepAdjacentCooldown()
+    return self._adjacentCooldown or self.class.STEP_ADJACENT_COOLDOWN
+end
+
+function MultiLeg:setStepCurve( curve )
+    self._curve = curve
+end
+
+function MultiLeg:getStepCurve()
+    return self._curve or self.class.STEP_CURVE
+end
+
+function MultiLeg:setPerfLimit( limit )
+    self._perfLimit = limit
+end
+
+function MultiLeg:getPerfLimit()
+    return self._perfLimit or self.class.PERF_LIMIT
+end
+
+function MultiLeg:setIdleSpeedThreshold( threshold )
+    self._idleSpeedThreshold = threshold
+end
+
+function MultiLeg:getIdleSpeedThreshold()
+    return self._idleSpeedThreshold or self.class.IDLE_SPEED_THRESHOLD
+end
+
+function MultiLeg:getSoundEmitter()
+    return self._soundEmitter
+end
+
+function MultiLeg:startSound( ent, soundName, overrides )
+    if self.class.MUTE_SOUNDS then return end
+
+    return self:getSoundEmitter():startSound( ent or self:getBodyEnt(), soundName, overrides )
+end
+
+function MultiLeg:stopSound( ent, soundName )
+    return self:getSoundEmitter():stopSound( ent or self:getBodyEnt(), soundName )
+end
+
+function MultiLeg:stopAllSounds()
+    return self:getSoundEmitter():stopAllSounds()
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function MultiLeg:getTraceFilter()
+    return self:getBodyEnt()
+end
+
+function MultiLeg:getTraceMask()
+    return MASK.PLAYERSOLID
+end
+
+function MultiLeg:getTraceCollisionGroup()
+    return COLLISION_GROUP.NONE
+end
+
+function MultiLeg:think( perfLimit )
+    self:_updateLegs( perfLimit )
+end
+
+function MultiLeg:calcLegStartRadius( legProperties )
+    local bodyEnt = self:getBodyEnt()
+    local bodyOBB = bodyEnt:obbSize()
+
+    if bodyEnt.getScale then
+        bodyOBB = bodyOBB * bodyEnt:getScale()
+    end
+
+    local bodyRadius = ( bodyOBB.x + bodyOBB.y + bodyOBB.z ) / 6
+
+    return bodyRadius - legProperties[1].SIZE.z * 1.5
+end
+
+function MultiLeg:doLegIK( leg, targetPos )
+    local legSegmentCount = self:getLegSegmentCount()
+    local segments = leg._segments
+
+    if legSegmentCount == 2 then
+        libIK.twoSegByTilt( segments[1], segments[2], targetPos, 90, true )
+    elseif legSegmentCount == 3 then
+        local extraLengths = self:getLegExtraLengths()
+
+        libIK.threeSegByTilt( segments[1], segments[2], segments[3], targetPos, extraLengths[1], 90, 90, true )
+    elseif legSegmentCount == 4 then
+        local extraLengths = self:getLegExtraLengths()
+
+        libIK.fourSegByTilt( segments[1], segments[2], segments[3], segments[4], targetPos, extraLengths[1], extraLengths[2], 90, 90, 90, true )
+    else
+        error( tostring( self ) .. ": Leg segment counts other than 2, 3, or 4 are not supported" )
+    end
+
+    -- TODO: Use the FABRIK method for the IK solver, so 3+ segments don't look as janky.
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function MultiLeg:tostringInner()
+    return "ID " .. self:getID()
+end
+
+function MultiLeg:onDestroyed()
+    local bodyEnt = self:getBodyEnt()
+    local soundEmitter = self:getSoundEmitter()
+    local legs = self:getLegs()
+
+    if isValid( bodyEnt ) then
+        bodyEnt._MultiLeg_multileg = nil
+    end
+
+    if isValid( soundEmitter ) then
+        soundEmitter:destroy()
+    end
+
+    table.removeByValue( allMultilegs, self )
+
+    for i = #legs, 1, -1 do
+        local leg = legs[i]
+        local holoBase = leg._holoBase
+        local holoEnd = leg._holoEnd
+        local segmentHolos = leg._segmentHolos
+
+        if isValid( holoBase ) then
+            holoBase:remove()
+        end
+
+        if isValid( holoEnd ) then
+            holoEnd:remove()
+        end
+
+        for _, segHolo in ipairs( segmentHolos ) do
+            if isValid( segHolo ) then
+                segHolo:remove()
+            end
+        end
+
+        -- Likely not needed, but it'll speed up GC.
+        leg._holoBase = nil
+        leg._holoEnd = nil
+        leg._segmentHolos = nil
+        leg._segments = nil
+        legs[i] = nil
+    end
+
+    timer.remove( self:getTimerName( "LKL_MultiLeg_Think" ) )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+setUpLegs = function( multileg )
+    local legsPerSide = multileg.class.LEGS_PER_SIDE
+    local legProperties = multileg.class.LEG_PROPERTIES
+    local legStartRadius = multileg:calcLegStartRadius( legProperties )
+
+    local legs = {}
+    local legsBySide = { Left = {}, Right = {} }
+    local linkedEnts = {}
+    local legLength = 0
+
+    for _, legProperty in ipairs( legProperties ) do
+        legLength = legLength + legProperty.SIZE.x
+    end
+
+    multileg._legs = legs
+    multileg._legsBySide = legsBySide
+    multileg._legsPerSide = legsPerSide
+    multileg._legLength = legLength
+    multileg._legExtraLengths = table.copy( multileg.class.LEG_EXTRA_SEGMENT_LENGTHS )
+    multileg._legSegmentCount = #legProperties
+
+    -- Make the legs.
+    for i = 1, legsPerSide do
+        local success = nil
+
+        success = makeLeg( linkedEnts, multileg, legsPerSide, legProperties, legStartRadius, "Left", i )
+        if not success then error( "Failed to initialize " .. multileg.class.name ) end
+
+        success = makeLeg( linkedEnts, multileg, legsPerSide, legProperties, legStartRadius, "Right", i )
+        if not success then error( "Failed to initialize " .. multileg.class.name ) end
+    end
+
+    local leftLegs = legsBySide.Left
+    local rightLegs = legsBySide.Right
+
+    -- Assign diagonals and adjacents.
+    for i = 1, legsPerSide do
+        local leftLeg = leftLegs[i]
+        local rightLeg = rightLegs[i]
+
+        leftLeg._diagonalLeg = rightLeg
+        rightLeg._diagonalLeg = leftLeg
+
+        if i == 1 then
+            leftLeg._adjacentLegs = { leftLegs[2], rightLegs[legsPerSide] }
+            rightLeg._adjacentLegs = { rightLegs[2], leftLegs[legsPerSide] }
+        elseif i == legsPerSide then
+            leftLeg._adjacentLegs = { leftLegs[legsPerSide - 1], rightLegs[1] }
+            rightLeg._adjacentLegs = { rightLegs[legsPerSide - 1], leftLegs[1] }
+        else
+            leftLeg._adjacentLegs = { leftLegs[i - 1], leftLegs[i + 1] }
+            rightLeg._adjacentLegs = { rightLegs[i - 1], rightLegs[i + 1] }
+        end
+    end
+end
+
+makeLeg = function( linkedEnts, multileg, legsPerSide, legProperties, legStartRadius, side, ind )
+    local bodyEnt = multileg._bodyEnt
+    local legs = multileg._legs
+    local legsBySide = multileg._legsBySide
+    local legLength = multileg._legLength
+
+    local yawStep = 180 / legsPerSide
+    local yaw = yawStep * ( 0.5 + ind )
+
+    if side == "Right" then
+        yaw = yaw + 180
+    end
+
+    local ang = Angle( 45, yaw, 0 )
+    local pos = ang:getForward() * legStartRadius
+
+    local holoBase = makeHolo( linkedEnts, bodyEnt, pos, ang, VECTOR_TINY, "models/hunter/misc/sphere025x025.mdl", nil, COLOR_EMPTY, false, false, false )
+    if not holoBase then return false end
+
+    local segmentHolos = {}
+    local segments = {}
+    local prevSegLengthHalf = 0
+    local prevSegHolo = holoBase
+
+    for i, legProperty in ipairs( legProperties ) do
+        local legSize = legProperty.SIZE
+        local segLengthHalf = legSize.x / 2
+        local segHolo = makeHolo( linkedEnts, prevSegHolo, Vector( prevSegLengthHalf + segLengthHalf, 0, 0 ), ANGLE_ZERO, legSize, legProperty.MODEL, legProperty.MATERIAL, legProperty.COLOR, legProperty.GLOW, legProperty.FULLBRIGHT, true )
+        if not segHolo then return false end
+
+        segments[i] = libIK.generateSegment( {
+            Ent = segHolo,
+            Parent = prevSegHolo,
+            OriginOffsetScaled = Vector( -1, 0, 0 ),
+            EndOffsetScaled = Vector( 1, 0, 0 ),
+            UpDir = Vector( 0, 0, 1 ),
+        } )
+
+        segmentHolos[i] = segHolo
+        prevSegLengthHalf = segLengthHalf
+        prevSegHolo = segHolo
+    end
+
+    local holoEnd = makeHolo( linkedEnts, prevSegHolo, Vector( prevSegLengthHalf, 0, 0 ), ANGLE_ZERO, VECTOR_TINY, "models/hunter/misc/sphere025x025.mdl", nil, COLOR_EMPTY, false, false, false )
+    if not holoEnd then return false end
+
+    local leg = {
+        _holoBase = holoBase,
+        _holoEnd = holoEnd,
+        _segmentHolos = segmentHolos,
+
+        _segments = segments,
+
+        _side = side,
+        _ind = ind,
+        _legSpot = nil,
+        _localRestPos = ang:getForward() * legLength,
+        _stepping = false,
+        _uncomfortable = false,
+        _stepStartTime = 0,
+        _stepCooldownEndTime = 0,
+        _stepTargetPos = nil,
+        _stepHeight = nil,
+        _stepDuration = nil,
+    }
+
+    table.insert( legs, leg )
+    table.insert( legsBySide[side], leg )
+
+    return true
+end
+
+makeHolo = function( linkedEnts, parent, pos, ang, scale, model, mat, color, doGlow, fullbright, sizeNotScale )
+    model = model or "models/hunter/blocks/cube4x4x4.mdl"
+    mat = mat or "models/debug/debugwhite"
+    color = color or Color( 255, 255, 255, 255 )
+
+    if isValid( parent ) then
+        pos, ang = localToWorld( pos, ang, parent:getPos(), parent:getAngles() )
+    end
+
+    local holo = linkedCreate.holo( pos, ang, model, scale, linkedEnts )
+    if not holo then return end
+
+    holo:setMaterial( mat )
+    holo:setColor( color )
+
+    if sizeNotScale then
+        holo:setSize( scale )
+    end
+
+    if color.a ~= 255 then
+        holo:setRenderMode( doGlow and RENDERMODE.WORLDGLOW or RENDERMODE.TRANSCOLOR )
+    end
+
+    if fullbright then
+        holo:suppressEngineLighting( true )
+    end
+
+    if isValid( parent ) then
+        holo:setParent( parent )
+    end
+
+    return holo
+end
+
+
+function MultiLeg:_updateLegs( perfLimit )
+    local lastPos = self._lastPos
+    local bodyEnt = self:getBodyEnt()
+    local pos = bodyEnt:getPos()
+    local now = timer.curtime()
+    local dt = now - self._lastTime
+    local velApprox = ( pos - lastPos ) / dt
+
+    self._lastPos = pos
+    self._lastTime = now
+    self._velApprox = velApprox
+
+    local velApproxSpeed = velApprox:getLength()
+    local velApproxDir
+    local atIdleSpeed = velApproxSpeed <= self:getIdleSpeedThreshold()
+
+    if velApproxSpeed > 0 then
+        velApproxDir = velApprox / velApproxSpeed
+    else
+        velApproxDir = VECTOR_ZERO
+    end
+
+    for _, leg in ipairs( self._legs ) do
+        if cpuTotalAverage() >= perfLimit then break end
+
+        self:_updateLeg( leg, now, bodyEnt, velApproxSpeed, velApproxDir, atIdleSpeed )
+    end
+end
+
+function MultiLeg:_updateLeg( leg, now, bodyEnt, velApproxSpeed, velApproxDir, atIdleSpeed )
+    local stepTarget = leg._stepTargetPos
+
+    -- Step anim
+    if stepTarget then
+        local elapsed = now - leg._stepStartTime
+        local duration = leg._stepDuration
+
+        if elapsed >= duration then
+            leg._legSpot = stepTarget
+            leg._stepTargetPos = nil
+            leg._stepping = false
+
+            if sound.emitSoundsLeft() > 15 then
+                self:startSound( leg._endHolo, leg._steppingIdle and "STEP_IDLE_END" or "STEP_END" )
+            end
+        else
+            local height = leg._stepHeight
+            local startPos = leg._legSpot
+            local frac = self:getStepCurve()( elapsed / duration )
+
+            local pos = math.lerpVector( frac, startPos, stepTarget )
+            pos[3] = pos[3] + height * math.sin( frac * math.pi )
+
+            self:doLegIK( leg, pos )
+
+            return
+        end
+    end
+
+    local legSpot = leg._legSpot
+
+    if not legSpot then
+        legSpot = leg._holoEnd:getPos()
+        leg._legSpot = legSpot
+    end
+
+    -- Step cooldown
+    if leg._stepCooldownEndTime > now then
+        self:doLegIK( leg, legSpot )
+
+        return
+    end
+
+    local scanCenter = bodyEnt:localToWorld( leg._localRestPos )
+
+    if not atIdleSpeed then
+        local stepAheadEff = math.min( self:getStepAhead() + velApproxSpeed * self:getStepAheadVelMult(), self:getStepAheadMax() )
+
+        scanCenter = scanCenter + velApproxDir * stepAheadEff
+    end
+
+    local upDir = bodyEnt:getUp()
+    local scanStart = scanCenter + upDir * self:getStepScanUp()
+    local scanEnd = scanCenter - upDir * self:getStepScanDown()
+    local tr = trace.hull( scanStart, scanEnd, VECTOR_ZERO, VECTOR_ZERO, self:getTraceFilter(), self:getTraceMask(), self:getTraceCollisionGroup() )
+
+    local stepThreshold = atIdleSpeed and self:getStepThresholdIdle() or self:getStepThreshold()
+    local targetPos = tr.HitPos
+
+    local distToTarget = targetPos:getDistance( legSpot )
+    local uncomfortable = distToTarget > self:getStepUncomfortableThreshold()
+
+    leg._uncomfortable = uncomfortable
+
+    if distToTarget < stepThreshold then
+        self:doLegIK( leg, legSpot )
+
+        return
+    end
+
+    local adjacentLegs = leg._adjacentLegs
+
+    -- If not uncomfortable, don't step if any adjacent is stepping or uncomfortable
+    if not uncomfortable then
+        for _, adjLeg in ipairs( adjacentLegs ) do
+            if adjLeg._stepping or adjLeg._uncomfortable then
+                self:doLegIK( leg, legSpot )
+
+                return
+            end
+        end
+    end
+
+    local diagonalLeg = leg._diagonalLeg
+    diagonalLeg._stepCooldownEndTime = math.max( diagonalLeg._stepCooldownEndTime, now + self:getStepDiagonalCooldown() )
+
+    for _, adjLeg in ipairs( adjacentLegs ) do
+        adjLeg._stepCooldownEndTime = math.max( adjLeg._stepCooldownEndTime, now + self:getStepAdjacentCooldown() )
+    end
+
+    local stepDurationEff = atIdleSpeed and self:getStepDurationIdle() or self:getStepDuration()
+
+    leg._stepCooldownEndTime = math.max( leg._stepCooldownEndTime, now + stepDurationEff + self:getStepSelfCooldown() )
+    leg._stepHeight = atIdleSpeed and self:getStepHeightIdle() or self:getStepHeight()
+    leg._stepDuration = stepDurationEff
+    leg._stepStartTime = now
+    leg._stepTargetPos = targetPos
+    leg._stepping = true
+    leg._steppingIdle = atIdleSpeed
+
+    if sound.emitSoundsLeft() > 15 then
+        self:startSound( leg._endHolo, atIdleSpeed and "STEP_IDLE_START" or "STEP_START" )
+    end
+
+    self:doLegIK( leg, legSpot )
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_MultiLeg_BodyDestroyed", function( ent )
+    if not ent then return end
+
+    local multileg = ent._MultiLeg_multileg
+    if not isValid( multileg ) then return end
+
+    multileg:destroy()
+end )
