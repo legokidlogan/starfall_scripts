@@ -19,6 +19,7 @@ if vectorMath.abs then return end
 local PI = math.pi
 local PI_HALF = PI / 2
 local PI_DOUBLE = PI * 2
+local PHI_RAD = PI * ( math.sqrt( 5 ) - 1 ) -- Golden ratio, in radians
 local VECTOR_ZERO = Vector( 0, 0, 0 )
 local ANGLE_ZERO = Angle( 0, 0, 0 )
 local PRECISION_TINY = math.pow( 10, -5 )
@@ -1937,6 +1938,35 @@ function vectorMath.clampOutsideSphere( point, spherePos, radius, fallbackPoint 
     local originToPointDir = originToPoint / dist
 
     return spherePos + originToPointDir * radius
+end
+
+--[[
+    - Returns a list of points (roughly) evenly distributed along the surface area of a sphere.
+    - Does not use randomness.
+
+    n: (number)
+        - The number of points to generate.
+    radius: (number)
+        - The radius of the sphere.
+--]]
+function vectorMath.fibonacciSphere( n, radius )
+    -- Taken from https://stackoverflow.com/a/26127012 which is adapted from https://arxiv.org/pdf/0912.4540
+
+    local points = {}
+    local nMinusOne = n - 1
+
+    for i = 0, n - 1 do
+        local y = 1 - ( i / nMinusOne ) * 2
+        local r = mSqrt( 1 - y * y ) * radius
+        local theta = PHI_RAD * i
+
+        local x = mCos( theta ) * r
+        local z = mSin( theta ) * r
+
+        points[i + 1] = Vector( x, y * radius, z )
+    end
+
+    return points
 end
 
 --[[
