@@ -3,7 +3,7 @@
 --@server
 --@include lkl/math/vector_math.txt
 
-sphereSelector = boxSelector or {}
+sphereSelector = sphereSelector or {}
 if sphereSelector._alreadyLoaded then return end
 sphereSelector._alreadyLoaded = true
 
