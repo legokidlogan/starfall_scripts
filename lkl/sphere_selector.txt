@@ -11,7 +11,7 @@ require( "lkl/math/vector_math.txt" )
 
 
 -- CONFIG DEFAULTS
-sphereSelector.sphereModel = sphereSelector.sphereModel or "models/sprops/geometry/sphere_144.mdl" -- Use models/hunter/misc/sphere375x375.mdl if you don't have sprops.
+sphereSelector.sphereModel = sphereSelector.sphereModel or "models/holograms/hq_sphere.mdl" -- Use models/hunter/misc/sphere375x375.mdl if you don't have wiremod.
 sphereSelector.sphereColor = sphereSelector.sphereColor or Color( 180, 180, 255, 100 )
 sphereSelector.lineColor = sphereSelector.lineColor or Color( 255, 255, 255, 100 )
 sphereSelector.noduleColor = sphereSelector.noduleColor or Color( 50, 50, 255, 200 )
