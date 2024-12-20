@@ -780,7 +780,7 @@ end
             - The height of the plane.
 --]]
 function vectorMath.getPlaneSize( planePoints, planeNormalAng, planeCenter )
-    planeCenter = planeCenter or vectorMath.getCenter( points )
+    planeCenter = planeCenter or vectorMath.getCenter( planePoints )
 
     if type( planeNormalAng ) == "Vector" then
         planeNormalAng = planeNormalAng:getAngle()
