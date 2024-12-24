@@ -33,7 +33,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
         dampenMultPassive = 0.01, -- Passive dampening multiplier, acts like air resistance.
         dampenMultBrake = 0.1, -- Active dampening multiplier, makes braking faster.
         dampenMultPark = 0.1, -- Dampening when the car is at or below the park speed.
-        dampenMultParkSpeed = 300, -- Spark speed.
+        dampenMultParkSpeed = 300, -- Park speed.
 
         dampenMultAngPassive = 0.12, -- Passive dampening multiplier for angular velocity.
         dampenMultAngBrake = 0.25, -- Active dampening multiplier for angular velocity.
