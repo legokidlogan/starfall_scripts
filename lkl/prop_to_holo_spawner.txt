@@ -160,6 +160,10 @@ local function processEntryHolo( entry, groupID )
     local color = entry.Color or COLOR_DEFAULT
     local renderMode = entry.RenderMode or 0
 
+    if type( color ) ~= "Color" then
+        color = Color( color.r, color.g, color.b, color.a )
+    end
+
     -- Handle transparency for holos with default render mode
     if color.a ~= 255 and renderMode == 0 then
         renderMode = 4
