@@ -621,18 +621,18 @@ hook.add( "KeyRelease", "LKL_HUDButton_KeyRelease", function( ply, key )
     hoveredButton:keyClk( ply, key, false )
 end )
 
-hook.add( "inputPressed", "LKL_HUDButton_InputPress", function( ply, key )
+hook.add( "inputPressed", "LKL_HUDButton_InputPress", function( key )
     if not hoveredButton then return end
     if not isFirstTimePredicted() then return end
 
-    hoveredButton:inputClk( ply, key, true )
+    hoveredButton:inputClk( player(), key, true )
 end )
 
-hook.add( "inputReleased", "LKL_HUDButton_InputRelease", function( ply, key )
+hook.add( "inputReleased", "LKL_HUDButton_InputRelease", function( key )
     if not hoveredButton then return end
     if not isFirstTimePredicted() then return end
 
-    hoveredButton:inputClk( ply, key, false )
+    hoveredButton:inputClk( player(), key, false )
 end )
 
 hook.add( "drawhud", "LKL_HUDButton_Draw", function()
