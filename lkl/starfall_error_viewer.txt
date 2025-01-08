@@ -1,7 +1,7 @@
 --@name Starfall Error Viewer
 --@author legokidlogan
 --@shared
---@include lkl/render/poly_tools.txt
+--@include lkl/hud_button_diamond.txt
 --@include lkl/gcolors.txt
 
 if SERVER then
@@ -94,17 +94,19 @@ end
 
 if player() ~= owner() then return end
 
-require( "lkl/render/poly_tools.txt" )
+require( "lkl/hud_button_diamond.txt" )
 require( "lkl/gcolors.txt" )
 
 
 -- CONFIG:
-local diamondSize = 20
+local diamondRadius = 20
 local diamondThickness = 0.3
+local diamondInnerScale = 0.4
 local chipNameFontSize = 16
 local chipNameFontOutline = true
 local chipNameTextColor = Color( 255, 200, 200, 255 )
 local returnDiamondColor = Color( 255, 255, 255, 255 )
+local returnDiamondHoveredColor = Color( 255, 255, 100, 255 )
 local restartChipKeyCombo = { KEY.LCONTROL, KEY.R } -- Set to false to disable. Looking at an errored chip (through walls) and pressing these keys together will restart it in both realms.
 local makeChipSolidKey = KEY.E -- Set to false to disable. Looking at an errored chip (through walls) that's invisible to traces (PropNotSolid or COLLISION_GROUP_IN_VEHICLE) and pressing this key will re-solidify it.
 local toggleBringChipKey = KEY.G -- Set to false to disable. Loking at an errored chip (through walls) and pressing this key will bring it to you or teleport it back. The chip can be sent back even if it is no longer errored.
@@ -116,17 +118,231 @@ local IN_KEY_ATTACK = IN_KEY.ATTACK
 local IN_KEY_RELOAD = IN_KEY.RELOAD
 
 local active = true
-local erroredChips = {}
 local erroredChipDatas = {}
-local returnableChips = {}
 local restartChipKeyComboLookup = {}
-local diamondPolyLeft = nil
-local diamondPolyRight = nil
-local diamondPolySmallLeft = nil
-local diamondPolySmallRight = nil
-local chipNameOffsetY = -( diamondSize * 0.5 + chipNameFontSize * 1 + 2 )
 local chipNameFont = render.createFont( "Roboto Mono", chipNameFontSize, 500, true, false, false, chipNameFontOutline, false, false )
 
+
+local function removeErroredChip( ent )
+    local chipData = erroredChipDatas[ent]
+
+    if chipData then
+        if isValid( chipData.RestartButton ) then
+            chipData.RestartButton:destroy()
+            chipData.RestartButton = nil
+        end
+
+        if isValid( chipData.ReturnButton ) then
+            chipData.ReturnButton:destroy()
+            chipData.ReturnButton = nil
+        end
+    end
+
+    erroredChipDatas[ent] = nil
+end
+
+local function restartChip( ent )
+    local success, err = pcall( function()
+        restart( ent )
+    end )
+
+    if not success then
+        if type( err ) == "table" then
+            err = err.msg
+        end
+
+        print(
+            c_white, "[SEV] ",
+            c_alert_red, "Error restarting chip: ",
+            c_pale_yellow, err
+        )
+
+        return
+    end
+
+    local chipData = erroredChipDatas[ent] or {}
+    local returnButton = chipData.ReturnButton
+
+    if returnButton then
+        returnButton:splitOff()
+    end
+
+    if chipData.OnServer then
+        net.start( "LKL_SEV_RestartChip" )
+        net.writeEntity( ent )
+        net.send()
+    else
+        removeErroredChip( ent )
+    end
+end
+
+local function toggleBring( ent, chipData )
+    local returnPos = ent._sev_ReturnPos
+    local desPos = nil
+    local returnButton = chipData.ReturnButton
+
+    if returnPos then
+        desPos = returnPos
+        ent._sev_ReturnPos = nil
+
+        if ent._sev_ReturnButton == returnButton then
+            ent._sev_ReturnButton = nil
+            returnButton:destroy()
+        else
+            returnButton:setVisible( false )
+        end
+    else
+        desPos = eyePos() + eyeAngles():getForward() * 50
+        ent._sev_ReturnPos = ent:getPos()
+
+        returnButton:setPos( ent._sev_ReturnPos )
+        returnButton:setVisible( true )
+    end
+
+    net.start( "LKL_SEV_SetPos" )
+    net.writeEntity( ent )
+    net.writeVector( desPos )
+    net.send()
+end
+
+local function clearReturn( ent, chipData )
+    local returnButton = chipData.ReturnButton
+
+    ent._sev_ReturnPos = nil
+
+    if ent._sev_ReturnButton == returnButton then
+        ent._sev_ReturnButton = nil
+        returnButton:destroy()
+    else
+        returnButton:setVisible( false )
+    end
+end
+
+local function makeRestartButton( ent, chipData )
+    local hudButton = HUDButtonDiamond:new( ent:getPos(), false )
+    hudButton:setParent( ent )
+    hudButton:setRadius( diamondRadius )
+    hudButton:setThickness( diamondThickness )
+    hudButton:setFont( chipNameFont )
+    hudButton:setTextAnchor( TEXT_ALIGN.TOP )
+    hudButton:setTextAlignX( TEXT_ALIGN.CENTER )
+    hudButton:setTextAlignY( TEXT_ALIGN.TOP )
+    hudButton:setTextMargin( 3 )
+    hudButton:setTextSpacing( 0 )
+    hudButton:setColorToggleOff( Color( 0, 0, 0, 0 ) )
+    hudButton:setColorToggleOffHovered( Color( 255, 255, 255, 255 ) )
+    hudButton:setUseTopBottom( false )
+    hudButton:setInnerScale( diamondInnerScale )
+
+    hudButton:setText( {
+        chipNameTextColor, ent:getChipName(),
+    } )
+
+    function hudButton:canShowLinked()
+        return active
+    end
+
+    function hudButton:getInnerScale()
+        if not self:isHovered() then return 1 end
+
+        return self.class.getInnerScale( self )
+    end
+
+    function hudButton:inputClk( _ply, key, state )
+        if not state then return end
+
+        if restartChipKeyComboLookup[key] then
+            local restarting = true
+
+            for _, comboKey in ipairs( restartChipKeyCombo ) do
+                if not input.isKeyDown( comboKey ) then
+                    restarting = false
+                    break
+                end
+            end
+
+            if restarting then
+                restartChip( ent )
+
+                return
+            end
+        end
+
+        if key == makeChipSolidKey then
+            net.start( "LKL_SEV_MakeChipSolid" )
+            net.writeEntity( ent )
+            net.send()
+        elseif key == toggleBringChipKey then
+            toggleBring( ent, chipData )
+        elseif key == clearChipReturnKey then
+            clearReturn( ent, chipData )
+        end
+    end
+
+    return hudButton
+end
+
+local function makeReturnButton( ent, chipData )
+    if isValid( ent._sev_ReturnButton ) then
+        ent._sev_ReturnButton:destroy()
+        ent._sev_ReturnButton = nil
+    end
+
+    local hudButton = HUDButtonDiamond:new( ent._sev_ReturnPos or ent:getPos(), false )
+    hudButton:setRadius( diamondRadius * 0.5 )
+    hudButton:setThickness( diamondThickness )
+    hudButton:setColorToggleOff( returnDiamondColor )
+    hudButton:setColorToggleOffHovered( returnDiamondHoveredColor )
+    hudButton:setUseTopBottom( false )
+    hudButton:setInnerScale( diamondInnerScale )
+
+    hudButton:setVisible( ent._sev_ReturnPos ~= nil )
+
+    function hudButton:canShowLinked()
+        return active
+    end
+
+    function hudButton:inputClk( _ply, key, state )
+        if not state then return end
+
+        if key == toggleBringChipKey then
+            toggleBring( ent, chipData )
+        elseif key == clearChipReturnKey then
+            clearReturn( ent, chipData )
+        end
+    end
+
+    function hudButton:getColorEff()
+        local restartButton = chipData.RestartButton
+
+        if restartButton and restartButton:isHovered() then
+            return self:getColorToggleOffHovered()
+        end
+
+        return self.class.getColorEff( self )
+    end
+
+    function hudButton:draw( x, y )
+        self.class.draw( self, x, y )
+
+        local scrPos = ent:getPos():toScreen()
+        if not scrPos.visible then return end
+
+        render.setColor( self:getColorEff() )
+        render.drawLine( x, y, scrPos.x, scrPos.y )
+    end
+
+    function hudButton:splitOff()
+        if not ent._sev_ReturnPos then return end -- Doesn't have a returnb pos, no need to linger.
+
+        -- VERY hacky
+        chipData.ReturnButton = nil
+        chipData = { ReturnButton = self }
+        ent._sev_ReturnButton = self
+    end
+
+    return hudButton
+end
 
 local function addErroredChip( ent, isServer )
     local data = erroredChipDatas[ent]
@@ -137,8 +353,11 @@ local function addErroredChip( ent, isServer )
             OnClient = false,
             ChipName = ent:getChipName(),
         }
+
+        data.RestartButton = makeRestartButton( ent, data )
+        data.ReturnButton = makeReturnButton( ent, data )
+
         erroredChipDatas[ent] = data
-        table.insert( erroredChips, ent )
     end
 
     if isServer then
@@ -146,86 +365,22 @@ local function addErroredChip( ent, isServer )
     else
         data.OnClient = true
     end
-end
 
-local function removeErroredChip( ent, i )
-    erroredChipDatas[ent] = nil
-
-    if i then
-        table.remove( erroredChips, i )
-    else
-        table.removeByValue( erroredChips, ent )
-    end
-end
-
-local function screenTrace( targets, pixelRadius )
-    local origin = eyePos()
-    local closestEnt = nil
-    local closestDistSqr = math.huge
-    local pixelRadiusSqr = pixelRadius ^ 2
-
-    local scrW, scrH = render.getGameResolution()
-    local scrOffset = Vector( -scrW * 0.5, -scrH * 0.5, 0 )
-
-    for _, ent in ipairs( targets ) do
-        local pos = ent:getPos()
-        local distSqr = origin:getDistanceSqr( pos )
-
-        if distSqr < closestDistSqr then
-            local screenPos = pos:toScreen()
-
-            if screenPos.visible and ( Vector( screenPos.x, screenPos.y, 0 ) + scrOffset ):getLengthSqr() < pixelRadiusSqr then
-                closestEnt = ent
-                closestDistSqr = distSqr
-            end
-        end
-    end
-
-    return closestEnt
-end
-
-local function drawChipError( ent )
-    local data = erroredChipDatas[ent]
     local onServer = data.OnServer
     local onClient = data.OnClient
     local onShared = onServer and onClient
-
-    local screenPos = ent:getPos():toScreen()
-    if not screenPos.visible then return end
-
-    local centerX = screenPos.x
-    local centerY = screenPos.y
-
-    render.setFont( chipNameFont )
-    render.setColor( chipNameTextColor )
-    render.drawSimpleText( centerX, centerY + chipNameOffsetY, data.ChipName, 1, 3 )
+    local restartButton = data.RestartButton
 
     if onShared then
-        render.setColor( c_realm_server )
-        polyTools.drawPolyUnscaled( diamondPolyLeft, centerX, centerY )
-
-        render.setColor( c_realm_client )
-        polyTools.drawPolyUnscaled( diamondPolyRight, centerX, centerY )
+        restartButton:setLeftTopColor( c_realm_server )
+        restartButton:setRightBottomColor( c_realm_client )
     elseif onServer then
-        render.setColor( c_realm_server )
-        polyTools.drawPolyUnscaled( diamondPolyLeft, centerX, centerY )
-        polyTools.drawPolyUnscaled( diamondPolyRight, centerX, centerY )
+        restartButton:setLeftTopColor( c_realm_server )
+        restartButton:setRightBottomColor( c_realm_server )
     else
-        render.setColor( c_realm_client )
-        polyTools.drawPolyUnscaled( diamondPolyLeft, centerX, centerY )
-        polyTools.drawPolyUnscaled( diamondPolyRight, centerX, centerY )
+        restartButton:setLeftTopColor( c_realm_client )
+        restartButton:setRightBottomColor( c_realm_client )
     end
-end
-
-local function drawSmallDiamond( worldPos )
-    local screenPos = worldPos:toScreen()
-    if not screenPos.visible then return end
-
-    local centerX = screenPos.x
-    local centerY = screenPos.y
-
-    polyTools.drawPolyUnscaled( diamondPolySmallLeft, centerX, centerY )
-    polyTools.drawPolyUnscaled( diamondPolySmallRight, centerX, centerY )
 end
 
 
@@ -254,121 +409,10 @@ hook.add( "KeyPress", "LKL_SEV_RemoveChipsWhenRefreshed", function( ply, key )
     removeErroredChip( ent )
 end )
 
-hook.add( "inputPressed", "LKL_SEV_KeyPress", function( key )
-    if not active then return end
-    if not isFirstTimePredicted() then return end
-
-    if key == makeChipSolidKey then
-        local ent = screenTrace( erroredChips, diamondSize )
-        if not ent then return end
-
-        net.start( "LKL_SEV_MakeChipSolid" )
-        net.writeEntity( ent )
-        net.send()
-    elseif key == toggleBringChipKey then
-        local targets = table.copy( erroredChips )
-        table.add( targets, returnableChips )
-
-        local ent = screenTrace( targets, diamondSize * 0.5 )
-        if not ent then return end
-
-        local returnPos = ent._sev_ReturnPos
-        local desPos = nil
-
-        if returnPos then
-            desPos = returnPos
-            ent._sev_ReturnPos = nil
-            table.removeByValue( returnableChips, ent )
-        else
-            desPos = eyePos() + eyeAngles():getForward() * 50
-            ent._sev_ReturnPos = ent:getPos()
-            table.insert( returnableChips, ent )
-        end
-
-        net.start( "LKL_SEV_SetPos" )
-        net.writeEntity( ent )
-        net.writeVector( desPos )
-        net.send()
-    elseif key == clearChipReturnKey then
-        local ent = screenTrace( returnableChips, diamondSize * 0.5 )
-        if not ent then return end
-
-        ent._sev_ReturnPos = nil
-        table.removeByValue( returnableChips, ent )
-    end
-end )
-
-hook.add( "inputPressed", "LKL_SEV_KeyPress_RestartChipCombo", function( key )
-    if not active then return end
-    if not isFirstTimePredicted() then return end
-    if not restartChipKeyComboLookup[key] then return end
-
-    for _, comboKey in ipairs( restartChipKeyCombo ) do
-        if not input.isKeyDown( comboKey ) then return end
-    end
-
-    local ent = screenTrace( erroredChips, diamondSize )
-    if not ent then return end
-
-    local success, err = pcall( function()
-        restart( ent )
-    end )
-
-    if not success then
-        if type( err ) == "table" then
-            err = err.msg
-        end
-
-        print(
-            c_white, "[SEV] ",
-            c_alert_red, "Error restarting chip: ",
-            c_pale_yellow, err
-        )
-
-        return
-    end
-
-    local errorData = erroredChipDatas[ent]
-
-    if errorData.OnServer then
-        net.start( "LKL_SEV_RestartChip" )
-        net.writeEntity( ent )
-        net.send()
-    else
-        removeErroredChip( ent )
-    end
-end )
-
 hook.add( "EntityRemoved", "LKL_SEV_RemoveDeletedChips", function( ent )
     if not erroredChipDatas[ent] then return end
 
     removeErroredChip( ent )
-end )
-
-hook.add( "drawhud", "LKL_SEV_DrawChipErrors", function()
-    if not active then return end
-
-    for i = #erroredChips, 1, -1 do
-        local ent = erroredChips[i]
-
-        if not ent:isValid() then
-            removeErroredChip( ent, i )
-        else
-            drawChipError( ent )
-        end
-    end
-
-    render.setColor( returnDiamondColor )
-
-    for i = #returnableChips, 1, -1 do
-        local ent = returnableChips[i]
-
-        if not ent:isValid() then
-            table.remove( returnableChips, i )
-        else
-            drawSmallDiamond( ent:getPos() )
-        end
-    end
 end )
 
 
@@ -385,10 +429,6 @@ end )
 
 
 do
-    diamondPolyLeft, diamondPolyRight = polyTools.polyMakeDiamondLR( 0, 0, diamondSize, diamondSize, diamondThickness )
-    diamondPolySmallLeft = polyTools.polyScale( diamondPolyLeft, 0.5, 0.5 )
-    diamondPolySmallRight = polyTools.polyScale( diamondPolyRight, 0.5, 0.5 )
-
     for _, key in ipairs( restartChipKeyCombo ) do
         restartChipKeyComboLookup[key] = true
     end
