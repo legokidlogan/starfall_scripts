@@ -100,7 +100,7 @@ require( "lkl/gcolors.txt" )
 
 -- CONFIG:
 local diamondSize = 20
-local diamondThickness = 0.15
+local diamondThickness = 0.3
 local chipNameFontSize = 16
 local chipNameFontOutline = true
 local chipNameTextColor = Color( 255, 200, 200, 255 )
@@ -385,32 +385,13 @@ end )
 
 
 do
-    diamondPolyLeft = polyTools.polyScale( {
-        { x = -0.5, y = 0 },
-        { x = 0, y = -0.5 },
-        { x = 0, y = -0.5 + diamondThickness },
-        { x = -0.5 + diamondThickness, y = 0 },
-        { x = 0, y = 0.5 - diamondThickness },
-        { x = 0, y = 0.5 },
-    }, diamondSize, diamondSize )
-
-    diamondPolyRight = polyTools.polyScale( {
-        { x = 0.5, y = 0 },
-        { x = 0, y = 0.5 },
-        { x = 0, y = 0.5 - diamondThickness },
-        { x = 0.5 - diamondThickness, y = 0 },
-        { x = 0, y = -0.5 + diamondThickness },
-        { x = 0, y = -0.5 },
-    }, diamondSize, diamondSize )
-
+    diamondPolyLeft, diamondPolyRight = polyTools.polyMakeDiamond( 0, 0, diamondSize, diamondSize, diamondThickness )
     diamondPolySmallLeft = polyTools.polyScale( diamondPolyLeft, 0.5, 0.5 )
     diamondPolySmallRight = polyTools.polyScale( diamondPolyRight, 0.5, 0.5 )
-
 
     for _, key in ipairs( restartChipKeyCombo ) do
         restartChipKeyComboLookup[key] = true
     end
-
 
     enableHud( player(), true )
 end
