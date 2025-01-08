@@ -317,7 +317,7 @@ end
     thickness: (number 0-1)
         - A fraction for how much to fill in the diamond by.
 --]]
-function polyTools.polyMakeDiamond( x, y, width, height, thickness )
+function polyTools.polyMakeDiamondLR( x, y, width, height, thickness )
     local w = width * 0.5
     local h = height * 0.5
     local tw = thickness * w
@@ -342,6 +342,36 @@ function polyTools.polyMakeDiamond( x, y, width, height, thickness )
     }
 
     return polyLeft, polyRight
+end
+
+--[[
+    - Same as polyTools.polyMakeDiamondLR(), but for the top and bottom halves.
+--]]
+function polyTools.polyMakeDiamondTB( x, y, width, height, thickness )
+    local w = width * 0.5
+    local h = height * 0.5
+    local tw = thickness * w
+    local th = thickness * h
+
+    local polyTop = {
+        { x = x, y = y - h },
+        { x = x + w, y = y },
+        { x = x + w - tw, y = y },
+        { x = x, y = y - h + th },
+        { x = x - w + tw, y = y },
+        { x = x - w, y = y },
+    }
+
+    local polyBottom = {
+        { x = x, y = y + h },
+        { x = x - w, y = y },
+        { x = x - w + tw, y = y },
+        { x = x, y = y + h - th },
+        { x = x + w - tw, y = y },
+        { x = x + w, y = y },
+    }
+
+    return polyTop, polyBottom
 end
 
 

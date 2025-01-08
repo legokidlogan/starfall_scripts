@@ -385,7 +385,7 @@ end )
 
 
 do
-    diamondPolyLeft, diamondPolyRight = polyTools.polyMakeDiamond( 0, 0, diamondSize, diamondSize, diamondThickness )
+    diamondPolyLeft, diamondPolyRight = polyTools.polyMakeDiamondLR( 0, 0, diamondSize, diamondSize, diamondThickness )
     diamondPolySmallLeft = polyTools.polyScale( diamondPolyLeft, 0.5, 0.5 )
     diamondPolySmallRight = polyTools.polyScale( diamondPolyRight, 0.5, 0.5 )
 
