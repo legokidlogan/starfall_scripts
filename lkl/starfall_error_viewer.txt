@@ -97,7 +97,7 @@ require( "lkl/gcolors.txt" )
 local diamondRadius = 20
 local diamondThickness = 0.3
 local diamondInnerScale = 0.4
-local chipNameFontSize = 16
+local chipNameFontSize = 24
 local chipNameFontOutline = true
 local chipNameTextColor = Color( 255, 200, 200, 255 )
 local returnDiamondColor = Color( 255, 255, 255, 255 )
