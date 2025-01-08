@@ -4,6 +4,23 @@
 --@include lkl/hud_button_diamond.txt
 --@include lkl/gcolors.txt
 
+-- CONFIG:
+local diamondRadius = 20
+local diamondThickness = 0.3
+local diamondInnerScale = 0.4
+local chipNameFontSize = 24
+local chipNameFontOutline = true
+local chipNameTextColor = Color( 255, 200, 200, 255 )
+local returnDiamondColor = Color( 255, 255, 255, 255 )
+local returnDiamondHoveredColor = Color( 255, 255, 100, 255 )
+local showErrorMessages = 2 -- 0 = never, 1 = always, 2 = only when hovering over the error diamond.
+local restartChipKeyCombo = { KEY.LCONTROL, KEY.R } -- Set to false to disable. Looking at an errored chip (through walls) and pressing these keys together will restart it in both realms.
+local makeChipSolidKey = KEY.E -- Set to false to disable. Looking at an errored chip (through walls) that's invisible to traces (PropNotSolid or COLLISION_GROUP_IN_VEHICLE) and pressing this key will re-solidify it.
+local toggleBringChipKey = KEY.G -- Set to false to disable. Loking at an errored chip (through walls) and pressing this key will bring it to you or teleport it back. The chip can be sent back even if it is no longer errored.
+local clearChipReturnKey = KEY.H -- Set to false to disable. Used for clearing the return position of a chip that has been brought to you.
+-- END CONFIG
+
+
 if SERVER then
     require( "lkl/gcolors.txt" )
 
@@ -91,24 +108,6 @@ if player() ~= owner() then return end
 
 require( "lkl/hud_button_diamond.txt" )
 require( "lkl/gcolors.txt" )
-
-
--- CONFIG:
-local diamondRadius = 20
-local diamondThickness = 0.3
-local diamondInnerScale = 0.4
-local chipNameFontSize = 24
-local chipNameFontOutline = true
-local chipNameTextColor = Color( 255, 200, 200, 255 )
-local returnDiamondColor = Color( 255, 255, 255, 255 )
-local returnDiamondHoveredColor = Color( 255, 255, 100, 255 )
-local showErrorMessages = 2 -- 0 = never, 1 = always, 2 = only when hovering over the error diamond.
-local restartChipKeyCombo = { KEY.LCONTROL, KEY.R } -- Set to false to disable. Looking at an errored chip (through walls) and pressing these keys together will restart it in both realms.
-local makeChipSolidKey = KEY.E -- Set to false to disable. Looking at an errored chip (through walls) that's invisible to traces (PropNotSolid or COLLISION_GROUP_IN_VEHICLE) and pressing this key will re-solidify it.
-local toggleBringChipKey = KEY.G -- Set to false to disable. Loking at an errored chip (through walls) and pressing this key will bring it to you or teleport it back. The chip can be sent back even if it is no longer errored.
-local clearChipReturnKey = KEY.H -- Set to false to disable. Used for clearing the return position of a chip that has been brought to you.
--- END CONFIG
-
 
 local IN_KEY_ATTACK = IN_KEY.ATTACK
 local IN_KEY_RELOAD = IN_KEY.RELOAD
