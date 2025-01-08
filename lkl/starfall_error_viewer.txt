@@ -102,6 +102,7 @@ local chipNameFontOutline = true
 local chipNameTextColor = Color( 255, 200, 200, 255 )
 local returnDiamondColor = Color( 255, 255, 255, 255 )
 local returnDiamondHoveredColor = Color( 255, 255, 100, 255 )
+local showErrorMessages = 2 -- 0 = never, 1 = always, 2 = only when hovering over the error diamond.
 local restartChipKeyCombo = { KEY.LCONTROL, KEY.R } -- Set to false to disable. Looking at an errored chip (through walls) and pressing these keys together will restart it in both realms.
 local makeChipSolidKey = KEY.E -- Set to false to disable. Looking at an errored chip (through walls) that's invisible to traces (PropNotSolid or COLLISION_GROUP_IN_VEHICLE) and pressing this key will re-solidify it.
 local toggleBringChipKey = KEY.G -- Set to false to disable. Loking at an errored chip (through walls) and pressing this key will bring it to you or teleport it back. The chip can be sent back even if it is no longer errored.
@@ -117,6 +118,22 @@ local erroredChipDatas = {}
 local restartChipKeyComboLookup = {}
 local chipNameFont = render.createFont( "Roboto Mono", chipNameFontSize, 500, true, false, false, chipNameFontOutline, false, false )
 
+
+local function splitErrorMessage( msg )
+    local sfInd = string.find( msg, "SF:", 1, true )
+
+    if sfInd then
+        msg = string.sub( msg, sfInd + 3 )
+    end
+
+    local msgSepInd = string.find( msg, ": ", 1, true )
+    if not msgSepInd then return msg end
+
+    local errLocation = string.sub( msg, 1, msgSepInd - 1 )
+    local errMsg = string.sub( msg, msgSepInd + 2 )
+
+    return errLocation, errMsg
+end
 
 local function removeErroredChip( ent )
     local chipData = erroredChipDatas[ent]
@@ -229,10 +246,6 @@ local function makeRestartButton( ent, chipData )
     hudButton:setUseTopBottom( false )
     hudButton:setInnerScale( diamondInnerScale )
 
-    hudButton:setText( {
-        chipNameTextColor, ent:getChipName(),
-    } )
-
     function hudButton:canShowLinked()
         return active
     end
@@ -271,6 +284,40 @@ local function makeRestartButton( ent, chipData )
             toggleBring( ent, chipData )
         elseif key == clearChipReturnKey then
             clearReturn( ent, chipData )
+        end
+    end
+
+    function hudButton:updateText()
+        local textTbl = {
+            chipNameTextColor, ent:getChipName(),
+        }
+
+        if showErrorMessages == 1 or ( showErrorMessages == 2 and self:isHovered() ) then
+            if chipData.ServerMsg then
+                for _, msg in ipairs( chipData.ServerMsg ) do
+                    table.insert( textTbl, c_realm_server )
+                    table.insert( textTbl, "\n" .. msg )
+                end
+            end
+
+            if chipData.ClientMsg then
+                for _, msg in ipairs( chipData.ClientMsg ) do
+                    table.insert( textTbl, c_realm_client )
+                    table.insert( textTbl, "\n" .. msg )
+                end
+            end
+        end
+
+        hudButton:setText( textTbl )
+    end
+
+    if showErrorMessages == 2 then
+        function hudButton:onHoverStarted()
+            self:updateText()
+        end
+
+        function hudButton:onHoverEnded()
+            self:updateText()
         end
     end
 
@@ -339,7 +386,7 @@ local function makeReturnButton( ent, chipData )
     return hudButton
 end
 
-local function addErroredChip( ent, isServer )
+local function addErroredChip( ent, isServer, msg )
     local data = erroredChipDatas[ent]
 
     if not data then
@@ -355,10 +402,20 @@ local function addErroredChip( ent, isServer )
         erroredChipDatas[ent] = data
     end
 
+    local msgData
+
+    if showErrorMessages ~= 0 then
+        msgData = { splitErrorMessage( msg ) }
+    end
+
     if isServer then
         data.OnServer = true
     else
         data.OnClient = true
+    end
+
+    if msgData then
+        data[isServer and "ServerMsg" or "ClientMsg"] = msgData
     end
 
     local onServer = data.OnServer
@@ -376,17 +433,19 @@ local function addErroredChip( ent, isServer )
         restartButton:setLeftTopColor( c_realm_client )
         restartButton:setRightBottomColor( c_realm_client )
     end
+
+    restartButton:updateText()
 end
 
 
-hook.add( "StarfallError", "LKL_SEV_TrackClientError", function( ent, ply )
+hook.add( "StarfallError", "LKL_SEV_TrackClientError", function( ent, ply, msg )
     local isServer = ply == game.getWorld()
 
     if not isServer and ply ~= owner() then return end
     if not isValid( ent ) then return end
     if ent:getOwner() ~= owner() then return end
 
-    addErroredChip( ent, isServer )
+    addErroredChip( ent, isServer, msg )
 end )
 
 hook.add( "KeyPress", "LKL_SEV_RemoveChipsWhenRefreshed", function( ply, key )
