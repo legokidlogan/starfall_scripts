@@ -1,0 +1,153 @@
+--@name HUD Button Diamond
+--@author legokidlogan
+--@client
+--@include lkl/hud_button.txt
+--@include lkl/render/poly_tools.txt
+
+--[[
+    - HUDButton, but a diamond shape instead of a square.
+    - Also allows for an inner diamond with separately-colorable left/right or top/bottom halves.
+    - Considerably less performant due to needing to create 2-4 polygons per each button draw.
+--]]
+
+
+if HUDButtonDiamond then return end
+
+require( "lkl/hud_button.txt" )
+require( "lkl/render/poly_tools.txt" )
+
+
+HUDButtonDiamond = class( "HUDButtonDiamond", HUDButton )
+HUDButtonDiamond.static.RADIUS = 20
+HUDButtonDiamond.static.THICKNESS = 0.3
+HUDButtonDiamond.static.FONT = render.getDefaultFont()
+HUDButtonDiamond.static.TEXT_ANCHOR = TEXT_ALIGN.BOTTOM
+HUDButtonDiamond.static.TEXT_ALIGN_X = TEXT_ALIGN.CENTER
+HUDButtonDiamond.static.TEXT_ALIGN_Y = TEXT_ALIGN.TOP
+HUDButtonDiamond.static.TEXT_MARGIN = 3
+HUDButtonDiamond.static.TEXT_SPACING = 0
+HUDButtonDiamond.static.COLOR_TOGGLE_ON = Color( 0, 255, 100 )
+HUDButtonDiamond.static.COLOR_TOGGLE_OFF = Color( 255, 255, 255 )
+HUDButtonDiamond.static.COLOR_TOGGLE_ON_HOVERED = Color( 0, 175, 70 )
+HUDButtonDiamond.static.COLOR_TOGGLE_OFF_HOVERED = Color( 190, 255, 190 )
+
+HUDButtonDiamond.static.USE_TOP_BOTTOM = false
+HUDButtonDiamond.static.INNER_SCALE = 0.6
+
+
+local renderSetColor = render.setColor
+local renderDrawPoly = render.drawPoly
+
+
+----- STATIC FUNCTIONS -----
+
+function HUDButtonDiamond:initialize( pos, toggleState )
+    HUDButtonDiamond.super.initialize( self, pos, toggleState )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+-- Determines whether the inner diamond should be left/right or top/bottom.
+function HUDButtonDiamond:setUseTopBottom( state )
+    if state ~= nil and type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._useTopBottom = state
+end
+
+function HUDButtonDiamond:getUseTopBottom()
+    local state = self._useTopBottom
+    if state == nil then return self.class.USE_TOP_BOTTOM end
+
+    return state
+end
+
+-- Scale of the inner diamond relative to the thickness of the outer diamond.
+function HUDButtonDiamond:setInnerScale( scale )
+    if scale ~= nil and type( scale ) ~= "number" then error( "Expected scale to be a number or nil" ) end
+
+    self._innerScale = scale
+end
+
+function HUDButtonDiamond:getInnerScale()
+    return self._innerScale or self.class.INNER_SCALE
+end
+
+-- Sets the left/top color of the diamond. nil to not draw this half.
+function HUDButtonDiamond:setLeftTopColor( color )
+    if color ~= nil and type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._leftTopColor = color
+end
+
+function HUDButtonDiamond:getLeftTopColor()
+    return self._leftTopColor
+end
+
+-- Sets the right/bottom color of the diamond. nil to not draw this half.
+function HUDButtonDiamond:setRightBottomColor( color )
+    if color ~= nil and type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._rightBottomColor = color
+end
+
+function HUDButtonDiamond:getRightBottomColor()
+    return self._rightBottomColor
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function HUDButtonDiamond:draw( x, y )
+    local radius = self:getRadius()
+    local width = radius * 2
+    local thickness = self:getThickness()
+    local polyLeft, polyRight = polyTools.polyMakeDiamondLR( x, y, width, width, thickness )
+
+    -- Draw a hollow diamond
+    renderSetColor( self:getColorEff() )
+    renderDrawPoly( polyLeft )
+    renderDrawPoly( polyRight )
+
+    local innerScale = self:getInnerScale()
+    local leftTopColor = self:getLeftTopColor()
+    local rightBottomColor = self:getRightBottomColor()
+
+    -- Draw the inner diamond
+    if leftTopColor or rightBottomColor then
+        local func = self:getUseTopBottom() and polyTools.polyMakeDiamondTB or polyTools.polyMakeDiamondLR
+
+        local widthEdge = width * ( 1 - thickness ) -- The inside edge of the outer diamond
+        local edgeGap = ( width - widthEdge ) * ( 1 - innerScale ) * 0.5 -- The gap between the edges of the inner and outer diamonds
+        local innerWidth = width - edgeGap -- The outside edge of the inner diamond
+        local innerEdge = widthEdge + edgeGap -- The inside edge of the inner diamond
+        local innerThickness = ( innerWidth - innerEdge ) / innerWidth -- Thickness fraction of the inner diamond
+
+        local polyLT, polyRB = func( x, y, innerWidth, innerWidth, innerThickness )
+
+        if leftTopColor then
+            renderSetColor( leftTopColor )
+            renderDrawPoly( polyLT )
+        end
+
+        if rightBottomColor then
+            renderSetColor( rightBottomColor )
+            renderDrawPoly( polyRB )
+        end
+    end
+
+    self:_drawText( x, y )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+

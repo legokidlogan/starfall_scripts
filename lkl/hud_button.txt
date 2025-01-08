@@ -1,0 +1,720 @@
+--@name HUD Button
+--@author legokidlogan
+--@client
+--@include lkl/destroyable.txt
+
+--[[
+    - A button that exists in 3D space and renders at a fixed size on the player's HUD.
+    - Automatically determines which button (at most one per chip) is being hovered over.
+    - Buttons listen to keyboard/mouse inputs when hovered over, but you need to determine what they do.
+        - Similarly, you can set custom functions that determine when the button can be shown, on top of the visibility state.
+        - See the overridable functions section for more info.
+    - Buttons can be given colored text, a toggle state, and a parent entity to follow.
+    - By default, buttons render as hollow squares.
+--]]
+
+
+if HUDButton then return end
+
+require( "lkl/destroyable.txt" )
+
+
+HUDButton = class( "HUDButton", Destroyable )
+HUDButton.static.RADIUS = 20
+HUDButton.static.THICKNESS = 5
+HUDButton.static.FONT = render.getDefaultFont()
+HUDButton.static.TEXT_ANCHOR = TEXT_ALIGN.BOTTOM
+HUDButton.static.TEXT_ALIGN_X = TEXT_ALIGN.CENTER
+HUDButton.static.TEXT_ALIGN_Y = TEXT_ALIGN.TOP
+HUDButton.static.TEXT_MARGIN = 3
+HUDButton.static.TEXT_SPACING = 0
+HUDButton.static.COLOR_TOGGLE_ON = Color( 0, 255, 100 )
+HUDButton.static.COLOR_TOGGLE_OFF = Color( 255, 255, 255 )
+HUDButton.static.COLOR_TOGGLE_ON_HOVERED = Color( 0, 175, 70 )
+HUDButton.static.COLOR_TOGGLE_OFF_HOVERED = Color( 190, 255, 190 )
+
+
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+
+local TEXT_ALIGN_LEFT = TEXT_ALIGN.LEFT
+local TEXT_ALIGN_CENTER = TEXT_ALIGN.CENTER
+local TEXT_ALIGN_RIGHT = TEXT_ALIGN.RIGHT
+local TEXT_ALIGN_TOP = TEXT_ALIGN.TOP
+local TEXT_ALIGN_BOTTOM = TEXT_ALIGN.BOTTOM
+
+local allHUDButtons = {}
+local hudButtonsByID = {}
+local uniqueIncr = 0
+local hoveredButton = nil
+local screenCenterX = nil
+local screenCenterY = nil
+
+local tableInsert = table.insert
+local mathSqrt = math.sqrt
+local mathMax = math.max
+
+
+----- STATIC FUNCTIONS -----
+
+function HUDButton:initialize( pos, toggleState )
+    if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
+    if toggleState ~= nil and type( toggleState ) ~= "boolean" then error( "Expected toggleState to be a boolean or nil" ) end
+
+    self._pos = pos
+    self._localPos = Vector( 0, 0, 0 )
+    self._hovered = false
+    self._destroyedByParent = false
+    self._visible = true
+    self._toggleState = toggleState or false
+
+    uniqueIncr = uniqueIncr + 1
+    self._id = uniqueIncr
+    table.insert( allHUDButtons, self )
+    hudButtonsByID[self._id] = self
+end
+
+-- Returns by reference. Do not modify.
+function HUDButton.static:getAll()
+    return allHUDButtons
+end
+
+function HUDButton.static:getByID( id )
+    return hudButtonsByID[id]
+end
+
+function HUDButton.static:getHoveredButton()
+    return hoveredButton
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function HUDButton:getID()
+    return self._id
+end
+
+function HUDButton:getTimerName( timerName )
+    if type( timerName ) ~= "string" then error( "Expected timerName to be a string" ) end
+
+    return timerName .. "_" .. self:getID()
+end
+
+function HUDButton:setVisible( visible )
+    if type( visible ) ~= "boolean" then error( "Expected visible to be a boolean" ) end
+
+    self._visible = visible
+end
+
+function HUDButton:isVisible()
+    return self._visible
+end
+
+function HUDButton:isHovered()
+    return self._hovered
+end
+
+function HUDButton:setParent( parent )
+    if parent ~= nil and not isValid( parent ) then error( "Expected parent to be nil or a valid Entity" ) end
+
+    local oldParent = self:getParent()
+    local worldPos = self:getPos()
+
+    if oldParent then
+        local children = oldParent._hudButton_children
+
+        if children then
+            children[self] = nil
+        end
+    end
+
+    self._pos = worldPos
+    self._parent = parent
+
+    if parent then
+        local children = parent._hudButton_children
+
+        if not children then
+            children = {}
+            parent._hudButton_children = children
+        end
+
+        children[self] = true
+        self._localPos = parent:worldToLocal( worldPos )
+    end
+end
+
+function HUDButton:getParent()
+    return self._parent
+end
+
+function HUDButton:isDestroyedByParent()
+    return self._destroyedByParent
+end
+
+function HUDButton:setPos( pos )
+    local parent = self:getParent()
+
+    if isValid( parent ) then
+        self._localPos = parent:worldToLocal( pos )
+    else
+        self._pos = pos
+    end
+end
+
+function HUDButton:getPos()
+    local parent = self:getParent()
+
+    if isValid( parent ) then
+        return parent:localToWorld( self._localPos )
+    else
+        return self._pos
+    end
+end
+
+function HUDButton:getLocalPos()
+    if not isValid( self:getParent() ) then return self._pos end
+
+    return self._localPos
+end
+
+--[[
+    - Sets the button's toggle state.
+
+    toggleState: (optional) (boolean)
+        - The new state.
+        - nil to swap the current state.
+--]]
+function HUDButton:setToggleState( toggleState )
+    if toggleState == nil then
+        self._toggleState = not self._toggleState
+
+        return
+    end
+
+    if self._toggleState == toggleState then return end
+    if type( toggleState ) ~= "boolean" then error( "Expected toggleState to be a boolean or nil" ) end
+
+    self._toggleState = toggleState
+    self:onToggleStateChanged( toggleState )
+end
+
+function HUDButton:getToggleState()
+    return self._toggleState
+end
+
+--[[
+    - Sets the button's text.
+
+    text: (string or table)
+        - If a table, must be a list of alternating color and string values.
+--]]
+function HUDButton:setText( text )
+    if type( text ) == "string" then
+        text = { COLOR_WHITE, text }
+    elseif type( text ) ~= "table" then
+        error( "Expected text to be a string or a table" )
+    end
+
+    render.setFont( self:getFont() )
+
+    local textTbl = {}
+    local _, charHeight = render.getTextSize( "" )
+    local numLines = 0
+    local maxWidth = 0
+    local curWidth = 0
+    local prevLineStart = 1
+
+    -- Pre-process the text to get line count, width per line, and max width.
+    for i = 1, #text, 2 do
+        local color = text[i]
+        local str = text[i + 1]
+        local strParts = string.split( str, "\n" )
+        local numParts = #strParts
+
+        -- For each colored string, split by newlines and store each part separately.
+        for i2 = 1, numParts do
+            local part = strParts[i2]
+            local width = render.getTextSize( part )
+
+            table.insert( textTbl, {
+                text = i2 ~= numParts and ( part .. "\n" ) or part,
+                color = i2 == 1 and color or nil, -- Only store color for the first part of each colored string, to reduce setColor calls.
+                width = width,
+            } )
+
+            curWidth = curWidth + width
+
+            if i2 ~= numParts then
+                textTbl[prevLineStart].lineWidth = curWidth
+                prevLineStart = #textTbl + 1
+
+                numLines = numLines + 1
+                maxWidth = mathMax( maxWidth, curWidth )
+                curWidth = 0
+            end
+        end
+    end
+
+    textTbl[prevLineStart].lineWidth = curWidth
+    maxWidth = mathMax( maxWidth, curWidth )
+    numLines = numLines + 1
+
+    textTbl.count = #textTbl
+    textTbl.numLines = numLines
+    textTbl.maxWidth = maxWidth
+    textTbl.charHeight = charHeight
+
+    self._textTbl = textTbl
+end
+
+function HUDButton:getText()
+    return self._text
+end
+
+function HUDButton:setRadius( radius )
+    if radius ~= nil and type( radius ) ~= "number" then error( "Expected radius to be a number or nil" ) end
+
+    self._radius = radius
+end
+
+function HUDButton:getRadius()
+    return self._radius or self.class.RADIUS
+end
+
+function HUDButton:setThickness( thickness )
+    if thickness ~= nil and type( thickness ) ~= "number" then error( "Expected thickness to be a number or nil" ) end
+
+    self._thickness = thickness
+end
+
+function HUDButton:getThickness()
+    return self._thickness or self.class.THICKNESS
+end
+
+function HUDButton:setFont( font )
+    if font ~= nil and type( font ) ~= "string" then error( "Expected font to be a string or nil" ) end
+
+    self._font = font
+    self:setText( self._text )
+end
+
+function HUDButton:getFont()
+    return self._font or self.class.FONT
+end
+
+-- Must be nil or a TEXT_ALIGN value.
+function HUDButton:setTextAnchor( textAnchor )
+    if textAnchor ~= nil and type( textAnchor ) ~= "number" then error( "Expected textAnchor to be a number or nil" ) end
+
+    self._textAnchor = textAnchor
+end
+
+function HUDButton:getTextAnchor()
+    return self._textAnchor or self.class.TEXT_ANCHOR
+end
+
+-- Must be nil or a TEXT_ALIGN value.
+function HUDButton:setTextAlignX( textAlignX )
+    if textAlignX ~= nil and type( textAlignX ) ~= "number" then error( "Expected textAlignX to be a number or nil" ) end
+
+    self._textAlignX = textAlignX
+end
+
+function HUDButton:getTextAlignX()
+    return self._textAlignX or self.class.TEXT_ALIGN_X
+end
+
+-- Must be nil or a TEXT_ALIGN value.
+function HUDButton:setTextAlignY( textAlignY )
+    if textAlignY ~= nil and type( textAlignY ) ~= "number" then error( "Expected textAlignY to be a number or nil" ) end
+
+    self._textAlignY = textAlignY
+end
+
+function HUDButton:getTextAlignY()
+    return self._textAlignY or self.class.TEXT_ALIGN_Y
+end
+
+function HUDButton:setTextMargin( textMargin )
+    if textMargin ~= nil and type( textMargin ) ~= "number" then error( "Expected textMargin to be a number or nil" ) end
+
+    self._textMargin = textMargin
+end
+
+function HUDButton:getTextMargin()
+    return self._textMargin or self.class.TEXT_MARGIN
+end
+
+function HUDButton:setTextSpacing( textSpacing )
+    if textSpacing ~= nil and type( textSpacing ) ~= "number" then error( "Expected textSpacing to be a number or nil" ) end
+
+    self._textSpacing = textSpacing
+end
+
+function HUDButton:getTextSpacing()
+    return self._textSpacing or self.class.TEXT_SPACING
+end
+
+function HUDButton:setColorToggleOn( color )
+    if color ~= nil and type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._colorToggleOn = color
+end
+
+function HUDButton:getColorToggleOn()
+    return self._colorToggleOn or self.class.COLOR_TOGGLE_ON
+end
+
+function HUDButton:setColorToggleOff( color )
+    if color ~= nil and type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._colorToggleOff = color
+end
+
+function HUDButton:getColorToggleOff()
+    return self._colorToggleOff or self.class.COLOR_TOGGLE_OFF
+end
+
+function HUDButton:setColorToggleOnHovered( color )
+    if color ~= nil and type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._colorToggleOnHovered = color
+end
+
+function HUDButton:getColorToggleOnHovered()
+    return self._colorToggleOnHovered or self.class.COLOR_TOGGLE_ON_HOVERED
+end
+
+function HUDButton:setColorToggleOffHovered( color )
+    if color ~= nil and type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._colorToggleOffHovered = color
+end
+
+function HUDButton:getColorToggleOffHovered()
+    return self._colorToggleOffHovered or self.class.COLOR_TOGGLE_OFF_HOVERED
+end
+
+-- Returns the main button color based on its toggle and hover states.
+function HUDButton:getColorEff()
+    return self:isHovered() and
+        ( self:getToggleState() and self:getColorToggleOnHovered() or self:getColorToggleOffHovered() ) or
+        ( self:getToggleState() and self:getColorToggleOn() or self:getColorToggleOff() )
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+--[[
+    - Handles what to do when the parent is removed.
+    - By default, it destroys the button.
+    - Override if you have a method and need for preserving the button across full updates.
+--]]
+function HUDButton:handleParentRemoved( fullUpdate )
+    self._destroyedByParent = true
+    self:destroy( fullUpdate )
+end
+
+--[[
+    - When :isVisible() is true, this is called every frame to see if the button can be shown.
+    - Override to add custom conditions.
+    - Best used for conditions that depend on the state of this button instance.
+        - For global conditions (e.g. the player's current weapon), use :canShowLinked().
+--]]
+function HUDButton:canShow()
+    return true
+end
+
+--[[
+    - When :isVisible() is true, this is called every frame to see if the button can be shown.
+    - Override to add custom conditions.
+    - Each frame, the result of this call is cached per each unique definition of this function.
+        - e.g. Some buttons only show when holding the physgun, while others require the toolgun,
+          but now there's only one call per type of check, not per each button.
+    - You should NOT make use of self in this function, due to the caching.
+--]]
+function HUDButton:canShowLinked()
+    return true
+end
+
+-- Called when the button starts being hovered.
+function HUDButton:onHoverStarted()
+
+end
+
+-- Called when the button stops being hovered.
+function HUDButton:onHoverEnded()
+
+end
+
+-- Called when the button's toggle state is changed.
+function HUDButton:onToggleStateChanged( _toggleState )
+
+end
+
+-- Called when an IN_KEY is pressed or released while the button is hovered.
+function HUDButton:keyClk( _ply, _key, _state )
+
+end
+
+-- Called when a KEY or MOUSE is pressed or released while the button is hovered.
+function HUDButton:inputClk( _ply, _key, _state )
+
+end
+
+-- Whether or not the given cursor position is over the button.
+function HUDButton:isOverButton( btnX, btnY, cursorX, cursorY, _dist )
+    local diffX = cursorX - btnX
+    local diffY = cursorY - btnY
+    local radius = self:getRadius()
+
+    -- Square bounding box
+    if math.abs( diffX ) > radius or math.abs( diffY ) > radius then return false end
+
+    return true
+end
+
+-- Handles drawing the button. Be sure to call :_drawText() from here.
+function HUDButton:draw( x, y )
+    local radius = self:getRadius()
+    local width = radius * 2
+
+    -- Draw an outlined box
+    render.setColor( self:getColorEff() )
+    render.drawRectOutline( x - radius, y - radius, width, width, self:getThickness() )
+
+    self:_drawText( x, y )
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function HUDButton:onDestroyed()
+    local parent = self:getParent()
+
+    if isValid( parent ) then
+        local children = parent._hudButton_children
+
+        if children then
+            children[self] = nil
+        end
+    end
+
+    if hoveredButton == self then
+        hoveredButton = nil
+    end
+
+    table.removeByValue( allHUDButtons, self )
+    hudButtonsByID[self._id] = nil
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+-- Draws the text. Should be called from :draw().
+function HUDButton:_drawText( btnX, btnY )
+    local textTbl = self._textTbl
+    if not textTbl then return end
+
+    local count = textTbl.count
+    local numLines = textTbl.numLines
+    local maxWidth = textTbl.maxWidth
+    local charHeight = textTbl.charHeight
+
+    local radius = self:getRadius()
+    local textAnchor = self:getTextAnchor()
+    local textAlignX = self:getTextAlignX()
+    local textAlignY = self:getTextAlignY()
+    local textMargin = self:getTextMargin()
+    local textSpacing = self:getTextSpacing()
+
+    local totalHeight = numLines * charHeight + ( numLines - 1 ) * textSpacing
+    local anchorX, anchorY = btnX, btnY -- TEXT_ALIGN_CENTER
+
+    if textAnchor == TEXT_ALIGN_TOP then
+        anchorY = anchorY - radius - textMargin - totalHeight * 0.5
+    elseif textAnchor == TEXT_ALIGN_BOTTOM then
+        anchorY = anchorY + radius + textMargin + totalHeight * 0.5
+    elseif textAnchor == TEXT_ALIGN_LEFT then
+        anchorX = anchorX - radius - textMargin - maxWidth * 0.5
+    elseif textAnchor == TEXT_ALIGN_RIGHT then
+        anchorX = anchorX + radius + textMargin + maxWidth * 0.5
+    end
+
+    anchorY = anchorY - totalHeight * 0.5
+
+    if textAlignX == TEXT_ALIGN_LEFT then
+        anchorX = anchorX - maxWidth * 0.5
+    end
+
+    local lineGap = charHeight + textSpacing
+    local accumX = anchorX
+    local accumY = anchorY - lineGap
+
+    render.setFont( self:getFont() )
+
+    for i = 1, count do
+        local data = textTbl[i]
+        local text = data.text
+        local color = data.color
+        local width = data.width
+        local lineWidth = data.lineWidth
+
+        if lineWidth then -- Start of a new line
+            if textAlignX == TEXT_ALIGN_LEFT then
+                accumX = anchorX
+            elseif textAlignX == TEXT_ALIGN_CENTER then
+                accumX = anchorX - lineWidth * 0.5
+            elseif textAlignX == TEXT_ALIGN_RIGHT then
+                accumX = anchorX - lineWidth + maxWidth * 0.5
+            end
+
+            accumY = accumY + lineGap
+        end
+
+        if color then
+            render.setColor( color )
+        end
+
+        render.drawSimpleText( accumX, accumY, text, TEXT_ALIGN_LEFT, textAlignY )
+
+        accumX = accumX + width
+    end
+end
+
+
+----- SETUP -----
+
+hook.add( "EntityRemoved", "LKL_HUDButton_DestroyChildren", function( ent, fullUpdate )
+    if not ent then return end
+
+    local children = ent._hudButton_children
+    if not children then return end
+
+    for child in pairs( children ) do
+        if isValid( child ) then
+            child:handleParentRemoved( fullUpdate )
+        else
+            children[child] = nil -- Shouldn't happen, but for in case, clean up the garbage
+        end
+    end
+end )
+
+hook.add( "KeyPress", "LKL_HUDButton_KeyPress", function( ply, key )
+    if not hoveredButton then return end
+    if not isFirstTimePredicted() then return end
+
+    hoveredButton:keyClk( ply, key, true )
+end )
+
+hook.add( "KeyRelease", "LKL_HUDButton_KeyRelease", function( ply, key )
+    if not hoveredButton then return end
+    if not isFirstTimePredicted() then return end
+
+    hoveredButton:keyClk( ply, key, false )
+end )
+
+hook.add( "inputPressed", "LKL_HUDButton_InputPress", function( ply, key )
+    if not hoveredButton then return end
+    if not isFirstTimePredicted() then return end
+
+    hoveredButton:inputClk( ply, key, true )
+end )
+
+hook.add( "inputReleased", "LKL_HUDButton_InputRelease", function( ply, key )
+    if not hoveredButton then return end
+    if not isFirstTimePredicted() then return end
+
+    hoveredButton:inputClk( ply, key, false )
+end )
+
+hook.add( "drawhud", "LKL_HUDButton_Draw", function()
+    local oldHoveredButton = hoveredButton
+    local canShowLinkedCache = {}
+    local buttonsToDraw = {}
+    local closestDist = math.huge
+    local closestButton = nil
+
+    local cursorX = screenCenterX
+    local cursorY = screenCenterY
+
+    if input.getCursorVisible() then
+        cursorX, cursorY = input.getCursorPos()
+    elseif not cursorX then
+        screenCenterX, screenCenterY = render.getGameResolution()
+        screenCenterX = screenCenterX * 0.5
+        screenCenterY = screenCenterY * 0.5
+
+        cursorX = screenCenterX
+        cursorY = screenCenterY
+    end
+
+    for _, button in ipairs( allHUDButtons ) do
+        if button:isVisible() and button:canShow() then
+            local canShowLinkedFunc = button.canShowLinked
+            local canShowLinked = canShowLinkedCache[canShowLinkedFunc]
+
+            if canShowLinked == nil then
+                canShowLinked = canShowLinkedFunc( button )
+                canShowLinkedCache[canShowLinkedFunc] = canShowLinked
+            end
+
+            if canShowLinked then
+                local pos = button:getPos()
+                local screenPos = pos:toScreen()
+
+                if screenPos.visible then
+                    local btnX = screenPos.x
+                    local btnY = screenPos.y
+                    local diffX = cursorX - btnX
+                    local diffY = cursorY - btnY
+                    local dist = mathSqrt( diffX * diffX + diffY * diffY )
+
+                    if dist <= closestDist and button:isOverButton( btnX, btnY, cursorX, cursorY, dist ) then
+                        closestDist = dist
+                        closestButton = button
+                    end
+
+                    tableInsert( buttonsToDraw, { button, btnX, btnY } )
+                end
+            end
+        end
+    end
+
+    if closestButton then
+        if oldHoveredButton ~= closestButton then
+            if oldHoveredButton then
+                oldHoveredButton._hovered = false
+                oldHoveredButton:onHoverEnded()
+            end
+
+            closestButton._hovered = true
+            closestButton:onHoverStarted()
+        end
+
+        hoveredButton = closestButton
+    elseif oldHoveredButton then
+        oldHoveredButton._hovered = false
+        oldHoveredButton:onHoverEnded()
+        hoveredButton = nil
+    end
+
+    local hoveredButtonData
+
+    for i = 1, #buttonsToDraw do
+        local data = buttonsToDraw[i]
+        local button = data[1]
+
+        -- Draw all but the hovered button.
+        if button == hoveredButton then
+            hoveredButtonData = data
+        else
+            button:draw( data[2], data[3] )
+        end
+    end
+
+    -- Draw the hovered button last so it has draw priority.
+    if hoveredButtonData then
+        hoveredButton:draw( hoveredButtonData[2], hoveredButtonData[3] )
+    end
+end )
