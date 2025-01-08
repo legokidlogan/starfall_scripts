@@ -205,14 +205,21 @@ end
 --[[
     - Sets the button's text.
 
-    text: (string or table)
+    text: (string, table, or nil)
         - If a table, must be a list of alternating color and string values.
 --]]
 function HUDButton:setText( text )
+    if text == nil then
+        self._text = nil
+        self._textTbl = nil
+
+        return
+    end
+
     if type( text ) == "string" then
         text = { COLOR_WHITE, text }
     elseif type( text ) ~= "table" then
-        error( "Expected text to be a string or a table" )
+        error( "Expected text to be a string, a table, or nil" )
     end
 
     render.setFont( self:getFont() )
