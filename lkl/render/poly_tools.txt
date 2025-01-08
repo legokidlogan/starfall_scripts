@@ -301,6 +301,49 @@ function polyTools.polyMakeCircleArcFilled( x, y, innerRadius, outerRadius, numS
     return polys
 end
 
+--[[
+    - Creates polys for the left and right halves of a hollow diamond shape.
+    - Returns the two polys as separate args.
+        - If you want them as a list, just surround the function call with {}.
+
+    x: (number)
+        - The x position of the center of the diamond.
+    y: (number)
+        - The y position of the center of the diamond.
+    width: (number)
+        - The width of the diamond.
+    height: (number)
+        - The height of the diamond.
+    thickness: (number 0-1)
+        - A fraction for how much to fill in the diamond by.
+--]]
+function polyTools.polyMakeDiamond( x, y, width, height, thickness )
+    local w = width * 0.5
+    local h = height * 0.5
+    local tw = thickness * w
+    local th = thickness * h
+
+    local polyLeft = {
+        { x = x - w, y = y },
+        { x = x, y = y - h },
+        { x = x, y = y - h + th },
+        { x = x - w + tw, y = y },
+        { x = x, y = y + h - th },
+        { x = x, y = y + h },
+    }
+
+    local polyRight = {
+        { x = x + w, y = y },
+        { x = x, y = y + h },
+        { x = x, y = y + h - th },
+        { x = x + w - tw, y = y },
+        { x = x, y = y - h + th },
+        { x = x, y = y - h },
+    }
+
+    return polyLeft, polyRight
+end
+
 
 ----- PRIVATE FUNCTIONS -----
 
