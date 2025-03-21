@@ -467,6 +467,7 @@ local recordVerts_surfaceInd = -1
 recordVertsQueue = Queue:new(
     function( _, surface )
         recordVerts_surfaceInd = recordVerts_surfaceInd + 1
+        meshProgress = recordVerts_surfaceInd / surfaceCountMinusOne
 
         if meshMapHideNoDraw and surface:isNoDraw() then return end
         if meshMapHideSky and surface:isSky() then return end
@@ -481,8 +482,6 @@ recordVertsQueue = Queue:new(
 
         local isInBounds = isSurfaceInBounds( surfaceVerts, surfaceVertCount )
         if not isInBounds then return end
-
-        meshProgress = recordVerts_surfaceInd / surfaceCountMinusOne
 
         local surfaceInd = recordVerts_surfaceInd
         local surfaceNormal
