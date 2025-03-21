@@ -482,7 +482,7 @@ recordVertsQueue = Queue:new(
             tryAddSkyboxBrushIntoWorld( surface, recordVerts_surfaceInd, surfaceVerts, surfaceVertCount )
         end
 
-        local isInBounds = isSurfaceInBounds( surfaceVerts, surfaceVertCount )
+        local isInBounds = surface.isFromSkyIntoWorld or isSurfaceInBounds( surfaceVerts, surfaceVertCount )
         if not isInBounds then return end
 
         local surfaceInd = recordVerts_surfaceInd
