@@ -392,6 +392,7 @@ end
 
 local function tryAddSkyboxBrushIntoWorld( surface, surfaceInd, verts, vertCount )
     if not MAP_HAS_SKYBOX then return end
+    if surface.isFromSkyIntoWorld then return end
 
     local worldVerts = {}
     local surfaceCenter = Vector()
@@ -459,6 +460,7 @@ local function tryAddSkyboxBrushIntoWorld( surface, surfaceInd, verts, vertCount
         sampleCountOverride = surface.sampleCountOverride,
 
         colorCenter = libMapData.worldPosToSkyPos( surfaceCenter ),
+        isFromSkyIntoWorld = true,
     } )
 end
 
