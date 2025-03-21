@@ -305,6 +305,8 @@ local textureCopyMat = nil
 local mapMatsByName = {}
 local mapMatColors = {}
 local tempMaterials = {} -- Materials created for the sake of caching colors. Will get destroyed afterwards.
+local finishedCachingMapColors = false
+local dispQueue = nil
 
 local renderTraceSurfaceColor = render.traceSurfaceColor
 local mathRand = math.rand
@@ -701,53 +703,77 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
     http.get( url, function( data, _, _, code )
         if code ~= 200 then return end
 
+        -- Pause the vert queue until the displacements are done being added.
+        if meshesStartedLoading then
+            if meshMapColorMode ~= 2 and not recordVertsQueue:isRunning() then return end -- Somehow the brushes finished loading before the download finished. Not good!
+
+            recordVertsQueue:stop()
+        end
+
         local meshInfo = json.decode( bit.decompress( data ) )
 
-        for _, dispInfo in ipairs( meshInfo ) do
-            local tris = dispInfo.tris
-            local mat = getDisplacementMat( dispInfo )
+        dispQueue = Queue:new(
+            function( _, dispInfo )
+                local tris = dispInfo.tris
+                local mat = getDisplacementMat( dispInfo )
 
-            for _, tri in ipairs( tris ) do
-                local normal = tri.n
-                local v1 = tri[1]
-                local v2 = tri[2]
-                local v3 = tri[3]
+                for _, tri in ipairs( tris ) do
+                    local normal = tri.n
+                    local v1 = tri[1]
+                    local v2 = tri[2]
+                    local v3 = tri[3]
 
-                local surf = {
-                    getVertices = function()
-                        return {
-                            v1,
-                            v2,
-                            v3,
-                        }
-                    end,
+                    local surf = {
+                        getVertices = function()
+                            return {
+                                v1,
+                                v2,
+                                v3,
+                            }
+                        end,
 
-                    isNoDraw = function()
-                        return false
-                    end,
+                        isNoDraw = function()
+                            return false
+                        end,
 
-                    isWater = function()
-                        return false
-                    end,
+                        isWater = function()
+                            return false
+                        end,
 
-                    isSky = function()
-                        return false
-                    end,
+                        isSky = function()
+                            return false
+                        end,
 
-                    getMaterial = function()
-                        return mat
-                    end,
+                        getMaterial = function()
+                            return mat
+                        end,
 
-                    getNormal = function()
-                        return normal
-                    end,
+                        getNormal = function()
+                            return normal
+                        end,
 
-                    overrideColor = nil,
-                }
+                        overrideColor = nil,
+                    }
 
-                addSurfaceFunc( surf )
-            end
-        end
+                    addSurfaceFunc( surf )
+                end
+            end,
+            function()
+                dispQueue:destroy()
+
+                -- If the map colors are done caching, start processing verts.
+                if meshesStartedLoading and ( meshMapColorMode ~= 2 or finishedCachingMapColors ) then
+                    recordVertsQueue:start()
+                end
+            end,
+            meshInfo,
+            0.1,
+            1000,
+            0.7,
+            "DisplacementQueue"
+        )
+
+        dispQueue:start()
     end )
 end )
 
@@ -863,7 +889,12 @@ elseif meshMapColorMode == 2 then
 
         if not surface then
             hook.remove( "renderoffscreen", "LKL_MapMesh_CacheMapMatColors" )
-            recordVertsQueue:start()
+            finishedCachingMapColors = true
+
+            -- Start processing verts if the displacement queue is finished or was never created.
+            if not isValid( dispQueue ) or not dispQueue:isRunning() then
+                recordVertsQueue:start()
+            end
 
             return
         end
