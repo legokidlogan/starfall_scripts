@@ -792,16 +792,15 @@ if meshMapHideSkybox then
     end
 else
     isSurfaceInBounds = function( verts, vertCount )
-        -- Allow if any verts are in the skybox.
+        -- Allow if any verts are in the playable region or skybox.
+        -- Mixed into one loop because brushes are usually only in one or the other,
+        --  and we only need to find at least one good vert, 
         for i = 1, vertCount do
-            if verts[i]:withinAABox( MAP_SKYBOX_MIN_BOUNDS, MAP_SKYBOX_MAX_BOUNDS ) then
-                return true
-            end
-        end
+            local vert = verts[i]
 
-        -- Allow if any verts are in the playable region.
-        for i = 1, vertCount do
-            if verts[i]:withinAABox( MAP_MIN_BOUNDS, MAP_MAX_BOUNDS ) then
+            if
+                vert:withinAABox( MAP_MIN_BOUNDS, MAP_MAX_BOUNDS ) or
+                vert:withinAABox( MAP_SKYBOX_MIN_BOUNDS, MAP_SKYBOX_MAX_BOUNDS ) then
                 return true
             end
         end
