@@ -20,7 +20,7 @@ if libMapMesh.DO_WIREFRAME == nil then libMapMesh.DO_WIREFRAME = false end
 if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = false end
 if libMapMesh.SHOW_DISPLACEMENTS == nil then libMapMesh.SHOW_DISPLACEMENTS = true end -- Only works for some maps. See https://github.com/legokidlogan/starfall_data/tree/main/map_data/displacements
 if libMapMesh.HIDE_SKYBOX == nil then libMapMesh.HIDE_SKYBOX = true end -- Hide the skybox region.
-if libMapMesh.SKYBOX_BRUSHES_INTO_WORLD == nil then libMapMesh.SKYBOX_BRUSHES_INTO_WORLD = true end -- Brushes in the skybox that correspond to parts of the world in the void will get scaled up and replicated. e.g. the dividing land in gm_excess_construct_13.
+if libMapMesh.SKYBOX_BRUSHES_INTO_WORLD == nil then libMapMesh.SKYBOX_BRUSHES_INTO_WORLD = false end -- Brushes in the skybox that correspond to parts of the world in the void will get scaled up and replicated. e.g. the dividing land in gm_excess_construct_13.
 libMapMesh.MESH_SCALE_OVERRIDE = libMapMesh.MESH_SCALE_OVERRIDE or nil -- Set to a number to override the mesh scale, instead of using map bounds and mesh width.
 libMapMesh.MESH_OFFSET_OVERRIDE = libMapMesh.MESH_OFFSET_OVERRIDE or nil -- Set to a vector to override the mesh offset, instead of using map bounds.
 
