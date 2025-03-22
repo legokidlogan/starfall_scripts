@@ -261,6 +261,14 @@ hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
     MESH_MIN_BOUNDS = mapData.MinBounds * MESH_SCALE + MESH_OFFSET
     MESH_MAX_BOUNDS = mapData.MaxBounds * MESH_SCALE + MESH_OFFSET
 
+    mapDataReady = true
+
+    if SERVER then
+        hook.run( "LKL_MapMesh_AddExtraData" ) -- Used serverside to signify when map_mesh has processed info from map_data.
+
+        return
+    end
+
     hook.run( "LKL_MapMesh_AddExtraData", function( surface, onlyGetMaterial )
         if not onlyGetMaterial then
             recordVertsQueue:addEntry( surface )
@@ -277,9 +285,7 @@ hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
         end
     end )
 
-    mapDataReady = true
-
-    if CLIENT and meshMapLoadImmediately then
+    if meshMapLoadImmediately then
         libMapMesh.startLoadingMeshes()
     end
 end )
