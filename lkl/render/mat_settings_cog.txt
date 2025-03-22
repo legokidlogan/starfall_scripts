@@ -1,0 +1,8 @@
+--@name mat_settings_cog
+--@author legokidlogan
+--@client
+
+-- Creates a globally-accessible material for the cog icon, to avoid redundant materials using up the material limit.
+
+globalMaterials = globalMaterials or {}
+globalMaterials.matSettingsCog = globalMaterials.matSettingsCog or material.createFromImage( "icon16/cog.png", "ignorez" )
