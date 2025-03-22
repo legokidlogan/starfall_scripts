@@ -269,25 +269,27 @@ hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
         return
     end
 
-    hook.run( "LKL_MapMesh_AddExtraData", function( surface, onlyGetMaterial )
-        if not onlyGetMaterial then
-            recordVertsQueue:addEntry( surface )
-            surfaceCountMinusOne = surfaceCountMinusOne + 1
-        end
-
-        if meshMapColorMode == 2 then
-            local mat = surface:getMaterial()
-
-            if mat ~= "none" then
-                table.insert( mapMatSurfaces, surface )
-                mapMatSurfacesTotal = mapMatSurfacesTotal + 1
+    timer.simple( 1, function() -- Delay To reduce odds of cpu exceeding for low-end users between getting map data and decompressing displacements.
+        hook.run( "LKL_MapMesh_AddExtraData", function( surface, onlyGetMaterial )
+            if not onlyGetMaterial then
+                recordVertsQueue:addEntry( surface )
+                surfaceCountMinusOne = surfaceCountMinusOne + 1
             end
+
+            if meshMapColorMode == 2 then
+                local mat = surface:getMaterial()
+
+                if mat ~= "none" then
+                    table.insert( mapMatSurfaces, surface )
+                    mapMatSurfacesTotal = mapMatSurfacesTotal + 1
+                end
+            end
+        end )
+
+        if meshMapLoadImmediately then
+            libMapMesh.startLoadingMeshes()
         end
     end )
-
-    if meshMapLoadImmediately then
-        libMapMesh.startLoadingMeshes()
-    end
 end )
 
 
