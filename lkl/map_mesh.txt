@@ -225,6 +225,8 @@ end
 local world = game.getWorld()
 local surfaceCountMinusOne = world:getBrushPlaneCount() - 1
 local mapMatSurfaces = world:getBrushSurfaces()
+local mapMatSurfacesCompleted = 0
+local mapMatSurfacesTotal = #mapMatSurfaces
 
 
 hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
@@ -270,6 +272,7 @@ hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
 
             if mat ~= "none" then
                 table.insert( mapMatSurfaces, surface )
+                mapMatSurfacesTotal = mapMatSurfacesTotal + 1
             end
         end
     end )
@@ -305,6 +308,7 @@ local textureCopyMat = nil
 local mapMatsByName = {}
 local mapMatColors = {}
 local tempMaterials = {} -- Materials created for the sake of caching colors. Will get destroyed afterwards.
+local recordVerts_surfaceInd = -1
 local finishedCachingMapColors = false
 local dispQueue = nil
 local dispQueueEntriesCompleted = 0
@@ -316,6 +320,25 @@ local mathRand = math.rand
 local isSurfaceInBounds
 local getMapColor
 
+
+local progressWeightDisp = 0.25
+local progressWeightMapColor = 0.25
+local function updateProgress()
+    local accomplished =
+        recordVerts_surfaceInd + 1 +
+        dispQueueEntriesCompleted * progressWeightDisp
+
+    local total =
+        surfaceCountMinusOne + 1 +
+        dispQueueEntriesTotal * progressWeightDisp
+
+    if meshMapColorMode == 2 then
+        accomplished = accomplished + mapMatSurfacesCompleted * progressWeightMapColor
+        total = total + mapMatSurfacesTotal * progressWeightMapColor
+    end
+
+    meshProgress = accomplished / total
+end
 
 -- Starfall returns a new wrapped object every time a surface's material is accessed, so cache by name to avoid duplicates.
 local function getCachedSurfaceMat( surface )
@@ -469,11 +492,10 @@ local function tryAddSkyboxBrushIntoWorld( surface, surfaceInd, verts, vertCount
 end
 
 
-local recordVerts_surfaceInd = -1
 recordVertsQueue = Queue:new(
     function( _, surface )
         recordVerts_surfaceInd = recordVerts_surfaceInd + 1
-        meshProgress = ( recordVerts_surfaceInd + dispQueueEntriesCompleted ) / ( surfaceCountMinusOne + dispQueueEntriesTotal )
+        updateProgress()
 
         if meshMapHideNoDraw and surface:isNoDraw() then return end
         if meshMapHideSky and surface:isSky() then return end
@@ -718,6 +740,7 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
         dispQueue = Queue:new(
             function( _, dispInfo )
                 dispQueueEntriesCompleted = dispQueueEntriesCompleted + 1
+                updateProgress()
 
                 local tris = dispInfo.tris
                 local mat = getDisplacementMat( dispInfo )
@@ -907,6 +930,9 @@ elseif meshMapColorMode == 2 then
 
             return
         end
+
+        mapMatSurfacesCompleted = mapMatSurfacesCompleted + 1
+        updateProgress()
 
         local surfaceMat = getCachedSurfaceMat( surface )
         if mapMatColors[surfaceMat] then return true end -- Already cached.
