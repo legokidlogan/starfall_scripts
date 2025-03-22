@@ -136,7 +136,7 @@ end
 
 
 
------ LOCAL FUNCTIONS -----
+----- PRIVATE FUNCTIONS -----
 
 local dotPoly = polyTools.polyMakeCircleFilled( 0, 0, 1, libMeshMinimap.DOT_SIDES )
 local dots = {}
