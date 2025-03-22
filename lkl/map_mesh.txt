@@ -307,6 +307,8 @@ local mapMatColors = {}
 local tempMaterials = {} -- Materials created for the sake of caching colors. Will get destroyed afterwards.
 local finishedCachingMapColors = false
 local dispQueue = nil
+local dispQueueEntriesCompleted = 0
+local dispQueueEntriesTotal = 0
 
 local renderTraceSurfaceColor = render.traceSurfaceColor
 local mathRand = math.rand
@@ -471,7 +473,7 @@ local recordVerts_surfaceInd = -1
 recordVertsQueue = Queue:new(
     function( _, surface )
         recordVerts_surfaceInd = recordVerts_surfaceInd + 1
-        meshProgress = recordVerts_surfaceInd / surfaceCountMinusOne
+        meshProgress = ( recordVerts_surfaceInd + dispQueueEntriesCompleted ) / ( surfaceCountMinusOne + dispQueueEntriesTotal )
 
         if meshMapHideNoDraw and surface:isNoDraw() then return end
         if meshMapHideSky and surface:isSky() then return end
@@ -711,9 +713,12 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
         end
 
         local meshInfo = json.decode( bit.decompress( data ) )
+        dispQueueEntriesTotal = #meshInfo
 
         dispQueue = Queue:new(
             function( _, dispInfo )
+                dispQueueEntriesCompleted = dispQueueEntriesCompleted + 1
+
                 local tris = dispInfo.tris
                 local mat = getDisplacementMat( dispInfo )
 
@@ -773,7 +778,11 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
             "DisplacementQueue"
         )
 
-        dispQueue:start()
+        if dispQueueEntriesTotal == 0 then
+            dispQueue:_onComplete()
+        else
+            dispQueue:start()
+        end
     end )
 end )
 
