@@ -80,6 +80,9 @@ libMeshMinimap.DOT_TYPES["player"] = libMeshMinimap.PLAYERS_ENABLED and ( libMes
     getYaw = libMeshMinimap.PLAYERS_DIRECTIONAl and function( ent ) return ent:getEyeAngles()[2] end or nil,
     heightTriangle = nil,
     heightHide = nil,
+    dotScale = nil,
+    dotSize = nil,
+    dotSizeWorld = nil,
 } ) or nil
 -- END CONFIG DEFAULTS 2
 
@@ -95,6 +98,9 @@ libMeshMinimap.DOT_TYPES["class_name"] = {
     getYaw = (nil or function( ent ) return nil or number end) -- Uses a pointed dot to indicate direction. nil to disable.
     heightTriangle = (nil or number >= 0), -- Overrides the global DOT_HEIGHT_TRIANGLE for this dot type.
     heightHide = (nil or number >= 0), -- Overrides the global DOT_HEIGHT_HIDE for this dot type.
+    dotScale = (nil or number >= 0 or function( ent ) return nil or number end) -- Scales the dot size. nil to make no change. Size modifiers only apply on update intervals.
+    dotSize = (nil or number >= 0 or function( ent ) return nil or number end) -- Overrides the dot size. nil to make no change.
+    dotSizeWorld = (nil or number >= 0 or function( ent ) return nil or number end) -- Resizes the dot so that its width on the minimap matches a distance in the world. nil to make no change.
 }
 --]]
 
@@ -246,8 +252,14 @@ local function drawDots( mmWidth, mmCenterX, mmCenterY )
             localPos[2] = localPos[2] * posScale
 
             local ringColor = dot.ringColor
+            local dotScale = dot.dotScale
             local posMatrix = Matrix()
             posMatrix:translate( Vector( -localPos[2], -localPos[1], 0 ) )
+
+            if dotScale then
+                posMatrix:scale( dotScale )
+            end
+
             render.pushMatrix( posMatrix )
 
             if getYaw then
@@ -482,6 +494,12 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
     if not render.isHUDActive() then return end
     if not libMeshMinimap.isVisible() then return end
 
+    local baseDotSize = libMeshMinimap.DOT_SIZE
+
+    dots = {}
+
+    if baseDotSize <= 0 then return end
+
     local perfLimit = cpuMax() * libMeshMinimap.DOT_PERF_LIMIT
     local otherPerf = cpuTotalAverage() - cpuAverage()
     perfLimit = perfLimit - otherPerf
@@ -491,10 +509,7 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
     local distLimit = scrW * libMeshMinimap.WIDTH / ( zoomLevel * 2 )
     local heightTriangle = libMeshMinimap.DOT_HEIGHT_TRIANGLE
     local heightHide = libMeshMinimap.DOT_HEIGHT_HIDE
-
-    dots = {}
-
-    if libMeshMinimap.DOT_SIZE == 0 then return end
+    local dotSizeWorldMult = zoomLevel / ( scrW * libMeshMinimap.WIDTH * baseDotSize * 2 )
 
     for className, info in pairs( libMeshMinimap.DOT_TYPES ) do
         if cpuAverage() > perfLimit then break end
@@ -509,10 +524,20 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
         local canShow = info.canShow
         local heightTriangleEff = info.heightTriangle or heightTriangle
         local heightHideEff = info.heightHide or heightHide
+        local dotScale = info.dotScale
+        local dotSize = info.dotSize
+        local dotSizeWorld = info.dotSizeWorld
 
         local colorIsFunc = type( color ) == "function"
         local ringColorIsFunc = type( ringColor ) == "function"
         local requireLOSIsFunc = type( requireLOS ) == "function"
+        local dotScaleIsFunc = type( dotScale ) == "function"
+        local dotSizeIsFunc = type( dotSize ) == "function"
+        local dotSizeWorldIsFunc = type( dotSizeWorld ) == "function"
+
+        if dotScale and not dotScaleIsFunc then dotScale = Vector( dotScale ) end
+        if dotSize and not dotSizeIsFunc then dotSize = Vector( dotSize / baseDotSize ) end
+        if dotSizeWorld and not dotSizeWorldIsFunc then dotSizeWorld = Vector( dotSizeWorld * dotSizeWorldMult ) end
 
         for _, ent in ipairs( ents ) do
             if cpuAverage() > perfLimit then break end
@@ -530,12 +555,38 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
                 if tr.Hit then continue end
             end
 
+            local dotScaleEff
+
+            if dotScale then
+                if dotScaleIsFunc then
+                    dotScaleEff = dotScale( ent )
+                    if dotScaleEff then dotScaleEff = Vector( dotScaleEff ) end
+                else
+                    dotScaleEff = dotScale
+                end
+            elseif dotSize then
+                if dotSizeIsFunc then
+                    dotScaleEff = dotSize( ent ) / baseDotSize
+                    if dotScaleEff then dotScaleEff = Vector( dotScaleEff / baseDotSize ) end
+                else
+                    dotScaleEff = dotSize
+                end
+            elseif dotSizeWorld then
+                if dotSizeWorldIsFunc then
+                    dotScaleEff = dotSizeWorld( ent )
+                    if dotScaleEff then dotScaleEff = Vector( dotScaleEff * dotSizeWorldMult ) end
+                else
+                    dotScaleEff = dotSizeWorld
+                end
+            end
+
             table.insert( dotsForClass, {
                 ent = ent,
                 color = colorIsFunc and color( ent ) or color,
                 ringColor = ringColorIsFunc and ringColor( ent ) or ringColor,
                 hasHeightDiff = heightTriangleEff ~= 0 and heightDiffAbs > heightTriangleEff,
                 isAbove = heightDiff > 0,
+                dotScale = dotScaleEff,
             } )
         end
 
