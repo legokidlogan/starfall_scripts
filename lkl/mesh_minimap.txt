@@ -62,7 +62,7 @@ libMeshMinimap.COMPASS_COLOR_NSEW = libMeshMinimap.COMPASS_COLOR_NSEW or Color( 
 libMeshMinimap.COMPASS_COLOR_X = libMeshMinimap.COMPASS_COLOR_X or Color( 255, 0, 0, 255 ) -- Color of the compass X text.
 libMeshMinimap.COMPASS_COLOR_Y = libMeshMinimap.COMPASS_COLOR_Y or Color( 0, 255, 0, 255 ) -- Color of the compass Y text.
 
-libMeshMinimap.DOT_SIZE = libMeshMinimap.DOT_SIZE or 0.03 -- Size of the dots, as a fraction of the minimap's width. 0 disables dots altogether.
+libMeshMinimap.DOT_SIZE = libMeshMinimap.DOT_SIZE or 0.02 -- Size of the dots, as a fraction of the minimap's width. 0 disables dots altogether.
 libMeshMinimap.DOT_RING_THICKNESS = libMeshMinimap.DOT_RING_THICKNESS or 0.25 -- Thickness of the dot rings, as a fraction of the dot's size.
 libMeshMinimap.DOT_HEIGHT_TRIANGLE = libMeshMinimap.DOT_HEIGHT_TRIANGLE or 100 -- Height difference needed between the local player and the dot to show an up/down triangle. Set to 0 to disable.
 libMeshMinimap.DOT_HEIGHT_HIDE = libMeshMinimap.DOT_HEIGHT_HIDE or 3000 -- Height difference needed between the local player and the dot to hide it. Set to 0 to always show.
@@ -567,19 +567,19 @@ triUpPoly = polyTools.polyScale( {
     { x = 0, y = -0.5 },
     { x = 0.5, y = 0.5 },
     { x = -0.5, y = 0.5 },
-}, 0.75 )
+}, 0.9 )
 
 triDownPoly = polyTools.polyScale( {
     { x = 0, y = 0.5 },
     { x = -0.5, y = -0.5 },
     { x = 0.5, y = -0.5 },
-}, 0.75 )
+}, 0.9 )
 
 local dotPointedNarrowness = 0.75
 dotPointedPoly = polyTools.polyMakeCircleFilled( 0, 0, 1, math.ceil( libMeshMinimap.DOT_SIDES / 2 ), 180, 180 )
 dotPointedPoly = polyTools.polyScale( dotPointedPoly, dotPointedNarrowness, 1 )
 dotPointedPoly[1] = { x = 0, y = -1 }
-dotPointedPoly = polyTools.polyTranslate( dotPointedPoly, 0, -0.25 )
+dotPointedPoly = polyTools.polyScale( polyTools.polyTranslate( dotPointedPoly, 0, -0.25 ), 1 / dotPointedNarrowness )
 
 compassEntries = {
     [1] = {
