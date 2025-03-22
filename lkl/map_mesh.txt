@@ -627,12 +627,13 @@ recordVertsQueue = Queue:new(
         destroyTempMaterials()
         startCreatingMesh()
     end,
-    world:getBrushSurfaces(),
+    {},
     0.1,
     1000,
     0.7,
     "RecordVerts"
 )
+recordVertsQueue._entries = world:getBrushSurfaces() -- Bypass table.cloneDeep() for performance.
 
 
 hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddFloor", function( addSurfaceFunc )
@@ -802,12 +803,13 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
                     recordVertsQueue:start()
                 end
             end,
-            meshInfo,
+            {},
             0.1,
             1000,
             0.7,
             "DisplacementQueue"
         )
+        dispQueue._entries = meshInfo -- Bypass table.cloneDeep() for performance.
 
         if dispQueueEntriesTotal == 0 then
             dispQueue:_onComplete()
