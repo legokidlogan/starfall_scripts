@@ -78,6 +78,8 @@ libMeshMinimap.DOT_TYPES["player"] = libMeshMinimap.PLAYERS_ENABLED and ( libMes
     getPos = function( ent ) return ent:getPos() end,
     canShow = libMeshMinimap.PLAYERS_PVP_HIDE and function( ent ) return ent ~= player() and ( not player():isInPvp() or not ent:isInPvp() ) end or function( ent ) return ent ~= player() end,
     getYaw = libMeshMinimap.PLAYERS_DIRECTIONAl and function( ent ) return ent:getEyeAngles()[2] end or nil,
+    heightTriangle = nil,
+    heightHide = nil,
 } ) or nil
 -- END CONFIG DEFAULTS 2
 
@@ -91,6 +93,8 @@ libMeshMinimap.DOT_TYPES["class_name"] = {
     getPos = (nil or function( ent ) return Vector end), -- Function to get the position for drawing the dot. Defaults to ent:obbCenterW().
     canShow = (nil or function( ent ) return bool end), -- Only show the dot if this function returns true. nil to always show.
     getYaw = (nil or function( ent ) return nil or number end) -- Uses a pointed dot to indicate direction. nil to disable.
+    heightTriangle = (nil or number >= 0), -- Overrides the global DOT_HEIGHT_TRIANGLE for this dot type.
+    heightHide = (nil or number >= 0), -- Overrides the global DOT_HEIGHT_HIDE for this dot type.
 }
 --]]
 
@@ -503,6 +507,8 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
         local getPosLOS = info.getPosLOS or function( ent ) return ent:obbCenterW() end
         local getPos = info.getPos or function( ent ) return ent:obbCenterW() end
         local canShow = info.canShow
+        local heightTriangleEff = info.heightTriangle or heightTriangle
+        local heightHideEff = info.heightHide or heightHide
 
         local colorIsFunc = type( color ) == "function"
         local ringColorIsFunc = type( ringColor ) == "function"
@@ -515,7 +521,7 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
             local pos = getPos( ent )
             local heightDiff = pos[3] - eyeZ
             local heightDiffAbs = math.abs( heightDiff )
-            if heightHide > 0 and heightDiffAbs > heightHide then continue end
+            if heightHideEff > 0 and heightDiffAbs > heightHideEff then continue end
             if ( pos - eyePos ):getLength2D() > distLimit then continue end
 
             if requireLOS and ( not requireLOSIsFunc or requireLOS( ent ) ) then
@@ -528,7 +534,7 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
                 ent = ent,
                 color = colorIsFunc and color( ent ) or color,
                 ringColor = ringColorIsFunc and ringColor( ent ) or ringColor,
-                hasHeightDiff = heightTriangle ~= 0 and heightDiffAbs > heightTriangle,
+                hasHeightDiff = heightTriangleEff ~= 0 and heightDiffAbs > heightTriangleEff,
                 isAbove = heightDiff > 0,
             } )
         end
@@ -573,6 +579,7 @@ local dotPointedNarrowness = 0.75
 dotPointedPoly = polyTools.polyMakeCircleFilled( 0, 0, 1, math.ceil( libMeshMinimap.DOT_SIDES / 2 ), 180, 180 )
 dotPointedPoly = polyTools.polyScale( dotPointedPoly, dotPointedNarrowness, 1 )
 dotPointedPoly[1] = { x = 0, y = -1 }
+dotPointedPoly = polyTools.polyTranslate( dotPointedPoly, 0, -0.25 )
 
 compassEntries = {
     [1] = {
