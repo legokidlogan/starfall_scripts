@@ -46,12 +46,12 @@ if libMeshMinimap.PLAYERS_DIRECTIONAl == nil then libMeshMinimap.PLAYERS_DIRECTI
 libMeshMinimap.WIDTH = libMeshMinimap.WIDTH or 0.15 -- Width of the minimap, as a fraction of the screen width.
 libMeshMinimap.X_POS = libMeshMinimap.X_POS or 0.07 -- X position of the minimap's center, as a fraction of the screen width.
 libMeshMinimap.Y_POS = libMeshMinimap.Y_POS or 0.07 -- Y position of the minimap's center, as a fraction of the screen height.
-libMeshMinimap.BORDER_THICKNESS = libMeshMinimap.BORDER_THICKNESS or 0.05 -- Thickness of the border, as a fraction of the minimap's width.
+libMeshMinimap.BORDER_THICKNESS = libMeshMinimap.BORDER_THICKNESS or 0.05 -- Thickness of the border, as a fraction of the minimap's width. 0 to disable.
 libMeshMinimap.BORDER_COLOR = libMeshMinimap.BORDER_COLOR or Color( 255, 255, 255, 255 ) -- Color of the border.
 libMeshMinimap.BACKGROUND_COLOR = libMeshMinimap.BACKGROUND_COLOR or Color( 0, 0, 0, 255 ) -- Color of the background.
 if libMeshMinimap.USE_CALCVIEW == nil then libMeshMinimap.USE_CALCVIEW = true end -- Account for calcview for the local player's position and angles.
 
-libMeshMinimap.CLIENT_INDICATOR_SIZE = libMeshMinimap.CLIENT_INDICATOR_SIZE or 0.05 -- Size of the local player's triangle, as a fraction of the minimap's width.
+libMeshMinimap.CLIENT_INDICATOR_SIZE = libMeshMinimap.CLIENT_INDICATOR_SIZE or 0.05 -- Size of the local player's triangle, as a fraction of the minimap's width. 0 to disable.
 libMeshMinimap.CLIENT_INDICATOR_COLOR = libMeshMinimap.CLIENT_INDICATOR_COLOR or Color( 255, 255, 200, 255 ) -- Color of the local player's triangle.
 
 libMeshMinimap.COMPASS_MODE = libMeshMinimap.COMPASS_MODE or 3 -- 0: Off, 1: North South East West, 2: +y -y +x -x, 3: Both.
@@ -59,7 +59,7 @@ libMeshMinimap.COMPASS_COLOR_NSEW = libMeshMinimap.COMPASS_COLOR_NSEW or Color( 
 libMeshMinimap.COMPASS_COLOR_X = libMeshMinimap.COMPASS_COLOR_X or Color( 255, 0, 0, 255 ) -- Color of the compass X text.
 libMeshMinimap.COMPASS_COLOR_Y = libMeshMinimap.COMPASS_COLOR_Y or Color( 0, 255, 0, 255 ) -- Color of the compass Y text.
 
-libMeshMinimap.DOT_SIZE = libMeshMinimap.DOT_SIZE or 0.03 -- Size of the dots, as a fraction of the minimap's width.
+libMeshMinimap.DOT_SIZE = libMeshMinimap.DOT_SIZE or 0.03 -- Size of the dots, as a fraction of the minimap's width. 0 disables dots altogether.
 libMeshMinimap.DOT_RING_THICKNESS = libMeshMinimap.DOT_RING_THICKNESS or 0.25 -- Thickness of the dot rings, as a fraction of the dot's size.
 libMeshMinimap.DOT_HEIGHT_TRIANGLE = libMeshMinimap.DOT_HEIGHT_TRIANGLE or 100 -- Height difference needed between the local player and the dot to show an up/down triangle. Set to 0 to disable.
 libMeshMinimap.DOT_HEIGHT_HIDE = libMeshMinimap.DOT_HEIGHT_HIDE or 3000 -- Height difference needed between the local player and the dot to hide it. Set to 0 to always show.
@@ -191,6 +191,8 @@ local function drawDots( mmWidth, mmCenterX, mmCenterY )
 
     local entAng = Angle( 0, 0, 0 ) -- Avoid creation of extra angles
     local dotSize = mmWidth * libMeshMinimap.DOT_SIZE
+    if dotSize == 0 then return end
+
     local posScale = zoomLevel / dotSize -- Divide by dotSize so the dots still get enlarged but it doesn't mess with their positions
     local heightColor = libMeshMinimap.DOT_HEIGHT_COLOR
 
@@ -344,8 +346,12 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
     resetStencil()
 
     -- Border
-    render.setColor( libMeshMinimap.BORDER_COLOR )
-    render.drawFilledCircle( mmCenterX, mmCenterY, mmWidthHalf + mmWidthHalf * libMeshMinimap.BORDER_THICKNESS )
+    local borderThickness = libMeshMinimap.BORDER_THICKNESS
+
+    if borderThickness > 0 then
+        render.setColor( libMeshMinimap.BORDER_COLOR )
+        render.drawFilledCircle( mmCenterX, mmCenterY, mmWidthHalf + mmWidthHalf * borderThickness )
+    end
 
     -- Draw a circle stencil to lock everything into
     render.setStencilEnable( true )
@@ -391,8 +397,10 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
     -- Client indicator
     local arrowSize = mmWidth * libMeshMinimap.CLIENT_INDICATOR_SIZE
 
-    render.setColor( libMeshMinimap.CLIENT_INDICATOR_COLOR )
-    polyTools.drawPoly( arrowPoly, mmCenterX, mmCenterY, arrowSize, arrowSize )
+    if arrowSize > 0 then
+        render.setColor( libMeshMinimap.CLIENT_INDICATOR_COLOR )
+        polyTools.drawPoly( arrowPoly, mmCenterX, mmCenterY, arrowSize, arrowSize )
+    end
 
     render.setStencilEnable( false )
 
@@ -456,6 +464,8 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
     local heightHide = libMeshMinimap.DOT_HEIGHT_HIDE
 
     dots = {}
+
+    if libMeshMinimap.DOT_SIZE == 0 then return end
 
     for className, info in pairs( libMeshMinimap.DOT_TYPES ) do
         if cpuAverage() > perfLimit then break end
