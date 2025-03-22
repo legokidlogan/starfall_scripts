@@ -46,6 +46,7 @@ if libMeshMinimap.PLAYERS_DIRECTIONAl == nil then libMeshMinimap.PLAYERS_DIRECTI
 libMeshMinimap.WIDTH = libMeshMinimap.WIDTH or 0.15 -- Width of the minimap, as a fraction of the screen width.
 libMeshMinimap.X_POS = libMeshMinimap.X_POS or 0.07 -- X position of the minimap's center, as a fraction of the screen width.
 libMeshMinimap.Y_POS = libMeshMinimap.Y_POS or 0.07 -- Y position of the minimap's center, as a fraction of the screen height.
+if libMeshMinimap.Y_POS_BY_WIDTH == nil then libMeshMinimap.Y_POS_BY_WIDTH = true end -- Whether to use the screen width to calculate the Y position.
 libMeshMinimap.BORDER_THICKNESS = libMeshMinimap.BORDER_THICKNESS or 0.05 -- Thickness of the border, as a fraction of the minimap's width. 0 to disable.
 libMeshMinimap.BORDER_COLOR = libMeshMinimap.BORDER_COLOR or Color( 255, 255, 255, 255 ) -- Color of the border.
 libMeshMinimap.BACKGROUND_COLOR = libMeshMinimap.BACKGROUND_COLOR or Color( 0, 0, 0, 255 ) -- Color of the background.
@@ -339,7 +340,7 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
     local mmWidth = scrW * libMeshMinimap.WIDTH
     local mmWidthHalf = mmWidth / 2
     local mmX = scrW * libMeshMinimap.X_POS
-    local mmY = scrH * libMeshMinimap.Y_POS
+    local mmY = ( libMeshMinimap.Y_POS_BY_WIDTH and scrW or scrH ) * libMeshMinimap.Y_POS
     local mmCenterX = mmX + mmWidthHalf
     local mmCenterY = mmY + mmWidthHalf
 
