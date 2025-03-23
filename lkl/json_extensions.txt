@@ -147,7 +147,10 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
     local jsonStrSplit = string.split( jsonStr, "},{" )
     local elemCount = #jsonStrSplit
     local fixingColors = false
+    local makingChunk = true
     local prevInd = 0
+    local nextInd = 0
+    local jsonStrChunk
     local doFixColors = colorKeys ~= false
 
     jsonStrSplit[1] = jsonStrSplit[1]:sub( 3 ) -- Remove the starting [{
@@ -174,8 +177,14 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
             return
         end
 
-        local nextInd = math.min( prevInd + chunkSizeEff, elemCount )
-        local jsonStrChunk = "[{" .. table.concat( jsonStrSplit, "},{", prevInd + 1, nextInd ) .. "}]"
+        if makingChunk then
+            -- Do this separately because table.concat() can also make a big perf hit.
+            nextInd = math.min( prevInd + chunkSizeEff, elemCount )
+            jsonStrChunk = "[{" .. table.concat( jsonStrSplit, "},{", prevInd + 1, nextInd ) .. "}]"
+            makingChunk = false
+
+            return
+        end
 
         local success = pcall( function()
             chunk = json.decode( jsonStrChunk )
