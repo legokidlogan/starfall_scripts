@@ -42,7 +42,6 @@ if libMeshMinimap.PLAYERS_REQUIRE_LOS == nil then libMeshMinimap.PLAYERS_REQUIRE
 if libMeshMinimap.PLAYERS_DIRECTIONAl == nil then libMeshMinimap.PLAYERS_DIRECTIONAl = true end -- Shows the facing direction of players.
 
 libMeshMinimap.CEILING_TRACE_TINT_COLOR = libMeshMinimap.CEILING_TRACE_TINT_COLOR or Color( 200, 150, 150, 255 ) -- Can be changed, but must be done via libMeshMinimap.setCeilingTintColor().
---libMeshMinimap.CEILING_TRACE_TINT_COLOR = libMeshMinimap.CEILING_TRACE_TINT_COLOR or Color( 255, 0, 0, 255 ) -- Can be changed, but must be done via libMeshMinimap.setCeilingTintColor().
 -- END CONFIG DEFAULTS 1
 
 -- CONFIG DEFAULTS 2 (Can be changed at any time)
