@@ -683,7 +683,11 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddFloor", function( addSurfa
 end )
 
 hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( addSurfaceFunc )
-    if not meshMapShowDisplacements then return end
+    if not meshMapShowDisplacements then
+        dispQueueFinished = true
+
+        return
+    end
 
     local url = "https://raw.githubusercontent.com/legokidlogan/starfall_data/main/map_data/displacements/" .. game.getMap() .. ".txt"
     local manualTexMats = {}
