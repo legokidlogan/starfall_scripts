@@ -138,6 +138,7 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
     uidIncr = uidIncr + 1
 
     local chunkSize = jsonExtensions.DECODE_SAFE_CHUNK_SIZE
+    local chunkSizeEff = chunkSize
     local perfLimit = jsonExtensions.DECODE_SAFE_PERF_LIMIT * quotaMax()
     local uid = uidIncr
     local timerName = "LKL_JSON_DecodeSafe_" .. uid
@@ -173,11 +174,26 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
             return
         end
 
-        local nextInd = math.min( prevInd + chunkSize, elemCount )
+        local nextInd = math.min( prevInd + chunkSizeEff, elemCount )
         local jsonStrChunk = "[{" .. table.concat( jsonStrSplit, "},{", prevInd + 1, nextInd ) .. "}]"
 
+        local success = pcall( function()
+            chunk = json.decode( jsonStrChunk )
+        end )
+
+        if not success then
+            -- Reduce the chunk size and try again in the next pass.
+            if chunkSizeEff <= 1 then
+                error( "Encountered an unsplitable JSON entry that is too large to decode." )
+            end
+
+            chunkSizeEff = math.ceil( chunkSizeEff / 2 )
+
+            return
+        end
+
         prevInd = nextInd
-        chunk = json.decode( jsonStrChunk )
+        chunkSizeEff = chunkSize
         fixingColors = true
     end )
 
