@@ -239,7 +239,7 @@ winConfig = SGUI.Window:new()
 local winConfigCloseButton = winConfig:getCloseButton()
 winConfig:setVisible( false )
 winConfig:setMinSize( 500, #configOptions * ( OPTION_HEIGHT + OPTION_MARGIN * 2 + OPTION_SPACING ) + winConfig._collapseBar:getHeight() + OPTION_MARGIN )
-winConfig:setPos( scrW / 2, 300 )
+winConfig:setPos( scrW / 2, scrH * 0.15 )
 
 function winConfigCloseButton:onClicked()
     btnOpenConfig:setVisible( true )
