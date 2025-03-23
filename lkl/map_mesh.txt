@@ -4,6 +4,7 @@
 --@include lkl/map_data.txt
 --@include lkl/queue.txt
 --@include lkl/linked_create.txt
+--@include lkl/json_extensions.txt
 --@include lkl/math/vector_math.txt
 
 require( "lkl/map_data.txt" )
@@ -297,6 +298,7 @@ if SERVER then return end
 
 
 require( "lkl/queue.txt" )
+require( "lkl/json_extensions.txt" )
 
 
 local COLOR_WHITE = Color( 255, 255, 255, 255 )
@@ -319,6 +321,7 @@ local tempMaterials = {} -- Materials created for the sake of caching colors. Wi
 local recordVerts_surfaceInd = -1
 local finishedCachingMapColors = false
 local dispQueue = nil
+local dispQueueFinished = false
 local dispQueueEntriesCompleted = 0
 local dispQueueEntriesTotal = 0
 
@@ -733,19 +736,8 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
         return mat
     end
 
-    http.get( url, function( data, _, _, code )
-        if code ~= 200 then return end
-
-        -- Pause the vert queue until the displacements are done being added.
-        if meshesStartedLoading then
-            if meshMapColorMode ~= 2 and not recordVertsQueue:isRunning() then return end -- Somehow the brushes finished loading before the download finished. Not good!
-
-            recordVertsQueue:stop()
-        end
-
-        local meshInfo = json.decode( bit.decompress( data ) )
+    local function startDisplacementQueue( meshInfo )
         dispQueueEntriesTotal = #meshInfo
-
         dispQueue = Queue:new(
             function( _, dispInfo )
                 dispQueueEntriesCompleted = dispQueueEntriesCompleted + 1
@@ -754,11 +746,13 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
                 local tris = dispInfo.tris
                 local mat = getDisplacementMat( dispInfo )
 
-                for _, tri in ipairs( tris ) do
-                    local normal = tri.n
-                    local v1 = tri[1]
-                    local v2 = tri[2]
-                    local v3 = tri[3]
+                -- Triangles and their normals are flattened into a single list of sets of 4 values.
+                -- This is to have a format that works with json.decodeSafe().
+                for i = 1, #tris, 4 do
+                    local normal = tris[i]
+                    local v1 = tris[i + 1]
+                    local v2 = tris[i + 2]
+                    local v3 = tris[i + 3]
 
                     local surf = {
                         getVertices = function()
@@ -797,6 +791,7 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
             end,
             function()
                 dispQueue:destroy()
+                dispQueueFinished = true
 
                 -- If the map colors are done caching, start processing verts.
                 if meshesStartedLoading and ( meshMapColorMode ~= 2 or finishedCachingMapColors ) then
@@ -815,6 +810,33 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
             dispQueue:_onComplete()
         else
             dispQueue:start()
+        end
+    end
+
+    http.get( url, function( data, _, _, code )
+        if code ~= 200 then
+            -- Set data to an empty table.
+            data = bit.compress( json.encode( {} ) )
+        end
+
+        -- Pause the vert queue until the displacements are done being added.
+        if meshesStartedLoading then
+            if meshMapColorMode ~= 2 and not recordVertsQueue:isRunning() then return end -- Somehow the brushes finished loading before the download finished. Not good!
+
+            recordVertsQueue:stop()
+        end
+
+        data = bit.decompress( data )
+        local meshInfo
+
+        pcall( function()
+            meshInfo = json.decode( data )
+        end )
+
+        if meshInfo then
+            startDisplacementQueue( meshInfo )
+        else
+            json.decodeSafe( data, startDisplacementQueue, false )
         end
     end )
 end )
@@ -933,8 +955,8 @@ elseif meshMapColorMode == 2 then
             hook.remove( "renderoffscreen", "LKL_MapMesh_CacheMapMatColors" )
             finishedCachingMapColors = true
 
-            -- Start processing verts if the displacement queue is finished or was never created.
-            if not isValid( dispQueue ) or not dispQueue:isRunning() then
+            -- Start processing verts if the displacement queue is finished.
+            if dispQueueFinished then
                 recordVertsQueue:start()
             end
 
