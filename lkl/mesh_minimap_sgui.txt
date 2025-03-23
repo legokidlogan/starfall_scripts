@@ -39,7 +39,7 @@ local CONFIG_BUTTON_PADDING = 4
 local CONFIG_BUTTON_SIZE = CONFIG_BUTTON_COG_SIZE + CONFIG_BUTTON_PADDING * 2
 
 local OPTION_HEIGHT = 25
-local OPTION_NAME_WIDTH = 100
+local OPTION_NAME_WIDTH = 120
 local OPTION_DEFAULT_BUTTON_WIDTH = 75
 local OPTION_MARGIN = 4
 local OPTION_SPACING = 1
@@ -120,6 +120,18 @@ local configOptions = {
     {
         name = "Hide in C Menu",
         varName = "HIDE_IN_CONTEXT_MENU",
+        type = "checkbox",
+        func = nil,
+    },
+    {
+        name = "Ceiling Trace",
+        varName = "CEILING_TRACE",
+        type = "checkbox",
+        func = nil,
+    },
+    {
+        name = "Ceiling Trace Tint",
+        varName = "CEILING_TRACE_TINT",
         type = "checkbox",
         func = nil,
     },

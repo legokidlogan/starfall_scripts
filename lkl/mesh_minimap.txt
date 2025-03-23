@@ -40,6 +40,9 @@ if libMeshMinimap.PLAYERS_ENABLED == nil then libMeshMinimap.PLAYERS_ENABLED = t
 if libMeshMinimap.PLAYERS_PVP_HIDE == nil then libMeshMinimap.PLAYERS_PVP_HIDE = true end -- Hides player dots if both you and them are in pvp.
 if libMeshMinimap.PLAYERS_REQUIRE_LOS == nil then libMeshMinimap.PLAYERS_REQUIRE_LOS = false end -- Only shows player dots if they have line of sight.
 if libMeshMinimap.PLAYERS_DIRECTIONAl == nil then libMeshMinimap.PLAYERS_DIRECTIONAl = true end -- Shows the facing direction of players.
+
+libMeshMinimap.CEILING_TRACE_TINT_COLOR = libMeshMinimap.CEILING_TRACE_TINT_COLOR or Color( 200, 150, 150, 255 ) -- Can be changed, but must be done via libMeshMinimap.setCeilingTintColor().
+--libMeshMinimap.CEILING_TRACE_TINT_COLOR = libMeshMinimap.CEILING_TRACE_TINT_COLOR or Color( 255, 0, 0, 255 ) -- Can be changed, but must be done via libMeshMinimap.setCeilingTintColor().
 -- END CONFIG DEFAULTS 1
 
 -- CONFIG DEFAULTS 2 (Can be changed at any time)
@@ -53,6 +56,10 @@ libMeshMinimap.BACKGROUND_COLOR = libMeshMinimap.BACKGROUND_COLOR or Color( 0, 0
 if libMeshMinimap.USE_CALCVIEW == nil then libMeshMinimap.USE_CALCVIEW = true end -- Account for calcview for the local player's position and angles.
 if libMeshMinimap.HIDE_IN_TOOLGUN == nil then libMeshMinimap.HIDE_IN_TOOLGUN = true end -- Hide the minimap while the toolgun is held.
 if libMeshMinimap.HIDE_IN_CONTEXT_MENU == nil then libMeshMinimap.HIDE_IN_CONTEXT_MENU = false end -- Hide the minimap while the context menu is open.
+
+if libMeshMinimap.CEILING_TRACE == nil then libMeshMinimap.CEILING_TRACE = false end -- Use a ceiling trace to determine the render height of the minimap, instead of just the player's eye height.
+if libMeshMinimap.CEILING_TRACE_TINT == nil then libMeshMinimap.CEILING_TRACE_TINT = true end -- Tints parts of the map that are between your eye height and the ceiling trace to show they aren't at your level.
+-- NOTE: CEILING_TRACE_TINT is waiting on a Starfall PR to fix a bug: https://github.com/thegrb93/StarfallEx/pull/2026
 
 libMeshMinimap.CLIENT_INDICATOR_SIZE = libMeshMinimap.CLIENT_INDICATOR_SIZE or 0.05 -- Size of the local player's triangle, as a fraction of the minimap's width. 0 to disable.
 libMeshMinimap.CLIENT_INDICATOR_COLOR = libMeshMinimap.CLIENT_INDICATOR_COLOR or Color( 255, 255, 200, 255 ) -- Color of the local player's triangle.
@@ -104,6 +111,10 @@ libMeshMinimap.DOT_TYPES["class_name"] = {
 }
 --]]
 
+
+local VECTOR_UP = Vector( 0, 0, 1 )
+local VECTOR_UP_BIG = Vector( 0, 0, 60000 )
+
 local active = true
 local contextMenuOpen = false
 local oldChipName = chip():getChipName()
@@ -115,6 +126,8 @@ local mapDataReady = false
 local meshesReady = false
 local mapHoloBase = nil
 local mapHolos = nil
+local mapHoloBaseTint = nil
+local mapHolosTint = nil
 
 
 ----- GLOBAL FUNCTIONS -----
@@ -162,12 +175,23 @@ function libMeshMinimap.worldPosToMeshPos( worldPos )
     return ( worldPos + meshOffsetPreScaled ) * zoomLevel
 end
 
+function libMeshMinimap.setCeilingTintColor( color )
+    libMeshMinimap.CEILING_TRACE_TINT_COLOR = color
+
+    if not meshesReady then return end
+
+    for _, mapHolo in ipairs( mapHolosTint ) do
+        mapHolo:setColor( color )
+    end
+end
+
 
 
 ----- PRIVATE FUNCTIONS -----
 
 local dotPoly = polyTools.polyMakeCircleFilled( 0, 0, 1, libMeshMinimap.DOT_SIDES )
 local dots = {}
+local renderHeight = nil
 local progressFont = render.createFont( "RobotoMono", scrW * 40 / 1920, 400, true, false, false, true )
 local mapViewMatrix
 local arrowPoly
@@ -369,7 +393,6 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
 
     if not libMeshMinimap.isVisible() then return end
 
-    local eyePos = getMyPos()
     local mmWidth = scrW * libMeshMinimap.WIDTH
     local mmWidthHalf = mmWidth / 2
     local mmX = scrW * libMeshMinimap.X_POS
@@ -410,7 +433,16 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
     ortho.right = mmWidthHalf
     ortho.bottom = mmWidthHalf
 
-    mapViewMatrix.origin = libMeshMinimap.worldPosToMeshPos( eyePos )
+    local eyePos = getMyPos()
+    local doCeilingTint = renderHeight and libMeshMinimap.CEILING_TRACE_TINT
+
+    if renderHeight and not doCeilingTint then
+        eyePos[3] = renderHeight
+    end
+
+    local meshPos = libMeshMinimap.worldPosToMeshPos( eyePos )
+
+    mapViewMatrix.origin = meshPos
     mapViewMatrix.angles = eyeAng
     mapViewMatrix.x = mmX
     mapViewMatrix.y = mmY
@@ -424,6 +456,21 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
 
     render.popViewMatrix()
     render.setMaterial()
+
+    if doCeilingTint then
+        eyePos[3] = renderHeight
+        mapViewMatrix.origin = libMeshMinimap.worldPosToMeshPos( eyePos )
+
+        render.clearDepth()
+        render.pushViewMatrix( mapViewMatrix )
+
+        for _, holo in ipairs( mapHolosTint ) do
+            holo:setClip( 1, true, meshPos, VECTOR_UP )
+            holo:draw()
+        end
+
+        render.popViewMatrix()
+    end
 
     -- Draw dots
     drawDots( mmWidth, mmCenterX, mmCenterY )
@@ -442,6 +489,23 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
     drawCompass( mmWidth, mmCenterX, mmCenterY )
 end )
 
+hook.add( "tick", "LKL_MeshMinimap_CeilingTrace", function()
+    if not libMeshMinimap.CEILING_TRACE then
+        renderHeight = nil
+
+        return
+    end
+
+    local eyePos = getMyPos()
+    local tr = trace.line( eyePos, eyePos + VECTOR_UP_BIG, nil, MASK.SHOT, COLLISION_GROUP.PASSABLE_DOOR )
+
+    if tr.StartSolid then
+        renderHeight = nil
+    else
+        renderHeight = tr.HitPos[3]
+    end
+end )
+
 hook.add( "LKL_MapMesh_AddExtraData", "LKL_MeshMinimap_GetMeshConstants", function()
     mapDataReady = true
 end )
@@ -454,11 +518,25 @@ hook.add( "LKL_MapMesh_MeshesReady", "LKL_MeshMinimap_MeshesReady", function()
 
     -- Spawn map holos
     timer.create( "LKL_MeshMinimap_SpawnMapHolos", 0.5, 0, function()
-        mapHoloBase, mapHolos = libMapMesh.createMeshHolos( Vector(), Angle(), nil )
-        if not mapHoloBase then return end
+        if not mapHoloBase then
+            mapHoloBase, mapHolos = libMapMesh.createMeshHolos( Vector(), Angle(), nil )
+            if not mapHoloBase then return end
+        end
+
+        if not mapHoloBaseTint then
+            mapHoloBaseTint, mapHolosTint = libMapMesh.createMeshHolos( Vector(), Angle(), nil )
+            if not mapHoloBaseTint then return end
+        end
+
+        local ceilingTintColor = libMeshMinimap.CEILING_TRACE_TINT_COLOR
 
         for _, holo in ipairs( mapHolos ) do
             holo:setNoDraw( true )
+        end
+
+        for _, holo in ipairs( mapHolosTint ) do
+            holo:setNoDraw( true )
+            holo:setColor( ceilingTintColor )
         end
 
         meshesReady = true
