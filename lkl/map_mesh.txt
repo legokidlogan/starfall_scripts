@@ -1026,6 +1026,7 @@ elseif meshMapColorMode == 2 then
 
     hook.add( "renderoffscreen", "LKL_MapMesh_CacheMapMatColors", function()
         if not mapMatStartedCachingColors then return end
+        if not dispQueueFinished then return end
 
         local otherUsage = cpuTotalAverage() - cpuAverage()
         local perfLimit = quotaMax() * MESH_LOAD_PERF_LIMIT - otherUsage
