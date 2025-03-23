@@ -155,8 +155,11 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
     timer.create( timerName, jsonExtensions.DECODE_SAFE_INTERVAL, 0, function()
         if cpuTotalAverage() > perfLimit then return end
 
-        if doFixColors and fixingColors then
-            json.fixColors( chunk, colorKeys )
+        if fixingColors then
+            if doFixColors then
+                json.fixColors( chunk, colorKeys )
+            end
+
             table.add( out, chunk )
             fixingColors = false
 
