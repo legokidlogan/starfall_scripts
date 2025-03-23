@@ -95,12 +95,12 @@ libMeshMinimap.DOT_TYPES["class_name"] = {
     getPosLOS = (nil or function( ent ) return Vector end), -- Function to get the position to check line of sight from. Defaults to ent:obbCenterW().
     getPos = (nil or function( ent ) return Vector end), -- Function to get the position for drawing the dot. Defaults to ent:obbCenterW().
     canShow = (nil or function( ent ) return bool end), -- Only show the dot if this function returns true. nil to always show.
-    getYaw = (nil or function( ent ) return nil or number end) -- Uses a pointed dot to indicate direction. nil to disable.
+    getYaw = (nil or function( ent ) return nil or number end), -- Uses a pointed dot to indicate direction. nil to disable.
     heightTriangle = (nil or number >= 0), -- Overrides the global DOT_HEIGHT_TRIANGLE for this dot type.
     heightHide = (nil or number >= 0), -- Overrides the global DOT_HEIGHT_HIDE for this dot type.
-    dotScale = (nil or number >= 0 or function( ent ) return nil or number end) -- Scales the dot size. nil to make no change. Size modifiers only apply on update intervals.
-    dotSize = (nil or number >= 0 or function( ent ) return nil or number end) -- Overrides the dot size. nil to make no change.
-    dotSizeWorld = (nil or number >= 0 or function( ent ) return nil or number end) -- Resizes the dot so that its width on the minimap matches a distance in the world. nil to make no change.
+    dotScale = (nil or number >= 0 or function( ent ) return nil or number end), -- Scales the dot size. nil to make no change. Size modifiers only apply on update intervals.
+    dotSize = (nil or number >= 0 or function( ent ) return nil or number end), -- Overrides the dot size. nil to make no change.
+    dotSizeWorld = (nil or number >= 0 or function( ent ) return nil or number end), -- Resizes the dot so that its width on the minimap matches a distance in the world. nil to make no change.
 }
 --]]
 
