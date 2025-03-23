@@ -460,7 +460,7 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
         eyePos[3] = renderHeight
         mapViewMatrix.origin = libMeshMinimap.worldPosToMeshPos( eyePos )
 
-        render.clearDepth()
+        render.clearDepth( false )
         render.pushViewMatrix( mapViewMatrix )
 
         for _, holo in ipairs( mapHolosTint ) do
