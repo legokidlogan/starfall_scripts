@@ -827,17 +827,7 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
         end
 
         data = bit.decompress( data )
-        local meshInfo
-
-        pcall( function()
-            meshInfo = json.decode( data )
-        end )
-
-        if meshInfo then
-            startDisplacementQueue( meshInfo )
-        else
-            json.decodeSafe( data, startDisplacementQueue, false )
-        end
+        json.decodeSafe( data, startDisplacementQueue, false )
     end
 
     http.get( url, cbSuccess, function( reason )
