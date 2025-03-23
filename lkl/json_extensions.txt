@@ -201,9 +201,15 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
             return
         end
 
+        for i = prevInd + 1, nextInd do
+            -- Improve garbage collection
+            jsonStrSplit[i] = nil
+        end
+
         prevInd = nextInd
         chunkSizeEff = chunkSize
         fixingColors = true
+        chunk = nil
     end )
 
     return function()
