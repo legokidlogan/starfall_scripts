@@ -813,7 +813,7 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
         end
     end
 
-    http.get( url, function( data, _, _, code )
+    local function cbSuccess( data, _, _, code )
         if code ~= 200 then
             -- Set data to an empty table.
             data = bit.compress( json.encode( {} ) )
@@ -838,6 +838,10 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
         else
             json.decodeSafe( data, startDisplacementQueue, false )
         end
+    end
+
+    http.get( url, cbSuccess, function( reason )
+        cbSuccess( nil, nil, nil, reason )
     end )
 end )
 
