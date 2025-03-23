@@ -151,6 +151,7 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
     local prevInd = 0
     local nextInd = 0
     local jsonStrChunk
+    local chunk
     local doFixColors = colorKeys ~= false
 
     jsonStrSplit[1] = jsonStrSplit[1]:sub( 3 ) -- Remove the starting [{
@@ -166,6 +167,7 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
 
             table.add( out, chunk )
             fixingColors = false
+            chunk = nil
 
             return
         end
@@ -209,7 +211,6 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
         prevInd = nextInd
         chunkSizeEff = chunkSize
         fixingColors = true
-        chunk = nil
     end )
 
     return function()
