@@ -58,7 +58,6 @@ if libMeshMinimap.HIDE_IN_CONTEXT_MENU == nil then libMeshMinimap.HIDE_IN_CONTEX
 
 if libMeshMinimap.CEILING_TRACE == nil then libMeshMinimap.CEILING_TRACE = false end -- Use a ceiling trace to determine the render height of the minimap, instead of just the player's eye height.
 if libMeshMinimap.CEILING_TRACE_TINT == nil then libMeshMinimap.CEILING_TRACE_TINT = true end -- Tints parts of the map that are between your eye height and the ceiling trace to show they aren't at your level.
--- NOTE: CEILING_TRACE_TINT is waiting on a Starfall PR to fix a bug: https://github.com/thegrb93/StarfallEx/pull/2026
 
 libMeshMinimap.CLIENT_INDICATOR_SIZE = libMeshMinimap.CLIENT_INDICATOR_SIZE or 0.05 -- Size of the local player's triangle, as a fraction of the minimap's width. 0 to disable.
 libMeshMinimap.CLIENT_INDICATOR_COLOR = libMeshMinimap.CLIENT_INDICATOR_COLOR or Color( 255, 255, 200, 255 ) -- Color of the local player's triangle.
