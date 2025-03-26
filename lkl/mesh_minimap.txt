@@ -56,7 +56,7 @@ if libMeshMinimap.USE_CALCVIEW == nil then libMeshMinimap.USE_CALCVIEW = true en
 if libMeshMinimap.HIDE_IN_TOOLGUN == nil then libMeshMinimap.HIDE_IN_TOOLGUN = true end -- Hide the minimap while the toolgun is held.
 if libMeshMinimap.HIDE_IN_CONTEXT_MENU == nil then libMeshMinimap.HIDE_IN_CONTEXT_MENU = false end -- Hide the minimap while the context menu is open.
 
-if libMeshMinimap.CEILING_TRACE == nil then libMeshMinimap.CEILING_TRACE = false end -- Use a ceiling trace to determine the render height of the minimap, instead of just the player's eye height.
+if libMeshMinimap.CEILING_TRACE == nil then libMeshMinimap.CEILING_TRACE = true end -- Use a ceiling trace to determine the render height of the minimap, instead of just the player's eye height.
 if libMeshMinimap.CEILING_TRACE_TINT == nil then libMeshMinimap.CEILING_TRACE_TINT = true end -- Tints parts of the map that are between your eye height and the ceiling trace to show they aren't at your level.
 
 libMeshMinimap.CLIENT_INDICATOR_SIZE = libMeshMinimap.CLIENT_INDICATOR_SIZE or 0.05 -- Size of the local player's triangle, as a fraction of the minimap's width. 0 to disable.
