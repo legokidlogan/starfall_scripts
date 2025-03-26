@@ -8,14 +8,28 @@ if jsonExtensions._alreadyLoaded then return end
 jsonExtensions._alreadyLoaded = true
 
 
-jsonExtensions.DECODE_SAFE_CHUNK_SIZE = jsonExtensions.DECODE_SAFE_CHUNK_SIZE or 5000 -- Entry limit for json.decodeSafe() chunks.
-jsonExtensions.DECODE_SAFE_PERF_LIMIT = jsonExtensions.DECODE_SAFE_PERF_LIMIT or 0.25 -- Performance limit for json.decodeSafe() chunks.
-jsonExtensions.DECODE_SAFE_INTERVAL = jsonExtensions.DECODE_SAFE_INTERVAL or 0.5 -- Interval for json.decodeSafe() chunks.
+jsonExtensions.DECODE_SAFE_PERF_LIMIT = jsonExtensions.DECODE_SAFE_PERF_LIMIT or 0.5 -- Performance limit for json.decodeSafe().
+jsonExtensions.DECODE_SAFE_PERF_START = jsonExtensions.DECODE_SAFE_PERF_START or 0.25 -- json.decodeSafe() won't resume until the CPU usage drops below this threshold.
+jsonExtensions.DECODE_SAFE_PERF_STEP = jsonExtensions.DECODE_SAFE_PERF_STEP or 1000 -- json.decodeSafe() checks the perf limit every X characters.
 
+
+local STR_CHUNK_SEPARATOR = "},{"
 
 local uidIncr = 0
+local decodeUIDs = {}
+local decodeJSONStrs = {}
+local decodeCallbacks = {}
+local decodeOuts = {}
+local decodeCharStartInds = {}
+local decodeCharEndInds = {}
+local decodeCharFinalInds = {}
+local decodeColorKeys = {}
 
+local stringSub = string.sub
+local jsonDecode = json.decode
 local tableGetKeys = table.getKeys
+
+local makeDecodeCancelFunc
 
 
 --[[
@@ -123,6 +137,8 @@ end
             - A function to call which will cancel the decoding process if it isn't finished yet.
 --]]
 function json.decodeSafe( jsonStr, callback, colorKeys )
+    if type( jsonStr ) ~= "string" then error( "Expected jsonStr to be a string" ) end
+
     if #jsonStr < 5000 then
         local out = json.decode( jsonStr )
 
@@ -135,85 +151,141 @@ function json.decodeSafe( jsonStr, callback, colorKeys )
         return function() end
     end
 
+    local firstBraceInd = string.find( jsonStr, "{", 1, true )
+    if not firstBraceInd then error( "Malformed JSON string." ) end
+
+    local lastBraceInd
+
+    -- Able to afford this since well-formed JSON strings should have a closing brace right at the end.
+    for i = #jsonStr, 1, -1 do
+        if stringSub( jsonStr, i, i ) == "}" then
+            lastBraceInd = i
+            break
+        end
+    end
+
+    if not lastBraceInd then error( "Malformed JSON string." ) end
+
     uidIncr = uidIncr + 1
+    table.insert( decodeUIDs, uidIncr )
 
-    local chunkSize = jsonExtensions.DECODE_SAFE_CHUNK_SIZE
-    local chunkSizeEff = chunkSize
-    local perfLimit = jsonExtensions.DECODE_SAFE_PERF_LIMIT * quotaMax()
-    local uid = uidIncr
-    local timerName = "LKL_JSON_DecodeSafe_" .. uid
-    local out = {}
+    decodeJSONStrs[uidIncr] = jsonStr
+    decodeCallbacks[uidIncr] = callback
+    decodeOuts[uidIncr] = {}
+    decodeCharStartInds[uidIncr] = firstBraceInd
+    decodeCharEndInds[uidIncr] = firstBraceInd + 3
+    decodeCharFinalInds[uidIncr] = lastBraceInd
+    decodeColorKeys[uidIncr] = colorKeys
 
-    local jsonStrSplit = string.split( jsonStr, "},{" )
-    local elemCount = #jsonStrSplit
-    local fixingColors = false
-    local makingChunk = true
-    local prevInd = 0
-    local nextInd = 0
-    local jsonStrChunk
-    local chunk
-    local doFixColors = colorKeys ~= false
+    return makeDecodeCancelFunc( uidIncr )
+end
 
-    jsonStrSplit[1] = jsonStrSplit[1]:sub( 3 ) -- Remove the starting [{
-    jsonStrSplit[elemCount] = jsonStrSplit[elemCount]:sub( 1, -3 ) -- Remove the ending }]
 
-    timer.create( timerName, jsonExtensions.DECODE_SAFE_INTERVAL, 0, function()
-        if cpuTotalAverage() > perfLimit then return end
+----- PRIVATE FUNCTIONS -----
 
-        if fixingColors then
-            if doFixColors then
-                json.fixColors( chunk, colorKeys )
-            end
-
-            table.add( out, chunk )
-            fixingColors = false
-            chunk = nil
-
-            return
-        end
-
-        if prevInd >= elemCount then
-            timer.remove( timerName )
-            callback( out )
-
-            return
-        end
-
-        if makingChunk then
-            -- Do this separately because table.concat() can also make a big perf hit.
-            nextInd = math.min( prevInd + chunkSizeEff, elemCount )
-            jsonStrChunk = "[{" .. table.concat( jsonStrSplit, "},{", prevInd + 1, nextInd ) .. "}]"
-            makingChunk = false
-
-            return
-        end
-
-        local success = pcall( function()
-            chunk = json.decode( jsonStrChunk )
-        end )
-
-        if not success then
-            -- Reduce the chunk size and try again in the next pass.
-            if chunkSizeEff <= 1 then
-                error( "Encountered an unsplitable JSON entry that is too large to decode." )
-            end
-
-            chunkSizeEff = math.ceil( chunkSizeEff / 2 )
-
-            return
-        end
-
-        for i = prevInd + 1, nextInd do
-            -- Improve garbage collection
-            jsonStrSplit[i] = nil
-        end
-
-        prevInd = nextInd
-        chunkSizeEff = chunkSize
-        fixingColors = true
-    end )
+makeDecodeCancelFunc = function( uid )
+    local called = false
 
     return function()
-        timer.remove( timerName )
+        if called then return end
+
+        called = true
+
+        if not decodeOuts[uid] then return end -- Already ended.
+
+        table.removeByValue( decodeUIDs, uid )
+        decodeJSONStrs[uid] = nil
+        decodeCallbacks[uid] = nil
+        decodeOuts[uid] = nil
+        decodeCharStartInds[uid] = nil
+        decodeCharEndInds[uid] = nil
+        decodeCharFinalInds[uid] = nil
+        decodeColorKeys[uid] = nil
     end
 end
+
+
+----- SETUP -----
+
+hook.add( "tick", "LKL_JSON_DecodeSafe_MainLoop", function()
+    local jobCount = #decodeUIDs
+    if jobCount == 0 then return end
+
+    local totalPerf = cpuTotalAverage()
+    if totalPerf > cpuMax() * jsonExtensions.DECODE_SAFE_PERF_START then return end
+
+    local jobPerfStep = jsonExtensions.DECODE_SAFE_PERF_STEP
+    local perfLimit = cpuMax() * jsonExtensions.DECODE_SAFE_PERF_LIMIT
+    local otherPerf = totalPerf - cpuAverage()
+    perfLimit = perfLimit - otherPerf
+
+    for i = jobCount, 1, -1 do
+        local uid = decodeUIDs[i]
+        if not uid then continue end -- One of the other callbacks may have canceled the job.
+
+        local jsonStr = decodeJSONStrs[uid]
+        local out = decodeOuts[uid]
+
+        if not jsonStr then
+            local callback = decodeCallbacks[uid]
+
+            makeDecodeCancelFunc( uidIncr )()
+            callback( out )
+
+            continue
+        end
+
+        local charStartInd = decodeCharStartInds[uid]
+        local charEndInd = decodeCharEndInds[uid]
+        local charFinalInd = decodeCharFinalInds[uid]
+        local colorKeys = decodeColorKeys[uid]
+        local nextOutInd = #out + 1
+
+        while true do
+            if cpuAverage() > perfLimit then
+                -- Update tables
+                decodeCharStartInds[uid] = charStartInd
+                decodeCharEndInds[uid] = charEndInd
+
+                return
+            end
+
+            local finished = false
+
+            for _ = 1, jobPerfStep do
+                local atFinalChunk = charEndInd >= charFinalInd
+
+                -- Found the end of a chunk
+                if atFinalChunk or stringSub( jsonStr, charEndInd - 2, charEndInd ) == STR_CHUNK_SEPARATOR then
+                    -- string.sub() internally uses the same string in memory, thus creating no garbage.
+                    local chunkEnd = atFinalChunk and charFinalInd or ( charEndInd - 2 )
+                    local chunkStr = stringSub( jsonStr, charStartInd, chunkEnd )
+                    local result = jsonDecode( chunkStr )
+
+                    out[nextOutInd] = result
+
+                    if colorKeys then
+                        json.fixColors( result, colorKeys )
+                    end
+
+                    if atFinalChunk then
+                        finished = true
+                        break
+                    end
+
+                    nextOutInd = nextOutInd + 1
+                    charStartInd = charEndInd
+                    charEndInd = charEndInd + 3
+                else
+                    charEndInd = charEndInd + 1
+                end
+            end
+
+            if finished then
+                -- Handle the callback on a future pass to not risk being too close to the perf limit.
+                decodeJSONStrs[uid] = nil
+                break
+            end
+        end
+    end
+end )
