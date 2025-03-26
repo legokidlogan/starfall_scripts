@@ -830,21 +830,8 @@ hook.add( "LKL_MapMesh_AddExtraData", "LKL_MapMesh_AddDisplacements", function( 
             recordVertsQueue:stop()
         end
 
-        local oldChunkSize = jsonExtensions.DECODE_SAFE_CHUNK_SIZE
-        local oldPerfLimit = jsonExtensions.DECODE_SAFE_PERF_LIMIT
-        local oldInterval = jsonExtensions.DECODE_SAFE_INTERVAL
-
-        -- Reduce the chunk size for people with lower quota limits. Sadly can't check their actual CPU speed.
-        jsonExtensions.DECODE_SAFE_CHUNK_SIZE = math.clamp( math.ceil( cpuMax() * 5000 / 0.05 ), 10, 5000 )
-        jsonExtensions.DECODE_SAFE_PERF_LIMIT = 0.4
-        jsonExtensions.DECODE_SAFE_INTERVAL = 0.05
-
         data = bit.decompress( data )
         json.decodeSafe( data, startDisplacementQueue, false )
-
-        jsonExtensions.DECODE_SAFE_CHUNK_SIZE = oldChunkSize
-        jsonExtensions.DECODE_SAFE_PERF_LIMIT = oldPerfLimit
-        jsonExtensions.DECODE_SAFE_INTERVAL = oldInterval
     end
 
     http.get( url, cbSuccess, function( reason )
