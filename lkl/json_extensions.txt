@@ -10,7 +10,7 @@ jsonExtensions._alreadyLoaded = true
 
 jsonExtensions.DECODE_SAFE_PERF_LIMIT = jsonExtensions.DECODE_SAFE_PERF_LIMIT or 0.5 -- Performance limit for json.decodeSafe().
 jsonExtensions.DECODE_SAFE_PERF_START = jsonExtensions.DECODE_SAFE_PERF_START or 0.25 -- json.decodeSafe() won't resume until the CPU usage drops below this threshold.
-jsonExtensions.DECODE_SAFE_PERF_STEP = jsonExtensions.DECODE_SAFE_PERF_STEP or 1000 -- json.decodeSafe() checks the perf limit every X characters.
+jsonExtensions.DECODE_SAFE_PERF_STEP = jsonExtensions.DECODE_SAFE_PERF_STEP or 100 -- json.decodeSafe() checks the perf limit every X characters.
 
 
 local STR_CHUNK_SEPARATOR = "},{"
