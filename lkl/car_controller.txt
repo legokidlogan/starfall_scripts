@@ -13,15 +13,15 @@ local gears = { -- Properties not defined in additional gears will default to wh
     {
         name = "Normal",
 
-        forwardSpeed = 16, -- Speed for driving forwards
-        backwardSpeed = 12, -- Speed for drving backwards
-        strafeSpeed = 12, -- Speed for strafing, 0 to disable
-        boostMult = 1.5, -- Speed multiplier when holding shift
+        forwardSpeed = 16, -- Speed for driving forwards.
+        backwardSpeed = 12, -- Speed for drving backwards.
+        strafeSpeed = 12, -- Speed for strafing, 0 to disable. Speed is the same for all directions.
+        boostMult = 1.5, -- Speed multiplier when holding shift.
 
-        turnTorque = 20, -- Strength of torque used to assist in making sharper turns
-        turnTorqueBackwards = 20, -- Strength of torque used to assist in making sharper turns while driving backwards
-        turnTorqueBoostMult = 1.25, -- Multiplier for turn assist strength when holding shift
-        turnAngle = 35, -- When turning, rotates the forward/backward force by this many degrees
+        turnTorque = 20, -- Strength of torque used to assist in making sharper turns.
+        turnTorqueBackwards = 20, -- Strength of torque used to assist in making sharper turns while driving backwards.
+        turnTorqueBoostMult = 1.25, -- Multiplier for turn assist strength when holding shift.
+        turnAngle = 35, -- When turning, rotates the forward/backward force by this many degrees.
         turnRedirect = 0.1, -- A fraction of the car's velocity will be redirected to whichever way the wheels are facing. Reduces drifting, and helps with spherical wheels.
         turnRedirectTime = 0.5, -- When starting to turn or changing directions, turn redirect will take this many seconds to reach full strength.
 
