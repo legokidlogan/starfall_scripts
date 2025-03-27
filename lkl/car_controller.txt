@@ -15,6 +15,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
 
         forwardSpeed = 16, -- Speed for driving forwards
         backwardSpeed = 12, -- Speed for drving backwards
+        strafeSpeed = 12, -- Speed for strafing, 0 to disable
         boostMult = 1.5, -- Speed multiplier when holding shift
 
         turnTorque = 20, -- Strength of torque used to assist in making sharper turns
@@ -54,6 +55,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
 
         forwardSpeed = 16 * 1.5,
         backwardSpeed = 12 * 1.5,
+        strafeSpeed = 12 * 1.5,
         turnRedirect = 0.1 / 1.5,
     },
 
@@ -62,6 +64,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
 
         forwardSpeed = 16 * 1.5,
         backwardSpeed = 12 * 1.5,
+        strafeSpeed = 12 * 1.5,
         turnRedirect = 0.1 / 1.5,
 
         pushdownStrengthWall = 14,
@@ -73,6 +76,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
 
         forwardSpeed = 16 * 2,
         backwardSpeed = 12 * 2,
+        strafeSpeed = 12 * 2,
         turnRedirect = 0.1 / 2,
     },
 
@@ -81,6 +85,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
 
         forwardSpeed = 16 * 3,
         backwardSpeed = 12 * 3,
+        strafeSpeed = 12 * 3,
         turnRedirect = 0.1 / 3,
     },
 }
@@ -142,6 +147,7 @@ local groundTraceLength = carHeight * 1.05 + 20
 local uprightThreshold = 0.2
 local antiFlipThreshold = math.cos( math.rad( 5 ) )
 local driveForceForward = 0
+local driveForceRight = 0
 local driveForceTurn = 0
 local turnState = 0
 local contraptionMass = 0
@@ -150,6 +156,7 @@ local btnStateA = false
 local btnStateS = false
 local btnStateD = false
 local btnStateShift = false
+local btnStateStrafe = false
 local drivingBackwards = false
 local stoppingActiveDrive = false
 local activeDriveSoundReady = true
@@ -174,6 +181,7 @@ local turnRedirectStartTime = 0
 -- Gear defaults
 local forwardSpeed = 16
 local backwardSpeed = 12
+local strafeSpeed = 12
 local boostMult = 1.5
 
 local turnTorque = 20
@@ -193,8 +201,10 @@ local dampenMultPassive = 0.01
 local dampenMultBrake = 0.1
 local dampenMultPark = 0.1
 local dampenMultParkSpeed = 300
+
 local dampenMultAngPassive = 0.12
 local dampenMultAngBrake = 0.25
+local dampenMultAngPark = 0.25
 
 local wheelPropertySpeed = 500
 -- End gear defaults
@@ -240,6 +250,9 @@ tableInsert( inputNames, "D" )
 tableInsert( inputTypes, "NUMBER" )
 
 tableInsert( inputNames, "Shift" )
+tableInsert( inputTypes, "NUMBER" )
+
+tableInsert( inputNames, "Strafe" )
 tableInsert( inputTypes, "NUMBER" )
 
 tableInsert( inputNames, "CycleGearUp" )
@@ -329,6 +342,7 @@ local function changeGear( ind )
 
     forwardSpeed = gear.forwardSpeed or firstGear.forwardSpeed
     backwardSpeed = gear.backwardSpeed or firstGear.backwardSpeed
+    strafeSpeed = gear.strafeSpeed or firstGear.strafeSpeed
     boostMult = gear.boostMult or firstGear.boostMult
 
     turnTorque = gear.turnTorque or firstGear.turnTorque
@@ -351,6 +365,7 @@ local function changeGear( ind )
 
     dampenMultAngPassive = gear.dampenMultAngPassive or firstGear.dampenMultAngPassive
     dampenMultAngBrake = gear.dampenMultAngBrake or firstGear.dampenMultAngBrake
+    dampenMultAngPark = gear.dampenMultAngPark or firstGear.dampenMultAngPark
 
     wheelPropertySpeed = gear.wheelPropertySpeed or firstGear.wheelPropertySpeed
 
@@ -433,6 +448,7 @@ end
 local function updateDriveDirections()
     if not driver then
         driveForceForward = 0
+        driveForceRight = 0
         driveForceTurn = 0
         turnState = 0
 
@@ -443,35 +459,50 @@ local function updateDriveDirections()
 
     drivingBackwards = false
 
-    if btnStateW then
-        if btnStateS then
-            driveForceForward = 0
-        else
-            driveForceForward = btnStateShift and ( forwardSpeed * boostMult ) or forwardSpeed
-        end
-    elseif btnStateS then
-        driveForceForward = btnStateShift and ( -backwardSpeed * boostMult ) or -backwardSpeed
-        drivingBackwards = true
-    else
-        driveForceForward = 0
-    end
+    if btnStateStrafe then -- Strafing
+        local speed = btnStateShift and ( strafeSpeed * boostMult ) or strafeSpeed
 
-    if btnStateA then
-        if btnStateD then
-            turnState = 0
-        else
-            turnState = 1
-        end
-    elseif btnStateD then
-        turnState = -1
-    else
+        driveForceForward = ( btnStateW and speed or 0 ) - ( btnStateS and speed or 0 )
+        driveForceRight = ( btnStateD and speed or 0 ) - ( btnStateA and speed or 0 )
         turnState = 0
-    end
+        driveForceTurn = 0
 
-    driveForceTurn = ( drivingBackwards and -turnTorqueBackwards or turnTorque ) * turnState
+        -- Normalize diagonal movement to uniform speed
+        if driveForceForward ~= 0 and driveForceRight ~= 0 then
+            driveForceForward = driveForceForward * 0.70710678118655
+            driveForceRight = driveForceRight * 0.70710678118655
+        end
+    else -- Not strafing
+        if btnStateW then
+            if btnStateS then
+                driveForceForward = 0
+            else
+                driveForceForward = btnStateShift and ( forwardSpeed * boostMult ) or forwardSpeed
+            end
+        elseif btnStateS then
+            driveForceForward = btnStateShift and ( -backwardSpeed * boostMult ) or -backwardSpeed
+            drivingBackwards = true
+        else
+            driveForceForward = 0
+        end
 
-    if btnStateShift then
-        driveForceTurn = driveForceTurn * turnTorqueBoostMult
+        if btnStateA then
+            if btnStateD then
+                turnState = 0
+            else
+                turnState = 1
+            end
+        elseif btnStateD then
+            turnState = -1
+        else
+            turnState = 0
+        end
+
+        driveForceTurn = ( drivingBackwards and -turnTorqueBackwards or turnTorque ) * turnState
+
+        if btnStateShift then
+            driveForceTurn = driveForceTurn * turnTorqueBoostMult
+        end
     end
 
     if turnState ~= oldTurnState then
@@ -575,6 +606,9 @@ local function wireInput( name, value )
     elseif name == "Shift" then
         btnStateShift = value ~= 0
         updateDriveDirections()
+    elseif name == "Strafe" then
+        btnStateStrafe = value ~= 0
+        updateDriveDirections()
     elseif name == "CycleGearUp" then
         if value ~= 0 and value ~= cycleGearUpVal then
             changeGear( true )
@@ -607,20 +641,28 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
 
     local mass = base:getMass()
 
-    if isNearGround and ( dampenMultPassive ~= 0 or dampenMultBrake ~= 0 ) then
+    if isNearGround and ( dampenMultPassive ~= 0 or dampenMultBrake ~= 0 or dampenMultPark ~= 0 ) then
         local carVel = base:getVelocity()
         local dampenMultEff
 
-        if driveForceForward == 0 then
+        if driveForceForward == 0 and driveForceRight == 0 then
             if dampenMultParkEnabled and driveForceTurn == 0 and carVel:getLength() <= dampenMultParkSpeed then
                 dampenMultEff = dampenMultPark
             else
                 dampenMultEff = dampenMultPassive
             end
         else
-            local driveDir = orientProp:getForward() * driveForceForward
+            local driveForce = orientProp:getForward() * driveForceForward
 
-            if carVel:dot( driveDir ) >= 0 then -- Perpendicular or facing together
+            if driveForceRight ~= 0 then
+                driveForce = driveForce + orientProp:getRight() * driveForceRight
+            end
+
+            -- If strafing, need to normalize and use a looser threshold for braking.
+            local dot = btnStateStrafe and carVel:getNormalized():dot( driveForce:getNormalized() ) or carVel:dot( driveForce )
+            local dotThreshold = btnStateStrafe and 0.5 or 0
+
+            if dot >= dotThreshold then -- Facing nearly together
                 dampenMultEff = dampenMultPassive
             else -- Facing away (trying to brake)
                 dampenMultEff = dampenMultBrake
@@ -632,13 +674,17 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
         base:applyForceCenter( carVel * -dampenMultEff * mass )
     end
 
-    if isNearGround and ( dampenMultAngPassive ~= 0 or dampenMultAngBrake ~= 0 ) then
+    if isNearGround and ( dampenMultAngPassive ~= 0 or dampenMultAngBrake ~= 0 or dampenMultAngPark ~= 0 ) then
         local physObj = base:getPhysicsObject()
         local angVel = physObj:getAngleVelocity()
         local dampenMultEff
 
         if driveForceTurn == 0 then
-            dampenMultEff = dampenMultAngPassive
+            if dampenMultParkEnabled and base:getVelocity():getLength() <= dampenMultParkSpeed then
+                dampenMultEff = dampenMultAngPark
+            else
+                dampenMultEff = dampenMultAngPassive
+            end
         else
             local angVelLocal = orientProp:worldToLocalVector( base:localToWorldVector( angVel ) )
             local angVelSign = math.sign( angVelLocal[3] )
@@ -685,56 +731,64 @@ hook.add( "think", "LKL_CarCon_DriveCar", function()
 
     if not isNearGround then return end
 
-    if driveForceForward ~= 0 then
-        --base:applyForceCenter( orientProp:getForward() * driveForceForward * mass )
-        local dir = orientProp:getForward()
+    if btnStateStrafe then -- Strafing
+        if driveForceForward ~= 0 or driveForceRight ~= 0 then
+            local force = orientProp:getForward() * driveForceForward + orientProp:getRight() * driveForceRight
+
+            base:applyForceCenter( force * mass )
+        end
+    else -- Not strafing
+        if driveForceForward ~= 0 then
+            --base:applyForceCenter( orientProp:getForward() * driveForceForward * mass )
+            local dir = orientProp:getForward()
+
+            if driveForceTurn ~= 0 then
+                dir = dir:rotateAroundAxis( orientProp:getUp(), turnAngle * math.sign( driveForceTurn ) )
+            end
+
+            base:applyForceCenter( dir * driveForceForward * mass )
+        end
 
         if driveForceTurn ~= 0 then
-            dir = dir:rotateAroundAxis( orientProp:getUp(), turnAngle * math.sign( driveForceTurn ) )
+            base:applyTorque( orientProp:getUp() * driveForceTurn * mass )
+
+            if antiFlipStrength > 0 and isFlipping then
+                base:applyTorque( orientProp:getForward() * antiFlipStrength * antiFlipDir * mass )
+            end
         end
 
-        base:applyForceCenter( dir * driveForceForward * mass )
-    end
+        if turnRedirect > 0 then
+            local carVel = base:getVelocity()
+            local carSpeed = carVel:getLength()
 
-    if driveForceTurn ~= 0 then
-        base:applyTorque( orientProp:getUp() * driveForceTurn * mass )
+            if carSpeed > 0 then
+                local wheelDir = orientProp:getForward()
 
-        if antiFlipStrength > 0 and isFlipping then
-            base:applyTorque( orientProp:getForward() * antiFlipStrength * antiFlipDir * mass )
-        end
-    end
-
-    if turnRedirect > 0 then
-        local carVel = base:getVelocity()
-        local carSpeed = carVel:getLength()
-
-        if carSpeed > 0 then
-            local wheelDir = orientProp:getForward()
-
-            if turnState ~= 0 then
-                wheelDir = wheelDir:rotateAroundAxis( orientProp:getUp(), turnAngle * turnState )
-            end
-
-            if drivingBackwards then
-                wheelDir = -wheelDir
-            end
-
-            local carVelDir = carVel / carSpeed
-            local dot = carVelDir:dot( wheelDir )
-
-            -- If not more than 90 degrees away, and not too close where it would be redundant
-            if dot > 0 and dot < turnRedirectThreshold then
-                local turnRedirectEff = turnRedirect * mass
-
-                if turnRedirectTime > 0 then
-                    local timeSince = timer.curtime() - turnRedirectStartTime
-                    turnRedirectEff = turnRedirectEff * math.min( timeSince / turnRedirectTime, 1 )
+                if turnState ~= 0 then
+                    wheelDir = wheelDir:rotateAroundAxis( orientProp:getUp(), turnAngle * turnState )
                 end
 
-                local forceCounteract = -carVel * turnRedirectEff
-                local forceRedirected = wheelDir * carSpeed * turnRedirectEff
+                if drivingBackwards then
+                    wheelDir = -wheelDir
+                end
 
-                base:applyForceCenter( forceCounteract + forceRedirected )
+                local carVelDir = carVel / carSpeed
+                local dot = carVelDir:dot( wheelDir )
+
+                -- If not more than 90 degrees away, and not too close where it would be redundant
+                if dot > 0 and dot < turnRedirectThreshold then
+                    local turnRedirectEff = turnRedirect * mass
+
+                    if turnRedirectTime > 0 then
+                        local timeSince = timer.curtime() - turnRedirectStartTime
+                        turnRedirectEff = turnRedirectEff * math.min( timeSince / turnRedirectTime, 1 )
+                    end
+
+                    local forceCounteract = -carVel * turnRedirectEff
+                    local forceRedirected = wheelDir * carSpeed * turnRedirectEff
+
+                    base:applyForceCenter( forceCounteract + forceRedirected )
+                end
             end
         end
     end
