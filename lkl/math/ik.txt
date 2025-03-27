@@ -8,6 +8,11 @@ libIK = libIK or {}
 if libIK._alreadyLoaded then return end
 libIK._alreadyLoaded = true
 
+-- CONFIG DEFAULTS
+libIK.FABRIK_TOLERANCE = libIK.FABRIK_TOLERANCE or 1.5
+libIK.FABRIK_MAX_ITERATIONS = libIK.FABRIK_MAX_ITERATIONS or 10
+-- END CONFIG DEFAULTS
+
 
 local VECTOR_ZERO = Vector( 0, 0, 0 )
 local ANGLE_ZERO = Angle( 0, 0, 0 )
@@ -25,12 +30,15 @@ local getVariedOrigin
 local sanitizeIK
 local getIKBendFromTilt
 local determineSegmentEntPosAng
+local fabrikForward
+local fabrikBackward
+local fabrikMoveSegment
 
 
 ----- SEGMENT SETUP -----
 
 --[[
-    - Generate a segment for use with 'ByTilt' IK functions.
+    - Generate a segment for use with 'ByTilt' IK functions and libIK.fabrikSegments().
     - This is not needed to use the core IK functions, but will generally improve results when working with entities and makes things easier.
 
     segmentData: (table)
@@ -481,6 +489,126 @@ function libIK.fourSegByTilt( segmentA, segmentB, segmentC, segmentD, endPos, LX
     return startPos, bendPos1, bendPos2, bendPos3, bendDir1, bendDir2, bendDir3, segmentPosA, segmentAngA, segmentPosB, segmentAngB, segmentPosC, segmentAngC, segmentPosD, segmentAngD
 end
 
+--[[
+    - Solves for an arbitrary number of segments using FABRIK.
+        - FABRIK uses a repeating, iterative technique, and thus will be less performant.
+        - However, FABRIK is more generalized, needs fewer inputs, and gives more realistic results for 3+ segments.
+
+    rootPos: (Vector)
+        - The start position of the limb.
+    targetPos: (Vector)
+        - The target end position of the limb.
+    lengths: (table)
+        - A list of lengths for each segment.
+    segmentEndsOrTilt: (table or number)
+        - TABLE:
+            - A list of the current end positions of each segment.
+            - Will get modified in-place.
+        - NUMBER:
+            - How much to rotate the first bend direction around lineDir (the direction between targetPos and rootPos).
+            - 0 points to the right of lineDir, 90 points up, 180 points left, 270 points down.
+            - For a humanoid model that starts in a T-pose, it's recommended to use 90 for legs, 0 for the right arm, and 180 for the left arm.
+    upDir: (optional) (Vector)
+        - The up direction of the first segment, used when segmentEndsOrTilt is a number.
+
+    RETURNS: segmentEnds, bendDir
+        segmentEnds: (table)
+            - The new end positions of each segment.
+            - Will be the same as the original segmentEndsOrTilt if it was a table.
+        bendDir: (Vector or nil)
+            - The first segment's bend direction.
+            - Only provided if segmentEndsOrTilt was a number.
+--]]
+function libIK.fabrik( rootPos, targetPos, lengths, segmentEndsOrTilt, upDir )
+    local segmentEnds
+    local segCount = #lengths
+    local bendDir
+
+    -- Given tilt instead of segment end positions.
+    if type( segmentEndsOrTilt ) == "number" then
+        local tiltDeg = segmentEndsOrTilt
+        local toTarget = targetPos - rootPos
+        bendDir = upDir and toTarget:getAngleEx( upDir ) or toTarget:getAngle()
+        bendDir = bendDir:getRight():rotateAroundAxis( toTarget, -tiltDeg )
+        local prevPos = rootPos
+
+        segmentEnds = {}
+
+        for i = 1, segCount do
+            prevPos = prevPos + bendDir * lengths[i]
+            segmentEnds[i] = prevPos
+        end
+    else
+        segmentEnds = segmentEndsOrTilt
+    end
+
+    local toleranceSqr = libIK.FABRIK_TOLERANCE
+    toleranceSqr = toleranceSqr * toleranceSqr
+
+    for _ = 1, libIK.FABRIK_MAX_ITERATIONS do
+        fabrikForward( targetPos, lengths, segmentEnds, segCount )
+        fabrikBackward( rootPos, lengths, segmentEnds, segCount )
+
+        if segmentEnds[segCount]:getDistanceSqr( targetPos ) < toleranceSqr then
+            break
+        end
+    end
+
+    return segmentEnds, bendDir
+end
+
+--[[
+    - A FABRIK solver that uses segments created with libIK.generateSegment().
+    - Unlike the 'ByTilt' functions, this will always apply the results immediately to the segment entities.
+
+    targetPos: (Vector)
+        - The target end position of the limb.
+    segments: (table)
+        - A list of segments.
+    tiltDeg: (optional) (number) (default: 90)
+        - How much to rotate the first bend direction around lineDir.
+        - 0 points to the right of lineDir, 90 points up, 180 points left, 270 points down.
+        - For a humanoid model that starts in a T-pose, it's recommended to use 90 for legs, 0 for the right arm, and 180 for the left arm.
+--]]
+function libIK.fabrikSegments( targetPos, segments, tiltDeg )
+    local segmentA = segments[1]
+    local parentEntA = segmentA._parentEnt
+    if not isValid( parentEntA ) then return end
+
+    tiltDeg = tiltDeg or 90
+
+    local rootPos = parentEntA:localToWorld( segmentA._parentToOrigin )
+    local lengths = {}
+
+    for i, segment in ipairs( segments ) do
+        lengths[i] = segment._length
+    end
+
+    local upA = libIK.getSegmentUpFromParent( segmentA )
+    local segmentEnds = libIK.fabrik( rootPos, targetPos, lengths, tiltDeg, upA )
+    local prevPos = rootPos
+
+    for i, segment in ipairs( segments ) do
+        local endPos = segmentEnds[i]
+        local toEnd = ( endPos - prevPos )
+
+        -- If we used up directly, then toEnd being aimed slightly above/below the segment's initial forwards direction will cause flip-flopping.
+        -- This method is (hopefully) more reliable.
+        -- TODO: Test against arm-style segments instead of just legs.
+        local right = libIK.getSegmentRightFromParent( segment )
+        local up = right:cross( toEnd )
+
+        local ang = toEnd:getAngleEx( up )
+        local entPos, entAng = libIK.convertSegmentPosAngToEntPosAng( segment, prevPos, ang )
+
+        local ent = segment._ent
+        ent:setPos( entPos )
+        ent:setAngles( entAng )
+
+        prevPos = endPos
+    end
+end
+
 
 ----- PRIVATE FUNCTIONS -----
 
@@ -587,4 +715,30 @@ determineSegmentEntPosAng = function( segment, targetStartPos, targetEndPos, ben
 
     -- Account for ik offsets.
     return localToWorld( segment._originToEntPos, segment._originToEntAng, targetStartPos, targetAng )
+end
+
+fabrikForward = function( targetPos, lengths, segmentEnds, segCount )
+    local prevPos = targetPos
+    local prevLength = lengths[segCount]
+    segmentEnds[segCount] = prevPos
+
+    for i = segCount - 1, 1, -1 do
+        prevPos = fabrikMoveSegment( segmentEnds[i], prevPos, prevLength )
+        prevLength = lengths[i]
+        segmentEnds[i] = prevPos
+    end
+end
+
+fabrikBackward = function( rootPos, lengths, segmentEnds, segCount )
+    local prevPos = fabrikMoveSegment( segmentEnds[1], rootPos, lengths[1] )
+    segmentEnds[1] = prevPos
+
+    for i = 2, segCount do
+        prevPos = fabrikMoveSegment( segmentEnds[i], prevPos, lengths[i] )
+        segmentEnds[i] = prevPos
+    end
+end
+
+fabrikMoveSegment = function( oldPos, newPos, length )
+    return newPos - ( newPos - oldPos ):getNormalized() * length
 end
