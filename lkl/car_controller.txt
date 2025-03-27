@@ -37,6 +37,7 @@ local gears = { -- Properties not defined in additional gears will default to wh
 
         dampenMultAngPassive = 0.12, -- Passive dampening multiplier for angular velocity.
         dampenMultAngBrake = 0.25, -- Active dampening multiplier for angular velocity.
+        dampenMultAngPark = 0.25, -- Angular dampening when the car is at or below the park speed.
 
         wheelPropertySpeed = 500, -- Speed threshold for changing wheel properties.
     },
