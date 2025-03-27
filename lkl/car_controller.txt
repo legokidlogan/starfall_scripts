@@ -14,8 +14,8 @@ local gears = { -- Properties not defined in additional gears will default to wh
         name = "Normal",
 
         forwardSpeed = 16, -- Speed for driving forwards.
-        backwardSpeed = 12, -- Speed for drving backwards.
-        strafeSpeed = 12, -- Speed for strafing, 0 to disable. Speed is the same for all directions.
+        backwardSpeed = 16, -- Speed for drving backwards.
+        strafeSpeed = 16, -- Speed for strafing, 0 to disable. Speed is the same for all directions.
         boostMult = 1.5, -- Speed multiplier when holding shift.
 
         turnTorque = 20, -- Strength of torque used to assist in making sharper turns.
@@ -54,8 +54,8 @@ local gears = { -- Properties not defined in additional gears will default to wh
         name = "Fast",
 
         forwardSpeed = 16 * 1.5,
-        backwardSpeed = 12 * 1.5,
-        strafeSpeed = 12 * 1.5,
+        backwardSpeed = 16 * 1.5,
+        strafeSpeed = 16 * 1.5,
         turnRedirect = 0.1 / 1.5,
     },
 
@@ -63,8 +63,8 @@ local gears = { -- Properties not defined in additional gears will default to wh
         name = "Fast Cling",
 
         forwardSpeed = 16 * 1.5,
-        backwardSpeed = 12 * 1.5,
-        strafeSpeed = 12 * 1.5,
+        backwardSpeed = 16 * 1.5,
+        strafeSpeed = 16 * 1.5,
         turnRedirect = 0.1 / 1.5,
 
         pushdownStrengthWall = 14,
@@ -75,8 +75,8 @@ local gears = { -- Properties not defined in additional gears will default to wh
         name = "Faster",
 
         forwardSpeed = 16 * 2,
-        backwardSpeed = 12 * 2,
-        strafeSpeed = 12 * 2,
+        backwardSpeed = 16 * 2,
+        strafeSpeed = 16 * 2,
         turnRedirect = 0.1 / 2,
     },
 
@@ -84,8 +84,8 @@ local gears = { -- Properties not defined in additional gears will default to wh
         name = "Fasterer",
 
         forwardSpeed = 16 * 3,
-        backwardSpeed = 12 * 3,
-        strafeSpeed = 12 * 3,
+        backwardSpeed = 16 * 3,
+        strafeSpeed = 16 * 3,
         turnRedirect = 0.1 / 3,
     },
 }
@@ -180,8 +180,8 @@ local turnRedirectStartTime = 0
 
 -- Gear defaults
 local forwardSpeed = 16
-local backwardSpeed = 12
-local strafeSpeed = 12
+local backwardSpeed = 16
+local strafeSpeed = 16
 local boostMult = 1.5
 
 local turnTorque = 20
