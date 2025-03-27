@@ -65,6 +65,7 @@ MultiLeg.static.STEP_ADJACENT_COOLDOWN = 0.03 -- A step cooldown placed onto a l
 MultiLeg.static.STEP_CURVE = math.easeLinear -- Easing curve for how to progress the step animation.
 
 MultiLeg.static.IDLE_SPEED_THRESHOLD = 1 -- The maximum speed at which the body is considered idle.
+MultiLeg.statis.SOLVER_MODE = 2 -- 0: classic, 1: FABRIK, 2: classic for 2-segment and FABRIK for 3+ segments.
 
 -- Sounds are applied to an instance upon creation, but can be later changed with :setSoundReplacements() on a MultiLeg's SoundEmitter.
 MultiLeg.static.SOUNDS = {
@@ -358,6 +359,14 @@ function MultiLeg:getIdleSpeedThreshold()
     return self._idleSpeedThreshold or self.class.IDLE_SPEED_THRESHOLD
 end
 
+function MultiLeg:setSolverMode( mode )
+    self._solverMode = mode
+end
+
+function MultiLeg:getSolverMode()
+    return self._solverMode or self.class.SOLVER_MODE
+end
+
 function MultiLeg:getSoundEmitter()
     return self._soundEmitter
 end
@@ -411,22 +420,25 @@ end
 function MultiLeg:doLegIK( leg, targetPos )
     local legSegmentCount = self:getLegSegmentCount()
     local segments = leg._segments
+    local solverMode = self:getSolverMode()
 
-    if legSegmentCount == 2 then
-        libIK.twoSegByTilt( segments[1], segments[2], targetPos, 90, true )
-    elseif legSegmentCount == 3 then
-        local extraLengths = self:getLegExtraLengths()
+    if solverMode == 0 or ( solverMode == 1 and legSegmentCount == 2 ) then
+        if legSegmentCount == 2 then
+            libIK.twoSegByTilt( segments[1], segments[2], targetPos, 90, true )
+        elseif legSegmentCount == 3 then
+            local extraLengths = self:getLegExtraLengths()
 
-        libIK.threeSegByTilt( segments[1], segments[2], segments[3], targetPos, extraLengths[1], 90, 90, true )
-    elseif legSegmentCount == 4 then
-        local extraLengths = self:getLegExtraLengths()
+            libIK.threeSegByTilt( segments[1], segments[2], segments[3], targetPos, extraLengths[1], 90, 90, true )
+        elseif legSegmentCount == 4 then
+            local extraLengths = self:getLegExtraLengths()
 
-        libIK.fourSegByTilt( segments[1], segments[2], segments[3], segments[4], targetPos, extraLengths[1], extraLengths[2], 90, 90, 90, true )
+            libIK.fourSegByTilt( segments[1], segments[2], segments[3], segments[4], targetPos, extraLengths[1], extraLengths[2], 90, 90, 90, true )
+        else
+            error( tostring( self ) .. ": Leg segment counts other than 2, 3, or 4 are not supported in classic IK solver mode" )
+        end
     else
-        error( tostring( self ) .. ": Leg segment counts other than 2, 3, or 4 are not supported" )
+        libIK.fabrikSegments( targetPos, segments, 90, true )
     end
-
-    -- TODO: Use the FABRIK method for the IK solver, so 3+ segments don't look as janky.
 end
 
 
