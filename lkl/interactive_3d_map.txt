@@ -41,6 +41,7 @@ libI3DMap.PING_LINGER = libI3DMap.PING_LINGER or 3
 
 if libI3DMap.SHOW_PROP_STATIC == nil then libI3DMap.SHOW_PROP_STATIC = true end -- Only works for some maps. See https://github.com/legokidlogan/starfall_data/tree/main/map_data/prop_static
 if libI3DMap.PROP_STATIC_USE_FULL_MATERIAL == nil then libI3DMap.PROP_STATIC_USE_FULL_MATERIAL = false end -- false to use the map mesh' coloring, true to use the prop's full material
+libI3DMap.PROP_STATIC_BUFFER_SIZE = libI3DMap.PROP_STATIC_BUFFER_SIZE or 20 -- Ensures there's at least this many open slots for clientside holos when replicating static props.
 
 libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL = libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL or 1
 -- END CONFIG DEFAULTS
@@ -62,6 +63,7 @@ local holoMapPingLinger = libI3DMap.PING_LINGER
 
 local holoMapShowPropStatic = libI3DMap.SHOW_PROP_STATIC
 local holoMapPropStaticUseFullMaterial = libI3DMap.PROP_STATIC_USE_FULL_MATERIAL
+local holoMapPropStaticBufferSize = libI3DMap.PROP_STATIC_BUFFER_SIZE
 
 local holoMapReplicatedEntUpdateInterval = libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL
 
@@ -762,7 +764,7 @@ if holoMapShowPropStatic then
         function( _, entry )
             if not hologram.canSpawn() then return true end
 
-            if hologram.hologramsLeft() < 20 then -- Give some extra breathing room for other holos as well
+            if hologram.hologramsLeft() < holoMapPropStaticBufferSize then -- Give some extra breathing room for other holos as well
                 print(
                     Color( 255, 255, 255, 255 ), "[I3DMap] ",
                     Color( 150127, 0, 0, 255 ), "Not enough holograms left to spawn static props! ",
