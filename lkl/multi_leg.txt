@@ -65,7 +65,7 @@ MultiLeg.static.STEP_ADJACENT_COOLDOWN = 0.03 -- A step cooldown placed onto a l
 MultiLeg.static.STEP_CURVE = math.easeLinear -- Easing curve for how to progress the step animation.
 
 MultiLeg.static.IDLE_SPEED_THRESHOLD = 1 -- The maximum speed at which the body is considered idle.
-MultiLeg.statis.SOLVER_MODE = 2 -- 0: classic, 1: FABRIK, 2: classic for 2-segment and FABRIK for 3+ segments.
+MultiLeg.static.SOLVER_MODE = 2 -- 0: classic, 1: FABRIK, 2: classic for 2-segment and FABRIK for 3+ segments.
 
 -- Sounds are applied to an instance upon creation, but can be later changed with :setSoundReplacements() on a MultiLeg's SoundEmitter.
 MultiLeg.static.SOUNDS = {
