@@ -26,7 +26,7 @@ MultiLeg.static.MUTE_SOUNDS = false
 MultiLeg.static.UPDATE_INTERVAL = 0.1
 MultiLeg.static.PERF_LIMIT = 0.75 -- Fractional performance limit.
 MultiLeg.static.LEGS_PER_SIDE = 2
-MultiLeg.static.LEG_PROPERTIES = { -- Properties for the leg segments. Currently only supports 2, 3, or 4 segments.
+MultiLeg.static.LEG_PROPERTIES = { -- Properties for the leg segments.
     {
         SIZE = Vector( 60, 10, 10 ),
         COLOR = Color( 255, 255, 255, 255 ),
