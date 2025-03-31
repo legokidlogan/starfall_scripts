@@ -101,8 +101,8 @@ libMeshMinimap.DOT_TYPES["class_name"] = {
     getPos = (nil or function( ent ) return Vector end), -- Function to get the position for drawing the dot. Defaults to ent:obbCenterW().
     canShow = (nil or function( ent ) return bool end), -- Only show the dot if this function returns true. nil to always show.
     getYaw = (nil or function( ent ) return nil or number end), -- Uses a pointed dot to indicate direction. nil to disable.
-    heightTriangle = (nil or number >= 0), -- Overrides the global DOT_HEIGHT_TRIANGLE for this dot type.
-    heightHide = (nil or number >= 0), -- Overrides the global DOT_HEIGHT_HIDE for this dot type.
+    heightTriangle = (nil or number >= 0 or function( ent ) return nil or number end), -- Overrides the global DOT_HEIGHT_TRIANGLE for this dot type.
+    heightHide = (nil or number >= 0 or function( ent ) return nil or number end), -- Overrides the global DOT_HEIGHT_HIDE for this dot type.
     dotScale = (nil or number >= 0 or function( ent ) return nil or number end), -- Scales the dot size. nil to make no change. Size modifiers only apply on update intervals.
     dotSize = (nil or number >= 0 or function( ent ) return nil or number end), -- Overrides the dot size. nil to make no change.
     dotSizeWorld = (nil or number >= 0 or function( ent ) return nil or number end), -- Resizes the dot so that its width on the minimap matches a distance in the world. nil to make no change.
@@ -583,8 +583,8 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
     local eyePos = getMyPos()
     local eyeZ = eyePos[3]
     local distLimit = scrW * libMeshMinimap.WIDTH / ( zoomLevel * 2 )
-    local heightTriangle = libMeshMinimap.DOT_HEIGHT_TRIANGLE
-    local heightHide = libMeshMinimap.DOT_HEIGHT_HIDE
+    local heightTriangleDefault = libMeshMinimap.DOT_HEIGHT_TRIANGLE
+    local heightHideDefault = libMeshMinimap.DOT_HEIGHT_HIDE
     local dotSizeWorldMult = zoomLevel / ( scrW * libMeshMinimap.WIDTH * baseDotSize * 2 )
 
     for className, info in pairs( libMeshMinimap.DOT_TYPES ) do
@@ -598,8 +598,8 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
         local getPosLOS = info.getPosLOS or function( ent ) return ent:obbCenterW() end
         local getPos = info.getPos or function( ent ) return ent:obbCenterW() end
         local canShow = info.canShow
-        local heightTriangleEff = info.heightTriangle or heightTriangle
-        local heightHideEff = info.heightHide or heightHide
+        local heightTriangle = info.heightTriangle or heightTriangleDefault
+        local heightHide = info.heightHide or heightHideDefault
         local dotScale = info.dotScale
         local dotSize = info.dotSize
         local dotSizeWorld = info.dotSizeWorld
@@ -607,6 +607,8 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
         local colorIsFunc = type( color ) == "function"
         local ringColorIsFunc = type( ringColor ) == "function"
         local requireLOSIsFunc = type( requireLOS ) == "function"
+        local heightTriangleIsFunc = type( heightTriangle ) == "function"
+        local heightHideIsFunc = type( heightHide ) == "function"
         local dotScaleIsFunc = type( dotScale ) == "function"
         local dotSizeIsFunc = type( dotSize ) == "function"
         local dotSizeWorldIsFunc = type( dotSizeWorld ) == "function"
@@ -622,6 +624,12 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
             local pos = getPos( ent )
             local heightDiff = pos[3] - eyeZ
             local heightDiffAbs = math.abs( heightDiff )
+            local heightHideEff = heightHide
+
+            if heightHideIsFunc then
+                heightHideEff = heightHide( ent ) or heightHideDefault
+            end
+
             if heightHideEff > 0 and heightDiffAbs > heightHideEff then continue end
             if ( pos - eyePos ):getLength2D() > distLimit then continue end
 
@@ -632,6 +640,7 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
             end
 
             local dotScaleEff
+            local heightTriangleEff = heightTriangle
 
             if dotScale then
                 if dotScaleIsFunc then
@@ -654,6 +663,10 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
                 else
                     dotScaleEff = dotSizeWorld
                 end
+            end
+
+            if heightTriangleIsFunc then
+                heightTriangleEff = heightTriangle( ent ) or heightTriangleDefault
             end
 
             table.insert( dotsForClass, {
