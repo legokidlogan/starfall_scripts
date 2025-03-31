@@ -94,7 +94,7 @@ libMeshMinimap.DOT_TYPES["player"] = libMeshMinimap.PLAYERS_ENABLED and ( libMes
 
 --[[ Dot type syntax:
 libMeshMinimap.DOT_TYPES["class_name"] = {
-    priority = (nil or number), -- Higher priority dots are drawn on top of lower priority dots. Defaults to 1000.
+    priority = (nil or number or function( ent ) return nil or number end ), -- Higher priority dots are drawn on top of lower priority dots. Defaults to 1000.
     color = (Color or function( ent ) return Color end), -- Color of the dot.
     ringColor = (nil or Color or function( ent ) return nil or Color end), -- Color of the dot's ring. nil to disable.
     requireLOS = (bool or function( ent ) return bool end), -- Only show the dot if the local player has line of sight to it.
@@ -190,7 +190,7 @@ end
 ----- PRIVATE FUNCTIONS -----
 
 local dotPoly = polyTools.polyMakeCircleFilled( 0, 0, 1, libMeshMinimap.DOT_SIDES )
-local dots = {}
+local activeDots = {}
 local renderHeight = nil
 local progressFont = render.createFont( "RobotoMono", scrW * 40 / 1920, 400, true, false, false, true )
 local mapViewMatrix
@@ -257,7 +257,7 @@ local function drawDots( mmWidth, mmCenterX, mmCenterY )
 
     render.pushMatrix( mapMatrix )
 
-    for _, dotSet in ipairs( dots ) do
+    for _, dotSet in ipairs( activeDots ) do
         local info = dotSet.info
         local dotsForClass = dotSet.dotsForClass
 
@@ -575,7 +575,7 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
 
     local baseDotSize = libMeshMinimap.DOT_SIZE
 
-    dots = {}
+    activeDots = {}
 
     if baseDotSize <= 0 then return end
 
@@ -593,7 +593,8 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
     for className, info in pairs( libMeshMinimap.DOT_TYPES ) do
         if cpuAverage() > perfLimit then break end
 
-        local dotsForClass = {}
+        local dotsByPriority = {}
+        local priority = info.priority
         local findFunc = info.findFunc
         local ents = findFunc and findFunc() or find.byClass( className )
         local color = info.color
@@ -608,6 +609,7 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
         local dotSize = info.dotSize
         local dotSizeWorld = info.dotSizeWorld
 
+        local priorityIsFunc = type( priority ) == "function"
         local colorIsFunc = type( color ) == "function"
         local ringColorIsFunc = type( ringColor ) == "function"
         local requireLOSIsFunc = type( requireLOS ) == "function"
@@ -673,7 +675,15 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
                 heightTriangleEff = heightTriangle( ent ) or heightTriangleDefault
             end
 
-            table.insert( dotsForClass, {
+            local priorityEff = priorityIsFunc and priority( ent ) or priority or 1000
+            local dots = dotsByPriority[priorityEff]
+
+            if not dots then
+                dots = {}
+                dotsByPriority[priorityEff] = dots
+            end
+
+            table.insert( dots, {
                 ent = ent,
                 color = colorIsFunc and color( ent ) or color,
                 ringColor = ringColorIsFunc and ringColor( ent ) or ringColor,
@@ -683,14 +693,16 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
             } )
         end
 
-        table.insert( dots, {
-            info = info,
-            priority = info.priority or 1000,
-            dotsForClass = dotsForClass,
-        } )
+        for priorityEff, dots in pairs( dotsByPriority ) do
+            table.insert( activeDots, {
+                info = info,
+                priority = priorityEff,
+                dotsForClass = dots,
+            } )
+        end
     end
 
-    table.sort( dots, dotSorter )
+    table.sort( activeDots, dotSorter )
 end )
 
 
