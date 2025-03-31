@@ -267,7 +267,8 @@ local function drawDots( mmWidth, mmCenterX, mmCenterY )
             if not isValid( ent ) then continue end
 
             local pos = getPos( ent )
-            entAng[2] = getYaw and getYaw( ent ) or 0
+            local yaw = getYaw and getYaw( ent )
+            entAng[2] = yaw or 0
 
             local localPos, localAng = worldToLocal( pos, entAng, eyePos, eyeAng )
             localPos[1] = localPos[1] * posScale
@@ -284,7 +285,7 @@ local function drawDots( mmWidth, mmCenterX, mmCenterY )
 
             render.pushMatrix( posMatrix )
 
-            if getYaw then
+            if yaw then
                 local angMatrix = Matrix()
                 angMatrix:rotate( Angle( 0, -localAng[2], 0 ) )
                 render.pushMatrix( angMatrix )
