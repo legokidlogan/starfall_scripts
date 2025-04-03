@@ -976,7 +976,7 @@ local function sendDataToNonOwners()
         timer.remove( "LKL_MapData_SendData_NonOwner" )
 
         local allButOwner = find.allPlayers( function( ply )
-            return ply ~= owner()
+            return ply ~= owner() and not ply:isBot()
         end )
 
         -- Starfall throws an error if the table is empty
