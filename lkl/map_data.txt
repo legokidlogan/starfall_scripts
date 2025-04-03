@@ -968,6 +968,7 @@ local function sendDataToNonOwners()
         return
     end
 
+    -- Wait until a stream can be started.
     timer.create( "LKL_MapData_SendData_NonOwner", 0.01, 0, function()
         if net.isStreaming() then return end
 
@@ -1023,6 +1024,7 @@ finishGeneratingData = function()
         c_pend_orange, "Saving data..."
     )
 
+    -- Wait until a stream can be started.
     timer.create( "LKL_MapData_SendData", 0.01, function()
         if net.isStreaming() then return end
 
