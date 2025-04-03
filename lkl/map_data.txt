@@ -897,6 +897,7 @@ require( "lkl/global_data_manager.txt" )
 local generatingData = false
 local waitingToGenerateData = false
 local generationStartTime = nil
+local newPlayerLookup = {}
 
 
 local function getWaitingChips()
@@ -1061,6 +1062,43 @@ local function startGeneratingData()
     generateMapData()
 end
 
+
+if not libMapData.OWNER_ONLY then
+    hook.add( "ClientInitialized", "LKL_MapData_SendDataToNewPlayer", function( ply )
+        if not dataIsReady then return end
+        if not isValid( ply ) then return end
+        if ply == owner() then return end
+        if timer.exists( "LKL_MapData_SendData" ) then return end -- Trying to send to owner, non-owners will receive it after, sending now would be redundant.
+        if timer.exists( "LKL_MapData_SendData_NonOwner" ) then return end -- Ditto, trying to start the non-owner stream.
+
+        local timerName = "LKL_MapData_SendData_NewJoin_" .. ply:getSteamID()
+        local delayDuration = 0.1
+
+        -- If the player initialized due to joining the server, they're going to be loading all sorts of stuff, so wait a bit.
+        if newPlayerLookup[ply] then
+            newPlayerLookup[ply] = nil
+            delayDuration = 10
+        end
+
+        timer.simple( delayDuration, function()
+            timer.create( timerName, 0.01, 0, function()
+                if net.isStreaming() then return end
+
+                timer.remove( timerName )
+
+                if not isValid( ply ) then return end
+
+                net.start( "LKL_MapData_SendData_NonOwner" )
+                net.writeStream( json.encode( data ), false )
+                net.send( ply )
+            end )
+        end )
+    end )
+
+    hook.add( "PlayerInitialSpawn", "LKL_MapData_TrackNewJoins", function( ply )
+        newPlayerLookup[ply] = true
+    end )
+end
 
 hook.add( "EntityRemoved", "LKL_MapData_BecomeGeneratingChip", function( ent )
     if not waitingToGenerateData then return end
