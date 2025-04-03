@@ -324,7 +324,7 @@ if CLIENT then
             clearVersionData()
         end
 
-        if libMapData.OWNERONLY then
+        if libMapData.OWNER_ONLY then
             tryLoadData()
         else
             timer.create( "LKL_MapData_TryLoad", 3, 0, tryLoadData ) -- Delay in case other players have bad ping
