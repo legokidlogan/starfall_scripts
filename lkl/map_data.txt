@@ -24,7 +24,6 @@ local data = nil
 local dataIsReady = false
 local versionID = "v3"
 local hasSentReadyHook = false
-local acknowledgementTimeout = 5
 
 
 ----- GLOBAL FUNCTIONS -----
@@ -230,8 +229,6 @@ if CLIENT then
     end
 
     local function tryLoadData()
-        timer.remove( "LKL_MapData_TryLoad" )
-
         if not file.exists( dataFilePath ) then
             requestDataGeneration()
 
@@ -250,15 +247,14 @@ if CLIENT then
         data = fileData
         dataIsReady = true
 
-        net.start( "LKL_MapData_SendData" )
-        net.writeStream( json.encode( data ), false )
+        -- Check to see if the server actually needs the data, in case the owner restarted the chip clientside.
+        net.start( "LKL_MapData_DoesServerNeedData" )
         net.send()
 
-        timer.simple( acknowledgementTimeout, function()
-            if hasSentReadyHook then return end
-
+        if not hasSentReadyHook then
+            hasSentReadyHook = true
             hook.run( "LKL_MapData_DataReady" )
-        end )
+        end
     end
 
     -- Only works on startup before tryLoadData() is called.
@@ -275,11 +271,19 @@ if CLIENT then
     end
 
 
-    net.receive( "LKL_MapData_DataReceived", function()
-        if hasSentReadyHook then return end
+    net.receive( "LKL_MapData_DoesServerNeedData_Response", function()
+        if not net.readBool() then return end -- The server already has the data.
 
-        hasSentReadyHook = true
-        hook.run( "LKL_MapData_DataReady" )
+        -- Wait until a stream can be started.
+        timer.create( "LKL_MapData_SendData", 0.01, 0, function()
+            if net.isStreaming() then return end
+
+            timer.remove( "LKL_MapData_SendData" )
+
+            net.start( "LKL_MapData_SendData" )
+            net.writeStream( json.encode( data ), false )
+            net.send()
+        end )
     end )
 
     net.receive( "LKL_MapData_SendData", function()
@@ -298,16 +302,15 @@ if CLIENT then
             fileData[versionID] = data
             file.write( dataFilePath, json.encode( fileData ) )
 
-            net.start( "LKL_MapData_DataReceived" )
-            net.send()
-
             print(
                 c_white, "[MapData] ",
                 c_pale_green, "Newly-generated data has been saved!"
             )
 
-            hasSentReadyHook = true
-            hook.run( "LKL_MapData_DataReady" )
+            if not hasSentReadyHook then
+                hasSentReadyHook = true
+                hook.run( "LKL_MapData_DataReady" )
+            end
         end )
     end )
 
@@ -324,11 +327,7 @@ if CLIENT then
             clearVersionData()
         end
 
-        if libMapData.OWNER_ONLY then
-            tryLoadData()
-        else
-            timer.create( "LKL_MapData_TryLoad", 3, 0, tryLoadData ) -- Delay in case other players have bad ping
-        end
+        timer.simple( 0.1, tryLoadData ) -- Load after a delay so other scripts can add hook listeners first.
     end
 end
 
@@ -948,20 +947,6 @@ local function unmarkGeneratingChip()
     GDM.pushOwnerData()
 end
 
-local function sendDataToNonOwners()
-    if libMapData.OWNER_ONLY then return end
-
-    local allButOwner = find.allPlayers( function( ply )
-        return ply ~= owner()
-    end )
-
-    if #allButOwner == 0 then return end -- Starfall throws an error if the table is empty
-
-    net.start( "LKL_MapData_SendData_NonOwner" )
-    net.writeStream( json.encode( data ), false )
-    net.send( allButOwner )
-end
-
 local function allowNextChipToGetData()
     if not isOtherChipGenerating( chip() ) then return end
 
@@ -974,6 +959,37 @@ local function allowNextChipToGetData()
     else
         unmarkGeneratingChip()
     end
+end
+
+local function sendDataToNonOwners()
+    if libMapData.OWNER_ONLY then
+        allowNextChipToGetData()
+
+        return
+    end
+
+    timer.create( "LKL_MapData_SendData_NonOwner", 0.01, 0, function()
+        if net.isStreaming() then return end
+
+        timer.remove( "LKL_MapData_SendData_NonOwner" )
+
+        local allButOwner = find.allPlayers( function( ply )
+            return ply ~= owner()
+        end )
+
+        -- Starfall throws an error if the table is empty
+        if #allButOwner == 0 then
+            allowNextChipToGetData()
+
+            return
+        end
+
+        net.start( "LKL_MapData_SendData_NonOwner" )
+        net.writeStream( json.encode( data ), false )
+        net.send( allButOwner )
+
+        allowNextChipToGetData()
+    end )
 end
 
 finishGeneratingData = function()
@@ -1007,19 +1023,22 @@ finishGeneratingData = function()
         c_pend_orange, "Saving data..."
     )
 
-    net.start( "LKL_MapData_SendData" )
-    net.writeStream( json.encode( data ), false )
-    net.send()
+    timer.create( "LKL_MapData_SendData", 0.01, function()
+        if net.isStreaming() then return end
 
-    sendDataToNonOwners()
+        timer.remove( "LKL_MapData_SendData" )
 
-    timer.simple( acknowledgementTimeout, function()
-        if hasSentReadyHook then return end
+        net.start( "LKL_MapData_SendData" )
+        net.writeStream( json.encode( data ), false )
+        net.send( owner() )
 
+        sendDataToNonOwners()
+    end )
+
+    if not hasSentReadyHook then
         hasSentReadyHook = true
         hook.run( "LKL_MapData_DataReady" )
-        allowNextChipToGetData()
-    end )
+    end
 end
 
 local function startGeneratingData()
@@ -1092,19 +1111,18 @@ hook.add( "Remote_LKL_MapData_StartGettingData", "LKL_MapData_LoadOrGenerateData
 end )
 
 
+net.receive( "LKL_MapData_DoesServerNeedData", function( _, ply )
+    if ply ~= owner() then return end
+
+    net.start( "LKL_MapData_DoesServerNeedData_Response" )
+    net.writeBool( not dataIsReady )
+    net.send( owner() )
+end )
+
 net.receive( "LKL_MapData_GenerateData", function( _, ply )
     if ply ~= owner() then return end
 
     startGeneratingData()
-end )
-
-net.receive( "LKL_MapData_DataReceived", function( _, ply )
-    if ply ~= owner() then return end
-    if hasSentReadyHook then return end
-
-    hasSentReadyHook = true
-    hook.run( "LKL_MapData_DataReady" )
-    allowNextChipToGetData()
 end )
 
 net.receive( "LKL_MapData_SendData", function( _, ply )
@@ -1116,14 +1134,12 @@ net.receive( "LKL_MapData_SendData", function( _, ply )
         generatingData = false
         waitingToGenerateData = false
 
-        net.start( "LKL_MapData_DataReceived" )
-        net.send( owner() )
-
-        hasSentReadyHook = true
-        hook.run( "LKL_MapData_DataReady" )
-
         sendDataToNonOwners()
-        allowNextChipToGetData()
+
+        if not hasSentReadyHook then
+            hasSentReadyHook = true
+            hook.run( "LKL_MapData_DataReady" )
+        end
     end )
 end )
 
