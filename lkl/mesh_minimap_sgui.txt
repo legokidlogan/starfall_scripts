@@ -57,8 +57,15 @@ local setMinimapPosYByWidth
 local setMinimapWidth
 local setMinimapZoomFactor
 
+local configPanelsByName = {}
 local configPanelsByVarName = {}
 local configOptions = {
+    {
+        name = "Hide Minimap",
+        default = false,
+        type = "checkbox",
+        func = function( new ) libMeshMinimap.setActive( not new ) end,
+    },
     {
         name = "X Position",
         varName = "X_POS",
@@ -328,7 +335,7 @@ end
 hook.add( "tick", "LKL_MeshMinimapSGUI_HideAndRevealConfig", function()
     if not permissionSatisfied then return end
 
-    local cursorVisible = input.getCursorVisible() and libMeshMinimap.isVisible()
+    local cursorVisible = input.getCursorVisible() and libMeshMinimap.isVisible( true )
     if cursorVisible == wasCursorVisible then return end
 
     wasCursorVisible = cursorVisible
@@ -364,8 +371,17 @@ for _, option in ipairs( configOptions ) do
     btnDefault:setText( "Default" )
 
     local varName = option.varName
-    local defaultValue = libMeshMinimap[varName]
-    local onChangeFunc = option.func or function( new ) libMeshMinimap[varName] = new end
+    local defaultValue
+    local onChangeFunc
+    local configPanel
+
+    if varName then
+        defaultValue = libMeshMinimap[varName]
+        onChangeFunc = option.func or function( new ) libMeshMinimap[varName] = new end
+    else
+        defaultValue = option.default
+        onChangeFunc = option.func
+    end
 
     btnDefault.onClicked = function()
         onChangeFunc( defaultValue )
@@ -379,6 +395,7 @@ for _, option in ipairs( configOptions ) do
         sldOption:setValueSnap( option.snap )
         sldOption:setValue( defaultValue )
         sldOption:setRounding( option.rounding )
+        configPanel = sldOption
 
         function sldOption:onValueChanged( _, new )
             onChangeFunc( new )
@@ -387,12 +404,11 @@ for _, option in ipairs( configOptions ) do
         function btnDefault:onClicked()
             sldOption:setValue( defaultValue )
         end
-
-        configPanelsByVarName[varName] = sldOption
     elseif option.type == "checkbox" then
         local cbOption = SGUI.CheckBox:new( pnlContainer )
         cbOption:setDock( DOCK_FILL )
         cbOption:setStateSilent( defaultValue )
+        configPanel = cbOption
 
         function cbOption:onToggleChanged( new )
             onChangeFunc( new )
@@ -401,8 +417,12 @@ for _, option in ipairs( configOptions ) do
         function btnDefault:onClicked()
             cbOption:setState( defaultValue )
         end
+    end
 
-        configPanelsByVarName[varName] = cbOption
+    configPanelsByName[option.name] = configPanel
+
+    if varname then
+        configPanelsByVarName[varName] = configPanel
     end
 end
 
