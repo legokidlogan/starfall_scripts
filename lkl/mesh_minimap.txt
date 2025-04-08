@@ -74,7 +74,7 @@ libMeshMinimap.DOT_HEIGHT_HIDE = libMeshMinimap.DOT_HEIGHT_HIDE or 3000 -- Heigh
 libMeshMinimap.DOT_HEIGHT_COLOR = libMeshMinimap.DOT_HEIGHT_COLOR or Color( 255, 255, 255, 255 ) -- Color of the height triangle.
 libMeshMinimap.DOT_PERF_LIMIT = libMeshMinimap.DOT_PERF_LIMIT or 0.5 -- Fraction of the CPU limit to use for dot updates.
 
-libMeshMinimap.DOT_TYPES["player"] = libMeshMinimap.PLAYERS_ENABLED and ( libMeshMinimap.DOT_TYPES["player"] or {
+libMeshMinimap.DOT_TYPES["player"] = libMeshMinimap.DOT_TYPES["player"] or {
     priority = 10000,
     color = pvp and function( ent ) return ent:isInPvp() and c_pvp or c_build end or c_pvp,
     ringColor = function( ent ) return team.getColor( ent:getTeam() ) end,
@@ -89,7 +89,8 @@ libMeshMinimap.DOT_TYPES["player"] = libMeshMinimap.PLAYERS_ENABLED and ( libMes
     dotSize = nil,
     dotSizeWorld = nil,
     findFunc = nil,
-} ) or nil
+    disabled = not libMeshMinimap.PLAYERS_ENABLED,
+}
 -- END CONFIG DEFAULTS 2
 
 --[[ Dot type syntax:
@@ -108,6 +109,7 @@ libMeshMinimap.DOT_TYPES["class_name"] = {
     dotSize = (nil or number >= 0 or function( ent ) return nil or number end), -- Overrides the dot size. nil to make no change.
     dotSizeWorld = (nil or number >= 0 or function( ent ) return nil or number end), -- Resizes the dot so that its width on the minimap matches a distance in the world. nil to make no change.
     findFunc = (nil or function() return { Entity, ... } end), -- Function to find entities of this type. Defaults to find.byClass( "class_name" ).
+    disabled = (nil or boolean or function() return bool end), -- Whether to disable this dot type. nil to always show.
 }
 --]]
 
@@ -592,6 +594,16 @@ timer.create( "LKL_MeshMinimap_UpdateDots", libMeshMinimap.DOT_UPDATE_INTERVAL, 
 
     for className, info in pairs( libMeshMinimap.DOT_TYPES ) do
         if cpuAverage() > perfLimit then break end
+
+        local disabled = info.disabled
+
+        if disabled then
+            if type( disabled ) == "function" then
+                disabled = disabled()
+            end
+
+            if disabled then continue end
+        end
 
         local dotsByPriority = {}
         local priority = info.priority
