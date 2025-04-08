@@ -7,9 +7,11 @@
 --@include lkl/sgui/panel.txt
 --@include lkl/sgui/button.txt
 --@include lkl/sgui/window.txt
---@include lkl/sgui/list.txt
+--@include lkl/sgui/scrollable_list.txt
 --@include lkl/sgui/labeled_slider.txt
 --@include lkl/sgui/check_box.txt
+--@include lkl/sgui/collapsible.txt
+--@include lkl/sgui/label.txt
 
 -- A variant of mesh_minimap that adds a live config menu using SGUI.
 
@@ -27,9 +29,11 @@ require( "lkl/render/mat_settings_cog.txt" )
 require( "lkl/sgui/panel.txt" )
 require( "lkl/sgui/button.txt" )
 require( "lkl/sgui/window.txt" )
-require( "lkl/sgui/list.txt" )
+require( "lkl/sgui/scrollable_list.txt" )
 require( "lkl/sgui/labeled_slider.txt" )
 require( "lkl/sgui/check_box.txt" )
+require( "lkl/sgui/collapsible.txt" )
+require( "lkl/sgui/label.txt" )
 
 
 local scrW, scrH = render.getGameResolution()
@@ -39,10 +43,14 @@ local CONFIG_BUTTON_PADDING = 4
 local CONFIG_BUTTON_SIZE = CONFIG_BUTTON_COG_SIZE + CONFIG_BUTTON_PADDING * 2
 
 local OPTION_HEIGHT = 25
-local OPTION_NAME_WIDTH = 120
+local OPTION_NAME_WIDTH = 160
 local OPTION_DEFAULT_BUTTON_WIDTH = 75
 local OPTION_MARGIN = 4
 local OPTION_SPACING = 1
+local OPTION_COLLAPSIBLE_HEIGHT = 3 * ( OPTION_HEIGHT + OPTION_SPACING + OPTION_MARGIN * 2 ) + OPTION_HEIGHT
+
+local WINDOW_WIDTH = 500
+local WINDOW_HEIGHT = 607
 
 local wasCursorVisible = false
 local baseZoomLevel = libMeshMinimap.ZOOM_LEVEL
@@ -56,10 +64,302 @@ local setMinimapPosY
 local setMinimapPosYByWidth
 local setMinimapWidth
 local setMinimapZoomFactor
+local makeConfigPanelContainer
+local makeConfigPanel
 
 local configPanelsByName = {}
 local configPanelsByVarName = {}
-local configOptions = {
+local configOptions
+
+
+-- Button for opening the config menu
+btnOpenConfig = SGUI.Button:new()
+btnOpenConfig:setVisible( false )
+btnOpenConfig:setSize( CONFIG_BUTTON_SIZE, CONFIG_BUTTON_SIZE )
+
+function btnOpenConfig:handleDrawBackground()
+    -- Do nothing.
+end
+
+function btnOpenConfig:handleDraw()
+    local xPos, yPos = self:getPosEffective()
+
+    render.setMaterial( globalMaterials.matSettingsCog )
+    render.setColor( c_white )
+
+    render.drawTexturedRectUV( xPos + CONFIG_BUTTON_PADDING, yPos + CONFIG_BUTTON_PADDING, CONFIG_BUTTON_COG_SIZE, CONFIG_BUTTON_COG_SIZE, 0, 0, 1, 1 )
+    render.setMaterial()
+end
+
+function btnOpenConfig:onClicked()
+    btnOpenConfig:setVisible( false )
+    winConfig:setVisible( true )
+end
+
+
+-- Config window
+winConfig = SGUI.Window:new()
+local winConfigCloseButton = winConfig:getCloseButton()
+winConfig:setVisible( false )
+winConfig:setMinSize( WINDOW_WIDTH, WINDOW_HEIGHT )
+winConfig:setPos( scrW / 2, scrH * 0.15 )
+
+function winConfigCloseButton:onClicked()
+    btnOpenConfig:setVisible( true )
+    winConfig:setVisible( false )
+end
+
+-- Config window list
+local slstConfig = SGUI.ScrollableList:new( winConfig, LIST_VERTICAL )
+slstConfig:setBorderSize( 0 )
+slstConfig:setMargin( 0 )
+slstConfig:setDock( DOCK_FILL )
+slstConfig:setSpacing( OPTION_SPACING )
+slstConfig:setAutoExpand( false )
+
+local scrlConfig = slstConfig:getScrollable()
+
+function scrlConfig:handleDrawBackground()
+    -- Do nothing.
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+updateConfigButtonPos = function()
+    local mapSize = math.ceil( libMeshMinimap.WIDTH * scrW )
+    local mapX = math.floor( libMeshMinimap.X_POS * scrW )
+    local mapY = math.floor( libMeshMinimap.Y_POS * ( libMeshMinimap.Y_POS_BY_WIDTH and scrW or scrH ) )
+    local btnX = mapX + mapSize - CONFIG_BUTTON_SIZE
+    local btnY = mapY + mapSize - CONFIG_BUTTON_SIZE
+
+    btnOpenConfig:setPos( btnX, btnY )
+end
+
+setMinimapPosX = function( x )
+    local scrX = math.floor( x * scrW )
+    local mapSize = math.ceil( libMeshMinimap.WIDTH * scrW )
+    local scrXClamped = math.clamp( scrX, 0, scrW - mapSize )
+
+    if scrXClamped ~= scrX then
+        configPanelsByVarName.X_POS:setValue( scrXClamped / scrW )
+
+        return
+    end
+
+    libMeshMinimap.X_POS = scrXClamped / scrW
+    updateConfigButtonPos()
+end
+
+setMinimapPosY = function( y )
+    local scrScalar = libMeshMinimap.Y_POS_BY_WIDTH and scrW or scrH
+    local scrY = math.floor( y * scrScalar )
+    local mapSize = math.ceil( libMeshMinimap.WIDTH * scrW )
+    local scrYClamped = math.clamp( scrY, 0, scrH - mapSize )
+
+    if scrYClamped ~= scrY then
+        configPanelsByVarName.Y_POS:setValue( scrYClamped / scrScalar )
+
+        return
+    end
+
+    libMeshMinimap.Y_POS = scrYClamped / scrScalar
+    updateConfigButtonPos()
+end
+
+setMinimapPosYByWidth = function( state )
+    libMeshMinimap.Y_POS_BY_WIDTH = state
+
+    setMinimapPosY( libMeshMinimap.Y_POS )
+end
+
+setMinimapWidth = function( widthFrac )
+    libMeshMinimap.WIDTH = widthFrac
+
+    setMinimapPosX( libMeshMinimap.X_POS )
+    setMinimapPosY( libMeshMinimap.Y_POS )
+end
+
+setMinimapZoomFactor = function( factor )
+    local mult
+
+    if factor >= 0 then
+        mult = 1 + factor
+    else
+        mult = 1 / ( 1 - factor )
+    end
+
+    libMeshMinimap.setZoomLevel( baseZoomLevel * mult )
+end
+
+makeConfigPanelContainer = function( option, parentStorageName )
+    local pnlContainer
+
+    if option.type == "collapsible" then
+        local storageName = option.name
+
+        if parentStorageName then
+            storageName = parentStorageName .. "_" .. storageName
+        end
+
+        pnlContainer = SGUI.Collapsible:new()
+        pnlContainer:setMargin( OPTION_MARGIN )
+        pnlContainer:setUncollapsedHeight( OPTION_COLLAPSIBLE_HEIGHT )
+        pnlContainer:collapse()
+
+        local slstContainer = SGUI.ScrollableList:new( pnlContainer, LIST_VERTICAL )
+        slstContainer:setBorderSize( 2 )
+        slstContainer:setMargin( 0 )
+        slstContainer:setDock( DOCK_FILL )
+        slstContainer:setSpacing( OPTION_SPACING )
+        slstContainer:setAutoExpand( false )
+
+        local scrlContainer = slstContainer:getScrollable()
+        local backgroundTint = Color( 0, 0, 0, 70 )
+
+        function scrlContainer:getBackgroundColor()
+            return backgroundTint
+        end
+
+        function scrlContainer:getBorderColor( fallbackColor, ... )
+            return scrlContainer:getColor( "Divider", fallbackColor, ... )
+        end
+
+        local lblName = SGUI.Label( pnlContainer:getCollapseBar() )
+        lblName:setDock( DOCK_FILL )
+        lblName:setTextAlign( TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER )
+        lblName:setMargin( 3 )
+        lblName:setText( option.name )
+
+        for _, opt in ipairs( option.options ) do
+            local pnlOptContainer = makeConfigPanelContainer( opt, storageName )
+
+            slstContainer:add( pnlOptContainer )
+            pnlOptContainer:setExpand( EXPAND_WIDTH )
+        end
+    else
+        pnlContainer = SGUI.Panel:new()
+        pnlContainer:setMargin( OPTION_MARGIN )
+        pnlContainer:setBorderSize( 0 )
+        pnlContainer:setHeight( OPTION_HEIGHT )
+
+        function pnlContainer:handleDrawBackground()
+            -- Do nothing.
+        end
+
+        makeConfigPanel( pnlContainer, option, parentStorageName )
+    end
+
+    return pnlContainer
+end
+
+makeConfigPanel = function( pnlContainer, option, parentStorageName )
+    local lblName = SGUI.Label:new( pnlContainer )
+    lblName:setDock( DOCK_LEFT )
+    lblName:setWidth( OPTION_NAME_WIDTH )
+    lblName:setText( option.name )
+    lblName:setTextAlign( TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER )
+
+    local btnDefault = SGUI.Button:new( pnlContainer )
+    btnDefault:setDock( DOCK_RIGHT )
+    btnDefault:setWidth( OPTION_DEFAULT_BUTTON_WIDTH )
+    btnDefault:setText( "Default" )
+
+    local varName = option.varName
+    local defaultValue
+    local onChangeFunc
+    local configPanel
+
+    if varName then
+        defaultValue = libMeshMinimap[varName]
+        onChangeFunc = option.func or function( new ) libMeshMinimap[varName] = new end
+    else
+        defaultValue = option.default
+        onChangeFunc = option.func
+    end
+
+    btnDefault.onClicked = function()
+        onChangeFunc( defaultValue )
+    end
+
+    if option.type == "slider" then
+        local sldOption = SGUI.LabeledSlider:new( pnlContainer )
+        sldOption:setExpand( EXPAND_WIDTH )
+        sldOption:setAnchor( ANCHOR_CENTER )
+        sldOption:setMinMaxValues( option.min, option.max )
+        sldOption:setValueSnap( option.snap )
+        sldOption:setValue( defaultValue )
+        sldOption:setRounding( option.rounding )
+        configPanel = sldOption
+
+        function sldOption:onValueChanged( _, new )
+            onChangeFunc( new )
+        end
+
+        function btnDefault:onClicked()
+            sldOption:setValue( defaultValue )
+        end
+
+        local lblSliderLabel = sldOption:getLabel()
+
+        function lblSliderLabel:handleDrawBackground()
+            -- Do nothing.
+        end
+
+        function sldOption:handleDrawBackground()
+            -- Do nothing.
+        end
+    elseif option.type == "checkbox" then
+        local cbOption = SGUI.CheckBox:new( pnlContainer )
+        cbOption:setDock( DOCK_FILL )
+        cbOption:setStateSilent( defaultValue )
+        configPanel = cbOption
+
+        function cbOption:onToggleChanged( new )
+            onChangeFunc( new )
+        end
+
+        function btnDefault:onClicked()
+            cbOption:setState( defaultValue )
+        end
+    end
+
+    local storageName = option.name
+    if parentStorageName then storageName = parentStorageName .. "_" .. storageName end
+
+    configPanelsByName[storageName] = configPanel
+
+    if varname then
+        configPanelsByVarName[varName] = configPanel
+    end
+
+    return configPanel, storageName
+end
+
+
+----- SETUP -----
+
+hook.add( "tick", "LKL_MeshMinimapSGUI_HideAndRevealConfig", function()
+    if not permissionSatisfied then return end
+
+    local cursorVisible = input.getCursorVisible() and libMeshMinimap.isVisible( true )
+    if cursorVisible == wasCursorVisible then return end
+
+    wasCursorVisible = cursorVisible
+
+    if cursorVisible then
+        btnOpenConfig:setVisible( true )
+        winConfig:setVisible( false )
+    else
+        btnOpenConfig:setVisible( false )
+        winConfig:setVisible( false )
+    end
+end )
+
+
+
+
+configOptions = {
     {
         name = "Hide Minimap",
         default = false,
@@ -213,217 +513,55 @@ local configOptions = {
         func = nil,
     },
     --]]
+    --[[
+    {
+        name = "",
+        type = "collapsible",
+        options = {
+            
+        },
+    },
+    --]]
 }
 
-
--- Button for opening the config menu
-btnOpenConfig = SGUI.Button:new()
-btnOpenConfig:setVisible( false )
-btnOpenConfig:setSize( CONFIG_BUTTON_SIZE, CONFIG_BUTTON_SIZE )
-
-function btnOpenConfig:handleDrawBackground()
-    -- Do nothing.
-end
-
-function btnOpenConfig:handleDraw()
-    local xPos, yPos = self:getPosEffective()
-
-    render.setMaterial( globalMaterials.matSettingsCog )
-    render.setColor( c_white )
-
-    render.drawTexturedRectUV( xPos + CONFIG_BUTTON_PADDING, yPos + CONFIG_BUTTON_PADDING, CONFIG_BUTTON_COG_SIZE, CONFIG_BUTTON_COG_SIZE, 0, 0, 1, 1 )
-    render.setMaterial()
-end
-
-function btnOpenConfig:onClicked()
-    btnOpenConfig:setVisible( false )
-    winConfig:setVisible( true )
-end
-
-
--- Config window
-winConfig = SGUI.Window:new()
-local winConfigCloseButton = winConfig:getCloseButton()
-winConfig:setVisible( false )
-winConfig:setMinSize( 500, #configOptions * ( OPTION_HEIGHT + OPTION_MARGIN * 2 + OPTION_SPACING ) + winConfig._collapseBar:getHeight() + OPTION_MARGIN )
-winConfig:setPos( scrW / 2, scrH * 0.15 )
-
-function winConfigCloseButton:onClicked()
-    btnOpenConfig:setVisible( true )
-    winConfig:setVisible( false )
-end
-
--- Config window list
-local lstConfig = SGUI.List:new( winConfig )
-lstConfig:setBorderSize( 0 )
-lstConfig:setMargin( 0 )
-lstConfig:setDock( DOCK_FILL )
-lstConfig:setSpacing( OPTION_SPACING )
-
-
------ PRIVATE FUNCTIONS -----
-
-updateConfigButtonPos = function()
-    local mapSize = math.ceil( libMeshMinimap.WIDTH * scrW )
-    local mapX = math.floor( libMeshMinimap.X_POS * scrW )
-    local mapY = math.floor( libMeshMinimap.Y_POS * ( libMeshMinimap.Y_POS_BY_WIDTH and scrW or scrH ) )
-    local btnX = mapX + mapSize - CONFIG_BUTTON_SIZE
-    local btnY = mapY + mapSize - CONFIG_BUTTON_SIZE
-
-    btnOpenConfig:setPos( btnX, btnY )
-end
-
-setMinimapPosX = function( x )
-    local scrX = math.floor( x * scrW )
-    local mapSize = math.ceil( libMeshMinimap.WIDTH * scrW )
-    local scrXClamped = math.clamp( scrX, 0, scrW - mapSize )
-
-    if scrXClamped ~= scrX then
-        configPanelsByVarName.X_POS:setValue( scrXClamped / scrW )
-
-        return
-    end
-
-    libMeshMinimap.X_POS = scrXClamped / scrW
-    updateConfigButtonPos()
-end
-
-setMinimapPosY = function( y )
-    local scrScalar = libMeshMinimap.Y_POS_BY_WIDTH and scrW or scrH
-    local scrY = math.floor( y * scrScalar )
-    local mapSize = math.ceil( libMeshMinimap.WIDTH * scrW )
-    local scrYClamped = math.clamp( scrY, 0, scrH - mapSize )
-
-    if scrYClamped ~= scrY then
-        configPanelsByVarName.Y_POS:setValue( scrYClamped / scrScalar )
-
-        return
-    end
-
-    libMeshMinimap.Y_POS = scrYClamped / scrScalar
-    updateConfigButtonPos()
-end
-
-setMinimapPosYByWidth = function( state )
-    libMeshMinimap.Y_POS_BY_WIDTH = state
-
-    setMinimapPosY( libMeshMinimap.Y_POS )
-end
-
-setMinimapWidth = function( widthFrac )
-    libMeshMinimap.WIDTH = widthFrac
-
-    setMinimapPosX( libMeshMinimap.X_POS )
-    setMinimapPosY( libMeshMinimap.Y_POS )
-end
-
-setMinimapZoomFactor = function( factor )
-    local mult
-
-    if factor >= 0 then
-        mult = 1 + factor
-    else
-        mult = 1 / ( 1 - factor )
-    end
-
-    libMeshMinimap.setZoomLevel( baseZoomLevel * mult )
-end
-
-
------ SETUP -----
-
-hook.add( "tick", "LKL_MeshMinimapSGUI_HideAndRevealConfig", function()
-    if not permissionSatisfied then return end
-
-    local cursorVisible = input.getCursorVisible() and libMeshMinimap.isVisible( true )
-    if cursorVisible == wasCursorVisible then return end
-
-    wasCursorVisible = cursorVisible
-
-    if cursorVisible then
-        btnOpenConfig:setVisible( true )
-        winConfig:setVisible( false )
-    else
-        btnOpenConfig:setVisible( false )
-        winConfig:setVisible( false )
-    end
-end )
 
 
 -- Set up option panels
 for _, option in ipairs( configOptions ) do
-    local pnlContainer = SGUI.Panel:new()
-    lstConfig:add( pnlContainer )
-    pnlContainer:setMargin( OPTION_MARGIN )
-    pnlContainer:setBorderSize( 0 )
+    local pnlContainer = makeConfigPanelContainer( option )
+
+    slstConfig:add( pnlContainer )
     pnlContainer:setExpand( EXPAND_WIDTH )
-    pnlContainer:setHeight( OPTION_HEIGHT )
-
-    local lblName = SGUI.Label:new( pnlContainer )
-    lblName:setDock( DOCK_LEFT )
-    lblName:setWidth( OPTION_NAME_WIDTH )
-    lblName:setText( option.name )
-    lblName:setTextAlign( TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER )
-
-    local btnDefault = SGUI.Button:new( pnlContainer )
-    btnDefault:setDock( DOCK_RIGHT )
-    btnDefault:setWidth( OPTION_DEFAULT_BUTTON_WIDTH )
-    btnDefault:setText( "Default" )
-
-    local varName = option.varName
-    local defaultValue
-    local onChangeFunc
-    local configPanel
-
-    if varName then
-        defaultValue = libMeshMinimap[varName]
-        onChangeFunc = option.func or function( new ) libMeshMinimap[varName] = new end
-    else
-        defaultValue = option.default
-        onChangeFunc = option.func
-    end
-
-    btnDefault.onClicked = function()
-        onChangeFunc( defaultValue )
-    end
-
-    if option.type == "slider" then
-        local sldOption = SGUI.LabeledSlider:new( pnlContainer )
-        sldOption:setExpand( EXPAND_WIDTH )
-        sldOption:setAnchor( ANCHOR_CENTER )
-        sldOption:setMinMaxValues( option.min, option.max )
-        sldOption:setValueSnap( option.snap )
-        sldOption:setValue( defaultValue )
-        sldOption:setRounding( option.rounding )
-        configPanel = sldOption
-
-        function sldOption:onValueChanged( _, new )
-            onChangeFunc( new )
-        end
-
-        function btnDefault:onClicked()
-            sldOption:setValue( defaultValue )
-        end
-    elseif option.type == "checkbox" then
-        local cbOption = SGUI.CheckBox:new( pnlContainer )
-        cbOption:setDock( DOCK_FILL )
-        cbOption:setStateSilent( defaultValue )
-        configPanel = cbOption
-
-        function cbOption:onToggleChanged( new )
-            onChangeFunc( new )
-        end
-
-        function btnDefault:onClicked()
-            cbOption:setState( defaultValue )
-        end
-    end
-
-    configPanelsByName[option.name] = configPanel
-
-    if varname then
-        configPanelsByVarName[varName] = configPanel
-    end
 end
 
 updateConfigButtonPos()
+
+
+-- Add a category for disabling dot types
+timer.simple( 0, function()
+    local dotOptions = {}
+
+    for dotType, dotInfo in pairs( libMeshMinimap.DOT_TYPES ) do
+        local disabled = dotInfo.disabled
+
+        if type( disabled ) == "function" then
+            disabled = disabled()
+        end
+
+        table.insert( dotOptions, {
+            name = dotType,
+            default = not disabled,
+            type = "checkbox",
+            func = function( new ) dotInfo.disabled = not new end,
+        } )
+    end
+
+    local pnlContainer = makeConfigPanelContainer( {
+        name = "Dots",
+        type = "collapsible",
+        options = dotOptions,
+    } )
+
+    slstConfig:add( pnlContainer )
+    pnlContainer:setExpand( EXPAND_WIDTH )
+end )
