@@ -516,6 +516,14 @@ configOptions = {
     --[[
     {
         name = "",
+        varName = "",
+        type = "checkbox",
+        func = nil,
+    },
+    --]]
+    --[[
+    {
+        name = "",
         type = "collapsible",
         options = {
             
@@ -538,6 +546,7 @@ updateConfigButtonPos()
 
 
 -- Add a category for disabling dot types
+-- Timer is for if another script includes this one and adds more dot types.
 timer.simple( 0, function()
     local dotOptions = {}
 
