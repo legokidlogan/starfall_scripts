@@ -98,7 +98,7 @@ function safeStream.read( cb )
 
     validateGlobalData()
 
-    tableInsert( GDM.OwnerData.NetStreamSafe.ReadQueue, {
+    tableInsert( GDM.OwnerData.SafeStream.ReadQueue, {
         streamID = streamID,
         chipID = thisChipID,
         chipCT = thisChipCT,
@@ -151,7 +151,7 @@ function safeStream.cancelWrite( streamID, plys )
     end
 
     validateGlobalData()
-    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
     local plyLookup = bank.plyLookup
     local plysToNotify = {}
     local pushToGDM = false
@@ -236,7 +236,7 @@ function safeStream.cancelAllWrites( ply, noNet )
     if not isValid( ply ) then error( "Expected ply to be valid" ) end
 
     validateGlobalData()
-    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
     local plyID = ply:getSteamID()
     local queue = writeQueue[plyID]
     if not queue then return end
@@ -358,7 +358,7 @@ function safeStream.cancelRead( streamID, ply )
     bank[streamID] = nil
 
     validateGlobalData()
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
     local shouldPushGDM = false
 
     for i = 1, #readQueue do
@@ -412,7 +412,7 @@ function safeStream.getCurrentWriteStream( ply )
     if not isValid( ply ) then error( "Expected ply to be valid" ) end
 
     validateGlobalData()
-    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
     local plyID = ply:getSteamID()
     local queue = writeQueue[plyID]
 
@@ -438,7 +438,7 @@ end
 --]]
 function safeStream.getCurrentReadStream()
     validateGlobalData()
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
     if not readQueue.Busy then return nil end
 
     local streamInfo = readQueue[1]
@@ -453,10 +453,10 @@ function safeStream.isStreaming()
     if netIsStreaming() then return true end
 
     validateGlobalData()
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
     if readQueue.Busy then return true end
 
-    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
 
     for _, queue in pairs( writeQueue ) do
         if queue.Busy then return true end
@@ -487,7 +487,7 @@ function net.send( target, unreliable, ... )
 
     validateGlobalData()
 
-    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
     local plyLookup = {}
     local infosPreppedForQueue = {}
 
@@ -546,18 +546,18 @@ validateGlobalData = function()
 
     local shouldPushGDM = false
 
-    if not GDM.OwnerData.NetStreamSafe then
-        GDM.OwnerData.NetStreamSafe = {}
+    if not GDM.OwnerData.SafeStream then
+        GDM.OwnerData.SafeStream = {}
         shouldPushGDM = true
     end
 
-    if not GDM.OwnerData.NetStreamSafe.WriteQueue then
-        GDM.OwnerData.NetStreamSafe.WriteQueue = {} -- { [plyID] -> { Busy = BOOL, [NUMBER] -> { streamID = NUMBER, chipID = NUMBER, chipCT = NUMBER } } }
+    if not GDM.OwnerData.SafeStream.WriteQueue then
+        GDM.OwnerData.SafeStream.WriteQueue = {} -- { [plyID] -> { Busy = BOOL, [NUMBER] -> { streamID = NUMBER, chipID = NUMBER, chipCT = NUMBER } } }
         shouldPushGDM = true
     end
 
-    if not GDM.OwnerData.NetStreamSafe.ReadQueue then
-        GDM.OwnerData.NetStreamSafe.ReadQueue = {} -- { Busy = BOOL, [NUMBER] -> { streamID = NUMBER, chipID = NUMBER, chipCT = NUMBER, plyID = STRING } }
+    if not GDM.OwnerData.SafeStream.ReadQueue then
+        GDM.OwnerData.SafeStream.ReadQueue = {} -- { Busy = BOOL, [NUMBER] -> { streamID = NUMBER, chipID = NUMBER, chipCT = NUMBER, plyID = STRING } }
         shouldPushGDM = true
     end
 
@@ -580,7 +580,7 @@ hook.add( "Removed", "LKL_SafeStream_CancelMyStreams", function()
 
     -- Remove this chip's read entries from the read queue.
     validateGlobalData()
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
     local shouldPushGDM = false
     local stillBusy = readQueue.Busy
 
@@ -638,8 +638,8 @@ end )
 
 hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, ply )
     validateGlobalData()
-    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
     local isClient = type( ply ) == "Player" -- Clientside error
     local isServer = not isClient
 
@@ -734,7 +734,7 @@ net.receive( "LKL_SafeStream_QueueRead", function( _, ply )
     local streamID = net.readUInt( 16 )
 
     validateGlobalData()
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
 
     tableInsert( readQueue, {
         streamID = streamID,
@@ -752,7 +752,7 @@ net.receive( "LKL_SafeStream_ReadStream", function( _, ply )
 
     netReadStream( function( data )
         validateGlobalData()
-        local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+        local readQueue = GDM.OwnerData.SafeStream.ReadQueue
         local firstEntry = readQueue[1]
 
         if firstEntry and firstEntry.streamID == streamID and firstEntry.plyID == plyID and isMyQueueEntry( firstEntry ) then
@@ -796,7 +796,7 @@ net.receive( "LKL_SafeStream_CancelRead", function( _, ply )
     local streamID = net.readUInt( 16 )
 
     validateGlobalData()
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
     local shouldPushGDM = false
 
     for i = 1, #readQueue do
@@ -854,7 +854,7 @@ net.receive( "LKL_SafeStream_CancelReadMultiple", function( _, ply )
     end
 
     validateGlobalData()
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
     local shouldPushGDM = false
     local stillBusy = readQueue.Busy
 
@@ -917,7 +917,7 @@ net.receive( "LKL_SafeStream_ReadFinished", function( _, ply )
     local success = net.readBool()
 
     validateGlobalData()
-    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
     local queue = writeQueue[plyID]
     if not queue then return end
 
@@ -976,7 +976,7 @@ end )
 
 timer.create( "LKL_SafeStream_ProcessWriteQueue", 1, 0, function()
     validateGlobalData()
-    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
     local shouldPushGDM = false
 
     for plyID, queue in pairs( writeQueue ) do
@@ -1052,7 +1052,7 @@ timer.create( "LKL_SafeStream_ProcessReadQueue", 1, 0, function()
     if netIsStreaming() then return end
 
     validateGlobalData()
-    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
     local streamInfo = readQueue[1]
 
     if not streamInfo then
