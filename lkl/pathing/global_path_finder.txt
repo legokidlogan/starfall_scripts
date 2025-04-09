@@ -4,7 +4,9 @@
 --@owneronly
 --@include lkl/global_data_manager.txt
 --@include lkl/pathing/path_finder.txt
+--@include lkl/safe_stream.txt
 
+require( "lkl/safe_stream.txt" )
 
 --[[
     - Allows one chip to host a PathGraph on the owner's client while itself and other chips make
@@ -587,7 +589,7 @@ if SERVER then
             return
         end
 
-        net.readStream( function( dataStr )
+        safeStream.read( function( dataStr )
             local pointStrs = string.split( dataStr, " " )
 
             for i = 1, pathLength do
@@ -671,6 +673,8 @@ else
         local pathGraph = myGraphs[graphName]
         if not pathGraph then return end
 
+        local streamID = nil
+
         params.PathGraph = pathGraph
         params.Callback = function( path )
             if not path then
@@ -695,41 +699,38 @@ else
                     end
                 net.send()
             else
-                local timerName = "LKL_GlobalPathFinder_PathRequestResults_" .. pfRequestID
+                net.start( "LKL_GlobalPathFinder_PathRequestResults" )
+                    net.writeUInt( pfRequestID, 32 )
+                    net.writeUInt( #path, 32 )
+                    net.writeBool( true )
 
-                timer.create( timerName, 0.5, 0, function()
-                    if net.isStreaming() then return end
+                    local dataStr = ""
 
-                    if not cancelRequestFuncs[pfRequestID] then
-                        timer.remove( timerName )
-
-                        return
+                    for _, point in ipairs( path ) do
+                        -- Can't use string.format( "%i" ) because it rounds/truncates differently based on the OS.
+                        dataStr = dataStr ..
+                            math.round( point[1] ) .. "," ..
+                            math.round( point[2] ) .. "," ..
+                            math.round( point[3] ) .. " "
                     end
 
-                    net.start( "LKL_GlobalPathFinder_PathRequestResults" )
-                        net.writeUInt( pfRequestID, 32 )
-                        net.writeUInt( #path, 32 )
-                        net.writeBool( true )
+                    -- Don't need to worry about the trailing space since the server will use the path length, not ipairs on the split string.
 
-                        local dataStr = ""
-
-                        for _, point in ipairs( path ) do
-                            -- Can't use string.format( "%i" ) because it rounds/truncates differently based on the OS.
-                            dataStr = dataStr ..
-                                math.round( point[1] ) .. "," ..
-                                math.round( point[2] ) .. "," ..
-                                math.round( point[3] ) .. " "
-                        end
-
-                        -- Don't need to worry about the trailing space since the server will use the path length, not ipairs on the split string.
-
-                        net.writeStream( dataStr, false )
-                    net.send()
-                end )
+                    streamID = safeStream.write( dataStr, false )
+                net.send()
             end
         end
 
-        cancelRequestFuncs[pfRequestID] = pathFinder.findPath( params )
+        local cancelFunc = pathFinder.findPath( params )
+
+        cancelRequestFuncs[pfRequestID] = function()
+            if streamID then
+                safeStream.cancelWrite( streamID )
+                streamID = nil
+            end
+
+            cancelFunc()
+        end
     end )
 
     net.receive( "LKL_GlobalPathFinder_CancelPathRequest", function()
