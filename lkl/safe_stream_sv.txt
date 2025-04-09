@@ -1,0 +1,1099 @@
+--@name safe_stream_sv
+--@author legokidlogan
+--@server
+--@include lkl/global_data_manager.txt
+
+safeStream = safeStream or {}
+if safeStream._alreadyLoaded then return end
+safeStream._alreadyLoaded = true
+
+require( "lkl/global_data_manager.txt" )
+
+
+local writeBatch = {}
+local writeBank = {} -- [streamID] -> { dataStr = STRING, compress = BOOL, streamID = NUMBER, cbByPly = FUNCTION, cbAllDone = FUNCTION, plyLookup = { [plyID] -> BOOL }, someoneCanceled = BOOL }
+local readBank = {} -- [plyID] -> { [streamID] -> { cb = FUNCTION, ply = PLAYER } }
+local writeIncr = 0
+local thisChipID = chip():entIndex()
+local thisChipCT = chip():getCreationTime()
+local unqueuedBusyPlys = {} -- [plyID] -> BOOL  (players who are reading an unqueued stream)
+
+local netWriteStream = net.writeStream
+local netReadStream = net.readStream
+local netCancelStream = net.cancelStream
+--local netGetStreamProgress = net.getStreamProgress
+local netIsStreaming = net.isStreaming
+local netSend = net.send
+
+local tableInsert = table.insert
+local tableRemove = table.remove
+
+local isMyQueueEntry
+local validateGlobalData
+
+
+----- PUBLIC FUNCTIONS -----
+
+--[[
+    - Queues up a net stream to be written.
+    - Use this in place of net.writeStream().
+
+    dataStr: (string)
+        - The data to send.
+    compress: (optional) (boolean)
+        - Whether to compress the data.
+        - True by default.
+    cbByPly: (optional) (function)
+        - A callback which runs each time a player receives or cancels the stream.
+        - Arguments:
+            - streamID: (number) The ID of the stream.
+            - success: (boolean) Whether the stream was successful.
+            - ply: (Player) The player who received or cancelled the stream.
+    cbAllDone: (optional) (function)
+        - A callback which runs once all players have received or cancelled the stream.
+        - Arguments:
+            - streamID: (number) The ID of the stream.
+            - success: (boolean) True if all players successfully received the stream, false if any player cancelled their copy.
+
+    RETURNS: streamID
+        streamID: (number)
+            - The ID of the stream to be written.
+            - Note that stream IDs are not unique across chips, players, nor server vs client.
+--]]
+function safeStream.write( dataStr, compress, cbByPly, cbAllDone )
+    writeIncr = writeIncr + 1
+    net.writeUInt( writeIncr, 16 )
+
+    tableInsert( writeBatch, {
+        dataStr = dataStr,
+        compress = compress,
+        streamID = writeIncr,
+        cbByPly = cbByPly,
+        cbAllDone = cbAllDone,
+    } )
+
+    return writeIncr
+end
+
+--[[
+    - Queues up a net stream to be read.
+    - Use this in place of net.readStream().
+
+    cb: (function)
+        - A callback which runs when the stream is received.
+        - Arguments:
+            - data: (string or nil) The data received, or nil if it was canceled.
+            - streamID: (number) The ID of the stream.
+            - ply: (Player) The player who sent the stream.
+
+    RETURNS: streamID
+        streamID: (number)
+            - The ID of the stream to be read.
+            - Note that stream IDs are not unique across chips, players, nor server vs client.
+--]]
+function safeStream.read( cb )
+    local streamID = net.readUInt( 16 )
+    local ply = net.readEntity() -- This should be handled by the ply arg of net.receive(), but it would make this lib not a direct drop-in replacement.
+    local plyID = ply:getSteamID()
+
+    validateGlobalData()
+
+    tableInsert( GDM.OwnerData.NetStreamSafe.ReadQueue, {
+        streamID = streamID,
+        chipID = thisChipID,
+        chipCT = thisChipCT,
+        plyID = plyID,
+    } )
+
+    GDM.pushOwnerData()
+
+    local bank = readBank[plyID]
+
+    if not bank then
+        bank = {}
+        readBank[plyID] = bank
+    end
+
+    bank[streamID] = {
+        cb = cb,
+        ply = ply,
+    }
+
+    return streamID
+end
+
+--[[
+    - Cancels a write stream for specific players.
+    - Can be used regardless of whether the stream is currently sending or is still queued up.
+    - Can only cancel streams written by this chip.
+
+    streamID: (number)
+        - The ID of the stream to cancel.
+        - This should be an ID from the return of safeStream.write().
+    plys: (optional) (Player or table)
+        - A player or list of players to stop writing the stream to.
+        - If nil, will cancel the stream for all players.
+--]]
+function safeStream.cancelWriteStream( streamID, plys )
+    if not streamID then error( "streamID is nil" ) end
+
+    local bank = writeBank[streamID]
+    if not bank then return end
+
+    bank.someoneCanceled = true
+
+    plys = plys or find.allPlayers( function( ply )
+        return not ply:isBot()
+    end )
+
+    if type( plys ) == "Player" then
+        plys = { plys }
+    end
+
+    validateGlobalData()
+    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local plyLookup = bank.plyLookup
+    local plysToNotify = {}
+    local pushToGDM = false
+
+    for _, ply in ipairs( plys ) do
+        local plyID = ply:getSteamID()
+        if not plyLookup[plyID] then continue end
+
+        local queue = writeQueue[plyID]
+        if not queue then error( "[SafeStream] A stream was removed from the global write queue but not the local write bank! This should not happen!" ) end
+
+        tableInsert( plysToNotify, ply )
+
+        local firstEntry = queue[1]
+
+        if firstEntry then
+            -- If the stream is the one being actively sent, don't remove it until the player acnkowledges the cancellation.
+            if queue.Busy and firstEntry.streamID == streamID and isMyQueueEntry( firstEntry ) then
+                plyLookup[plyID] = false -- Mark as not active, but not fully cancelled.
+            else
+                plyLookup[plyID] = nil
+
+                for i = 1, #queue do
+                    if queue[i].streamID == streamID then
+                        pushToGDM = true
+                        tableRemove( queue, i )
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if pushToGDM then
+        GDM.pushOwnerData()
+    end
+
+    local bankEmpty = not next( plyLookup ) -- Check before running callbacks in case they do more cancellations.
+
+    -- Remove the write bank (if needed) from the list before doing callbacks.
+    if bankEmpty then
+        writeBank[streamID] = nil
+    end
+
+    -- Notify the players of the cancellation.
+    if next( plysToNotify ) then
+        net.start( "LKL_SafeStream_CancelRead" )
+        net.writeUInt( streamID, 16 )
+        net.send( plysToNotify )
+
+        local cbByPly = bank.cbByPly
+
+        if cbByPly then
+            for _, ply in ipairs( plysToNotify ) do
+                if plyLookup[ply:getSteamID()] == nil then -- Don't run ply callback if the cancellation hasn't finished yet.
+                    cbByPly( streamID, false, ply )
+                end
+            end
+        end
+    end
+
+    -- If the stream is no longer being sent to any players (and not awaiting cancellation), remove it from the write bank.
+    if bankEmpty then
+        local cbAllDone = bank.cbAllDone
+
+        if cbAllDone then
+            cbAllDone( streamID, false )
+        end
+    end
+end
+
+--[[
+    - Cancels all streams this chip is writing to a specific player.
+
+    ply: (Player)
+        - The player to cancel streams for.
+    noNet: (optional) (boolean)
+        - If true, don't network the cancellation to the player.
+        - Only use this if you are sure the player's client is about to not exist.
+--]]
+function safeStream.cancelAllWriteStreams( ply, noNet )
+    if not isValid( ply ) then error( "Expected ply to be valid" ) end
+
+    validateGlobalData()
+    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local plyID = ply:getSteamID()
+    local queue = writeQueue[plyID]
+    if not queue then return end
+
+    local shouldPushGDM = false
+    local writeBusy = queue.Busy
+    local busyStreamID = nil
+    local banks = {}
+    local emptyBanks = {}
+    local startInd = writeBusy and 2 or 1
+
+    -- If a stream is being actively sent, don't remove it until the player acnkowledges the cancellation.
+    if writeBusy then
+        local streamInfo = queue[1]
+        if not streamInfo then return end -- This shouldn't happen, but just in case.
+
+        if isMyQueueEntry( streamInfo ) then
+            busyStreamID = streamInfo.streamID
+            local bank = writeBank[busyStreamID]
+
+            if bank and bank.plyLookup[plyID] then
+                bank.plyLookup[plyID] = false -- Mark as not active, but not fully cancelled.
+                bank.someoneCanceled = true
+            end
+        end
+    end
+
+    -- Cancel streams that haven't started being written yet.
+    for i = #queue, startInd, -1 do
+        local streamInfo = queue[i]
+        if not isMyQueueEntry( streamInfo ) then continue end -- Don't cancel streams not written by this chip.
+
+        tableRemove( queue, i )
+        shouldPushGDM = true
+
+        local streamID = streamInfo.streamID
+        local bank = writeBank[streamID]
+        if not bank then continue end -- This shouldn't happen, but just in case.
+
+        local plyLookup = bank.plyLookup
+
+        if plyLookup[plyID] then
+            plyLookup[plyID] = nil
+            tableInsert( banks, bank ) -- This will result in the banks being in reverse order.
+            bank.someoneCanceled = true
+
+            if not next( plyLookup ) then
+                tableInsert( emptyBanks, bank )
+                writeBank[streamID] = nil
+            end
+        end
+    end
+
+    if shouldPushGDM then
+        GDM.pushOwnerData()
+    end
+
+    local cancelCount = #banks + ( busyStreamID and 1 or 0 ) -- Add one for the busy stream if it exists.
+    if cancelCount == 0 then return end
+
+    if not noNet then
+        net.start( "LKL_SafeStream_CancelReadMultiple" )
+        net.writeUInt( cancelCount, 16 )
+
+        if busyStreamID then
+            net.writeUInt( busyStreamID, 16 )
+        end
+
+        for i = #banks, 1, -1 do -- Account for banks being in reverse order. Not needed, but it's nice to do callbacks in proper order.
+            net.writeUInt( banks[i].streamID, 16 )
+        end
+
+        net.send( ply )
+    end
+
+    -- Callbacks.
+    for i = #banks, 1, -1 do
+        local bank = banks[i]
+        local cbByPly = bank.cbByPly
+
+        if cbByPly then
+            cbByPly( bank.streamID, false, ply )
+        end
+    end
+
+    for i = #emptyBanks, 1, -1 do
+        local bank = emptyBanks[i]
+        local cbAllDone = bank.cbAllDone
+
+        if cbAllDone then
+            cbAllDone( bank.streamID, false )
+        end
+    end
+end
+
+--[[
+    - Cancel a stream being read in from a player.
+
+    streamID: (number)
+        - The ID of the stream to cancel.
+        - This should be an ID from the return of safeStream.read().
+    ply: (Player)
+        - The player to cancel the stream from.
+        - This should be the same player that sent the stream.
+--]]
+function safeStream.cancelReadStream( streamID, ply )
+    if not streamID then error( "streamID is nil" ) end
+    if not isValid( ply ) then error( "Expected ply to be valid" ) end
+
+    local plyID = ply:getSteamID()
+    local bank = readBank[plyID]
+    if not bank then return end
+
+    local bankStreamInfo = bank[streamID]
+    if not bankStreamInfo then return end
+
+    local cb = bankStreamInfo.cb
+
+    bank[streamID] = nil
+
+    validateGlobalData()
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local shouldPushGDM = false
+
+    for i = 1, #readQueue do
+        local streamInfo = readQueue[i]
+
+        if streamInfo.streamID == streamID and streamInfo.plyID == plyID and isMyQueueEntry( streamInfo ) then
+            tableRemove( readQueue, i )
+            shouldPushGDM = true
+
+            -- If it's the active read stream, cancel it.
+            if readQueue.Busy and i == 1 then
+                readQueue.Busy = false
+
+                if netIsStreaming() then
+                    netCancelStream()
+                end
+            end
+
+            break
+        end
+    end
+
+    if shouldPushGDM then
+        GDM.pushOwnerData()
+    end
+
+    net.start( "LKL_SafeStream_ReadFinished" )
+    net.writeUInt( streamID, 16 )
+    net.writeBool( false )
+    net.send( ply )
+
+    if cb then
+        cb( nil, streamID, ply )
+    end
+end
+
+--[[
+    - Gets the ID of the stream currently being written to a player.
+    - Examines streams that are actively being sent, not ones that are queued up.
+
+    ply: (Player)
+        - The player to get the stream ID for.
+
+    RETURNS: streamID
+        streamID: (number or nil or false )
+            - The ID of the stream currently being written to the player.
+            - If no stream is currently being written, returns nil.
+            - If a different chip's stream is currently being written, returns false.
+--]]
+function safeStream.getCurrentWriteStream( ply )
+    if not isValid( ply ) then error( "Expected ply to be valid" ) end
+
+    validateGlobalData()
+    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local plyID = ply:getSteamID()
+    local queue = writeQueue[plyID]
+
+    if not queue then return nil end
+    if not queue.Busy then return nil end
+
+    local streamInfo = queue[1]
+    if not streamInfo then return nil end
+    if not isMyQueueEntry( streamInfo ) then return false end -- Busy with another chip's stream.
+
+    return streamInfo.streamID
+end
+
+--[[
+    - Gets the ID of the stream currently being read from a player.
+    - Examines streams that are actively being read, not ones that are queued up.
+
+    RETURNS: streamID
+        streamID: (number or nil or false )
+            - The ID of the stream currently being read from the player.
+            - If no stream is currently being read, returns nil.
+            - If a different chip's stream is currently being read, returns false.
+--]]
+function safeStream.getCurrentReadStream()
+    validateGlobalData()
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    if not readQueue.Busy then return nil end
+
+    local streamInfo = readQueue[1]
+    if not streamInfo then return nil end
+    if not isMyQueueEntry( streamInfo ) then return false end -- Busy with another chip's stream.
+
+    return streamInfo.streamID
+end
+
+-- Returns whether at least one stream is actively being written or read.
+function safeStream.isStreaming()
+    if netIsStreaming() then return true end
+
+    validateGlobalData()
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    if readQueue.Busy then return true end
+
+    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+
+    for _, queue in pairs( writeQueue ) do
+        if queue.Busy then return true end
+    end
+
+    return false
+end
+
+
+----- OVERRIDDEN FUNCTIONS -----
+
+function net.send( target, unreliable, ... )
+    if #writeBatch == 0 then
+        return netSend( target, unreliable, ... )
+    end
+
+    local targets
+
+    if type( target ) == "Player" then
+        targets = { target }
+    elseif type( target ) == "table" then
+        targets = target
+    else
+        targets = find.allPlayers( function( ply )
+            return not ply:isBot()
+        end )
+    end
+
+    validateGlobalData()
+
+    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local plyLookup = {}
+    local infosPreppedForQueue = {}
+
+    -- Prep here so we don't make duplicate garbage tables.
+    for i, streamInfo in ipairs( writeBatch ) do
+        infosPreppedForQueue[i] = {
+            streamID = streamInfo.streamID,
+            chipID = thisChipID,
+            chipCT = thisChipCT,
+        }
+    end
+
+    for _, ply in ipairs( targets ) do
+        local plyID = ply:getSteamID()
+        local queue = writeQueue[plyID]
+
+        if not queue then
+            queue = {}
+            writeQueue[plyID] = queue
+        end
+
+        -- Put steam infos into each player's queue.
+        for i in ipairs( writeBatch ) do
+            tableInsert( queue, infosPreppedForQueue[i] )
+        end
+
+        plyLookup[plyID] = true
+    end
+
+    GDM.pushOwnerData()
+
+    -- Put stream infos into the write bank.
+    for i = #writeBatch, 1, -1 do
+        local streamInfo = writeBatch[i]
+        streamInfo.plyLookup = table.copy( plyLookup )
+
+        writeBatch[i] = nil
+        writeBank[streamInfo.streamID] = streamInfo
+    end
+
+    return netSend( targets, unreliable, ... )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+isMyQueueEntry = function( streamInfo )
+    return streamInfo.chipID == thisChipID and streamInfo.chipCT == thisChipCT
+end
+
+local hasValidated = false
+validateGlobalData = function()
+    if hasValidated then return end
+
+    hasValidated = true
+
+    local shouldPushGDM = false
+
+    if not GDM.OwnerData.NetStreamSafe then
+        GDM.OwnerData.NetStreamSafe = {}
+        shouldPushGDM = true
+    end
+
+    if not GDM.OwnerData.NetStreamSafe.WriteQueue then
+        GDM.OwnerData.NetStreamSafe.WriteQueue = {} -- { [plyID] -> { Busy = BOOL, [NUMBER] -> { streamID = NUMBER, chipID = NUMBER, chipCT = NUMBER } } }
+        shouldPushGDM = true
+    end
+
+    if not GDM.OwnerData.NetStreamSafe.ReadQueue then
+        GDM.OwnerData.NetStreamSafe.ReadQueue = {} -- { Busy = BOOL, [NUMBER] -> { streamID = NUMBER, chipID = NUMBER, chipCT = NUMBER, plyID = STRING } }
+        shouldPushGDM = true
+    end
+
+    if shouldPushGDM then
+        GDM.pushOwnerData()
+    end
+end
+
+
+----- SETUP -----
+
+hook.add( "Removed", "LKL_SafeStream_CancelMyStreams", function()
+    local plys = find.allPlayers( function( ply )
+        return not ply:isBot()
+    end )
+
+    for _, ply in ipairs( plys ) do
+        safeStream.cancelAllWriteStreams( ply )
+    end
+
+    -- Remove this chip's read entries from the read queue.
+    validateGlobalData()
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local shouldPushGDM = false
+    local stillBusy = readQueue.Busy
+
+    for i = #readQueue, 1, -1 do
+        local streamInfo = readQueue[i]
+
+        if isMyQueueEntry( streamInfo ) then
+            tableRemove( readQueue, i )
+            shouldPushGDM = true
+
+            -- If the stream is the active read stream, cancel it.
+            if stillBusy and i == 1 then
+                stillBusy = false
+
+                if netIsStreaming() then
+                    netCancelStream()
+                end
+            end
+        end
+    end
+
+    if shouldPushGDM then
+        readQueue.Busy = stillBusy
+        GDM.pushOwnerData()
+    end
+
+    -- Run callbacks for all read streams, in case they perform cross-chip interactions.
+    for _, ply in ipairs( plys ) do
+        local plyID = ply:getSteamID()
+        local bank = readBank[plyID]
+
+        readBank[plyID] = nil
+
+        if bank then
+            for streamID, streamInfo in pairs( bank ) do
+                local cb = streamInfo.cb
+
+                if cb then
+                    cb( nil, streamID, ply )
+                end
+            end
+        end
+    end
+
+    -- In case this comes from a serverside restart() instead of chip deletion, tell the client to free up memory.
+    net.start( "LKL_SafeStream_ClearWriteBank" )
+    net.send( plys )
+end )
+
+hook.add( "PlayerDisconnect", "LKL_SafeStream_CancelPlayerStreams", function( _, _, ply )
+    if not isValid( ply ) then return end
+
+    safeStream.cancelAllWriteStreams( ply, true )
+end )
+
+hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, ply )
+    validateGlobalData()
+    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local isClient = type( ply ) == "Player" -- Clientside error
+    local isServer = not isClient
+
+    local chipID = chipEnt:entIndex()
+    local chipCT = chipEnt:getCreationTime()
+    local errPlyID = isClient and ply:getSteamID()
+
+    -- If one of this chip's client errored and we were reading a stream from them, cancel it.
+    if readQueue.Busy and isClient and chipEnt == chip() then
+        local firstEntry = readQueue[1]
+
+        if firstEntry and firstEntry.plyID == errPlyID and isMyQueueEntry( firstEntry ) then
+            if netIsStreaming() then
+                netCancelStream()
+            end
+
+            local bank = readBank[errPlyID]
+            if not bank then return end -- This shouldn't happen, but just in case.
+
+            local streamID = firstEntry.streamID
+
+            local streamInfo = bank[streamID]
+            if not streamInfo then return end -- This shouldn't happen, but just in case.
+
+            local cb = streamInfo.cb
+
+            bank[streamID] = nil
+
+            if cb then
+                cb( nil, streamID, ply )
+            end
+        end
+    end
+
+    -- Remove all queue entries tied to the errored chip (and only if it matches the player, if it's a client error).
+    local shouldPushGDM = false
+
+    for i = #readQueue, 1, -1 do
+        local streamInfo = readQueue[i]
+
+        if streamInfo.chipID == chipID and streamInfo.chipCT == chipCT and ( isServer or streamInfo.plyID == errPlyID ) then
+            tableRemove( readQueue, i )
+            shouldPushGDM = true
+
+            if i == 1 then
+                readQueue.Busy = false
+            end
+        end
+    end
+
+    if isClient and not writeQueue[errPlyID] then
+        if shouldPushGDM then
+            GDM.pushOwnerData()
+        end
+
+        return
+    end
+
+    local plyIDs = isServer and table.getKeys( writeQueue ) or { errPlyID }
+
+    for _, plyID in ipairs( plyIDs ) do
+        local queue = writeQueue[plyID]
+
+        for i = #queue, 1, -1 do
+            local streamInfo = queue[i]
+
+            if streamInfo.chipID == chipID and streamInfo.chipCT == chipCT then
+                tableRemove( queue, i )
+                shouldPushGDM = true
+
+                if i == 1 then
+                    queue.Busy = false
+                end
+            end
+        end
+
+        if not next( queue ) then
+            writeQueue[plyID] = nil
+        end
+    end
+
+    if shouldPushGDM then
+        GDM.pushOwnerData()
+    end
+end )
+
+
+net.receive( "LKL_SafeStream_QueueRead", function( _, ply )
+    -- Client wants to queue up a stream for us to read.
+
+    local plyID = ply:getSteamID()
+    local streamID = net.readUInt( 16 )
+
+    validateGlobalData()
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+
+    tableInsert( readQueue, {
+        streamID = streamID,
+        chipID = thisChipID,
+        chipCT = thisChipCT,
+        plyID = plyID,
+    } )
+end )
+
+net.receive( "LKL_SafeStream_ReadStream", function( _, ply )
+    -- Client has been told to start streaming, this is sending the stream data.
+
+    local plyID = ply:getSteamID()
+    local streamID = net.readUInt( 16 )
+
+    netReadStream( function( data )
+        validateGlobalData()
+        local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+        local firstEntry = readQueue[1]
+
+        if firstEntry and firstEntry.streamID == streamID and firstEntry.plyID == plyID and isMyQueueEntry( firstEntry ) then
+            tableRemove( readQueue, 1 )
+            readQueue.Busy = false
+            GDM.pushOwnerData()
+        end
+
+        net.start( "LKL_SafeStream_ReadFinished" )
+        net.writeUInt( streamID, 16 )
+        net.writeBool( true )
+        net.send( ply )
+
+        local bank = readBank[plyID]
+        if not bank then return end
+
+        local streamInfo = bank[streamID]
+        if not streamInfo then return end
+
+        local cb = streamInfo.cb
+
+        bank[streamID] = nil
+
+        if cb then
+            cb( data, streamID, ply )
+        end
+    end )
+
+    local bank = readBank[plyID]
+
+    -- This shouldn't happen, but just in case.
+    if not bank or not bank[streamID] then
+        netCancelStream() -- Read then cancel instead of returning, to make sure the net library doesn't get confused by an unread stream.
+    end
+end )
+
+net.receive( "LKL_SafeStream_CancelRead", function( _, ply )
+    -- Client wants to cancel a stream we were going to read.
+
+    local plyID = ply:getSteamID()
+    local streamID = net.readUInt( 16 )
+
+    validateGlobalData()
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local shouldPushGDM = false
+
+    for i = 1, #readQueue do
+        local streamInfo = readQueue[i]
+
+        if streamInfo.streamID == streamID and streamInfo.plyID == plyID and isMyQueueEntry( streamInfo ) then
+            tableRemove( readQueue, i )
+            shouldPushGDM = true
+
+            -- If the stream is the active read stream, cancel it.
+            if readQueue.Busy and i == 1 then
+                readQueue.Busy = false
+
+                if netIsStreaming() then
+                    netCancelStream()
+                end
+            end
+
+            break
+        end
+    end
+
+    if shouldPushGDM then
+        GDM.pushOwnerData()
+    end
+
+    local bank = readBank[plyID]
+    if not bank then return end -- This shouldn't happen, but just in case.
+
+    local streamInfo = bank[streamID]
+    if not streamInfo then return end -- This shouldn't happen, but just in case.
+
+    local cb = streamInfo.cb
+
+    bank[streamID] = nil
+
+    if cb then
+        cb( nil, streamID, ply )
+    end
+end )
+
+net.receive( "LKL_SafeStream_CancelReadMultiple", function( _, ply )
+    -- Client wants to cancel multiple streams we were going to read.
+
+    local plyID = ply:getSteamID()
+    local streamIDs = {}
+    local streamIDLookup = {}
+    local cancelsLeft = net.readUInt( 16 )
+
+    for i = 1, cancelsLeft do
+        local streamID = net.readUInt( 16 )
+
+        streamIDs[i] = streamID
+        streamIDLookup[streamID] = true
+    end
+
+    validateGlobalData()
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local shouldPushGDM = false
+    local stillBusy = readQueue.Busy
+
+    for i = #readQueue, 1, -1 do
+        local streamInfo = readQueue[i]
+        local streamID = streamInfo.streamID
+
+        if streamIDLookup[streamID] and streamInfo.plyID == plyID and isMyQueueEntry( streamInfo ) then
+            tableRemove( readQueue, i )
+            shouldPushGDM = true
+            cancelsLeft = cancelsLeft - 1
+
+            -- If the stream is the active read stream, cancel it.
+            if stillBusy and i == 1 then
+                stillBusy = false
+
+                if netIsStreaming() then
+                    netCancelStream()
+                end
+            end
+
+            if cancelsLeft == 0 then break end
+        end
+    end
+
+    if shouldPushGDM then
+        readQueue.Busy = stillBusy
+        GDM.pushOwnerData()
+    end
+
+    local bank = readBank[plyID]
+    if not bank then return end -- This shouldn't happen, but just in case.
+
+    local callbacks = {}
+
+    -- Remove bank entries before running callbacks.
+    for _, streamID in ipairs( streamIDs ) do
+        local streamInfo = bank[streamID]
+
+        if streamInfo then
+            callbacks[streamID] = streamInfo.cb
+            bank[streamID] = nil
+        end
+    end
+
+    for _, streamID in ipairs( streamIDs ) do
+        local cb = callbacks[streamID]
+
+        if cb then
+            cb( nil, streamID, ply )
+        end
+    end
+end )
+
+net.receive( "LKL_SafeStream_ReadFinished", function( _, ply )
+    -- Client has finished or canceled reading a stream.
+
+    local plyID = ply:getSteamID()
+    local streamID = net.readUInt( 16 )
+    local success = net.readBool()
+
+    validateGlobalData()
+    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local queue = writeQueue[plyID]
+    if not queue then return end
+
+    for i, streamInfo in ipairs( queue ) do
+        if streamInfo.streamID == streamID then
+            tableRemove( queue, i )
+
+            if i == 1 then
+                queue.Busy = false
+            end
+
+            GDM.pushOwnerData()
+
+            break
+        end
+    end
+
+    local bank = writeBank[streamID]
+    if not bank then return end -- This shouldn't happen, but just in case.
+
+    local plyLookup = bank.plyLookup
+    if plyLookup[plyID] == nil then return end -- This shouldn't happen, but just in case.
+
+    plyLookup[plyID] = nil
+
+    local emptyBank = not next( plyLookup )
+    local cbByPly = bank.cbByPly
+
+    if cbByPly then
+        cbByPly( streamID, success, ply )
+    end
+
+    if emptyBank then
+        writeBank[streamID] = nil
+
+        local cbAllDone = bank.cbAllDone
+
+        if cbAllDone then
+            cbAllDone( streamID, success and not bank.someoneCanceled )
+        end
+    end
+end )
+
+net.receive( "LKL_SafeStream_UnqueuedReadStarted", function( _, ply )
+    -- A player started reading a stream that wasn't prepared by this library.
+
+    unqueuedBusyPlys[ply:getSteamID()] = true
+end )
+
+net.receive( "LKL_SafeStream_UnqueuedReadFinished", function( _, ply )
+    -- A player finished reading a stream that wasn't prepared by this library.
+
+    unqueuedBusyPlys[ply:getSteamID()] = nil
+end )
+
+
+timer.create( "LKL_SafeStream_ProcessWriteQueue", 1, 0, function()
+    validateGlobalData()
+    local writeQueue = GDM.OwnerData.NetStreamSafe.WriteQueue
+    local shouldPushGDM = false
+
+    for plyID, queue in pairs( writeQueue ) do
+        if unqueuedBusyPlys[plyID] then continue end -- Don't send streams to players who are busy with unqueued streams.
+
+        -- If busy, ensure the busy entry is still valid, and skip if it is.
+        if queue.Busy then
+            local firstEntry = queue[1]
+
+            if not firstEntry then
+                queue.Busy = false
+                continue
+            end
+
+            local chipID = firstEntry.chipID
+            local chipEnt = entity( chipID )
+
+            if isValid( chipEnt ) and chipEnt:getCreationTime() == firstEntry.chipCT and chipEnt:hasInstance() then
+                continue
+            end
+
+            -- The chip is invalid, so remove the entry.
+            queue.Busy = false
+            tableRemove( queue, 1 )
+            shouldPushGDM = true
+        end
+
+        local streamInfo = queue[1]
+        --if not streamInfo then continue end
+
+        -- If the queue is empty, remove it.
+        if not streamInfo then
+            writeQueue[plyID] = nil
+            shouldPushGDM = true
+            continue
+        end
+
+        if not isMyQueueEntry( streamInfo ) then continue end -- Don't send streams not written by this chip.
+
+        local bank = writeBank[streamInfo.streamID]
+
+        -- This shouldn't happen, but for just in case.
+        if not bank then
+            tableRemove( queue, 1 )
+            shouldPushGDM = true
+            continue
+        end
+
+        local ply = find.playerBySteamID( plyID )
+
+        if not isValid( ply ) then
+            tableRemove( queue, 1 )
+            shouldPushGDM = true
+            continue
+        end
+
+        queue.Busy = true
+        shouldPushGDM = true
+
+        net.start( "LKL_SafeStream_ReadStream" )
+        net.writeUInt( streamInfo.streamID, 16 )
+        netWriteStream( bank.dataStr, bank.compress )
+        net.send( ply )
+    end
+
+    if shouldPushGDM then
+        GDM.pushOwnerData()
+    end
+end )
+
+timer.create( "LKL_SafeStream_ProcessReadQueue", 1, 0, function()
+    if netIsStreaming() then return end
+
+    validateGlobalData()
+    local readQueue = GDM.OwnerData.NetStreamSafe.ReadQueue
+    local streamInfo = readQueue[1]
+
+    if not streamInfo then
+        if readQueue.Busy then
+            -- This shouldn't happen, but just in case.
+            readQueue.Busy = false
+            GDM.pushOwnerData()
+        end
+
+        return
+    end
+
+    local chipEnt = entity( streamInfo.chipID )
+
+    -- If the chip is invalid, remove the entry.
+    if not isValid( chipEnt ) or chipEnt:getCreationTime() ~= streamInfo.chipCT or not chipEnt:hasInstance() then
+        tableRemove( readQueue, 1 )
+        readQueue.Busy = false
+        GDM.pushOwnerData()
+
+        return
+    end
+
+    if not isMyQueueEntry( streamInfo ) then return end -- Don't read streams not written by this chip.
+
+    local plyID = streamInfo.plyID
+    local ply = find.playerBySteamID( plyID )
+
+    if not isValid( ply ) then
+        tableRemove( readQueue, 1 )
+        readQueue.Busy = false
+        GDM.pushOwnerData()
+
+        return
+    end
+
+    if readQueue.Busy then return end -- Currently busy with a valid entry.
+
+    readQueue.Busy = true
+    GDM.pushOwnerData()
+
+    net.start( "LKL_SafeStream_StartWriting" )
+    net.writeUInt( streamInfo.streamID, 16 )
+    net.send( ply )
+end )

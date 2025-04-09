@@ -1,0 +1,29 @@
+--@name Safe Stream
+--@author legokidlogan
+--@shared
+--@include lkl/safe_stream_sv.txt
+--@include lkl/safe_stream_cl.txt
+
+--[[
+    - A library which manages net streams to prevent conflicts.
+    - To utilize this library, include it in both realms and either:
+        A)
+            - Manually replace net.writeStream() and net.readStream() calls with
+              safeStream.write() and safeStream.read() calls.
+            - This is preferable if you wish to make use of this library's added features,
+              such as canceling streams from either realm, or having callbacks on write.
+        B)
+            - Add the following code snippet after require()'ing the library:
+                net.writeStream = safeStream.write
+                net.readStream = safeStream.read
+            - This will automatically make all streams safe, but isn't a clean code practice.
+    - Note that if you also run ANY other chips which use net streams without this library,
+        you will be vulnerable to conflicts again.
+--]]
+
+
+if SERVER then
+    require( "lkl/safe_stream_sv.txt" )
+else
+    require( "lkl/safe_stream_cl.txt" )
+end

@@ -1,0 +1,385 @@
+--@name safe_stream_cl
+--@author legokidlogan
+--@client
+
+safeStream = safeStream or {}
+if safeStream._alreadyLoaded then return end
+safeStream._alreadyLoaded = true
+
+
+local writeBank = {} -- [streamID] -> { dataStr = STRING, compress = BOOL, streamID = NUMBER, cb = FUNCTION }
+local readBank = {} -- [streamID] -> cb
+local writeIncr = 0
+local writingStreamID = nil
+local readingStreamID = nil
+
+local netWriteStream = net.writeStream
+local netReadStream = net.readStream
+local netCancelStream = net.cancelStream
+--local netGetStreamProgress = net.getStreamProgress
+local netIsStreaming = net.isStreaming
+--local netSend = net.send
+
+local tableInsert = table.insert
+
+
+
+----- PUBLIC FUNCTIONS -----
+
+--[[
+    - Queues up a net stream to be written.
+    - Use this in place of net.writeStream().
+
+    dataStr: (string)
+        - The data to send.
+    compress: (optional) (boolean)
+        - Whether to compress the data.
+        - True by default.
+    cb: (optional) (function)
+        - A callback which runs once the server receives or cancels the stream.
+        - Arguments:
+            - streamID: (number) The ID of the stream.
+            - success: (boolean) True if the server successfully received the stream, false otherwise.
+
+    RETURNS: streamID
+        streamID: (number)
+            - The ID of the stream to be written.
+            - Note that stream IDs are not unique across chips, players, nor server vs client.
+--]]
+function safeStream.write( dataStr, compress, cb )
+    writeIncr = writeIncr + 1
+    net.writeUInt( writeIncr, 16 )
+    net.writeEntity( player() )
+
+    writeBank[writeIncr] = {
+        dataStr = dataStr,
+        compress = compress,
+        streamID = writeIncr,
+        cb = cb,
+    }
+
+    return writeIncr
+end
+
+--[[
+    - Queues up a net stream to be read.
+    - Use this in place of net.readStream().
+
+    cb: (function)
+        - A callback which runs when the stream is received.
+        - Arguments:
+            - data: (string or nil) The data received, or nil if it was canceled.
+            - streamID: (number) The ID of the stream.
+
+    RETURNS: streamID
+        streamID: (number)
+            - The ID of the stream to be read.
+            - Note that stream IDs are not unique across chips, players, nor server vs client.
+--]]
+function safeStream.read( cb )
+    if type( cb ) ~= "function" then error( "Expected cb to be a function" ) end
+
+    local streamID = net.readUInt( 16 )
+
+    readBank[streamID] = cb
+
+    return streamID
+end
+
+--[[
+    - Cancels a write stream destined for the server.
+    - Can be used regardless of whether the stream is currently sending or is still queued up.
+    - Can only cancel streams written by this chip.
+
+    streamID: (number)
+        - The ID of the stream to cancel.
+        - This should be an ID from the return of safeStream.write().
+--]]
+function safeStream.cancelWriteStream( streamID )
+    if not streamID then error( "streamID is nil" ) end
+
+    local streamInfo = writeBank[streamID]
+    if not streamInfo then return end
+
+    net.start( "LKL_SafeStream_CancelRead" )
+    net.writeUInt( streamID, 16 )
+    net.send()
+
+    writeBank[streamID] = nil
+
+    local cb = streamInfo.cb
+
+    if cb then
+        cb( streamID, false )
+    end
+end
+
+--[[
+    - Cancels all streams this chip is writing to the server.
+
+    noNet: (optional) (boolean)
+        - If true, don't network the cancellation to the server.
+        - Only use this if you are sure the server is about to not exist.
+--]]
+function safeStream.cancelAllWriteStreams( noNet )
+    local streamIDs = {}
+    local callbacks = {}
+
+    writingStreamID = nil
+
+    for streamID, streamInfo in pairs( writeBank ) do
+        tableInsert( streamIDs, streamID )
+        callbacks[streamID] = streamInfo.cb
+        writeBank[streamID] = nil
+    end
+
+    if not noNet then
+        net.start( "LKL_SafeStream_CancelReadMultiple" )
+        net.writeUInt( #streamIDs, 16 )
+
+        for _, streamID in ipairs( streamIDs ) do
+            net.writeUInt( streamID, 16 )
+        end
+
+        net.send()
+    end
+
+    for _, streamID in ipairs( streamIDs ) do
+        local cb = callbacks[streamID]
+
+        if cb then
+            cb( streamID, false )
+        end
+    end
+end
+
+--[[
+    - Cancel a stream being read in from the server.
+
+    streamID: (number)
+        - The ID of the stream to cancel.
+        - This should be an ID from the return of safeStream.read().
+--]]
+function safeStream.cancelReadStream( streamID )
+    if not streamID then error( "streamID is nil" ) end
+
+    if readingStreamID == streamID and netIsStreaming() then
+        readingStreamID = nil
+        netCancelStream()
+    end
+
+    local cb = readBank[streamID]
+    if not cb then return end
+
+    net.start( "LKL_SafeStream_ReadFinished" )
+    net.writeUInt( streamID, 16 )
+    net.writeBool( false )
+    net.send()
+
+    if cb then
+        cb( nil, streamID )
+    end
+end
+
+--[[
+    - Gets the ID of the stream currently being written to the server.
+    - Examines streams that are actively being sent, not ones that are queued up.
+
+    RETURNS: streamID
+        streamID: (number or nil )
+            - The ID of the stream currently being written to the server.
+            - If no stream is currently being written by this chip, returns nil.
+--]]
+function safeStream.getCurrentWriteStream()
+    return writingStreamID
+end
+
+--[[
+    - Gets the ID of the stream currently being read from the server.
+    - Examines streams that are actively being read, not ones that are queued up.
+
+    RETURNS: streamID
+        streamID: (number or nil or false )
+            - The ID of the stream currently being read from the server.
+            - If no stream is currently being read by this chip, returns nil.
+--]]
+function safeStream.getCurrentReadStream()
+    return readingStreamID
+end
+
+-- Returns whether at least one stream is actively being written or read.
+function safeStream.isStreaming()
+    if netIsStreaming() then return true end
+    if writingStreamID then return true end
+
+    return false
+end
+
+
+----- OVERRIDDEN FUNCTIONS -----
+
+function net.readStream( cb, ... )
+    net.start( "LKL_SafeStream_UnqueuedReadStarted" )
+    net.send()
+
+    return netReadStream( function( data )
+        net.start( "LKL_SafeStream_UnqueuedReadFinished" )
+        net.send()
+
+        return cb( data )
+    end, ... )
+end
+
+
+----- SETUP -----
+
+hook.add( "Removed", "LKL_SafeStream_CancelMyStreams", function()
+    safeStream.cancelAllWriteStreams()
+end )
+
+hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, _ply )
+    if chipEnt == chip() then
+        -- Can only happen if the server errored, as scripts can't listen to their own errors in the realm they occured.
+        safeStream.cancelAllWriteStreams( true )
+    end
+end )
+
+
+net.receive( "LKL_SafeStream_ReadStream", function()
+    -- Server is sending stream data.
+
+    local streamID = net.readUInt( 16 )
+
+    netReadStream( function( data )
+        local cb = readBank[streamID]
+        if not cb then return end
+
+        readBank[streamID] = nil
+        readingStreamID = nil
+
+        net.start( "LKL_SafeStream_ReadFinished" )
+        net.writeUInt( streamID, 16 )
+        net.writeBool( true )
+        net.send()
+
+        if cb then
+            cb( data, streamID )
+        end
+    end )
+
+    -- This shouldn't happen, but just in case.
+    if not readBank[streamID] then
+        netCancelStream() -- Read then cancel instead of returning, to make sure the net library doesn't get confused by an unread stream.
+
+        return
+    end
+
+    readingStreamID = streamID
+end )
+
+net.receive( "LKL_SafeStream_CancelRead", function()
+    -- Server wants to cancel a stream we were going to read.
+
+    local streamID = net.readUInt( 16 )
+    local cb = readBank[streamID]
+
+    if readingStreamID == streamID and netIsStreaming() then
+        readingStreamID = nil
+        netCancelStream()
+    end
+
+    readBank[streamID] = nil
+
+    net.start( "LKL_SafeStream_ReadFinished" )
+    net.writeUInt( streamID, 16 )
+    net.writeBool( false )
+    net.send()
+
+    if cb then
+        cb( nil, streamID )
+    end
+end )
+
+net.receive( "LKL_SafeStream_CancelReadMultiple", function()
+    -- Server wants to cancel multiple streams we were going to read.
+
+    local count = net.readUInt( 16 )
+    local streamIDs = {}
+    local callbacks = {}
+
+    for i = 1, count do
+        local streamID = net.readUInt( 16 )
+        local cb = readBank[streamID]
+
+        if readingStreamID == streamID and netIsStreaming() then
+            readingStreamID = nil
+            netCancelStream()
+
+            net.start( "LKL_SafeStream_ReadFinished" )
+            net.writeUInt( streamID, 16 )
+            net.writeBool( false )
+            net.send()
+        end
+
+        streamIDs[i] = streamID
+        callbacks[streamID] = cb
+        readBank[streamID] = nil
+    end
+
+    for _, streamID in ipairs( streamIDs ) do
+        local cb = callbacks[streamID]
+
+        if cb then
+            cb( nil, streamID )
+        end
+    end
+end )
+
+net.receive( "LKL_SafeStream_ReadFinished", function()
+    -- Server has finished or canceled reading a stream.
+
+    local streamID = net.readUInt( 16 )
+    local success = net.readBool()
+    local streamInfo = writeBank[streamID]
+    if not streamInfo then return end
+
+    if writingStreamID == streamID then
+        writingStreamID = nil
+    end
+
+    writeBank[streamID] = nil
+
+    local cb = streamInfo.cb
+
+    if cb then
+        cb( streamID, success )
+    end
+end )
+
+net.receive( "LKL_SafeStream_ClearWriteBank", function()
+    -- Server wants us to clear the write bank, and not send a message back.
+
+    table.empty( writeBank )
+    writingStreamID = nil
+end )
+
+net.receive( "LKL_SafeStream_StartWriting", function()
+    -- Server wants us to start writing.
+
+    local streamID = net.readUInt( 16 )
+    local streamInfo = writeBank[streamID]
+    if not streamInfo then error( "[SafeStream] Server prompted the client to write a stream it never queued!" ) end
+
+    writingStreamID = streamID
+
+    net.start( "LKL_SafeStream_ReadStream" )
+    net.writeUInt( streamID, 16 )
+    netWriteStream( streamInfo.dataStr, streamInfo.compress )
+    net.send()
+end )
+
+
+if netIsStreaming() then
+    net.start( "LKL_SafeStream_UnqueuedReadStarted" )
+    net.send()
+end
