@@ -134,7 +134,7 @@ end
         - A player or list of players to stop writing the stream to.
         - If nil, will cancel the stream for all players.
 --]]
-function safeStream.cancelWriteStream( streamID, plys )
+function safeStream.cancelWrite( streamID, plys )
     if not streamID then error( "streamID is nil" ) end
 
     local bank = writeBank[streamID]
@@ -232,7 +232,7 @@ end
         - If true, don't network the cancellation to the player.
         - Only use this if you are sure the player's client is about to not exist.
 --]]
-function safeStream.cancelAllWriteStreams( ply, noNet )
+function safeStream.cancelAllWrites( ply, noNet )
     if not isValid( ply ) then error( "Expected ply to be valid" ) end
 
     validateGlobalData()
@@ -342,7 +342,7 @@ end
         - The player to cancel the stream from.
         - This should be the same player that sent the stream.
 --]]
-function safeStream.cancelReadStream( streamID, ply )
+function safeStream.cancelRead( streamID, ply )
     if not streamID then error( "streamID is nil" ) end
     if not isValid( ply ) then error( "Expected ply to be valid" ) end
 
@@ -575,7 +575,7 @@ hook.add( "Removed", "LKL_SafeStream_CancelMyStreams", function()
     end )
 
     for _, ply in ipairs( plys ) do
-        safeStream.cancelAllWriteStreams( ply )
+        safeStream.cancelAllWrites( ply )
     end
 
     -- Remove this chip's read entries from the read queue.
@@ -633,7 +633,7 @@ end )
 hook.add( "PlayerDisconnect", "LKL_SafeStream_CancelPlayerStreams", function( _, _, ply )
     if not isValid( ply ) then return end
 
-    safeStream.cancelAllWriteStreams( ply, true )
+    safeStream.cancelAllWrites( ply, true )
 end )
 
 hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, ply )

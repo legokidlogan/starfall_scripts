@@ -95,7 +95,7 @@ end
         - The ID of the stream to cancel.
         - This should be an ID from the return of safeStream.write().
 --]]
-function safeStream.cancelWriteStream( streamID )
+function safeStream.cancelWrite( streamID )
     if not streamID then error( "streamID is nil" ) end
 
     local streamInfo = writeBank[streamID]
@@ -121,7 +121,7 @@ end
         - If true, don't network the cancellation to the server.
         - Only use this if you are sure the server is about to not exist.
 --]]
-function safeStream.cancelAllWriteStreams( noNet )
+function safeStream.cancelAllWrites( noNet )
     local streamIDs = {}
     local callbacks = {}
 
@@ -160,7 +160,7 @@ end
         - The ID of the stream to cancel.
         - This should be an ID from the return of safeStream.read().
 --]]
-function safeStream.cancelReadStream( streamID )
+function safeStream.cancelRead( streamID )
     if not streamID then error( "streamID is nil" ) end
 
     if readingStreamID == streamID and netIsStreaming() then
@@ -234,13 +234,13 @@ end
 ----- SETUP -----
 
 hook.add( "Removed", "LKL_SafeStream_CancelMyStreams", function()
-    safeStream.cancelAllWriteStreams()
+    safeStream.cancelAllWrites()
 end )
 
 hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, _ply )
     if chipEnt == chip() then
         -- Can only happen if the server errored, as scripts can't listen to their own errors in the realm they occured.
-        safeStream.cancelAllWriteStreams( true )
+        safeStream.cancelAllWrites( true )
     end
 end )
 
