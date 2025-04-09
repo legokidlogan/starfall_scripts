@@ -732,6 +732,13 @@ hook.add( "ClientInitialized", "LKL_SafeStream_TrackClientInit", function( ply )
 end )
 
 
+hook.add( "Remote_LKL_SafeStream_ForceClearUnqueuedBusy", "LKL_SafeStream_Acknowledge", function( _, callingPly, plyID )
+    if callingPly ~= owner() then return end
+
+    unqueuedBusyPlys[plyID] = nil
+end )
+
+
 net.receive( "LKL_SafeStream_QueueRead", function( _, ply )
     -- Client wants to queue up a stream for us to read.
 
@@ -920,6 +927,10 @@ net.receive( "LKL_SafeStream_ReadFinished", function( _, ply )
     local plyID = ply:getSteamID()
     local streamID = net.readUInt( 16 )
     local success = net.readBool()
+
+    -- If a client starts while another chip is reading, it'll think it's unqueued, so account for that here when they finish.
+    unqueuedBusyPlys[plyID] = nil
+    hookRunRemoteByOwner( owner(), "LKL_SafeStream_ForceClearUnqueuedBusy", plyID )
 
     validateGlobalData()
     local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
