@@ -3,6 +3,7 @@
 --@shared
 --@include lkl/global_data_manager.txt
 --@include lkl/gcolors.txt
+--@include lkl/safe_stream.txt
 
 libMapData = libMapData or {}
 
@@ -19,6 +20,7 @@ libMapData.PERF_LIMIT = libMapData.PERF_LIMIT or 0.4 -- Perf limit.
 
 
 require( "lkl/gcolors.txt" )
+require( "lkl/safe_stream.txt" )
 
 local data = nil
 local dataIsReady = false
@@ -204,7 +206,7 @@ end
 
 if CLIENT and player() ~= owner() then
     net.receive( "LKL_MapData_SendData_NonOwner", function()
-        net.readStream( function( str )
+        safeStream.read( function( str )
             data = json.decode( str )
             dataIsReady = true
 
@@ -281,13 +283,13 @@ if CLIENT then
             timer.remove( "LKL_MapData_SendData" )
 
             net.start( "LKL_MapData_SendData" )
-            net.writeStream( json.encode( data ), false )
+            safeStream.write( json.encode( data ), false )
             net.send()
         end )
     end )
 
     net.receive( "LKL_MapData_SendData", function()
-        net.readStream( function( str )
+        safeStream.read( function( str )
             data = json.decode( str )
             dataIsReady = true
 
@@ -987,7 +989,7 @@ local function sendDataToNonOwners()
         end
 
         net.start( "LKL_MapData_SendData_NonOwner" )
-        net.writeStream( json.encode( data ), false )
+        safeStream.write( json.encode( data ), false )
         net.send( allButOwner )
 
         allowNextChipToGetData()
@@ -1032,7 +1034,7 @@ finishGeneratingData = function()
         timer.remove( "LKL_MapData_SendData" )
 
         net.start( "LKL_MapData_SendData" )
-        net.writeStream( json.encode( data ), false )
+        safeStream.write( json.encode( data ), false )
         net.send( owner() )
 
         sendDataToNonOwners()
@@ -1089,7 +1091,7 @@ if not libMapData.OWNER_ONLY then
                 if not isValid( ply ) then return end
 
                 net.start( "LKL_MapData_SendData_NonOwner" )
-                net.writeStream( json.encode( data ), false )
+                safeStream.write( json.encode( data ), false )
                 net.send( ply )
             end )
         end )
@@ -1168,7 +1170,7 @@ end )
 net.receive( "LKL_MapData_SendData", function( _, ply )
     if ply ~= owner() then return end
 
-    net.readStream( function( str )
+    safeStream.read( function( str )
         data = json.decode( str )
         dataIsReady = true
         generatingData = false
