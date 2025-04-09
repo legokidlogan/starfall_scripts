@@ -166,6 +166,10 @@ function libMeshMinimap.setZoomLevel( level )
     for _, mapHolo in ipairs( mapHolos ) do
         mapHolo:setScale( holoScale )
     end
+
+    for _, mapHolo in ipairs( mapHolosTint ) do
+        mapHolo:setScale( holoScale )
+    end
 end
 
 function libMeshMinimap.getZoomLevel()
