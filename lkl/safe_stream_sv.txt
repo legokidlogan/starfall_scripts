@@ -988,6 +988,7 @@ timer.create( "LKL_SafeStream_ProcessWriteQueue", 1, 0, function()
 
             if not firstEntry then
                 queue.Busy = false
+                shouldPushGDM = true
                 continue
             end
 
