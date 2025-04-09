@@ -235,6 +235,9 @@ end
 
 hook.add( "Removed", "LKL_SafeStream_CancelMyStreams", function()
     safeStream.cancelAllWrites()
+
+    net.start( "LKL_SafeStream_CancelAllWrites" )
+    net.send()
 end )
 
 hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, _ply )

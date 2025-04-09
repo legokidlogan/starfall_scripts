@@ -961,6 +961,12 @@ net.receive( "LKL_SafeStream_ReadFinished", function( _, ply )
     end
 end )
 
+net.receive( "LKL_SafeStream_CancelAllWrites", function( _, ply )
+    -- A player is requesting to cancel all writes to them.
+
+    safeStream.cancelAllWrites( ply, true )
+end )
+
 net.receive( "LKL_SafeStream_UnqueuedReadStarted", function( _, ply )
     -- A player started reading a stream that wasn't prepared by this library.
 
