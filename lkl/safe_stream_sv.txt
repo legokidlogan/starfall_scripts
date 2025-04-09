@@ -17,6 +17,7 @@ local writeIncr = 0
 local thisChipID = chip():entIndex()
 local thisChipCT = chip():getCreationTime()
 local unqueuedBusyPlys = {} -- [plyID] -> BOOL  (players who are reading an unqueued stream)
+local initPlys = {} -- [ply] -> BOOL (players with initialized clients)
 
 local netWriteStream = net.writeStream
 local netReadStream = net.readStream
@@ -726,6 +727,10 @@ hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, pl
     end
 end )
 
+hook.add( "ClientInitialized", "LKL_SafeStream_TrackClientInit", function( ply )
+    initPlys[ply] = true
+end )
+
 
 net.receive( "LKL_SafeStream_QueueRead", function( _, ply )
     -- Client wants to queue up a stream for us to read.
@@ -961,9 +966,16 @@ net.receive( "LKL_SafeStream_ReadFinished", function( _, ply )
     end
 end )
 
-net.receive( "LKL_SafeStream_CancelAllWrites", function( _, ply )
-    -- A player is requesting to cancel all writes to them.
+net.receive( "LKL_SafeStream_ClientRemoved", function( _, ply )
+    -- A player is requesting to cancel all writes to them due to their client instance ending.
 
+    -- If the chip was fully re-uploaded, the client will send a message that won't be received
+    --   until after the server realm initializes, but before the client initializes.
+    -- To prevent streams from this session being canceled, track this and ignore the request accordingly.
+    -- Any old streams from the previous session get canceled by the serverside Removed hook, so it's all still clean.
+    if not initPlys[ply] then return end
+
+    initPlys[ply] = nil
     safeStream.cancelAllWrites( ply, true )
 end )
 
