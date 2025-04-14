@@ -276,16 +276,9 @@ if CLIENT then
     net.receive( "LKL_MapData_DoesServerNeedData_Response", function()
         if not net.readBool() then return end -- The server already has the data.
 
-        -- Wait until a stream can be started.
-        timer.create( "LKL_MapData_SendData", 0.01, 0, function()
-            if net.isStreaming() then return end
-
-            timer.remove( "LKL_MapData_SendData" )
-
-            net.start( "LKL_MapData_SendData" )
-            safeStream.write( json.encode( data ), false )
-            net.send()
-        end )
+        net.start( "LKL_MapData_SendData" )
+        safeStream.write( json.encode( data ), false )
+        net.send()
     end )
 
     net.receive( "LKL_MapData_SendData", function()
@@ -971,29 +964,22 @@ local function sendDataToNonOwners()
         return
     end
 
-    -- Wait until a stream can be started.
-    timer.create( "LKL_MapData_SendData_NonOwner", 0.01, 0, function()
-        if net.isStreaming() then return end
+    local allButOwner = find.allPlayers( function( ply )
+        return ply ~= owner() and not ply:isBot()
+    end )
 
-        timer.remove( "LKL_MapData_SendData_NonOwner" )
+    -- Starfall throws an error if the table is empty
+    if #allButOwner == 0 then
+        allowNextChipToGetData()
 
-        local allButOwner = find.allPlayers( function( ply )
-            return ply ~= owner() and not ply:isBot()
-        end )
+        return
+    end
 
-        -- Starfall throws an error if the table is empty
-        if #allButOwner == 0 then
-            allowNextChipToGetData()
-
-            return
-        end
-
-        net.start( "LKL_MapData_SendData_NonOwner" )
-        safeStream.write( json.encode( data ), false )
-        net.send( allButOwner )
-
+    net.start( "LKL_MapData_SendData_NonOwner" )
+    safeStream.write( json.encode( data ), false, nil, function()
         allowNextChipToGetData()
     end )
+    net.send( allButOwner )
 end
 
 finishGeneratingData = function()
@@ -1027,18 +1013,11 @@ finishGeneratingData = function()
         c_pend_orange, "Saving data..."
     )
 
-    -- Wait until a stream can be started.
-    timer.create( "LKL_MapData_SendData", 0.01, function()
-        if net.isStreaming() then return end
+    net.start( "LKL_MapData_SendData" )
+    safeStream.write( json.encode( data ), false )
+    net.send( owner() )
 
-        timer.remove( "LKL_MapData_SendData" )
-
-        net.start( "LKL_MapData_SendData" )
-        safeStream.write( json.encode( data ), false )
-        net.send( owner() )
-
-        sendDataToNonOwners()
-    end )
+    sendDataToNonOwners()
 
     if not hasSentReadyHook then
         hasSentReadyHook = true
@@ -1073,7 +1052,6 @@ if not libMapData.OWNER_ONLY then
         if timer.exists( "LKL_MapData_SendData" ) then return end -- Trying to send to owner, non-owners will receive it after, sending now would be redundant.
         if timer.exists( "LKL_MapData_SendData_NonOwner" ) then return end -- Ditto, trying to start the non-owner stream.
 
-        local timerName = "LKL_MapData_SendData_NewJoin_" .. ply:getSteamID()
         local delayDuration = 0.1
 
         -- If the player initialized due to joining the server, they're going to be loading all sorts of stuff, so wait a bit.
@@ -1082,18 +1060,12 @@ if not libMapData.OWNER_ONLY then
             delayDuration = 10
         end
 
-        timer.simple( delayDuration, function()
-            timer.create( timerName, 0.01, 0, function()
-                if net.isStreaming() then return end
+        timer.create( "LKL_MapData_SendData_NewJoin_" .. ply:getSteamID(), delayDuration, 1, function()
+            if not isValid( ply ) then return end
 
-                timer.remove( timerName )
-
-                if not isValid( ply ) then return end
-
-                net.start( "LKL_MapData_SendData_NonOwner" )
-                safeStream.write( json.encode( data ), false )
-                net.send( ply )
-            end )
+            net.start( "LKL_MapData_SendData_NonOwner" )
+            safeStream.write( json.encode( data ), false )
+            net.send( ply )
         end )
     end )
 
