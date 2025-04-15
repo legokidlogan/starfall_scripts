@@ -329,7 +329,7 @@ makeConfigPanel = function( pnlContainer, option, parentStorageName )
 
     configPanelsByName[storageName] = configPanel
 
-    if varname then
+    if varName then
         configPanelsByVarName[varName] = configPanel
     end
 
