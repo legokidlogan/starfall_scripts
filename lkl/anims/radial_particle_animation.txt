@@ -81,254 +81,6 @@ local COLOR_EMPTY = Color( 0, 0, 0, 0 )
 local VECTOR_ZERO = Vector( 0, 0, 0 )
 local ANGLE_ZERO = Angle( 0, 0, 0 )
 
-local autoBuildParams = {
-    {
-        StaticName = "PARTICLE_ACTIVE_MIN_START",
-        PascalName = "ParticleActiveMinStart",
-        VarName = "_particleActiveMinStart",
-        ArgName = "amount",
-        Type = "number",
-        Bits = 10,
-        IsUnsigned = true,
-        InclusiveMin = 0,
-    },
-    {
-        StaticName = "PARTICLE_ACTIVE_MIN_END",
-        PascalName = "ParticleActiveMinEnd",
-        VarName = "_particleActiveMinEnd",
-        ArgName = "amount",
-        Type = "number",
-        Bits = 10,
-        IsUnsigned = true,
-        InclusiveMin = 0,
-    },
-    {
-        StaticName = "PARTICLE_ACTIVE_MAX_START",
-        PascalName = "ParticleActiveMaxStart",
-        VarName = "_particleActiveMaxStart",
-        ArgName = "amount",
-        Type = "number",
-        Bits = 10,
-        IsUnsigned = true,
-        InclusiveMin = 0,
-    },
-    {
-        StaticName = "PARTICLE_ACTIVE_MAX_END",
-        PascalName = "ParticleActiveMaxEnd",
-        VarName = "_particleActiveMaxEnd",
-        ArgName = "amount",
-        Type = "number",
-        Bits = 10,
-        IsUnsigned = true,
-        InclusiveMin = 0,
-    },
-    {
-        StaticName = "PARTICLE_ACTIVE_CHANCE_START",
-        PascalName = "ParticleActiveChanceStart",
-        VarName = "_particleActiveChanceStart",
-        ArgName = "chance",
-        Type = "number",
-        Bits = "float",
-        InclusiveMin = 0,
-        InclusiveMax = 1,
-    },
-    {
-        StaticName = "PARTICLE_ACTIVE_CHANCE_END",
-        PascalName = "ParticleActiveChanceEnd",
-        VarName = "_particleActiveChanceEnd",
-        ArgName = "chance",
-        Type = "number",
-        Bits = "float",
-        InclusiveMin = 0,
-        InclusiveMax = 1,
-    },
-    {
-        StaticName = "PARTICLE_DISTANCE_BEGIN_START",
-        PascalName = "ParticleDistanceBeginStart",
-        VarName = "_particleDistanceBeginStart",
-        ArgName = "distance",
-        Type = "number",
-        Bits = "float",
-    },
-    {
-        StaticName = "PARTICLE_DISTANCE_BEGIN_END",
-        PascalName = "ParticleDistanceBeginEnd",
-        VarName = "_particleDistanceBeginEnd",
-        ArgName = "distance",
-        Type = "number",
-        Bits = "float",
-    },
-    {
-        StaticName = "PARTICLE_DISTANCE_FINISH_START",
-        PascalName = "ParticleDistanceFinishStart",
-        VarName = "_particleDistanceFinishStart",
-        ArgName = "distance",
-        Type = "number",
-        Bits = "float",
-    },
-    {
-        StaticName = "PARTICLE_DISTANCE_FINISH_END",
-        PascalName = "ParticleDistanceFinishEnd",
-        VarName = "_particleDistanceFinishEnd",
-        ArgName = "distance",
-        Type = "number",
-        Bits = "float",
-    },
-    {
-        StaticName = "PARTICLE_DISTANCE_BEGIN_VARIANCE_START",
-        PascalName = "ParticleDistanceBeginVarianceStart",
-        VarName = "_particleDistanceBeginVarianceStart",
-        ArgName = "distance",
-        Type = "number",
-        Bits = "float",
-    },
-    {
-        StaticName = "PARTICLE_DISTANCE_BEGIN_VARIANCE_END",
-        PascalName = "ParticleDistanceBeginVarianceEnd",
-        VarName = "_particleDistanceBeginVarianceEnd",
-        ArgName = "distance",
-        Type = "number",
-        Bits = "float",
-    },
-    {
-        StaticName = "PARTICLE_LIFETIME_START",
-        PascalName = "ParticleLifetimeStart",
-        VarName = "_particleLifetimeStart",
-        ArgName = "time",
-        Type = "number",
-        Bits = "float",
-        ExclusiveMin = 0,
-    },
-    {
-        StaticName = "PARTICLE_LIFETIME_END",
-        PascalName = "ParticleLifetimeEnd",
-        VarName = "_particleLifetimeEnd",
-        ArgName = "time",
-        Type = "number",
-        Bits = "float",
-        ExclusiveMin = 0,
-    },
-    {
-        StaticName = "PARTICLE_SCALE_BEGIN_START",
-        PascalName = "ParticleScaleBeginStart",
-        VarName = "_particleScaleBeginStart",
-        ArgName = "scale",
-        Type = "Vector",
-    },
-    {
-        StaticName = "PARTICLE_SCALE_BEGIN_END",
-        PascalName = "ParticleScaleBeginEnd",
-        VarName = "_particleScaleBeginEnd",
-        ArgName = "scale",
-        Type = "Vector",
-    },
-    {
-        StaticName = "PARTICLE_SCALE_FINISH_START",
-        PascalName = "ParticleScaleFinishStart",
-        VarName = "_particleScaleFinishStart",
-        ArgName = "scale",
-        Type = "Vector",
-    },
-    {
-        StaticName = "PARTICLE_SCALE_FINISH_END",
-        PascalName = "ParticleScaleFinishEnd",
-        VarName = "_particleScaleFinishEnd",
-        ArgName = "scale",
-        Type = "Vector",
-    },
-    {
-        StaticName = "PARTICLE_COLOR_BEGIN_START",
-        PascalName = "ParticleColorBeginStart",
-        VarName = "_particleColorBeginStart",
-        ArgName = "color",
-        Type = "Color",
-    },
-    {
-        StaticName = "PARTICLE_COLOR_BEGIN_END",
-        PascalName = "ParticleColorBeginEnd",
-        VarName = "_particleColorBeginEnd",
-        ArgName = "color",
-        Type = "Color",
-    },
-    {
-        StaticName = "PARTICLE_COLOR_FINISH_START",
-        PascalName = "ParticleColorFinishStart",
-        VarName = "_particleColorFinishStart",
-        ArgName = "color",
-        Type = "Color",
-    },
-    {
-        StaticName = "PARTICLE_COLOR_FINISH_END",
-        PascalName = "ParticleColorFinishEnd",
-        VarName = "_particleColorFinishEnd",
-        ArgName = "color",
-        Type = "Color",
-    },
-    {
-        StaticName = "PARTICLE_MODEL",
-        PascalName = "ParticleModel",
-        VarName = "_particleModel",
-        ArgName = "model",
-        Type = "string",
-    },
-    {
-        StaticName = "PARTICLE_MATERIAL",
-        PascalName = "ParticleMaterial",
-        VarName = "_particleMaterial",
-        ArgName = "material",
-        Type = "string",
-    },
-    {
-        StaticName = "PARTICLE_FULLBRIGHT",
-        PascalName = "ParticleFullbright",
-        VarName = "_particleFullbright",
-        ArgName = "state",
-        Type = "boolean",
-    },
-    {
-        StaticName = "PARTICLE_FOLLOW",
-        PascalName = "ParticleFollow",
-        VarName = "_particleFollow",
-        ArgName = "state",
-        Type = "boolean",
-    },
-    {
-        StaticName = "PARTICLE_ANGLE",
-        PascalName = "ParticleAngle",
-        VarName = "_particleAngle",
-        ArgName = "angle",
-        Type = "Angle",
-    },
-    {
-        StaticName = "INTERP_CLAMP_OVERALL",
-        PascalName = "InterpClampOverall",
-        VarName = "_interpClampOverall",
-        ArgName = "state",
-        Type = "boolean",
-    },
-    {
-        StaticName = "INTERP_CLAMP_PARTICLE_DISTANCE",
-        PascalName = "InterpClampParticleDistance",
-        VarName = "_interpClampParticleDistance",
-        ArgName = "state",
-        Type = "boolean",
-    },
-    {
-        StaticName = "INTERP_CLAMP_PARTICLE_SCALE",
-        PascalName = "InterpClampParticleScale",
-        VarName = "_interpClampParticleScale",
-        ArgName = "state",
-        Type = "boolean",
-    },
-    {
-        StaticName = "INTERP_CLAMP_PARTICLE_COLOR",
-        PascalName = "InterpClampParticleColor",
-        VarName = "_interpClampParticleColor",
-        ArgName = "state",
-        Type = "boolean",
-    },
-}
-local applyAutoBuildParams
 local resolveEaseFuncName
 local lerpUnclamped
 
@@ -349,8 +101,6 @@ function ThisClass:initialize( replicateOnClient, pos, ang, particleLimit, ... )
     self._particleLimit = particleLimit
     self._groupedHolos.inactive = {}
     self._groupedHolos.active = {}
-
-    applyAutoBuildParams( self )
 
     self:setInterpEaseOverall( self.class.INTERP_EASE_OVERALL )
     self:setInterpEaseParticleDistance( self.class.INTERP_EASE_PARTICLE_DISTANCE )
@@ -552,6 +302,447 @@ function ThisClass:spawnParticle( animTime, interpFracOverall )
     return holo
 end
 
+function ThisClass:setParticleActiveMinStart( amount )
+    if amount == nil then amount = self.class.PARTICLE_ACTIVE_MIN_START end
+    if amount == self._particleActiveMinStart then return end
+    if type( amount ) ~= "number" then error( "Expected amount to be a number or nil" ) end
+    if math.floor( amount ) ~= amount then error( "Expected amount to be an integer" ) end
+    if amount < 0 then error( "Expected amount to be >= 0" ) end
+
+    self._particleActiveMinStart = amount
+    self:syncProperty( "RadialParticleAnimation_ParticleActiveMinStart", amount, 10, true )
+end
+
+function ThisClass:getParticleActiveMinStart()
+    return self._particleActiveMinStart or self.class.PARTICLE_ACTIVE_MIN_START
+end
+
+function ThisClass:setParticleActiveMinEnd( amount )
+    if amount == nil then amount = self.class.PARTICLE_ACTIVE_MIN_END end
+    if amount == self._particleActiveMinEnd then return end
+    if type( amount ) ~= "number" then error( "Expected amount to be a number or nil" ) end
+    if math.floor( amount ) ~= amount then error( "Expected amount to be an integer" ) end
+    if amount < 0 then error( "Expected amount to be >= 0" ) end
+
+    self._particleActiveMinEnd = amount
+    self:syncProperty( "RadialParticleAnimation_ParticleActiveMinEnd", amount, 10, true )
+end
+
+function ThisClass:getParticleActiveMinEnd()
+    return self._particleActiveMinEnd or self.class.PARTICLE_ACTIVE_MIN_END
+end
+
+function ThisClass:setParticleActiveMaxStart( amount )
+    if amount == nil then amount = self.class.PARTICLE_ACTIVE_MAX_START end
+    if amount == self._particleActiveMaxStart then return end
+    if type( amount ) ~= "number" then error( "Expected amount to be a number or nil" ) end
+    if math.floor( amount ) ~= amount then error( "Expected amount to be an integer" ) end
+    if amount < 0 then error( "Expected amount to be >= 0" ) end
+
+    self._particleActiveMaxStart = amount
+    self:syncProperty( "RadialParticleAnimation_ParticleActiveMaxStart", amount, 10, true )
+end
+
+function ThisClass:getParticleActiveMaxStart()
+    return self._particleActiveMaxStart or self.class.PARTICLE_ACTIVE_MAX_START
+end
+
+function ThisClass:setParticleActiveMaxEnd( amount )
+    if amount == nil then amount = self.class.PARTICLE_ACTIVE_MAX_END end
+    if amount == self._particleActiveMaxEnd then return end
+    if type( amount ) ~= "number" then error( "Expected amount to be a number or nil" ) end
+    if math.floor( amount ) ~= amount then error( "Expected amount to be an integer" ) end
+    if amount < 0 then error( "Expected amount to be >= 0" ) end
+
+    self._particleActiveMaxEnd = amount
+    self:syncProperty( "RadialParticleAnimation_ParticleActiveMaxEnd", amount, 10, true )
+end
+
+function ThisClass:getParticleActiveMaxEnd()
+    return self._particleActiveMaxEnd or self.class.PARTICLE_ACTIVE_MAX_END
+end
+
+function ThisClass:setParticleActiveChanceStart( chance )
+    if chance == nil then chance = self.class.PARTICLE_ACTIVE_CHANCE_START end
+    if chance == self._particleActiveChanceStart then return end
+    if type( chance ) ~= "number" then error( "Expected chance to be a number or nil" ) end
+    if chance < 0 then error( "Expected chance to be >= 0" ) end
+    if chance > 1 then error( "Expected chance to be <= 1" ) end
+
+    self._particleActiveChanceStart = chance
+    self:syncProperty( "RadialParticleAnimation_ParticleActiveChanceStart", chance, "float", nil )
+end
+
+function ThisClass:getParticleActiveChanceStart()
+    return self._particleActiveChanceStart or self.class.PARTICLE_ACTIVE_CHANCE_START
+end
+
+
+
+function ThisClass:setParticleActiveChanceEnd( chance )
+    if chance == nil then chance = self.class.PARTICLE_ACTIVE_CHANCE_END end
+    if chance == self._particleActiveChanceEnd then return end
+    if type( chance ) ~= "number" then error( "Expected chance to be a number or nil" ) end
+    if chance < 0 then error( "Expected chance to be >= 0" ) end
+    if chance > 1 then error( "Expected chance to be <= 1" ) end
+
+    self._particleActiveChanceEnd = chance
+    self:syncProperty( "RadialParticleAnimation_ParticleActiveChanceEnd", chance, "float", nil )
+end
+
+function ThisClass:getParticleActiveChanceEnd()
+    return self._particleActiveChanceEnd or self.class.PARTICLE_ACTIVE_CHANCE_END
+end
+
+function ThisClass:setParticleDistanceBeginStart( distance )
+    if distance == nil then distance = self.class.PARTICLE_DISTANCE_BEGIN_START end
+    if distance == self._particleDistanceBeginStart then return end
+    if type( distance ) ~= "number" then error( "Expected distance to be a number or nil" ) end
+
+    self._particleDistanceBeginStart = distance
+    self:syncProperty( "RadialParticleAnimation_ParticleDistanceBeginStart", distance, "float", nil )
+end
+
+function ThisClass:getParticleDistanceBeginStart()
+    return self._particleDistanceBeginStart or self.class.PARTICLE_DISTANCE_BEGIN_START
+end
+
+function ThisClass:setParticleDistanceBeginEnd( distance )
+    if distance == nil then distance = self.class.PARTICLE_DISTANCE_BEGIN_END end
+    if distance == self._particleDistanceBeginEnd then return end
+    if type( distance ) ~= "number" then error( "Expected distance to be a number or nil" ) end
+
+    self._particleDistanceBeginEnd = distance
+    self:syncProperty( "RadialParticleAnimation_ParticleDistanceBeginEnd", distance, "float", nil )
+end
+
+function ThisClass:getParticleDistanceBeginEnd()
+    return self._particleDistanceBeginEnd or self.class.PARTICLE_DISTANCE_BEGIN_END
+end
+
+function ThisClass:setParticleDistanceFinishStart( distance )
+    if distance == nil then distance = self.class.PARTICLE_DISTANCE_FINISH_START end
+    if distance == self._particleDistanceFinishStart then return end
+    if type( distance ) ~= "number" then error( "Expected distance to be a number or nil" ) end
+
+    self._particleDistanceFinishStart = distance
+    self:syncProperty( "RadialParticleAnimation_ParticleDistanceFinishStart", distance, "float", nil )
+end
+
+function ThisClass:getParticleDistanceFinishStart()
+    return self._particleDistanceFinishStart or self.class.PARTICLE_DISTANCE_FINISH_START
+end
+
+function ThisClass:setParticleDistanceFinishEnd( distance )
+    if distance == nil then distance = self.class.PARTICLE_DISTANCE_FINISH_END end
+    if distance == self._particleDistanceFinishEnd then return end
+    if type( distance ) ~= "number" then error( "Expected distance to be a number or nil" ) end
+
+    self._particleDistanceFinishEnd = distance
+    self:syncProperty( "RadialParticleAnimation_ParticleDistanceFinishEnd", distance, "float", nil )
+end
+
+function ThisClass:getParticleDistanceFinishEnd()
+    return self._particleDistanceFinishEnd or self.class.PARTICLE_DISTANCE_FINISH_END
+end
+
+function ThisClass:setParticleDistanceBeginVarianceStart( distance )
+    if distance == nil then distance = self.class.PARTICLE_DISTANCE_BEGIN_VARIANCE_START end
+    if distance == self._particleDistanceBeginVarianceStart then return end
+    if type( distance ) ~= "number" then error( "Expected distance to be a number or nil" ) end
+
+    self._particleDistanceBeginVarianceStart = distance
+    self:syncProperty( "RadialParticleAnimation_ParticleDistanceBeginVarianceStart", distance, "float", nil )
+end
+
+function ThisClass:getParticleDistanceBeginVarianceStart()
+    return self._particleDistanceBeginVarianceStart or self.class.PARTICLE_DISTANCE_BEGIN_VARIANCE_START
+end
+
+function ThisClass:setParticleDistanceBeginVarianceEnd( distance )
+    if distance == nil then distance = self.class.PARTICLE_DISTANCE_BEGIN_VARIANCE_END end
+    if distance == self._particleDistanceBeginVarianceEnd then return end
+    if type( distance ) ~= "number" then error( "Expected distance to be a number or nil" ) end
+
+    self._particleDistanceBeginVarianceEnd = distance
+    self:syncProperty( "RadialParticleAnimation_ParticleDistanceBeginVarianceEnd", distance, "float", nil )
+end
+
+function ThisClass:getParticleDistanceBeginVarianceEnd()
+    return self._particleDistanceBeginVarianceEnd or self.class.PARTICLE_DISTANCE_BEGIN_VARIANCE_END
+end
+
+function ThisClass:setParticleLifetimeStart( time )
+    if time == nil then time = self.class.PARTICLE_LIFETIME_START end
+    if time == self._particleLifetimeStart then return end
+    if type( time ) ~= "number" then error( "Expected time to be a number or nil" ) end
+    if time <= 0 then error( "Expected time to be > 0" ) end
+
+    self._particleLifetimeStart = time
+    self:syncProperty( "RadialParticleAnimation_ParticleLifetimeStart", time, "float", nil )
+end
+
+function ThisClass:getParticleLifetimeStart()
+    return self._particleLifetimeStart or self.class.PARTICLE_LIFETIME_START
+end
+
+function ThisClass:setParticleLifetimeEnd( time )
+    if time == nil then time = self.class.PARTICLE_LIFETIME_END end
+    if time == self._particleLifetimeEnd then return end
+    if type( time ) ~= "number" then error( "Expected time to be a number or nil" ) end
+    if time <= 0 then error( "Expected time to be > 0" ) end
+
+    self._particleLifetimeEnd = time
+    self:syncProperty( "RadialParticleAnimation_ParticleLifetimeEnd", time, "float", nil )
+end
+
+function ThisClass:getParticleLifetimeEnd()
+    return self._particleLifetimeEnd or self.class.PARTICLE_LIFETIME_END
+end
+
+function ThisClass:setParticleScaleBeginStart( scale )
+    if scale == nil then scale = self.class.PARTICLE_SCALE_BEGIN_START end
+    if scale == self._particleScaleBeginStart then return end
+    if type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
+
+    self._particleScaleBeginStart = scale
+    self:syncProperty( "RadialParticleAnimation_ParticleScaleBeginStart", scale, nil, nil )
+end
+
+function ThisClass:getParticleScaleBeginStart()
+    return self._particleScaleBeginStart or self.class.PARTICLE_SCALE_BEGIN_START
+end
+
+function ThisClass:setParticleScaleBeginEnd( scale )
+    if scale == nil then scale = self.class.PARTICLE_SCALE_BEGIN_END end
+    if scale == self._particleScaleBeginEnd then return end
+    if type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
+
+    self._particleScaleBeginEnd = scale
+    self:syncProperty( "RadialParticleAnimation_ParticleScaleBeginEnd", scale, nil, nil )
+end
+
+function ThisClass:getParticleScaleBeginEnd()
+    return self._particleScaleBeginEnd or self.class.PARTICLE_SCALE_BEGIN_END
+end
+
+function ThisClass:setParticleScaleFinishStart( scale )
+    if scale == nil then scale = self.class.PARTICLE_SCALE_FINISH_START end
+    if scale == self._particleScaleFinishStart then return end
+    if type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
+
+    self._particleScaleFinishStart = scale
+    self:syncProperty( "RadialParticleAnimation_ParticleScaleFinishStart", scale, nil, nil )
+end
+
+function ThisClass:getParticleScaleFinishStart()
+    return self._particleScaleFinishStart or self.class.PARTICLE_SCALE_FINISH_START
+end
+
+function ThisClass:setParticleScaleFinishEnd( scale )
+    if scale == nil then scale = self.class.PARTICLE_SCALE_FINISH_END end
+    if scale == self._particleScaleFinishEnd then return end
+    if type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
+
+    self._particleScaleFinishEnd = scale
+    self:syncProperty( "RadialParticleAnimation_ParticleScaleFinishEnd", scale, nil, nil )
+end
+
+function ThisClass:getParticleScaleFinishEnd()
+    return self._particleScaleFinishEnd or self.class.PARTICLE_SCALE_FINISH_END
+end
+
+function ThisClass:setParticleColorBeginStart( color )
+    if color == nil then color = self.class.PARTICLE_COLOR_BEGIN_START end
+    if color == self._particleColorBeginStart then return end
+    if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._particleColorBeginStart = color
+    self._particleColorBeginStartHSV = hsvMath.rgbToHSV( color )
+    self:syncProperty( "RadialParticleAnimation_ParticleColorBeginStart", color, nil, nil )
+end
+
+function ThisClass:getParticleColorBeginStart()
+    return self._particleColorBeginStart or self.class.PARTICLE_COLOR_BEGIN_START
+end
+
+function ThisClass:setParticleColorBeginEnd( color )
+    if color == nil then color = self.class.PARTICLE_COLOR_BEGIN_END end
+    if color == self._particleColorBeginEnd then return end
+    if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._particleColorBeginEnd = color
+    self._particleColorBeginEndHSV = hsvMath.rgbToHSV( color )
+    self:syncProperty( "RadialParticleAnimation_ParticleColorBeginEnd", color, nil, nil )
+end
+
+function ThisClass:getParticleColorBeginEnd()
+    return self._particleColorBeginEnd or self.class.PARTICLE_COLOR_BEGIN_END
+end
+
+function ThisClass:setParticleColorFinishStart( color )
+    if color == nil then color = self.class.PARTICLE_COLOR_FINISH_START end
+    if color == self._particleColorFinishStart then return end
+    if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._particleColorFinishStart = color
+    self._particleColorFinishStartHSV = hsvMath.rgbToHSV( color )
+    self:syncProperty( "RadialParticleAnimation_ParticleColorFinishStart", color, nil, nil )
+end
+
+function ThisClass:getParticleColorFinishStart()
+    return self._particleColorFinishStart or self.class.PARTICLE_COLOR_FINISH_START
+end
+
+function ThisClass:setParticleColorFinishEnd( color )
+    if color == nil then color = self.class.PARTICLE_COLOR_FINISH_END end
+    if color == self._particleColorFinishEnd then return end
+    if type( color ) ~= "Color" then error( "Expected color to be a Color or nil" ) end
+
+    self._particleColorFinishEnd = color
+    self._particleColorFinishEndHSV = hsvMath.rgbToHSV( color )
+    self:syncProperty( "RadialParticleAnimation_ParticleColorFinishEnd", color, nil, nil )
+end
+
+function ThisClass:getParticleColorFinishEnd()
+    return self._particleColorFinishEnd or self.class.PARTICLE_COLOR_FINISH_END
+end
+
+function ThisClass:setParticleModel( model )
+    if model == nil then model = self.class.PARTICLE_MODEL end
+    if model == self._particleModel then return end
+    if type( model ) ~= "string" then error( "Expected model to be a string or nil" ) end
+
+    self._particleModel = model
+    self:syncProperty( "RadialParticleAnimation_ParticleModel", model, nil, nil )
+end
+
+function ThisClass:getParticleModel()
+    return self._particleModel or self.class.PARTICLE_MODEL
+end
+
+function ThisClass:setParticleMaterial( material )
+    if material == nil then material = self.class.PARTICLE_MATERIAL end
+    if material == self._particleMaterial then return end
+    if type( material ) ~= "string" then error( "Expected material to be a string or nil" ) end
+
+    self._particleMaterial = material
+    self:syncProperty( "RadialParticleAnimation_ParticleMaterial", material, nil, nil )
+end
+
+function ThisClass:getParticleMaterial()
+    return self._particleMaterial or self.class.PARTICLE_MATERIAL
+end
+
+function ThisClass:setParticleFullbright( state )
+    if state == nil then state = self.class.PARTICLE_FULLBRIGHT end
+    if state == self._particleFullbright then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._particleFullbright = state
+    self:syncProperty( "RadialParticleAnimation_ParticleFullbright", state, nil, nil )
+end
+
+function ThisClass:getParticleFullbright()
+    local state = self._particleFullbright
+    if state == nil then return self.class.PARTICLE_FULLBRIGHT end
+
+    return state
+end
+
+function ThisClass:setParticleFollow( state )
+    if state == nil then state = self.class.PARTICLE_FOLLOW end
+    if state == self._particleFollow then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._particleFollow = state
+    self:syncProperty( "RadialParticleAnimation_ParticleFollow", state, nil, nil )
+end
+
+function ThisClass:getParticleFollow()
+    local state = self._particleFollow
+    if state == nil then return self.class.PARTICLE_FOLLOW end
+
+    return state
+end
+
+function ThisClass:setParticleAngle( angle )
+    if angle == nil then angle = self.class.PARTICLE_ANGLE end
+    if angle == self._particleAngle then return end
+    if type( angle ) ~= "Angle" then error( "Expected angle to be a Angle or nil" ) end
+
+    self._particleAngle = angle
+    self:syncProperty( "RadialParticleAnimation_ParticleAngle", angle, nil, nil )
+end
+
+function ThisClass:getParticleAngle()
+    return self._particleAngle or self.class.PARTICLE_ANGLE
+end
+
+function ThisClass:setInterpClampOverall( state )
+    if state == nil then state = self.class.INTERP_CLAMP_OVERALL end
+    if state == self._interpClampOverall then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._interpClampOverall = state
+    self:syncProperty( "RadialParticleAnimation_InterpClampOverall", state, nil, nil )
+end
+
+function ThisClass:getInterpClampOverall()
+    local state = self._interpClampOverall
+    if state == nil then return self.class.INTERP_CLAMP_OVERALL end
+
+    return state
+end
+
+function ThisClass:setInterpClampParticleDistance( state )
+    if state == nil then state = self.class.INTERP_CLAMP_PARTICLE_DISTANCE end
+    if state == self._interpClampParticleDistance then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._interpClampParticleDistance = state
+    self:syncProperty( "RadialParticleAnimation_InterpClampParticleDistance", state, nil, nil )
+end
+
+function ThisClass:getInterpClampParticleDistance()
+    local state = self._interpClampParticleDistance
+    if state == nil then return self.class.INTERP_CLAMP_PARTICLE_DISTANCE end
+
+    return state
+end
+
+function ThisClass:setInterpClampParticleScale( state )
+    if state == nil then state = self.class.INTERP_CLAMP_PARTICLE_SCALE end
+    if state == self._interpClampParticleScale then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._interpClampParticleScale = state
+    self:syncProperty( "RadialParticleAnimation_InterpClampParticleScale", state, nil, nil )
+end
+
+function ThisClass:getInterpClampParticleScale()
+    local state = self._interpClampParticleScale
+    if state == nil then return self.class.INTERP_CLAMP_PARTICLE_SCALE end
+
+    return state
+end
+
+function ThisClass:setInterpClampParticleColor( state )
+    if state == nil then state = self.class.INTERP_CLAMP_PARTICLE_COLOR end
+    if state == self._interpClampParticleColor then return end
+    if type( state ) ~= "boolean" then error( "Expected state to be a boolean or nil" ) end
+
+    self._interpClampParticleColor = state
+    self:syncProperty( "RadialParticleAnimation_InterpClampParticleColor", state, nil, nil )
+end
+
+function ThisClass:getInterpClampParticleColor()
+    local state = self._interpClampParticleColor
+    if state == nil then return self.class.INTERP_CLAMP_PARTICLE_COLOR end
+
+    return state
+end
+
 
 ----- OVERRIDABLE FUNCTIONS -----
 
@@ -683,15 +874,6 @@ end
 
 ----- PRIVATE FUNCTIONS -----
 
-applyAutoBuildParams = function( anim )
-    for _, paramInfo in ipairs( autoBuildParams ) do
-        local paramPascalName = paramInfo.PascalName
-        local paramFunctionNameSet = "set" .. paramPascalName
-
-        anim[paramFunctionNameSet]( anim )
-    end
-end
-
 resolveEaseFuncName = function( funcName )
     if type( funcName ) ~= "string" then error( "Expected funcName to be a string" ) end
 
@@ -718,110 +900,6 @@ end
 
 
 ----- SETUP -----
-
-do -- Auto-build set/get functions and net receivers for class variables
-    for _, paramInfo in ipairs( autoBuildParams ) do
-        local paramStaticName = paramInfo.StaticName
-        local paramPascalName = paramInfo.PascalName
-        local paramVarName = paramInfo.VarName
-        local paramArgName = paramInfo.ArgName
-        local paramType = paramInfo.Type
-        local paramBits = paramInfo.Bits
-        local paramIsUnsigned = paramInfo.IsUnsigned
-        local paramInclusiveMin = paramInfo.InclusiveMin
-        local paramExclusiveMin = paramInfo.ExclusiveMin
-        local paramInclusiveMax = paramInfo.InclusiveMax
-        local paramExclusiveMax = paramInfo.ExclusiveMax
-
-        local paramFunctionNameSet = "set" .. paramPascalName
-        local paramFunctionNameGet = "get" .. paramPascalName
-        local paramBitsStr = tostring( paramBits )
-        local paramIsUnsignedStr = tostring( paramIsUnsigned )
-
-        if paramBitsStr == "float" then paramBitsStr = "\"float\"" end
-
-        -- Extra conditionals
-        local intCheckStr = ( paramType ~= "number" or paramBits == "float" ) and "" or [[
-            if math.floor( ]] .. paramArgName .. [[ ) ~= ]] .. paramArgName .. [[ then error( "Expected ]] .. paramArgName .. [[ to be an integer" ) end
-        ]]
-
-        local inclusiveMinCheckStr = paramInclusiveMin == nil and "" or [[
-            if ]] .. paramArgName .. [[ < ]] .. paramInclusiveMin .. [[ then error( "Expected ]] .. paramArgName .. [[ to be >= ]] .. paramInclusiveMin .. [[" ) end
-        ]]
-
-        local exclusiveMinCheckStr = paramExclusiveMin == nil and "" or [[
-            if ]] .. paramArgName .. [[ <= ]] .. paramExclusiveMin .. [[ then error( "Expected ]] .. paramArgName .. [[ to be > ]] .. paramExclusiveMin .. [[" ) end
-        ]]
-
-        local inclusiveMaxCheckStr = paramInclusiveMax == nil and "" or [[
-            if ]] .. paramArgName .. [[ > ]] .. paramInclusiveMax .. [[ then error( "Expected ]] .. paramArgName .. [[ to be <= ]] .. paramInclusiveMax .. [[" ) end
-        ]]
-
-        local exclusiveMaxCheckStr = paramExclusiveMax == nil and "" or [[
-            if ]] .. paramArgName .. [[ >= ]] .. paramExclusiveMax .. [[ then error( "Expected ]] .. paramArgName .. [[ to be < ]] .. paramExclusiveMax .. [[" ) end
-        ]]
-
-        -- Cache HSV for color interpolation
-        local hsvCacheStr = paramType ~= "Color" and "" or [[
-            self.]] .. paramVarName .. "HSV" .. [[ = hsvMath.rgbToHSV( ]] .. paramArgName .. [[ )
-        ]]
-
-        --ThisClass[paramFunctionNameSet] = function( self, value )
-
-        -- Create setter
-        loadstring( [[
-            function RadialParticleAnimation:]] .. paramFunctionNameSet .. [[( ]] .. paramArgName .. [[ )
-                if ]] .. paramArgName .. [[ == nil then ]] .. paramArgName .. [[ = self.class.]] .. paramStaticName .. [[ end
-                if ]] .. paramArgName .. [[ == self.]] .. paramVarName .. [[ then return end
-                if type( ]] .. paramArgName .. [[ ) ~= "]] .. paramType .. [[" then error( "Expected ]] .. paramArgName .. [[ to be a ]] .. paramType .. [[ or nil" ) end]] ..
-                intCheckStr .. inclusiveMinCheckStr .. exclusiveMinCheckStr .. inclusiveMaxCheckStr .. exclusiveMaxCheckStr .. [[
-
-                self.]] .. paramVarName .. [[ = ]] .. paramArgName ..
-                hsvCacheStr .. [[
-                self:syncProperty( "RadialParticleAnimation_]] .. paramPascalName .. [[", ]] .. paramArgName .. [[, ]] .. paramBitsStr .. [[, ]] .. paramIsUnsignedStr .. [[ )
-            end
-        ]] )()
-
-        -- Create getter
-        loadstring( [[
-            function RadialParticleAnimation:]] .. paramFunctionNameGet .. [[()
-                return self.]] .. paramVarName .. [[
-            end
-        ]] )()
-
-        -- Create net receiver
-        if CLIENT then
-            local readFuncStr = ""
-
-            if paramType == "boolean" then
-                readFuncStr = "readBool()"
-            elseif paramType == "number" then
-                if paramBits == "float" then
-                    readFuncStr = "readFloat()"
-                elseif paramIsUnsigned then
-                    readFuncStr = "readUInt( " .. paramBits .. " )"
-                else
-                    readFuncStr = "readInt( " .. paramBits .. " )"
-                end
-            else
-                readFuncStr = "read" .. string.upper( paramType:sub( 1, 1 ) ) .. paramType:sub( 2 ) .. "()"
-            end
-
-
-            loadstring( [[
-                net.receive( "LKL_Syncable_Set__RadialParticleAnimation_]] .. paramPascalName .. [[", function()
-                    local anim = Syncable:readSyncedCopy()
-                    local value = net.]] .. readFuncStr .. [[
-
-                    if not anim then return end
-
-                    anim:]] .. paramFunctionNameSet .. [[( value )
-                end )
-            ]] )()
-        end
-    end
-end
-
 
 if SERVER then
     function ThisClass:writeCreationData( pos, ang, particleLimit )
@@ -887,4 +965,252 @@ net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpEaseParticleColor"
     if not anim then return end
 
     anim:setInterpEaseParticleColor( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleActiveMinStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readUInt( 10 )
+    if not anim then return end
+
+    anim:setParticleActiveMinStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleActiveMinEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readUInt( 10 )
+    if not anim then return end
+
+    anim:setParticleActiveMinEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleActiveMaxStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readUInt( 10 )
+    if not anim then return end
+
+    anim:setParticleActiveMaxStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleActiveMaxEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readUInt( 10 )
+    if not anim then return end
+
+    anim:setParticleActiveMaxEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleActiveChanceStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleActiveChanceStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleActiveChanceEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleActiveChanceEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleDistanceBeginStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleDistanceBeginStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleDistanceBeginEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleDistanceBeginEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleDistanceFinishStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleDistanceFinishStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleDistanceFinishEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleDistanceFinishEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleDistanceBeginVarianceStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleDistanceBeginVarianceStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleDistanceBeginVarianceEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleDistanceBeginVarianceEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleLifetimeStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleLifetimeStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleLifetimeEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readFloat()
+    if not anim then return end
+
+    anim:setParticleLifetimeEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleScaleBeginStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readVector()
+    if not anim then return end
+
+    anim:setParticleScaleBeginStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleScaleBeginEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readVector()
+    if not anim then return end
+
+    anim:setParticleScaleBeginEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleScaleFinishStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readVector()
+    if not anim then return end
+
+    anim:setParticleScaleFinishStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleScaleFinishEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readVector()
+    if not anim then return end
+
+    anim:setParticleScaleFinishEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleColorBeginStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readColor()
+    if not anim then return end
+
+    anim:setParticleColorBeginStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleColorBeginEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readColor()
+    if not anim then return end
+
+    anim:setParticleColorBeginEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleColorFinishStart", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readColor()
+    if not anim then return end
+
+    anim:setParticleColorFinishStart( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleColorFinishEnd", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readColor()
+    if not anim then return end
+
+    anim:setParticleColorFinishEnd( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleModel", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readString()
+    if not anim then return end
+
+    anim:setParticleModel( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleMaterial", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readString()
+    if not anim then return end
+
+    anim:setParticleMaterial( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleFullbright", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readBool()
+    if not anim then return end
+
+    anim:setParticleFullbright( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleFollow", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readBool()
+    if not anim then return end
+
+    anim:setParticleFollow( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_ParticleAngle", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readAngle()
+    if not anim then return end
+
+    anim:setParticleAngle( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpClampOverall", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readBool()
+    if not anim then return end
+
+    anim:setInterpClampOverall( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpClampParticleDistance", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readBool()
+    if not anim then return end
+
+    anim:setInterpClampParticleDistance( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpClampParticleScale", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readBool()
+    if not anim then return end
+
+    anim:setInterpClampParticleScale( value )
+end )
+
+net.receive( "LKL_Syncable_Set__RadialParticleAnimation_InterpClampParticleColor", function()
+    local anim = Syncable:readSyncedCopy()
+    local value = net.readBool()
+    if not anim then return end
+
+    anim:setInterpClampParticleColor( value )
 end )
