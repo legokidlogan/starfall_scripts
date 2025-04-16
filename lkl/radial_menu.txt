@@ -103,6 +103,11 @@ local addColorUser
 local removeColorUser
 local makePolyFrame
 local getColorFrame
+local moveColorUser
+local nudgePolyUsers
+local nudgeColorUsers
+local editChoice
+local validatePolyUser
 
 
 ----- STATIC FUNCTIONS -----
@@ -320,6 +325,7 @@ function RadialMenu:getNameOffset()
     return self._nameOffset or self.class.NAME_OFFSET
 end
 
+-- Overrides the pages. See RadialMenu:initialize() for page format.
 function RadialMenu:setPages( pages )
     if type( pages ) ~= "table" then error( "Expected pages to be a table" ) end
     if #pages < 1 then error( "Expected pages to have at least one page" ) end
@@ -331,20 +337,17 @@ function RadialMenu:setPages( pages )
 
     local menuNamePrepend = self:getName() .. "_"
     local realPages = self._pages
-
-    local radiusHovered = self._radiusHovered
-    local radiusUnhovered = self._radiusUnhovered
-    local radiusInnerUnhovered = self._radiusInnerUnhovered
-    local radiusInnerHovered = self._radiusInnerHovered
-    local bandHeight = self._bandHeight
-    local choiceGap = self._choiceGap
+    local curPageInd = self:getCurPageInd()
 
     for i = 1, #realPages do
         local page = realPages[i]
         local pageUID = menuNamePrepend .. i
         local pageUIDPrepend = pageUID .. "_"
+        local polyStr = page.polyStr
 
-        removePolyUser( pageUID, page.polyStr )
+        if polyStr then
+            removePolyUser( pageUID, polyStr )
+        end
 
         for i2 = 1, #page do
             local choice = page[i2]
@@ -369,46 +372,27 @@ function RadialMenu:setPages( pages )
     local choiceNameColorUnhovered = self._choiceNameColorUnhovered
     local choiceNameColorHovered = self._choiceNameColorHovered
 
-    for i, page in ipairs( pages ) do
+    for i = 1, #pages do
         local pageUID = menuNamePrepend .. i
         local pageUIDPrepend = pageUID .. "_"
+        local page = pages[i]
         local realPage = {
             name = page.name,
-            polyStr = addPolyUser( pageUID, radiusHovered, radiusUnhovered, radiusInnerUnhovered, radiusInnerHovered, bandHeight, choiceGap, #page ),
         }
-
         realPages[i] = realPage
 
-        for i2, choice in ipairs( page ) do
-            if type( choice ) ~= "table" then error( "Expected choice " .. i2 .. " of page " .. i .. " to be a table" ) end
-            if type( choice.name ) ~= "string" then error( "Expected choice name to be a string" ) end
-
-            local choiceUID = pageUIDPrepend .. i2
-            local gradientEnabled = choice.gradientEnabled
-            local bandEnabled = choice.bandEnabled
-
-            if gradientEnabled == nil then
-                gradientEnabled = choiceGradientEnabled
-            end
-
-            if bandEnabled == nil then
-                bandEnabled = choiceBandEnabled
-            end
-
-            realPage[i2] = {
-                name = choice.name,
-                command = choice.command,
-                menu = choice.menu,
-                func = choice.func,
-                paint = choice.paint,
-                gradientEnabled = gradientEnabled,
-                bandEnabled = bandEnabled,
-                gradientColorStr = addColorUser( choiceGradientColorsLookup, choiceUID, choice.gradientColorUnhovered or choiceGradientColorUnhovered, choice.gradientColorHovered or choiceGradientColorHovered ),
-                bandColorStr = addColorUser( choiceBandColorsLookup, choiceUID, choice.bandColorUnhovered or choiceBandColorUnhovered, choice.bandColorHovered or choiceBandColorHovered ),
-                nameColorStr = addColorUser( choiceNameColorsLookup, choiceUID, choice.nameColorUnhovered or choiceNameColorUnhovered, choice.nameColorHovered or choiceNameColorHovered ),
-
-                hoverProgress = 0,
-            }
+        for i2 = 1, #page do
+            realPage[i2] = {}
+            editChoice( realPage, pageUIDPrepend, i2, page[i2],
+                choiceGradientEnabled,
+                choiceBandEnabled,
+                choiceGradientColorUnhovered,
+                choiceGradientColorHovered,
+                choiceBandColorUnhovered,
+                choiceBandColorHovered,
+                choiceNameColorUnhovered,
+                choiceNameColorHovered
+            )
         end
     end
 
@@ -416,7 +400,203 @@ function RadialMenu:setPages( pages )
         hoveredInd = nil
     end
 
-    self:setCurPageInd( math.clamp( self:getCurPageInd(), 1, #realPages ) )
+    self:setCurPageInd( math.clamp( curPageInd, 1, #realPages ) )
+end
+
+-- Inserts a new page. See RadialMenu:initialize() for page format.
+function RadialMenu:insertPage( pageInd, page )
+    if type( pageInd ) ~= "number" then error( "Expected pageInd to be a number" ) end
+    if math.floor( pageInd ) ~= pageInd then error( "Expected pageInd to be an integer" ) end
+    if type( page ) ~= "table" then error( "Expected page to be a table" ) end
+    if #page < 3 then error( "Expected page to have at least three choices" ) end
+
+    local realPages = self._pages
+    if pageInd < 1 or pageInd > #realPages + 1 then
+        error( "Expected pageInd to be between 1 and pageCount + 1" )
+    end
+
+    for i = 1, #page do
+        if type( page[i] ) ~= "table" then error( "Expected choice " .. i .. " of page to be a table" ) end
+        if type( page[i].name ) ~= "string" then error( "Expected choice name to be a string" ) end
+    end
+
+    nudgePolyUsers( self, pageInd, #realPages, 1 )
+
+    local pageUID = self:getName() .. "_" .. pageInd
+    local pageUIDPrepend = pageUID .. "_"
+
+    local choiceGradientEnabled = self:isChoiceGradientEnabled()
+    local choiceBandEnabled = self:isChoiceBandEnabled()
+    local choiceGradientColorUnhovered = self._choiceGradientColorUnhovered
+    local choiceGradientColorHovered = self._choiceGradientColorHovered
+    local choiceBandColorUnhovered = self._choiceBandColorUnhovered
+    local choiceBandColorHovered = self._choiceBandColorHovered
+    local choiceNameColorUnhovered = self._choiceNameColorUnhovered
+    local choiceNameColorHovered = self._choiceNameColorHovered
+
+    local realPage = {
+        name = page.name,
+    }
+
+    table.insert( realPages, pageInd, realPage )
+
+    for i = 1, #page do
+        realPage[i] = {}
+        editChoice( realPage, pageUIDPrepend, i, page[i],
+            choiceGradientEnabled,
+            choiceBandEnabled,
+            choiceGradientColorUnhovered,
+            choiceGradientColorHovered,
+            choiceBandColorUnhovered,
+            choiceBandColorHovered,
+            choiceNameColorUnhovered,
+            choiceNameColorHovered
+        )
+    end
+
+    local curPageInd = self:getCurPageInd()
+
+    if curPageInd >= pageInd then
+        self:setCurPageInd( curPageInd + 1 )
+    end
+end
+
+-- Removes a page. There must always be at least one page, so it's best to insert before removing.
+function RadialMenu:removePage( pageInd )
+    if type( pageInd ) ~= "number" then error( "Expected pageInd to be a number" ) end
+    if math.floor( pageInd ) ~= pageInd then error( "Expected pageInd to be an integer" ) end
+
+    local realPages = self._pages
+    if #realPages == 1 then error( "Cannot remove all pages" ) end
+    if pageInd < 1 or pageInd > #realPages then
+        error( "Expected pageInd to be between 1 and pageCount" )
+    end
+
+    local page = realPages[pageInd]
+    local pageUID = self:getName() .. "_" .. pageInd
+    local pageUIDPrepend = pageUID .. "_"
+    local polyStr = page.polyStr
+
+    if polyStr then
+        removePolyUser( pageUID, page.polyStr )
+    end
+
+    for i = 1, #page do
+        local choice = page[i]
+        local choiceUID = pageUIDPrepend .. i
+
+        removeColorUser( choiceGradientColorsLookup, choiceUID, choice.gradientColorStr )
+        removeColorUser( choiceBandColorsLookup, choiceUID, choice.bandColorStr )
+        removeColorUser( choiceNameColorsLookup, choiceUID, choice.nameColorStr )
+    end
+
+    nudgePolyUsers( self, pageInd + 1, #realPages, -1 )
+    table.remove( realPages, pageInd )
+
+    local curPageInd = self:getCurPageInd()
+
+    if curPageInd >= pageInd then
+        if curMenu == self and curPageInd == pageInd then
+            hoveredInd = nil
+        end
+
+        if curPageInd == 1 then
+            self:onPageChanged( 1, 1 )
+        else
+            self:setCurPageInd( curPageInd - 1 )
+        end
+    end
+end
+
+-- Inserts a new choice into a new page. See RadialMenu:initialize() for choice format.
+function RadialMenu:insertChoice( pageInd, choiceInd, choice )
+    if type( pageInd ) ~= "number" then error( "Expected pageInd to be a number" ) end
+    if math.floor( pageInd ) ~= pageInd then error( "Expected pageInd to be an integer" ) end
+    if type( choiceInd ) ~= "number" then error( "Expected choiceInd to be a number" ) end
+    if math.floor( choiceInd ) ~= choiceInd then error( "Expected choiceInd to be an integer" ) end
+    if type( choice ) ~= "table" then error( "Expected choice to be a table" ) end
+    if type( choice.name ) ~= "string" then error( "Expected choice name to be a string" ) end
+
+    local realPages = self._pages
+    if pageInd < 1 or pageInd > #realPages then
+        error( "Expected pageInd to be between 1 and pageCount" )
+    end
+
+    local page = realPages[pageInd]
+    local choiceCount = #page
+    if choiceInd < 1 or choiceInd > choiceCount + 1 then
+        error( "Expected choiceInd to be between 1 and choiceCount + 1" )
+    end
+
+    local pageUID = self:getName() .. "_" .. pageInd
+    local pageUIDPrepend = pageUID .. "_"
+
+    nudgeColorUsers( page, pageUID, choiceInd, choiceCount, 1 )
+    table.insert( page, choiceInd, {} )
+    editChoice( page, pageUIDPrepend, choiceInd, choice, self )
+
+    if curMenu == self and self:getCurPageInd() == pageInd then
+        hoveredInd = nil
+    end
+end
+
+-- Removes a choice from a page. There must always be at least three choices, so it's best to insert before removing.
+function RadialMenu:removeChoice( pageInd, choiceInd )
+    if type( pageInd ) ~= "number" then error( "Expected pageInd to be a number" ) end
+    if math.floor( pageInd ) ~= pageInd then error( "Expected pageInd to be an integer" ) end
+    if type( choiceInd ) ~= "number" then error( "Expected choiceInd to be a number" ) end
+    if math.floor( choiceInd ) ~= choiceInd then error( "Expected choiceInd to be an integer" ) end
+
+    local realPages = self._pages
+    if pageInd < 1 or pageInd > #realPages then
+        error( "Expected pageInd to be between 1 and pageCount" )
+    end
+
+    local page = realPages[pageInd]
+    local choiceCount = #page
+    if choiceInd < 1 or choiceInd > choiceCount then
+        error( "Expected choiceInd to be between 1 and choiceCount" )
+    end
+
+    local pageUID = self:getName() .. "_" .. pageInd
+    local pageUIDPrepend = pageUID .. "_"
+    local choice = page[choiceInd]
+    local choiceUID = pageUIDPrepend .. choiceInd
+
+    removeColorUser( choiceGradientColorsLookup, choiceUID, choice.gradientColorStr )
+    removeColorUser( choiceBandColorsLookup, choiceUID, choice.bandColorStr )
+    removeColorUser( choiceNameColorsLookup, choiceUID, choice.nameColorStr )
+    nudgeColorUsers( page, pageUID, choiceInd + 1, choiceCount, -1 )
+    table.remove( page, choiceInd )
+
+    if curMenu == self and self:getCurPageInd() == pageInd then
+        hoveredInd = nil
+    end
+end
+
+-- Edits a choice on a page. See RadialMenu:initialize() for choice format.
+function RadialMenu:editChoice( pageInd, choiceInd, choice )
+    if type( pageInd ) ~= "number" then error( "Expected pageInd to be a number" ) end
+    if math.floor( pageInd ) ~= pageInd then error( "Expected pageInd to be an integer" ) end
+    if type( choiceInd ) ~= "number" then error( "Expected choiceInd to be a number" ) end
+    if math.floor( choiceInd ) ~= choiceInd then error( "Expected choiceInd to be an integer" ) end
+    if type( choice ) ~= "table" then error( "Expected choice to be a table" ) end
+    if type( choice.name ) ~= "string" then error( "Expected choice name to be a string" ) end
+
+    local realPages = self._pages
+    if pageInd < 1 or pageInd > #realPages then
+        error( "Expected pageInd to be between 1 and pageCount" )
+    end
+
+    local page = realPages[pageInd]
+    local choiceCount = #page
+    if choiceInd < 1 or choiceInd > choiceCount then
+        error( "Expected choiceInd to be between 1 and choiceCount" )
+    end
+
+    local pageUIDPrepend = self:getName() .. "_" .. pageInd .. "_"
+
+    editChoice( page, pageUIDPrepend, choiceInd, choice, self )
 end
 
 function RadialMenu:getName()
@@ -783,6 +963,159 @@ getColorFrame = function( lookup, colorStr, frameInd )
     return color
 end
 
+moveColorUser = function( lookup, colorStr, uidOld, uidNew )
+    local colorsByFrame = lookup[colorStr]
+    if not colorsByFrame then return end
+
+    local users = colorsByFrame.users
+
+    users[uidOld] = nil
+    users[uidNew] = true
+end
+
+nudgePolyUsers = function( menu, indStart, indEnd, dir )
+    local menuNamePrepend = menu:getName() .. "_"
+    local pages = menu._pages
+
+    for i = indStart, indEnd do
+        local page = pages[i]
+        local pageUID = menuNamePrepend .. i
+        local pageUIDPrepend = pageUID .. "_"
+        local pageUIDNew = menuNamePrepend .. ( i + dir )
+        local pageUIDNewPrepend = pageUIDNew .. "_"
+        local polyStr = page.polyStr
+
+        if polyStr then
+            local polySetsByFrame = choicePolySetsLookup[polyStr]
+            local users = polySetsByFrame.users
+
+            users[pageUID] = nil
+            users[pageUIDNew] = true
+        end
+
+        for i2 = 1, #page do
+            local choice = page[i2]
+            local choiceUID = pageUIDPrepend .. i2
+            local choiceUIDNew = pageUIDNewPrepend .. i2
+
+            moveColorUser( choiceGradientColorsLookup, choice.gradientColorStr, choiceUID, choiceUIDNew )
+            moveColorUser( choiceBandColorsLookup, choice.bandColorStr, choiceUID, choiceUIDNew )
+            moveColorUser( choiceNameColorsLookup, choice.nameColorStr, choiceUID, choiceUIDNew )
+        end
+    end
+end
+
+nudgeColorUsers = function( page, pageUID, indStart, indEnd, dir )
+    local pageUIDPrepend = pageUID .. "_"
+    local polyStr = page.polyStr
+
+    if polyStr then
+        removePolyUser( pageUID, polyStr )
+        page.polyStr = nil -- Invalidate polyStr; build it later when drawn.
+    end
+
+    for i = indStart, indEnd do
+        local choice = page[i]
+        local choiceUID = pageUIDPrepend .. i
+        local choiceUIDNew = pageUIDPrepend .. ( i + dir )
+
+        moveColorUser( choiceGradientColorsLookup, choice.gradientColorStr, choiceUID, choiceUIDNew )
+        moveColorUser( choiceBandColorsLookup, choice.bandColorStr, choiceUID, choiceUIDNew )
+        moveColorUser( choiceNameColorsLookup, choice.nameColorStr, choiceUID, choiceUIDNew )
+    end
+end
+
+editChoice = function(
+        page, pageUIDPrepend, choiceInd, choice,
+        choiceGradientEnabled, choiceBandEnabled,
+        choiceGradientColorUnhovered,
+        choiceGradientColorHovered,
+        choiceBandColorUnhovered,
+        choiceBandColorHovered,
+        choiceNameColorUnhovered,
+        choiceNameColorHovered
+    )
+
+    -- This is ugly and bad for maintenance, but great for performance.
+    if choiceBandEnabled == nil then
+        local menu = choiceGradientEnabled
+
+        choiceGradientEnabled = menu:isChoiceGradientEnabled()
+        choiceBandEnabled = menu:isChoiceBandEnabled()
+        choiceGradientColorUnhovered = menu._choiceGradientColorUnhovered
+        choiceGradientColorHovered = menu._choiceGradientColorHovered
+        choiceBandColorUnhovered = menu._choiceBandColorUnhovered
+        choiceBandColorHovered = menu._choiceBandColorHovered
+        choiceNameColorUnhovered = menu._choiceNameColorUnhovered
+        choiceNameColorHovered = menu._choiceNameColorHovered
+    end
+
+    local realChoice = page[choiceInd]
+    local choiceUID = pageUIDPrepend .. choiceInd
+    local gradientEnabled = choice.gradientEnabled
+    local bandEnabled = choice.bandEnabled
+
+    if gradientEnabled == nil then
+        gradientEnabled = choiceGradientEnabled
+    end
+
+    if bandEnabled == nil then
+        bandEnabled = choiceBandEnabled
+    end
+
+    realChoice.name = choice.name
+    realChoice.command = choice.command
+    realChoice.menu = choice.menu
+    realChoice.func = choice.func
+    realChoice.paint = choice.paint
+    realChoice.gradientEnabled = gradientEnabled
+    realChoice.bandEnabled = bandEnabled
+
+    local gradientColorStrOld = realChoice.gradientColorStr
+    local bandColorStrOld = realChoice.bandColorStr
+    local nameColorStrOld = realChoice.nameColorStr
+
+    gradientColorStr = addColorUser( choiceGradientColorsLookup, choiceUID, choice.gradientColorUnhovered or choiceGradientColorUnhovered, choice.gradientColorHovered or choiceGradientColorHovered )
+    bandColorStr = addColorUser( choiceBandColorsLookup, choiceUID, choice.bandColorUnhovered or choiceBandColorUnhovered, choice.bandColorHovered or choiceBandColorHovered )
+    nameColorStr = addColorUser( choiceNameColorsLookup, choiceUID, choice.nameColorUnhovered or choiceNameColorUnhovered, choice.nameColorHovered or choiceNameColorHovered )
+
+    if gradientColorStrOld and gradientColorStrOld ~= gradientColorStr then
+        removeColorUser( choiceGradientColorsLookup, choiceUID, gradientColorStrOld )
+    end
+
+    if bandColorStrOld and bandColorStrOld ~= bandColorStr then
+        removeColorUser( choiceBandColorsLookup, choiceUID, bandColorStrOld )
+    end
+
+    if nameColorStrOld and nameColorStrOld ~= nameColorStr then
+        removeColorUser( choiceNameColorsLookup, choiceUID, nameColorStrOld )
+    end
+
+    realChoice.gradientColorStr = gradientColorStr
+    realChoice.bandColorStr = bandColorStr
+    realChoice.nameColorStr = nameColorStr
+
+    if not realChoice.hoverProgress then
+        realChoice.hoverProgress = 0
+    end
+end
+
+validatePolyUser = function( menu, page, pageInd )
+    local radiusHovered = menu._radiusHovered
+    local radiusUnhovered = menu._radiusUnhovered
+    local radiusInnerUnhovered = menu._radiusInnerUnhovered
+    local radiusInnerHovered = menu._radiusInnerHovered
+    local bandHeight = menu._bandHeight
+    local choiceGap = menu._choiceGap
+
+    local pageUID = menu:getName() .. "_" .. pageInd
+    local polyStr = addPolyUser( pageUID, radiusHovered, radiusUnhovered, radiusInnerUnhovered, radiusInnerHovered, bandHeight, choiceGap, #page )
+
+    page.polyStr = polyStr
+
+    return polyStr
+end
+
 
 ----- SETUP -----
 
@@ -856,9 +1189,16 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
         render.popMatrix()
     end
 
+    local polyStr = curPage.polyStr
+
+    -- Add poly users here instead of immediately on page creation/adjustment in case multiple operations are done in one frame.
+    if not polyStr then
+        polyStr = validatePolyUser( curMenu, curPage, curPageInd )
+    end
+
     local degStep = 360 / #curPage
     local hoverDT = timer.frametime() / curMenu:getHoverDuration()
-    local polySetsByFrame = choicePolySetsLookup[curPage.polyStr]
+    local polySetsByFrame = choicePolySetsLookup[polyStr]
     local choiceGradientPolys = polySetsByFrame.gradientPolys
     local choiceBandPolys = polySetsByFrame.bandPolys
     local choiceNameRadii = polySetsByFrame.nameRadii
