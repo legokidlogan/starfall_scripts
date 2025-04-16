@@ -1,0 +1,1000 @@
+--@name Radial Menu
+--@author legokidlogan
+--@client
+--@include lkl/destroyable.txt
+--@include lkl/cl_check_permissions.txt
+--@include lkl/math/nearest_multiple.txt
+--@include lkl/math/hsv_math.txt
+
+--[[
+    - A heavily customizable, highly performant radial menu class.
+    - Each menu can have multiple pages, cycled through with left/right click while hovering over the center.
+--]]
+
+
+if RadialMenu then return end
+
+require( "lkl/destroyable.txt" )
+require( "lkl/cl_check_permissions.txt" )
+require( "lkl/math/nearest_multiple.txt" )
+require( "lkl/math/hsv_math.txt" )
+
+permissions = permissions or {}
+addPermissions( {
+    "input",
+} )
+setupPermissionRequestSafe( permissions, "Use a radial menu", true )
+checkPermissions()
+
+
+RadialMenu = class( "RadialMenu", Destroyable )
+
+-- These can be changed on a per-instance basis.
+RadialMenu.static.HOVER_DURATION = 0.25 -- How long it takes for the (un)hover animation to complete, in seconds.
+RadialMenu.static.NAME_ALIGN = TEXT_ALIGN.TOP -- Whether to put the menu's name above, below, or in the center.
+RadialMenu.static.NAME_OFFSET = 0.075 -- The distance from the center of the menu to the name, as a fraction of the menu radius. Does nothing for centered alignment.
+
+-- These can be changed per-instance, only by setting the class values before creating a new instance.
+RadialMenu.static.FONT = "Roboto Mono"
+RadialMenu.static.FONT_SIZE = 20 -- Font size. Gets scaled by scrH / 1080.
+RadialMenu.static.FONT_ANTIALIAS = true
+RadialMenu.static.FONT_OUTLINE = false
+RadialMenu.static.FONT_OUTLINE_THINNESS = 2 -- Larger values result in thinner outlines.
+RadialMenu.static.FONT_WEIGHT = 400
+
+RadialMenu.static.RADIUS = 0.25 -- Radius of the menu as a fraction of the screen height. This is the largest radius, i.e. the radius when hovering a choice.
+RadialMenu.static.DEADZONE_RADIUS = 0.35 -- Radius of the deadzone as a fraction of the menu radius.
+RadialMenu.static.HOVER_EXPAND = 0.05 -- Expands the outside of the hovered choice by a fraction of the menu radius.
+RadialMenu.static.HOVER_CONTRACT = 0.2 -- Contracts the inside of the hovered choice by a fraction of the menu radius.
+RadialMenu.static.CHOICE_GAP = 0.03 -- Gap between choices as a fraction of the menu radius.
+
+-- These can be changed before creating a new instance, and can be overridden per each choice of each menu page.
+RadialMenu.static.CHOICE_GRADIENT_ENABLED = true -- Whether to use an alpha gradient for the choice background, instead of a solid color.
+RadialMenu.static.CHOICE_BAND_ENABLED = true -- Whether to draw solid background bands behind choice names.
+RadialMenu.static.CHOICE_GRADIENT_COLOR_UNHOVERED = Color( 180, 0.08, 0.19, 255 ) -- The color of the gradient when the choice is unhovered. Choice colors are in HSV.
+RadialMenu.static.CHOICE_GRADIENT_COLOR_HOVERED = Color( 180, 1, 1, 255 ) -- The color of the gradient when the choice is hovered.
+RadialMenu.static.CHOICE_BAND_COLOR_UNHOVERED = Color( 180, 0.08, 0.19, 255 ) -- The color of the band when the choice is unhovered.
+RadialMenu.static.CHOICE_BAND_COLOR_HOVERED = Color( 180, 1, 1, 255 ) -- The color of the band when the choice is hovered.
+RadialMenu.static.CHOICE_NAME_COLOR_UNHOVERED = Color( 0, 0, 1, 255 ) -- The color of the choice name when the choice is unhovered.
+RadialMenu.static.CHOICE_NAME_COLOR_HOVERED = Color( 0, 0, 1, 255 ) -- The color of the choice name when the choice is hovered.
+
+
+local MAIN_FONT_SIZE = 32
+local MAIN_FONT_OUTLINE = true
+local MAIN_FONT_OUTLINE_THINNESS = 1
+local PAGE_FONT_SIZE = 24
+
+local CHOICE_FRAME_COUNT = 100
+local PERF_LIMIT = 0.75
+
+local VECTOR_MENU_NAME_SCALE = Vector( 1 / MAIN_FONT_OUTLINE_THINNESS )
+local VECTOR_PAGE_NAME_SCALE = Vector( ( PAGE_FONT_SIZE / MAIN_FONT_SIZE ) / MAIN_FONT_OUTLINE_THINNESS )
+
+local TEXT_ALIGN_CENTER = TEXT_ALIGN.CENTER
+local TEXT_ALIGN_TOP = TEXT_ALIGN.TOP
+local TEXT_ALIGN_BOTTOM = TEXT_ALIGN.BOTTOM
+local MATH_PI = math.pi
+
+local scrW, scrH = render.getGameResolution()
+local mainFontSizeEff = MAIN_FONT_SIZE * scrH / 1080
+local pageFontSizeEff = PAGE_FONT_SIZE * scrH / 1080
+local pageNumOffsetY = ( mainFontSizeEff + pageFontSizeEff ) * 0.5
+local pageNameOffsetY = pageNumOffsetY + pageFontSizeEff
+local mainFont = render.createFont( "Roboto Mono", mainFontSizeEff * MAIN_FONT_OUTLINE_THINNESS, 400, true, false, false, MAIN_FONT_OUTLINE )
+local matGradient = material.load( "gui/gradient_up" )
+local menusByName = {}
+local curMenu = nil
+local prevMenu = nil
+local hoveredInd = nil
+
+local menuFontLookup = {}
+local choicePolySetsLookup = {}
+local choiceGradientColorsLookup = {}
+local choiceBandColorsLookup = {}
+local choiceNameColorsLookup = {}
+
+local matrCenter = Matrix()
+matrCenter:translate( Vector( scrW / 2, scrH / 2, 0 ) )
+
+local calcFontAndRadius
+local addPolyUser
+local removePolyUser
+local addColorUser
+local removeColorUser
+local makePolyFrame
+local getColorFrame
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    name: string
+        - The name of the menu.
+        - Must be unique.
+    displayName: string
+        - The display name of the menu.
+    pages: table
+        - A sequential list of page details.
+        - At least one page is required.
+        - Each page should contain three or more choices.
+        {
+            [1] = { -- (page 1)
+                name = STRING (optional), -- The name of the page.
+
+                [1] = { -- (choice 1 of page 1)
+                    name = STRING, -- The name of the choice.
+
+                    -- These are mutually exclusive with each other. At least one must be set.
+                    command = STRING, -- The concmd to run when the choice is selected. Only works on the owner, otherwise tries the other options.
+                    menu = STRING, -- The name of the menu to open when the choice is selected.
+                    func = function( menu, pageNum, choiceNum ) end, -- A function to run when the choice is selected.
+
+                    -- See the CHOICE_ static vars of RadialMenu for more info and defaults. Colors are in HSV.
+                    gradientEnabled = BOOLEAN (optional),
+                    bandEnabled = BOOLEAN (optional),
+                    gradientColorUnhovered = COLOR_HSV (optional),
+                    gradientColorHovered = COLOR_HSV (optional),
+                    bandColorUnhovered = COLOR_HSV (optional),
+                    bandColorHovered = COLOR_HSV (optional),
+                    nameColorUnhovered = COLOR_HSV (optional),
+                    nameColorHovered = COLOR_HSV (optional),
+
+                    -- This function allows for extra rendering.
+                    -- Drawing at 0,0 will result in drawing at the center of the menu/screen.
+                    -- Drawing at xDir * choiceRadius, yDir * choiceRadius will result in drawing at the outermost edge of the choice.
+                    -- The render will be facing upright.
+                    paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageNum, choiceNum ) return end (optional),
+                },
+                ...
+            },
+            ...
+        }
+--]]
+function RadialMenu:initialize( name, displayName, pages )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+    if type( displayName ) ~= "string" then error( "Expected displayName to be a string" ) end
+    if type( pages ) ~= "table" then error( "Expected displayName to be a table" ) end
+
+    if isValid( menusByName[name] ) then
+        error( "A radial menu with that name already exists" )
+    end
+
+    self._name = name
+    self._displayName = displayName
+    self._pages = {}
+    self._curPageInd = 1
+
+    calcFontAndRadius( self )
+    self._choiceGradientEnabled = self.class.CHOICE_GRADIENT_ENABLED
+    self._choiceBandEnabled = self.class.CHOICE_BAND_ENABLED
+    self._choiceGradientColorUnhovered = self.class.CHOICE_GRADIENT_COLOR_UNHOVERED:clone()
+    self._choiceGradientColorHovered = self.class.CHOICE_GRADIENT_COLOR_HOVERED:clone()
+    self._choiceBandColorUnhovered = self.class.CHOICE_BAND_COLOR_UNHOVERED:clone()
+    self._choiceBandColorHovered = self.class.CHOICE_BAND_COLOR_HOVERED:clone()
+    self._choiceNameColorUnhovered = self.class.CHOICE_NAME_COLOR_UNHOVERED:clone()
+    self._choiceNameColorHovered = self.class.CHOICE_NAME_COLOR_HOVERED:clone()
+
+    self:setPages( pages )
+
+    menusByName[name] = self
+end
+
+function RadialMenu.static:getMenuByName( name )
+    return menusByName[name]
+end
+
+function RadialMenu.static:getCurMenu()
+    return curMenu
+end
+
+function RadialMenu.static:getPrevMenu()
+    return prevMenu
+end
+
+function RadialMenu.static:getHoveredInd()
+    return hoveredInd
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function RadialMenu:isOpen()
+    return curMenu == self
+end
+
+function RadialMenu:setCurPageInd( pageInd )
+    local oldPageInd = self._curPageInd
+    if oldPageInd == pageInd then return end
+
+    if pageInd < 1 or pageInd > #self._pages then
+        error( "Expected pageInd to be between 1 and " .. #self._pages )
+    end
+
+    self._curPageInd = pageInd
+
+    if curMenu == self then
+        hoveredInd = nil
+    end
+
+    self:onPageChanged( oldPageInd, pageInd )
+end
+
+function RadialMenu:getCurPageInd()
+    return self._curPageInd
+end
+
+function RadialMenu:getCurPageChoiceCount()
+    local page = self._pages[self._curPageInd]
+    if not page then return end
+
+    return #page
+end
+
+function RadialMenu:getPageCount()
+    return #self._pages
+end
+
+function RadialMenu:getHoveredInd()
+    return curMenu == self and hoveredInd
+end
+
+function RadialMenu:open( pageNum )
+    if curMenu == self then return end
+    if not permissionSatisfied or not render.isHUDActive() then return false end
+
+    prevMenu = isValid( curMenu ) and curMenu
+    curMenu = self
+    hoveredInd = nil
+
+    if prevMenu then
+        prevMenu:onClosed( true, true )
+    else
+        input.enableCursor( true )
+    end
+
+    if pageNum then
+        self:setCurPageInd( pageNum )
+    end
+
+    self:onOpened()
+
+    return true
+end
+
+function RadialMenu:close( dontHideCursor )
+    if curMenu ~= self then return end
+
+    prevMenu = self
+    curMenu = nil
+    hoveredInd = nil
+
+    if not dontHideCursor and permissionSatisfied and render.isHUDActive() then
+        input.enableCursor( false )
+    end
+
+    self:onClosed( false, dontHideCursor )
+end
+
+function RadialMenu:setHoverDuration( duration )
+    if duration ~= nil then
+        if type( duration ) ~= "number" then error( "Expected duration to be a number or nil" ) end
+        if duration > 0 then error( "Expected duration to be greater than 0" ) end
+    end
+
+    self._hoverDuration = duration
+end
+
+function RadialMenu:getHoverDuration()
+    return self._hoverDuration or self.class.HOVER_DURATION
+end
+
+function RadialMenu:setNameAlign( align )
+    if align ~= nil then
+        if type( align ) ~= "number" then error( "Expected align to be a number or nil" ) end
+        if align ~= TEXT_ALIGN.TOP and align ~= TEXT_ALIGN.CENTER and align ~= TEXT_ALIGN.BOTTOM then
+            error( "Expected align to be one of the three vertical text alignments" )
+        end
+    end
+
+    self._nameAlign = align
+end
+
+function RadialMenu:getNameAlign()
+    return self._nameAlign or self.class.NAME_ALIGN
+end
+
+function RadialMenu:setNameOffset( offset )
+    if offset ~= nil and type( offset ) ~= "number" then error( "Expected offset to be a number or nil" ) end
+
+    self._nameOffset = offset
+end
+
+function RadialMenu:getNameOffset()
+    return self._nameOffset or self.class.NAME_OFFSET
+end
+
+function RadialMenu:setPages( pages )
+    if type( pages ) ~= "table" then error( "Expected pages to be a table" ) end
+    if #pages < 1 then error( "Expected pages to have at least one page" ) end
+
+    for i, page in ipairs( pages ) do
+        if type( page ) ~= "table" then error( "Expected page " .. i .. " to be a table" ) end
+        if #page < 3 then error( "Expected page " .. i .. " to have at least three choices" ) end
+    end
+
+    local menuNamePrepend = self:getName() .. "_"
+    local realPages = self._pages
+
+    local radiusHovered = self._radiusHovered
+    local radiusUnhovered = self._radiusUnhovered
+    local radiusInnerUnhovered = self._radiusInnerUnhovered
+    local radiusInnerHovered = self._radiusInnerHovered
+    local bandHeight = self._bandHeight
+    local choiceGap = self._choiceGap
+
+    for i = 1, #realPages do
+        local page = realPages[i]
+        local pageUID = menuNamePrepend .. i
+        local pageUIDPrepend = pageUID .. "_"
+
+        removePolyUser( pageUID, page.polyStr )
+
+        for i2 = 1, #page do
+            local choice = page[i2]
+            local choiceUID = pageUIDPrepend .. i2
+
+            removeColorUser( choiceGradientColorsLookup, choiceUID, choice.gradientColorStr )
+            removeColorUser( choiceBandColorsLookup, choiceUID, choice.bandColorStr )
+            removeColorUser( choiceNameColorsLookup, choiceUID, choice.nameColorStr )
+
+            page[i2] = nil
+        end
+
+        realPages[i] = nil
+    end
+
+    local choiceGradientEnabled = self:isChoiceGradientEnabled()
+    local choiceBandEnabled = self:isChoiceBandEnabled()
+    local choiceGradientColorUnhovered = self._choiceGradientColorUnhovered
+    local choiceGradientColorHovered = self._choiceGradientColorHovered
+    local choiceBandColorUnhovered = self._choiceBandColorUnhovered
+    local choiceBandColorHovered = self._choiceBandColorHovered
+    local choiceNameColorUnhovered = self._choiceNameColorUnhovered
+    local choiceNameColorHovered = self._choiceNameColorHovered
+
+    for i, page in ipairs( pages ) do
+        local pageUID = menuNamePrepend .. i
+        local pageUIDPrepend = pageUID .. "_"
+        local realPage = {
+            name = page.name,
+            polyStr = addPolyUser( pageUID, radiusHovered, radiusUnhovered, radiusInnerUnhovered, radiusInnerHovered, bandHeight, choiceGap, #page ),
+        }
+
+        realPages[i] = realPage
+
+        for i2, choice in ipairs( page ) do
+            if type( choice ) ~= "table" then error( "Expected choice " .. i2 .. " of page " .. i .. " to be a table" ) end
+            if type( choice.name ) ~= "string" then error( "Expected choice name to be a string" ) end
+
+            local choiceUID = pageUIDPrepend .. i2
+            local gradientEnabled = choice.gradientEnabled
+            local bandEnabled = choice.bandEnabled
+
+            if gradientEnabled == nil then
+                gradientEnabled = choiceGradientEnabled
+            end
+
+            if bandEnabled == nil then
+                bandEnabled = choiceBandEnabled
+            end
+
+            realPage[i2] = {
+                name = choice.name,
+                command = choice.command,
+                menu = choice.menu,
+                func = choice.func,
+                paint = choice.paint,
+                gradientEnabled = gradientEnabled,
+                bandEnabled = bandEnabled,
+                gradientColorStr = addColorUser( choiceGradientColorsLookup, choiceUID, choice.gradientColorUnhovered or choiceGradientColorUnhovered, choice.gradientColorHovered or choiceGradientColorHovered ),
+                bandColorStr = addColorUser( choiceBandColorsLookup, choiceUID, choice.bandColorUnhovered or choiceBandColorUnhovered, choice.bandColorHovered or choiceBandColorHovered ),
+                nameColorStr = addColorUser( choiceNameColorsLookup, choiceUID, choice.nameColorUnhovered or choiceNameColorUnhovered, choice.nameColorHovered or choiceNameColorHovered ),
+
+                hoverProgress = 0,
+            }
+        end
+    end
+end
+
+function RadialMenu:getName()
+    return self._name
+end
+
+function RadialMenu:getDisplayName()
+    return self._displayName
+end
+
+function RadialMenu:isChoiceGradientEnabled()
+    return self._choiceGradientEnabled
+end
+
+function RadialMenu:isChoiceBandEnabled()
+    return self._choiceBandEnabled
+end
+
+function RadialMenu:getChoiceGradientColorUnhovered()
+    return self._choiceGradientColorUnhovered:clone()
+end
+
+function RadialMenu:getChoiceGradientColorHovered()
+    return self._choiceGradientColorHovered:clone()
+end
+
+function RadialMenu:getChoiceBandColorUnhovered()
+    return self._choiceBandColorUnhovered:clone()
+end
+
+function RadialMenu:getChoiceBandColorHovered()
+    return self._choiceBandColorHovered:clone()
+end
+
+function RadialMenu:getChoiceNameColorUnhovered()
+    return self._choiceNameColorUnhovered:clone()
+end
+
+function RadialMenu:getChoiceNameColorHovered()
+    return self._choiceNameColorHovered:clone()
+end
+
+function RadialMenu:getRadius()
+    return self._radius
+end
+
+-- The actual pixel value of the maximum radius.
+function RadialMenu:getRadiusEff()
+    return self._radiusHovered
+end
+
+function RadialMenu:getDeadzoneRadius()
+    return self._deadzoneRadius
+end
+
+-- The actual pixel value of the deadzone radius.
+function RadialMenu:getDeadzoneRadiusEff()
+    return self._radiusInnerUnhovered
+end
+
+function RadialMenu:getHoverExpand()
+    return self._hoverExpand
+end
+
+function RadialMenu:getHoverContract()
+    return self._hoverContract
+end
+
+function RadialMenu:getChoiceGap()
+    return self._choiceGap
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+--[[
+    - Called when the menu is opened.
+    - DO NOT call :open() inside this function, it could cause an infinite loop.
+--]]
+function RadialMenu:onOpened()
+end
+
+--[[
+    - Called when the menu is opened.
+    - DO NOT call :open() or :close() inside this function, it could cause an infinite loop.
+
+    fromOtherOpening: boolean
+        - Whether the menu was closed due to another menu being opened in its place.
+    dontHideCursor: boolean
+        - Passed from the args of the :close() function.
+--]]
+function RadialMenu:onClosed( _fromOtherOpening, _dontHideCursor )
+end
+
+--[[
+    - Called when the page is changed.
+    - DO NOT call :setCurPageInd() inside this function, it could cause an infinite loop.
+
+    oldPageInd: number
+        - The index of the page that was just closed.
+    newPageInd: number
+        - The index of the page that was just opened.
+--]]
+function RadialMenu:onPageChanged( _oldPageInd, _newPageInd )
+end
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function RadialMenu:onDestroyed()
+    local menuNamePrepend = self:getName() .. "_"
+    local realPages = self._pages
+
+    for i = 1, #realPages do
+        local page = realPages[i]
+        local pageUID = menuNamePrepend .. i
+        local pageUIDPrepend = pageUID .. "_"
+
+        removePolyUser( pageUID, page.polyStr )
+
+        for i2 = 1, #page do
+            local choice = page[i2]
+            local choiceUID = pageUIDPrepend .. i2
+
+            removeColorUser( choiceGradientColorsLookup, choiceUID, choice.gradientColorStr )
+            removeColorUser( choiceBandColorsLookup, choiceUID, choice.bandColorStr )
+            removeColorUser( choiceNameColorsLookup, choiceUID, choice.nameColorStr )
+
+            page[i2] = nil
+        end
+
+        realPages[i] = nil
+    end
+
+    if curMenu == self then
+        curMenu = nil
+    end
+
+    menusByName[self._name] = nil
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+calcFontAndRadius = function( menu )
+    local menuClass = menu.class
+    local font = menuClass.FONT
+    local fontSize = menuClass.FONT_SIZE
+    local fontAntialias = menuClass.FONT_ANTIALIAS
+    local fontOutline = menuClass.FONT_OUTLINE
+    local fontOutlineThinness = menuClass.FONT_OUTLINE_THINNESS
+    local fontWeight = menuClass.FONT_WEIGHT
+    local fontSizeEff = fontSize * scrH / 1080
+
+    menu._font = font
+    menu._fontSize = fontSize
+    menu._fontAntialias = fontAntialias
+    menu._fontOutline = fontOutline
+    menu._fontOutlineThinness = fontOutlineThinness
+    menu._fontWeight = fontWeight
+    menu._fontSizeEff = fontSizeEff
+    menu._fontVecScale = Vector( 1 / fontOutlineThinness )
+
+    local fontStr = font .. "_" .. fontSize .. "_" .. tostring( fontAntialias ) .. "_" .. tostring( fontOutline ) .. "_" .. fontOutlineThinness .. "_" .. fontWeight
+    local fontObj = menuFontLookup[fontStr]
+
+    if not fontObj then
+        fontObj = render.createFont( font, fontSizeEff * fontOutlineThinness, fontWeight, fontAntialias, false, false, fontOutline )
+        menuFontLookup[fontStr] = fontObj
+    end
+
+    menu._fontObj = fontObj
+
+    render.setFont( fontObj )
+    local _, fontHeight = render.getTextSize( "ABCDEFGHIJKLMNOPQRSTUVWXYZ" )
+    fontHeight = fontHeight / fontOutlineThinness
+
+    local menuRadius = menuClass.RADIUS
+    local deadzoneRadius = menuClass.DEADZONE_RADIUS
+    local hoverExpand = menuClass.HOVER_EXPAND
+    local hoverContract = menuClass.HOVER_CONTRACT
+    local choiceGap = menuClass.CHOICE_GAP
+
+    local radiusHovered = scrH * menuRadius
+    local radiusUnhovered = radiusHovered * ( 1 - hoverExpand )
+    local radiusInnerUnhovered = radiusHovered * deadzoneRadius
+    local radiusInnerHovered = radiusInnerUnhovered + ( radiusHovered - radiusInnerUnhovered ) * hoverContract
+    local bandHeight = fontHeight + fontSizeEff / 2
+
+    menu._radius = menuRadius
+    menu._deadzoneRadius = deadzoneRadius
+    menu._hoverExpand = hoverExpand
+    menu._hoverContract = hoverContract
+    menu._choiceGap = choiceGap
+
+    menu._radiusHovered = radiusHovered
+    menu._radiusUnhovered = radiusUnhovered
+    menu._radiusInnerUnhovered = radiusInnerUnhovered
+    menu._radiusInnerHovered = radiusInnerHovered
+    menu._bandHeight = bandHeight
+end
+
+addPolyUser = function( uid, radiusHovered, radiusUnhovered, radiusInnerUnhovered, radiusInnerHovered, bandHeight, choiceGap, choiceCount )
+    local polyStr = radiusHovered .. "_" .. radiusUnhovered .. "_" .. radiusInnerUnhovered .. "_" .. radiusInnerHovered .. "_" .. bandHeight .. "_" .. choiceGap .. "_" .. choiceCount
+    local polySetsByFrame = choicePolySetsLookup[polyStr]
+
+    if not polySetsByFrame then
+        local menuCircumference = 2 * MATH_PI * radiusHovered
+        local choiceArc = ( menuCircumference / choiceCount ) - radiusHovered * choiceGap
+        local choiceRadHalf = choiceArc / ( radiusHovered * 2 )
+
+        local rad90 = MATH_PI / 2
+        local dirRightX = math.cos( rad90 - choiceRadHalf )
+        local dirRightY = -math.sin( rad90 - choiceRadHalf )
+        local dirLeftX = math.cos( rad90 + choiceRadHalf )
+        local dirLeftY = -math.sin( rad90 + choiceRadHalf )
+        local inscribeMult = math.cos( MATH_PI / choiceCount ) -- Accounts for name radius loss due to inscribing the circle.
+
+        polySetsByFrame = {
+            users = {},
+            gradientPolys = {},
+            bandPolys = {},
+            nameRadii = {},
+            radiusHovered = radiusHovered,
+            radiusUnhovered = radiusUnhovered,
+            radiusInnerUnhovered = radiusInnerUnhovered,
+            radiusInnerHovered = radiusInnerHovered,
+            bandHeight = bandHeight,
+            choiceGap = choiceGap,
+            choiceCount = choiceCount,
+            dirRightX = dirRightX,
+            dirRightY = dirRightY,
+            dirLeftX = dirLeftX,
+            dirLeftY = dirLeftY,
+            inscribeMult = inscribeMult,
+        }
+        choicePolySetsLookup[polyStr] = polySetsByFrame
+    end
+
+    polySetsByFrame.users[uid] = true
+
+    return polyStr
+end
+
+removePolyUser = function( uid, polyStr )
+    local polySetsByFrame = choicePolySetsLookup[polyStr]
+    if not polySetsByFrame then return end
+
+    local users = polySetsByFrame.users
+
+    users[uid] = nil
+
+    if next( users ) ~= nil then return end
+
+    polySetsByFrame.users = nil
+    polySetsByFrame.gradientPolys = nil
+    polySetsByFrame.bandPolys = nil
+    polySetsByFrame.nameRadii = nil
+
+    choicePolySetsLookup[polyStr] = nil
+end
+
+addColorUser = function( lookup, uid, color1, color2 )
+    local h1 = color1.r
+    local s1 = color1.g
+    local v1 = color1.b
+    local a1 = color1.a
+
+    local h2 = color2.r
+    local s2 = color2.g
+    local v2 = color2.b
+    local a2 = color2.a
+
+    local colorStr = h1 .. "_" .. s1 .. "_" .. v1 .. "_" .. a1 .. "_" .. h2 .. "_" .. s2 .. "_" .. v2 .. "_" .. a2
+    local colorsByFrame = lookup[colorStr]
+
+    if not colorsByFrame then
+        local same = h1 == h2 and s1 == s2 and v1 == v2 and a1 == a2
+        color1 = same and hsvMath.hsvToRGB( color1 ) or Color( h1, s1, v1, a1 )
+        color2 = same and color1 or Color( h2, s2, v2, a2 )
+
+        colorsByFrame = {
+            users = {},
+            color1 = color1,
+            color2 = color2,
+            same = same,
+        }
+        lookup[colorStr] = colorsByFrame
+    end
+
+    colorsByFrame.users[uid] = true
+
+    return colorStr
+end
+
+removeColorUser = function( lookup, uid, colorStr )
+    local colorsByFrame = lookup[colorStr]
+    if not colorsByFrame then return end
+
+    local users = colorsByFrame.users
+
+    users[uid] = nil
+
+    if next( users ) ~= nil then return end
+
+    colorsByFrame.users = nil
+    colorsByFrame.color1 = nil
+    colorsByFrame.color2 = nil
+
+    lookup[colorStr] = nil
+end
+
+makePolyFrame = function( polySetsByFrame, frameInd )
+    local radiusHovered = polySetsByFrame.radiusHovered
+    local radiusUnhovered = polySetsByFrame.radiusUnhovered
+    local radiusInnerUnhovered = polySetsByFrame.radiusInnerUnhovered
+    local radiusInnerHovered = polySetsByFrame.radiusInnerHovered
+    local bandHeight = polySetsByFrame.bandHeight
+    --local choiceGap = polySetsByFrame.choiceGap
+    --local choiceCount = polySetsByFrame.choiceCount
+    local dirRightX = polySetsByFrame.dirRightX
+    local dirRightY = polySetsByFrame.dirRightY
+    local dirLeftX = polySetsByFrame.dirLeftX
+    local dirLeftY = polySetsByFrame.dirLeftY
+    local inscribeMult = polySetsByFrame.inscribeMult
+
+    local frac = frameInd / CHOICE_FRAME_COUNT
+    local radiusOuter = math.lerp( frac, radiusUnhovered, radiusHovered )
+    local radiusInner = math.lerp( frac, radiusInnerUnhovered, radiusInnerHovered )
+    local bandInner = radiusOuter - bandHeight
+
+    polySetsByFrame.gradientPolys[frameInd] = {
+        { x = dirRightX * radiusOuter, y = dirRightY * radiusOuter, u = 1, v = 1 },
+        { x = dirRightX * radiusInner, y = dirRightY * radiusInner, u = 1, v = 0.01 },
+        { x = dirLeftX * radiusInner, y = dirLeftY * radiusInner, u = 0.01, v = 0.01 },
+        { x = dirLeftX * radiusOuter, y = dirLeftY * radiusOuter, u = 0.01, v = 1 },
+    }
+
+    polySetsByFrame.bandPolys[frameInd] = {
+        { x = dirRightX * radiusOuter, y = dirRightY * radiusOuter, u = 1, v = 1 },
+        { x = dirRightX * bandInner, y = dirRightY * bandInner, u = 1, v = 0.01 },
+        { x = dirLeftX * bandInner, y = dirLeftY * bandInner, u = 0.01, v = 0.01 },
+        { x = dirLeftX * radiusOuter, y = dirLeftY * radiusOuter, u = 0.01, v = 1 },
+    }
+
+    polySetsByFrame.nameRadii[frameInd] = inscribeMult * ( bandInner + radiusOuter ) / 2 + scrH * 0.002
+end
+
+getColorFrame = function( lookup, colorStr, frameInd )
+    local colorsByFrame = lookup[colorStr]
+    if colorsByFrame.same then return colorsByFrame.color1 end
+
+    local color = colorsByFrame[frameInd]
+    if color then return color end
+
+    local frac = frameInd / CHOICE_FRAME_COUNT
+    local color1 = colorsByFrame.color1
+    local color2 = colorsByFrame.color2
+
+    color = hsvMath.lerpHSVToRGB( frac, color1, color2 )
+    colorsByFrame[frameInd] = color
+
+    return color
+end
+
+
+----- SETUP -----
+
+local memVec = Vector() -- Intermediate vector for calculations to create less garbage memory.
+local memAng = Angle()
+
+hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
+    if not permissionSatisfied then return end
+    if not curMenu then return end
+
+    render.setFont( mainFont )
+
+    if cpuTotalAverage() > cpuMax() * PERF_LIMIT then
+        local cvarName = player() == owner() and "sf_timebuffer_cl_owner" or "sf_timebuffer_cl"
+
+        render.setRGBA( 255, 0, 0, 255 )
+        render.drawSimpleText( scrW / 2, scrH / 2, "Failed to draw radial menu", TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+        render.drawSimpleText( scrW / 2, scrH / 2 + mainFontSizeEff, "Please increase " .. cvarName, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+
+        return
+    end
+
+    render.pushMatrix( matrCenter )
+
+    local nameAlign = curMenu:getNameAlign()
+    local menuNameY = 0
+    local menuRadius = curMenu:getRadiusEff()
+
+    if nameAlign == TEXT_ALIGN_TOP then
+        menuNameY = -menuRadius - curMenu:getNameOffset() * scrH
+    elseif nameAlign == TEXT_ALIGN_BOTTOM then
+        menuNameY = menuRadius + curMenu:getNameOffset() * scrH
+    end
+
+    -- Draw menu name
+    local m = Matrix()
+    memVec[2] = menuNameY
+    m:translate( memVec )
+    m:scale( VECTOR_MENU_NAME_SCALE )
+
+    render.pushMatrix( m )
+    render.setRGBA( 255, 255, 255, 255 )
+    render.drawSimpleText( 0, 0, curMenu:getDisplayName(), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+    render.popMatrix()
+
+    -- Draw page number and count
+    m = Matrix()
+    memVec[2] = menuNameY + pageNumOffsetY
+    m:translate( memVec )
+    m:scale( VECTOR_PAGE_NAME_SCALE )
+
+    local curPageInd = curMenu:getCurPageInd()
+
+    render.pushMatrix( m )
+    render.drawSimpleText( 0, 0, "Page " .. curPageInd .. " / " .. curMenu:getPageCount(), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+    render.popMatrix()
+
+    local pages = curMenu._pages
+    local curPage = pages[curPageInd]
+    local pageName = curPage.name
+
+    -- Draw page name
+    if pageName then
+        m = Matrix()
+        memVec[2] = menuNameY + pageNameOffsetY
+        m:translate( memVec )
+        m:scale( VECTOR_PAGE_NAME_SCALE )
+
+        render.pushMatrix( m )
+        render.drawSimpleText( 0, 0, pageName, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+        render.popMatrix()
+    end
+
+    local degStep = 360 / #curPage
+    local hoverDT = timer.frametime() / curMenu:getHoverDuration()
+    local polySetsByFrame = choicePolySetsLookup[curPage.polyStr]
+    local choiceGradientPolys = polySetsByFrame.gradientPolys
+    local choiceBandPolys = polySetsByFrame.bandPolys
+    local choiceNameRadii = polySetsByFrame.nameRadii
+
+    local menuFont = curMenu._fontObj
+    local menuFontVecScale = curMenu._fontVecScale
+    local menuFontHeight = curMenu._fontSizeEff
+
+    local matrChoice = Matrix()
+    memAng[2] = degStep
+
+    -- Draw choices
+    for i, choice in ipairs( curPage ) do
+        local deg = ( i - 1 ) * degStep
+        local hoverProgress = choice.hoverProgress
+
+        if i == hoveredInd then
+            hoverProgress = math.min( hoverProgress + hoverDT, 1 )
+        else
+            hoverProgress = math.max( hoverProgress - hoverDT, 0 )
+        end
+
+        choice.hoverProgress = hoverProgress
+        local frameInd = math.round( hoverProgress * CHOICE_FRAME_COUNT )
+        local gradientPoly = choiceGradientPolys[frameInd]
+
+        if not gradientPoly then
+            makePolyFrame( polySetsByFrame, frameInd )
+            gradientPoly = choiceGradientPolys[frameInd]
+        end
+
+        render.pushMatrix( matrChoice )
+
+        render.setMaterial( choice.gradientEnabled and matGradient or nil )
+        render.setColor( getColorFrame( choiceGradientColorsLookup, choice.gradientColorStr, frameInd ) )
+        render.drawPoly( gradientPoly )
+
+        if choice.bandEnabled then
+            render.setMaterial()
+            render.setColor( getColorFrame( choiceBandColorsLookup, choice.bandColorStr, frameInd ) )
+            render.drawPoly( choiceBandPolys[frameInd] )
+        end
+
+        render.setFont( menuFont )
+        render.setColor( getColorFrame( choiceNameColorsLookup, choice.nameColorStr, frameInd ) )
+
+        local matrText = Matrix()
+        local nameRadius = choiceNameRadii[frameInd]
+        memVec[2] = -nameRadius
+        matrText:translate( memVec )
+
+        if deg > 90 and deg < 270 then
+            matrText:rotate( Angle( 0, 180, 0 ) )
+        end
+
+        matrText:scale( menuFontVecScale )
+
+        render.pushMatrix( matrText )
+        render.drawSimpleText( 0, 0, choice.name, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+        render.popMatrix()
+
+        render.popMatrix() -- matrChoice
+
+        matrChoice:rotate( memAng )
+
+        local paint = choice.paint
+
+        if paint then
+            local rad = math.rad( deg + 90 )
+            local xDir = -math.cos( rad )
+            local yDir = -math.sin( rad )
+
+            paint( xDir, yDir, nameRadius + menuFontHeight / 2, menuFontHeight, i == hoveredInd, curMenu, curPageInd, i )
+        end
+    end
+
+    render.popMatrix() -- matrCenter
+end )
+
+hook.add( "think", "LKL_RadialMenu_TrackMouse", function()
+    if not permissionSatisfied then return end
+    if not curMenu then return end
+
+    if not input.getCursorVisible() then
+        hoveredInd = nil
+
+        return
+    end
+
+    local x, y = input.getCursorPos()
+    x = x - scrW / 2
+    y = y - scrH / 2
+
+    local radius = math.sqrt( x * x + y * y )
+
+    if radius <= curMenu:getDeadzoneRadiusEff() then
+        hoveredInd = nil
+
+        return
+    end
+
+    local rad = math.asin( y / radius )
+    local choiceCount = curMenu:getCurPageChoiceCount()
+    local radPerChoice = 2 * MATH_PI / choiceCount
+
+    rad = rad + MATH_PI / 2
+
+    if x < 0 then
+        rad = 2 * MATH_PI - rad
+    end
+
+    local nearestMult = math.nearestMultiple( rad, radPerChoice )
+
+    hoveredInd = 1 + math.round( nearestMult / radPerChoice ) % choiceCount
+end )
+
+hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
+    if not isFirstTimePredicted() then return end
+    if not permissionSatisfied then return end
+    if not curMenu then return end
+
+    if key == MOUSE.LEFT then
+        if hoveredInd then
+            local choice = curMenu._pages[curMenu:getCurPageInd()][hoveredInd]
+            local command = choice.command
+            local targetMenuName = choice.menu
+            local func = choice.func
+
+            if command and player() == owner() then
+                concmd( command )
+            elseif targetMenuName then
+                local targetMenu = menusByName[targetMenuName]
+
+                if targetMenu then
+                    targetMenu:open()
+                else
+                    print( "Radial menu " .. targetMenuName .. " does not exist" )
+                end
+            elseif func then
+                func( curMenu, curMenu:getCurPageInd(), hoveredInd )
+            end
+        elseif curMenu:getPageCount() > 1 then
+            -- Previous page
+            curMenu:setCurPageInd( ( curMenu:getCurPageInd() - 2 ) % curMenu:getPageCount() + 1 )
+        end
+    elseif key == MOUSE.RIGHT then
+        if not hoveredInd and curMenu:getPageCount() > 1 then
+            -- Next page
+            curMenu:setCurPageInd( ( curMenu:getCurPageInd() % curMenu:getPageCount() ) + 1 )
+        end
+    end
+end )
