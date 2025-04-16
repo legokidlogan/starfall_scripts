@@ -207,7 +207,7 @@ function RadialMenu:setCurPageInd( pageInd )
     if oldPageInd == pageInd then return end
 
     if pageInd < 1 or pageInd > #self._pages then
-        error( "Expected pageInd to be between 1 and " .. #self._pages )
+        error( "Expected pageInd to be between 1 and pageCount" )
     end
 
     self._curPageInd = pageInd
@@ -232,7 +232,7 @@ end
 
 function RadialMenu:getPageChoiceCount( pageInd )
     local page = self._pages[pageInd]
-    if not page then error( "Expected pageInd to be between 1 and " .. #pages ) end
+    if not page then error( "Expected pageInd to be between 1 and pageCount" ) end
 
     return #page
 end
