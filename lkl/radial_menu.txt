@@ -404,6 +404,12 @@ function RadialMenu:setPages( pages )
             }
         end
     end
+
+    if curMenu == self then
+        hoveredInd = nil
+    end
+
+    self:setCurPageInd( math.clamp( self:getCurPageInd(), 1, #realPages ) )
 end
 
 function RadialMenu:getName()
