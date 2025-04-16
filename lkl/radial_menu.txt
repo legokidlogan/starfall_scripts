@@ -230,6 +230,13 @@ function RadialMenu:getCurPageChoiceCount()
     return #page
 end
 
+function RadialMenu:getPageChoiceCount( pageInd )
+    local page = self._pages[pageInd]
+    if not page then error( "Expected pageInd to be between 1 and " .. #pages ) end
+
+    return #page
+end
+
 function RadialMenu:getPageCount()
     return #self._pages
 end
