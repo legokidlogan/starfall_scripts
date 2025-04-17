@@ -1,0 +1,764 @@
+--@name Global Radial Menu
+--@author legokidlogan
+--@client
+--@owneronly
+--@include lkl/radial_menu.txt
+--@include lkl/global_data_manager.txt
+
+--[[
+    - Allows multiple chips to create radial menus that can be accessed from one main menu.
+    - Only works with radial menus created and used by the chip owner.
+    - The menus will be accessed by holding the open key.
+        - Let go to close the menu.
+        - Let go while hovering over a choice to simulate clicking on it as it gets closed.
+    - Hold the 'force reset' key while you press the open key to force the main menu to open up.
+    - DO NOT use :open() or :close() on instances of the GlobalRadialMenu class directly, it will break things!
+    - If you want a menu to have a choice that goes back to the main menu, set func to GlobalRadialMenu.MAIN_MENU_FUNC.
+    - You can have your global radial menus open up as many (non)standard radial menus as you want, by using the 'menu' param of choices.
+    - Global radial menus can also be given pririty values, to make sure they always show up in the same order.
+        - Higher priority = earlier in the list.
+        - Default priority is 10000.
+--]]
+
+if GlobalRadialMenu then return end
+
+local OPEN_KEY_DEFAULT = KEY.COMMA -- Hold this key to open the menu. Letting go while hovering over a choice is the same as left-clicking it.
+local OPEN_ALLOW_KEY_DEFAULT = false -- If not false, you need to hold this before holding the open key. You can let go of this key afterwards.
+local FORCE_RESET_KEY_DEFAULT = KEY.RALT -- If this key is held before pressing the open key, the global main menu will forcibly open. The open allow key is not needed for this.
+local CHOICES_PER_MAIN_PAGE_DEFAULT = 8 -- The max number of choices per page in the main menu. Must be at least 3.
+
+require( "lkl/radial_menu.txt" )
+require( "lkl/global_data_manager.txt" )
+
+
+GlobalRadialMenu = class( "GlobalRadialMenu", RadialMenu )
+GlobalRadialMenu.static.PRIORITY = 10000 -- Default priority.
+
+-- These values can be changed only through setter functions on the class itself, tso other chips can be informed.
+GlobalRadialMenu.static.OPEN_KEY = OPEN_KEY_DEFAULT
+GlobalRadialMenu.static.OPEN_ALLOW_KEY = OPEN_ALLOW_KEY_DEFAULT
+GlobalRadialMenu.static.FORCE_RESET_KEY = FORCE_RESET_KEY_DEFAULT
+GlobalRadialMenu.static.CHOICES_PER_MAIN_PAGE = CHOICES_PER_MAIN_PAGE_DEFAULT
+
+
+local mainMenu = nil
+local mainResponderID = nil
+local mainResponderCT = nil
+local blankChoice = nil
+local myID = chip():entIndex()
+local myCT = chip():getCreationTime()
+local startupTime = timer.systime()
+local grmIDs = {}
+local grmIDLookup = {} -- [chipID] = startupTime (of chips that use GRM)
+local globalSubmenuLookup = {}
+local keyStates = {}
+local lastGlobalSubmenu = nil
+local openKey = GlobalRadialMenu.OPEN_KEY
+local openAllowKey = GlobalRadialMenu.OPEN_ALLOW_KEY
+local forceResetKey = GlobalRadialMenu.FORCE_RESET_KEY
+
+local getAllOwnerChipsButThis
+local tryBecomeMainResponder
+local defineMainResponder
+local findNewMainResponder
+local unmarkGRM
+local removeMenusOfChip
+local makeMainMenuCoice
+local fullUpdateMainMenu
+local forceOpenMainMenu
+
+
+
+----- STATIC FUNCTIONS -----
+
+function GlobalRadialMenu:initialize( name, displayName, pages, priority )
+    GlobalRadialMenu.super.initialize( self, name, displayName, pages )
+
+    globalSubmenuLookup[name] = self
+    priority = priority or GlobalRadialMenu.PRIORITY
+
+    self._priority = priority
+
+    local menusByChipID = GDM.OwnerData.GlobalRadialMenu.menusByChipID
+    local chipID = myID
+    local chipCT = myCT
+    local menus = menusByChipID[chipID]
+
+    -- Ensure a list exists and is valid.
+    if not menus or menus.ct ~= chipCT or menus.st ~= startupTime then
+        menus = {
+            ct = chipCT,
+            st = startupTime,
+        }
+        menusByChipID[chipID] = menus
+    end
+
+    menus[#menus + 1] = {
+        name = name,
+        displayName = displayName,
+        priority = priority,
+    }
+
+    GDM.pushOwnerData()
+
+    local mainResponder = tryBecomeMainResponder()
+
+    hookRunRemoteFixed( mainResponder, "LKL_GlobalRadialMenu_UpdateMainMenu" )
+end
+
+function GlobalRadialMenu.static:setOpenKey( key )
+    if type( key ) ~= "number" then error( "Expected key to be a number" ) end
+
+    GlobalRadialMenu.static.OPEN_KEY = key
+    openKey = key
+    GDM.OwnerData.GlobalRadialMenu.OPEN_KEY = key
+    GDM.pushOwnerData()
+
+    hookRunRemoteFixed( getGRMChips(), "LKL_GlobalRadialMenu_SetOpenKey", key )
+end
+
+function GlobalRadialMenu.static:setOpenAllowKey( key )
+    if type( key ) ~= "number" and key ~= false then error( "Expected key to be a number or false" ) end
+
+    GlobalRadialMenu.static.OPEN_ALLOW_KEY = key
+    openAllowKey = key
+    GDM.OwnerData.GlobalRadialMenu.OPEN_ALLOW_KEY = key
+    GDM.pushOwnerData()
+
+    hookRunRemoteFixed( getGRMChips(), "LKL_GlobalRadialMenu_SetOpenAllowKey", key )
+end
+
+function GlobalRadialMenu.static:setForceResetKey( key )
+    if type( key ) ~= "number" then error( "Expected key to be a number" ) end
+
+    GlobalRadialMenu.static.FORCE_RESET_KEY = key
+    forceResetKey = key
+    GDM.OwnerData.GlobalRadialMenu.FORCE_RESET_KEY = key
+    GDM.pushOwnerData()
+
+    hookRunRemoteFixed( getGRMChips(), "LKL_GlobalRadialMenu_SetForceResetKey", key )
+end
+
+function GlobalRadialMenu.static:setChoicesPerMainPage( amount )
+    if type( amount ) ~= "number" then error( "Expected amount to be a number" ) end
+    if math.floor( amount ) ~= amount then error( "Expected amount to be an integer" ) end
+    if amount < 3 then error( "Expected amount to be at least 3" ) end
+
+    GlobalRadialMenu.static.CHOICES_PER_MAIN_PAGE = amount
+    GDM.OwnerData.GlobalRadialMenu.CHOICES_PER_MAIN_PAGE = amount
+    GDM.pushOwnerData()
+
+    local mainResponder = tryBecomeMainResponder()
+
+    if mainResponder == chip() then
+        fullUpdateMainMenu()
+    end
+
+    hookRunRemoteFixed( getGRMChips(), "LKL_GlobalRadialMenu_SetChoicesPerMainPage", amount )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function GlobalRadialMenu:getPriority()
+    return self._priority
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function GlobalRadialMenu:onDestroyed()
+    local globalData = GDM.OwnerData.GlobalRadialMenu
+    local menusByChipID = globalData.menusByChipID
+    local chipID = myID
+    local menus = menusByChipID[chipID]
+
+    if lastGlobalSubmenu == self:getName() then
+        lastGlobalSubmenu = nil
+    end
+
+    if menus then
+        if globalData.activeChipID == chipID then
+            globalData.activeChipID = nil
+        end
+
+        menusByChipID[chipID] = nil
+        GDM.pushOwnerData()
+
+        local mainResponder = tryBecomeMainResponder()
+
+        hookRunRemoteFixed( mainResponder, "LKL_GlobalRadialMenu_UpdateMainMenu" )
+
+        if globalData.isOpen then
+            GlobalRadialMenu.MAIN_MENU_FUNC()
+        end
+    end
+
+    GlobalRadialMenu.super.onDestroyed( self )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+getAllOwnerChipsButThis = function()
+    local chips = {}
+
+    for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
+        if chipEnt:hasInstance() and chipEnt ~= chip() and chipEnt:getOwner() == owner() then
+            table.insert( chips, chipEnt )
+        end
+    end
+
+    return chips
+end
+
+getGRMChips = function() -- Does not include this chip.
+    local chips = {}
+
+    for _, chipID in ipairs( grmIDs ) do
+        local chipEnt = entity( chipID )
+
+        if isValid( chipEnt ) and chipEnt:hasInstance() then
+            table.insert( chips, chipEnt )
+        end
+    end
+
+    return chips
+end
+
+tryBecomeMainResponder = function()
+    if mainResponderID then
+        local mainResponder = entity( mainResponderID )
+
+        if isValid( mainResponder ) and mainResponder:getCreationTime() == mainResponderCT and mainResponder:hasInstance() then
+            return mainResponder
+        end
+    end
+
+    defineMainResponder( myID, myCT )
+
+    return chip()
+end
+
+defineMainResponder = function( id, ct )
+    mainResponderID = id
+    mainResponderCT = ct
+
+    GDM.OwnerData.GlobalRadialMenu.mainResponderID = mainResponderID
+    GDM.OwnerData.GlobalRadialMenu.mainResponderCT = mainResponderCT
+    GDM.pushOwnerData()
+
+    hookRunRemoteFixed( getGRMChips(), "LKL_GlobalRadialMenu_DefineMainResponder", mainResponderID, mainResponderCT )
+
+    if mainResponderID == myID then
+        fullUpdateMainMenu()
+    end
+end
+
+findNewMainResponder = function()
+    -- Only for if the main responder is known to be invalid and we cannot use ourselves.
+    -- This should really only be used in the Removed hook, it's been function'd out for cleanliness.
+    local newMainResponder = nil
+    local responses = hookRunRemoteFixed( getGRMChips(), "LKL_GlobalRadialMenu_QueryGRM" )
+
+    for _, response in ipairs( responses ) do
+        if response[1] then
+            newMainResponder = response.Chip
+            break
+        end
+    end
+
+    if newMainResponder then
+        defineMainResponder( newMainResponder:entIndex(), newMainResponder:getCreationTime() )
+
+        return
+    end
+
+    -- No other Global Radial Menu chips exist, so clear everything out.
+    mainResponderID = nil
+    mainResponderCT = nil
+
+    GDM.OwnerData.GlobalRadialMenu = nil
+    GDM.pushOwnerData()
+end
+
+unmarkGRM = function( chipID )
+    if not grmIDLookup[chipID] then return end
+
+    grmIDLookup[chipID] = nil
+    table.removeByValue( grmIDs, chipID )
+end
+
+removeMenusOfChip = function( chipID )
+    -- Only use when the given chip is becoming invalid, so we don't have to tell it to close its menus.
+    local globalData = GDM.OwnerData.GlobalRadialMenu
+    local menusByChipID = globalData.menusByChipID
+    local menus = menusByChipID[chipID]
+    if not menus then return end
+
+    local mainResponder = tryBecomeMainResponder()
+
+    hookRunRemoteFixed( mainResponder, "LKL_GlobalRadialMenu_RemoveMenusOfChip", chipID )
+end
+
+makeMainMenuCoice = function( chipID, menuInfo )
+    local displayPermsMissing = false
+    local timerNamePermsMissing = "LKL_GlobalRadialMenu_DisplayPermsMissing_" .. chipID .. "_" .. menuInfo.name
+
+    return {
+        priority = menuInfo.priority,
+        name = menuInfo.displayName,
+        func = function()
+            local chipEnt = entity( chipID )
+            local results = hookRunRemoteFixed( chipEnt, "LKL_GlobalRadialMenu_OpenMenu", menuInfo.name )
+
+            if results[1][1] then
+                mainMenu:close( true )
+            else
+                -- The other chip is missing perms or an active HUD.
+                displayPermsMissing = true
+
+                timer.create( timerNamePermsMissing, 3, 1, function()
+                    displayPermsMissing = false
+                end )
+            end
+        end,
+        paint = function( xDir, yDir, choiceRadius, nameHeight, _hovered, menu, _pageInd, _choiceNum )
+            if not displayPermsMissing then return end
+
+            local dist = choiceRadius + nameHeight * 2
+            local m = Matrix()
+            m:translate( Vector( xDir * dist, yDir * dist, 0 ) )
+            m:scale( menu._fontVecScale )
+
+            render.pushMatrix( m )
+            render.setRGBA( 255, 0, 0, 255 )
+            render.drawSimpleText( 0, 0, "Permissions or HUD missing!" )
+            render.popMatrix()
+        end,
+    }
+end
+
+fullUpdateMainMenu = function()
+    local menusByChipID = GDM.OwnerData.GlobalRadialMenu.menusByChipID
+    local shouldPushGDM = false
+
+    -- There might be invalid menus if all the chips errored together, so clean them out.
+    for chipID, menus in pairs( menusByChipID ) do
+        local chipEnt = entity( chipID )
+
+        if chipEnt ~= chip() and ( not isValid( chipEnt ) or not chipEnt:hasInstance() or menus.ct ~= chipEnt:getCreationTime() or menus.st ~= grmIDLookup[chipID] ) then
+            menusByChipID[chipID] = nil
+            shouldPushGDM = true
+        end
+    end
+
+    if shouldPushGDM then
+        GDM.pushOwnerData()
+    end
+
+    local allChoices = {}
+
+    -- Build the choices.
+    for chipID, menus in pairs( menusByChipID ) do
+        for _, menuInfo in ipairs( menus ) do
+            table.insert( allChoices, makeMainMenuCoice( chipID, menuInfo ) )
+        end
+    end
+
+    table.sortByMember( allChoices, "priority", false )
+
+    local pages = {}
+    local pageChoices = {}
+    local choiceCount = 0
+    local choiceMax = GlobalRadialMenu.CHOICES_PER_MAIN_PAGE
+
+    -- Build the pages.
+    for _, choice in ipairs( allChoices ) do
+        if choiceCount == choiceMax then
+            table.insert( pages, pageChoices )
+            pageChoices = {}
+            choiceCount = 0
+        end
+
+        table.insert( pageChoices, choice )
+        choiceCount = choiceCount + 1
+    end
+
+    -- Need to add placeholder choices to the last page if it doesn't have the minimum of 3.
+    if choiceCount < 3 and ( #pages == 0 or choiceCount ~= 0 ) then
+        for _ = choiceCount, 2 do
+            table.insert( pageChoices, blankChoice )
+        end
+
+        choiceCount = 3
+    end
+
+    -- Add the last page if it's not empty.
+    if choiceCount ~= 0 then
+        table.insert( pages, pageChoices )
+    end
+
+    mainMenu:setPages( pages )
+end
+
+forceOpenMainMenu = function()
+    -- Only to be performed by the main responder, and only while a global menu is already open.
+
+    local globalData = GDM.OwnerData.GlobalRadialMenu
+    local activeChipID = globalData.activeChipID
+
+    if activeChipID then
+        local activeChip = entity( activeChipID )
+
+        if activeChip == chip() then
+            RadialMenu:closeCurMenu( true )
+        elseif isValid( activeChip ) and activeChip:hasInstance() then
+            hookRunRemoteFixed( activeChip, "Remote_LKL_GlobalRadialMenu_ForceCloseMenus" )
+            globalData.activeChipID = myID
+        end
+    else
+        globalData.activeChipID = myID
+    end
+
+    mainMenu:open()
+    globalData.isOpen = true
+    GDM.pushOwnerData()
+end
+
+
+GlobalRadialMenu.static.MAIN_MENU_FUNC = function( menu )
+    local mainResponder = tryBecomeMainResponder()
+
+    if isValid( menu ) then
+        menu:close( true )
+    end
+
+    if mainResponder == chip() then
+        forceOpenMainMenu()
+    else
+        hookRunRemoteFixed( mainResponder, "LKL_GlobalRadialMenu_OpenMenu", mainMenu:getName() )
+    end
+end
+
+
+----- SETUP -----
+
+mainMenu = RadialMenu:new( "LKL_GlobalRadialMenu_MainMenu", "Global Main Menu", {
+    {
+        { name = "TEMP" },
+        { name = "TEMP" },
+        { name = "TEMP" },
+    },
+} )
+globalSubmenuLookup[mainMenu:getName()] = true
+
+do
+    -- Make the placeholder choices not get bright and colorful when hovered.
+    local gradientColorUnhovered = mainMenu:getChoiceGradientColorUnhovered()
+    local bandColorUnhovered = mainMenu:getChoiceBandColorUnhovered()
+    local nameColorUnhovered = mainMenu:getChoiceNameColorUnhovered()
+
+    blankChoice = {
+        priority = -math.huge,
+        name = "",
+        gradientColorHovered = gradientColorUnhovered,
+        bandColorHovered = bandColorUnhovered,
+        nameColorHovered = nameColorUnhovered,
+    }
+end
+
+
+hook.add( "Removed", "LKL_GlobalRadialMenu_FindNewMainResponderAndRemoveMenus", function()
+    if mainResponderID == myID then
+        findNewMainResponder()
+
+        if not mainResponderID then return end -- No other GRM chips exist, the global table is now gone.
+    end
+
+    removeMenusOfChip( myID )
+    hookRunRemoteFixed( getGRMChips(), "LKL_GlobalRadialMenu_NoLongerGRM", myID )
+end )
+
+hook.add( "StarfallError", "LKL_GlobalRadialMenu_FindNewMainResponderAndRemoveMenus", function( chipEnt, ply )
+    if ply ~= owner() then return end
+
+    local chipID = chipEnt:entIndex()
+
+    unmarkGRM( chipID )
+
+    if chipID == mainResponderID and chipEnt:getCreationTime() == mainResponderCT then
+        tryBecomeMainResponder()
+    end
+
+    -- Only one chip needs to perform the menu removal.
+    if mainResponderID == myID then
+        removeMenusOfChip( chipID )
+    end
+end )
+
+hook.add( "inputPressed", "LKL_GlobalRadialMenu_InputPressed", function( key )
+    keyStates[key] = true -- Need to track key states manually because RALT and RCONTROL are broken with input.isKeyDown()
+
+    if key ~= openKey then return end
+    if not permissionSatisfied then return end
+    if not isFirstTimePredicted() then return end
+
+    -- Force open main menu.
+    if keyStates[forceResetKey] then
+        local mainResponder = tryBecomeMainResponder()
+        if mainResponder ~= chip() then return end
+
+        forceOpenMainMenu()
+
+        return
+    end
+
+    if openAllowKey and not keyStates[openAllowKey] then return end
+
+    local globalData = GDM.OwnerData.GlobalRadialMenu
+    local activeChipID = globalData.activeChipID
+
+    if not activeChipID then
+        local mainResponder = tryBecomeMainResponder()
+        if mainResponder ~= chip() then return end
+
+        globalData.activeChipID = myID
+        lastGlobalSubmenu = mainMenu:getName()
+    else
+        if activeChipID ~= myID then return end
+        if not lastGlobalSubmenu then return end
+    end
+
+    local menu = RadialMenu:getMenuByName( lastGlobalSubmenu )
+    if not isValid( menu ) then return end
+
+    menu:open()
+    globalData.isOpen = true
+    GDM.pushOwnerData()
+end )
+
+hook.add( "inputReleased", "LKL_GlobalRadialMenu_InputReleased", function( key )
+    keyStates[key] = nil
+
+    if key ~= openKey then return end
+    if not isFirstTimePredicted() then return end
+
+    if GDM.OwnerData.GlobalRadialMenu.activeChipID ~= myID then return end
+
+    local menu = RadialMenu:getCurMenu()
+    if not isValid( menu ) then return end
+
+    RadialMenu:forceClickHovered() -- Anything could happen in this call, so re-access global data afterwards.
+    menu:close()
+
+    local activeChipID = GDM.OwnerData.GlobalRadialMenu.activeChipID
+
+    if activeChipID then
+        local chipEnt = entity( activeChipID )
+
+        -- Force the chip to close its menus, otherwise hovering over choice that opens a menu will cause it to stay open.
+        if isValid( chipEnt ) and chipEnt:hasInstance() then
+            hookRunRemoteFixed( chipEnt, "LKL_GlobalRadialMenu_ForceCloseMenus" )
+        end
+    end
+
+    GDM.OwnerData.GlobalRadialMenu.isOpen = false
+    GDM.pushOwnerData()
+
+    input.enableCursor( false )
+end )
+
+hook.add( "LKL_RadialMenu_OnOpenedSubmenu", "LKL_GlobalRadialMenu_TrackSubmenus", function( prevMenu, curMenu, _pageInd )
+    if not globalSubmenuLookup[prevMenu:getName()] then return end
+
+    local curMenuName = curMenu:getName()
+
+    globalSubmenuLookup[curMenuName] = true
+    lastGlobalSubmenu = curMenuName
+end )
+
+hook.add( "LKL_RadialMenu_OnOpened", "LKL_GlobalRadialMenu_TrackSubmenus", function( _prevMenu, curMenu, _pageInd )
+    local curMenuName = curMenu:getName()
+    if not globalSubmenuLookup[curMenuName] then return end
+
+    lastGlobalSubmenu = curMenuName
+end )
+
+hook.add( "LKL_RadialMenu_OnDestroyed", "LKL_GlobalRadialMenu_TrackSubmenus", function( menu )
+    if menu == mainMenu then
+        error( "Do not destroy the global main menu!" )
+    end
+
+    globalSubmenuLookup[menu:getName()] = nil
+end )
+
+
+hook.add( "Remote_LKL_GlobalRadialMenu_SetOpenKey", "LKL_GlobalRadialMenu_SetOpenKey", function( _callingChip, callingPly, key )
+    if callingPly ~= owner() then return end
+
+    GlobalRadialMenu.static.OPEN_KEY = key
+    openKey = key
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_SetOpenAllowKey", "LKL_GlobalRadialMenu_SetOpenAllowKey", function( _callingChip, callingPly, key )
+    if callingPly ~= owner() then return end
+
+    GlobalRadialMenu.static.OPEN_ALLOW_KEY = key
+    openAllowKey = key
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_SetForceResetKey", "LKL_GlobalRadialMenu_SetForceResetKey", function( _callingChip, callingPly, key )
+    if callingPly ~= owner() then return end
+
+    GlobalRadialMenu.static.FORCE_RESET_KEY = key
+    forceResetKey = key
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_SetChoicesPerMainPage", "LKL_GlobalRadialMenu_SetChoicesPerMainPage", function( _callingChip, callingPly, amount )
+    if callingPly ~= owner() then return end
+
+    GlobalRadialMenu.static.CHOICES_PER_MAIN_PAGE = amount
+    openKey = amount
+
+    local mainResponder = tryBecomeMainResponder()
+
+    if mainResponder == chip() then
+        fullUpdateMainMenu()
+    end
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_DefineMainResponder", "LKL_GlobalRadialMenu_StoreMainResponder", function( callingChip, callingPly, id, ct )
+    if callingChip == chip() then return end
+    if callingPly ~= owner() then return end
+
+    mainResponderID = id
+    mainResponderCT = ct
+
+    if mainResponderID == myID then
+        fullUpdateMainMenu()
+    end
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_QueryGRM", "LKL_GlobalRadialMenu_IsGRM", function( callingChip, callingPly, callerIsGRM, callerStartupTime )
+    if callingPly ~= owner() then return end
+
+    if callerIsGRM then
+        local chipID = callingChip:entIndex()
+
+        if not grmIDLookup[chipID] then
+            grmIDLookup[chipID] = callerStartupTime
+            table.insert( grmIDs, chipID )
+        end
+    end
+
+    return true, startupTime
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_NoLongerGRM", "LKL_GlobalRadialMenu_RemoveGRM", function( _callingChip, callingPly, chipID )
+    if callingPly ~= owner() then return end
+
+    unmarkGRM( chipID )
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_RemoveMenusOfChip", "LKL_GlobalRadialMenu_RemoveMenusOfChip", function( _, callingPly, chipID )
+    if callingPly ~= owner() then return end
+
+    -- To be carried out by the main responder only, with the chipID corresponding to an invalid chip.
+    local globalData = GDM.OwnerData.GlobalRadialMenu
+    local menusByChipID = globalData.menusByChipID
+    local shouldGoToMainMenu = globalData.activeChipID == chipID
+
+    menusByChipID[chipID] = nil
+    fullUpdateMainMenu()
+
+    -- Manually open main menu.
+    if shouldGoToMainMenu then
+        globalData.activeChipID = myID
+        lastGlobalSubmenu = mainMenu:getName()
+
+        GDM.pushOwnerData()
+
+        if globalData.isOpen then
+            mainMenu:open()
+        end
+    else
+        GDM.pushOwnerData()
+    end
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_OpenMenu", "LKL_GlobalRadialMenu_OpenMenu", function( callingChip, callingPly, menuName )
+    if callingPly ~= owner() then return end
+
+    local menu = RadialMenu:getMenuByName( menuName )
+    if not isValid( menu ) or not globalSubmenuLookup[menuName] then
+        -- This should never happen!
+        error( "Chip " .. callingChip:entIndex() .. " tried to open a nonexistent GlobalRadialMenu of this chip by the name of " .. menuName )
+    end
+
+    checkPermissions()
+    if not permissionSatisfied then return false end
+    if not render.isHUDActive() then return false end -- This should never happen, but for just in case.
+
+    local globalData = GDM.OwnerData.GlobalRadialMenu
+    globalData.activeChipID = myID
+    globalData.isOpen = true
+    GDM.pushOwnerData()
+
+    menu:open()
+
+    return true
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_ForceCloseMenus", "LKL_GlobalRadialMenu_ForceCloseMenus", function( _callingChip, callingPly )
+    if callingPly ~= owner() then return end
+
+    RadialMenu:closeCurMenu( GDM.OwnerData.GlobalRadialMenu.isOpen )
+end )
+
+hook.add( "Remote_LKL_GlobalRadialMenu_UpdateMainMenu", "LKL_GlobalRadialMenu_UpdateMainMenu", function( _callingChip, callingPly )
+    if callingPly ~= owner() then return end
+
+    -- TODO: Split this hook into add/remove hooks, and adjust the main menu accordingly, instead of remaking it every time.
+    fullUpdateMainMenu()
+end )
+
+
+-- Validate global data.
+if not GDM.OwnerData.GlobalRadialMenu then
+    GDM.OwnerData.GlobalRadialMenu = {
+        OPEN_KEY = OPEN_KEY_DEFAULT,
+        OPEN_ALLOW_KEY = OPEN_ALLOW_KEY_DEFAULT,
+        FORCE_RESET_KEY = FORCE_RESET_KEY_DEFAULT,
+        CHOICES_PER_MAIN_PAGE = CHOICES_PER_MAIN_PAGE_DEFAULT,
+        menusByChipID = {},
+    }
+
+    GDM.pushOwnerData()
+else
+    mainResponderID = GDM.OwnerData.GlobalRadialMenu.mainResponderID
+    mainResponderCT = GDM.OwnerData.GlobalRadialMenu.mainResponderCT
+end
+
+do -- Find all GRM chips and announce self.
+    enableHud( owner(), true )
+
+    local responses = hookRunRemoteFixed( getAllOwnerChipsButThis(), "LKL_GlobalRadialMenu_QueryGRM", true, startupTime )
+
+    for _, response in ipairs( responses ) do
+        if response[1] then
+            local chipID = response.Chip:entIndex()
+
+            if not grmIDLookup[chipID] then
+                grmIDLookup[chipID] = response[2]
+                table.insert( grmIDs, chipID )
+            end
+        end
+    end
+
+    tryBecomeMainResponder()
+end
