@@ -1465,7 +1465,7 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
                     targetMenu:open( pageInd )
                     hook.run( "LKL_RadialMenu_OnOpenedSubmenu", prev, targetMenu, pageInd )
                 else
-                    print( "Radial menu " .. targetMenuName .. " does not exist" )
+                    error( "Couldn't find a RadialMenu with the name of " .. targetMenuName )
                 end
             elseif func then
                 func( curMenu, curMenu:getCurPageInd(), hoveredInd )
