@@ -268,7 +268,7 @@ function RadialMenu:open( pageNum )
         self:setCurPageInd( pageNum )
     end
 
-    self:onOpened()
+    self:onOpened( pageNum )
 
     return true
 end
@@ -675,8 +675,12 @@ end
 --[[
     - Called when the menu is opened.
     - DO NOT call :open() inside this function, it could cause an infinite loop.
+
+    pageNum: number or nil
+        - The index of the page that was just opened to, or nil if it was not specified.
+        - This is the same as the argument passed to :open().
 --]]
-function RadialMenu:onOpened()
+function RadialMenu:onOpened( _pageNum )
 end
 
 --[[
