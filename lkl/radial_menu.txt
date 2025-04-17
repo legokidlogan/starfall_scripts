@@ -250,6 +250,13 @@ function RadialMenu:getHoveredInd()
     return curMenu == self and hoveredInd
 end
 
+--[[
+    - Opens the menu.
+
+    pageNum: number (optional)
+        - The page to open to.
+        - If not set, the current page will be opened.
+--]]
 function RadialMenu:open( pageNum )
     if curMenu == self then return end
     if not permissionSatisfied or not render.isHUDActive() then return false end
@@ -273,6 +280,13 @@ function RadialMenu:open( pageNum )
     return true
 end
 
+--[[
+    - Closes the menu.
+
+    dontHideCursor: boolean (optional)
+        - If true, the cursor will not be hidden.
+        - False by default.
+--]]
 function RadialMenu:close( dontHideCursor )
     if curMenu ~= self then return end
 
