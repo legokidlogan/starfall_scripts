@@ -132,8 +132,8 @@ local validatePolyUser
                     -- These are mutually exclusive with each other. At least one must be set.
                     command = STRING, -- The concmd to run when the choice is selected. Only works on the owner, otherwise tries the other options.
                     menu = STRING, -- The name of the menu to open when the choice is selected.
-                        menuPageNum = NUMBER (optional), -- The page to open when the choice is selected, if menu is used. nil to not force the page.
-                    func = function( menu, pageNum, choiceNum ) end, -- A function to run when the choice is selected.
+                        menuPageInd = NUMBER (optional), -- The page to open when the choice is selected, if menu is used. nil to not force the page.
+                    func = function( menu, pageInd, choiceNum ) end, -- A function to run when the choice is selected.
 
                     -- See the CHOICE_ static vars of RadialMenu for more info and defaults. Colors are in HSV.
                     gradientEnabled = BOOLEAN (optional),
@@ -149,7 +149,7 @@ local validatePolyUser
                     -- Drawing at 0,0 will result in drawing at the center of the menu/screen.
                     -- Drawing at xDir * choiceRadius, yDir * choiceRadius will result in drawing at the outermost edge of the choice.
                     -- The render will be facing upright.
-                    paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageNum, choiceNum ) return end (optional),
+                    paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageInd, choiceNum ) return end (optional),
                 },
                 ...
             },
@@ -254,11 +254,11 @@ end
 --[[
     - Opens the menu.
 
-    pageNum: number (optional)
+    pageInd: number (optional)
         - The page to open to.
         - If not set, the current page will be opened.
 --]]
-function RadialMenu:open( pageNum )
+function RadialMenu:open( pageInd )
     if curMenu == self then return end
     if not permissionSatisfied or not render.isHUDActive() then return false end
 
@@ -272,11 +272,11 @@ function RadialMenu:open( pageNum )
         input.enableCursor( true )
     end
 
-    if pageNum then
-        self:setCurPageInd( pageNum )
+    if pageInd then
+        self:setCurPageInd( pageInd )
     end
 
-    self:onOpened( prevMenu, pageNum )
+    self:onOpened( prevMenu, pageInd )
 
     return true
 end
@@ -695,11 +695,11 @@ end
         - The menu that was just closed to open this one.
             - If a menu is :close()'d manually and another is :open()'d after, this will be nil.
         - This is the same as the argument passed to :close().
-    pageNum: number or nil
+    pageInd: number or nil
         - The index of the page that was just opened to, or nil if it was not specified.
         - This is the same as the argument passed to :open().
 --]]
-function RadialMenu:onOpened( _prevMenu, _pageNum )
+function RadialMenu:onOpened( _prevMenu, _pageInd )
 end
 
 --[[
@@ -1089,7 +1089,7 @@ editChoice = function(
     realChoice.name = choice.name
     realChoice.command = choice.command
     realChoice.menu = choice.menu
-    realChoice.menuPageNum = choice.menuPageNum
+    realChoice.menuPageInd = choice.menuPageInd
     realChoice.func = choice.func
     realChoice.paint = choice.paint
     realChoice.gradientEnabled = gradientEnabled
@@ -1357,9 +1357,9 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
                 local targetMenu = menusByName[targetMenuName]
 
                 if targetMenu then
-                    local pageNum = choice.menuPageNum
+                    local pageInd = choice.menuPageInd
 
-                    targetMenu:open( pageNum )
+                    targetMenu:open( pageInd )
                 else
                     print( "Radial menu " .. targetMenuName .. " does not exist" )
                 end
