@@ -1462,7 +1462,7 @@ hook.add( "think", "LKL_RadialMenu_TrackMouse", function()
     local radius = math.sqrt( x * x + y * y )
 
     if radius <= curMenu:getDeadzoneRadiusEff() then
-        hoveredInd = nil
+        hoveredInd = false -- False for if we have had time to detect a deadzone hover, nil for we have no idea.
 
         return
     end
@@ -1490,17 +1490,17 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
     if key == MOUSE.LEFT then
         if hoveredInd then
             handleChoiceClick()
-        elseif curMenu:getPageCount() > 1 then
+        elseif hoveredInd == false and curMenu:getPageCount() > 1 then
             -- Previous page
             curMenu:setCurPageInd( ( curMenu:getCurPageInd() - 2 ) % curMenu:getPageCount() + 1 )
         end
     elseif key == MOUSE.RIGHT then
-        if not hoveredInd then
+        if hoveredInd == false then
             if curMenu:getPageCount() > 1 then
                 -- Next page
                 curMenu:setCurPageInd( ( curMenu:getCurPageInd() % curMenu:getPageCount() ) + 1 )
             end
-        else
+        elseif hoveredInd then
             hook.run( "LKL_RadialMenu_InputPressed", curMenu, key )
         end
     else
