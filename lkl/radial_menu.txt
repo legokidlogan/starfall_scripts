@@ -276,9 +276,9 @@ function RadialMenu.static:getHoveredInd()
     return hoveredInd
 end
 
-function RadialMenu.static:closeCurMenu()
+function RadialMenu.static:closeCurMenu( dontHideCursor )
     if curMenu then
-        curMenu:close()
+        curMenu:close( dontHideCursor )
     end
 end
 
