@@ -259,7 +259,14 @@ end
         - If not set, the current page will be opened.
 --]]
 function RadialMenu:open( pageInd )
-    if curMenu == self then return end
+    if curMenu == self then
+        if pageInd then
+            self:setCurPageInd( pageInd )
+        end
+
+        return
+    end
+
     if not permissionSatisfied or not render.isHUDActive() then return false end
 
     prevMenu = isValid( curMenu ) and curMenu or nil
