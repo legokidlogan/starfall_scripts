@@ -871,6 +871,7 @@ function RadialMenu:onDestroyed()
 
     if curMenu == self then
         curMenu = nil
+        input.enableCursor( false )
     end
 
     menusByName[self._name] = nil
