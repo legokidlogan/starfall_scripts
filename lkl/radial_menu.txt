@@ -61,6 +61,7 @@
 
         LKL_RadialMenu_OnOpenedSubmenu( prevMenu, curMenu, pageInd )
             - Called when a menu is opened directly from the 'menu' parameter of a choice.
+            - Called immediately before the menu is opened.
 
             prevMenu: (RadialMenu)
                 - The menu whose choice was clicked to open the new one.
@@ -1468,8 +1469,8 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
                     local prev = curMenu
                     local pageInd = choice.menuPageInd
 
-                    targetMenu:open( pageInd )
                     hook.run( "LKL_RadialMenu_OnOpenedSubmenu", prev, targetMenu, pageInd )
+                    targetMenu:open( pageInd )
                 else
                     error( "Couldn't find a RadialMenu with the name of " .. targetMenuName )
                 end
