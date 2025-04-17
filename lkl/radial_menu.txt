@@ -252,11 +252,18 @@ function RadialMenu:getHoveredInd()
 end
 
 --[[
-    - Opens the menu.
+    - Opens the menu (to a page), or changes the page if already open.
 
     pageInd: number (optional)
         - The page to open to.
         - If not set, the current page will be opened.
+
+    RETURNS: failedToOpen
+        failedToOpen: boolean or nil
+            - If true, the menu was unable to be opened.
+                - This occurs when permissions are not satisfied, or no HUD is connected.
+            - If false, the menu has been opened.
+            - If nil, the menu was already open.
 --]]
 function RadialMenu:open( pageInd )
     if curMenu == self then
@@ -267,7 +274,7 @@ function RadialMenu:open( pageInd )
         return
     end
 
-    if not permissionSatisfied or not render.isHUDActive() then return false end
+    if not permissionSatisfied or not render.isHUDActive() then return true end
 
     prevMenu = isValid( curMenu ) and curMenu or nil
     curMenu = self
@@ -285,7 +292,7 @@ function RadialMenu:open( pageInd )
 
     self:onOpened( prevMenu, pageInd )
 
-    return true
+    return false
 end
 
 --[[
