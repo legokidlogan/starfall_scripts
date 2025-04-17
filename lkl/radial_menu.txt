@@ -1354,9 +1354,9 @@ hook.add( "think", "LKL_RadialMenu_TrackMouse", function()
 end )
 
 hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
+    if not curMenu then return end
     if not isFirstTimePredicted() then return end
     if not permissionSatisfied then return end
-    if not curMenu then return end
 
     if key == MOUSE.LEFT then
         if hoveredInd then
