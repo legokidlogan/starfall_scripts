@@ -276,6 +276,12 @@ function RadialMenu.static:getHoveredInd()
     return hoveredInd
 end
 
+function RadialMenu.static:closeCurMenu()
+    if curMenu then
+        curMenu:close()
+    end
+end
+
 
 ----- INSTANCE FUNCTIONS -----
 
