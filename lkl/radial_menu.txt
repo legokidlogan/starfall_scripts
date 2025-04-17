@@ -184,6 +184,7 @@ local nudgePolyUsers
 local nudgeColorUsers
 local editChoice
 local validatePolyUser
+local handleChoiceClick
 
 
 ----- STATIC FUNCTIONS -----
@@ -281,6 +282,13 @@ function RadialMenu.static:closeCurMenu( dontHideCursor )
     if curMenu then
         curMenu:close( dontHideCursor )
     end
+end
+
+-- Simulates a left click on the currently hovered choice.
+function RadialMenu.static:forceClickHovered()
+    if not curMenu or not hoveredInd then return end
+
+    handleChoiceClick()
 end
 
 
@@ -1246,6 +1254,34 @@ validatePolyUser = function( menu, page, pageInd )
     return polyStr
 end
 
+handleChoiceClick = function()
+    local curPageInd = curMenu:getCurPageInd()
+    local choice = curMenu._pages[curPageInd][hoveredInd]
+    local command = choice.command
+    local targetMenuName = choice.menu
+    local func = choice.func
+
+    hook.run( "LKL_RadialMenu_ChoiceClicked", curMenu, curPageInd, hoveredInd )
+
+    if command and player() == owner() then
+        concmd( command )
+    elseif targetMenuName then
+        local targetMenu = menusByName[targetMenuName]
+
+        if targetMenu then
+            local prev = curMenu
+            local pageInd = choice.menuPageInd
+
+            hook.run( "LKL_RadialMenu_OnOpenedSubmenu", prev, targetMenu, pageInd )
+            targetMenu:open( pageInd )
+        else
+            error( "Couldn't find a RadialMenu with the name of " .. targetMenuName )
+        end
+    elseif func then
+        func( curMenu, curMenu:getCurPageInd(), hoveredInd )
+    end
+end
+
 
 ----- SETUP -----
 
@@ -1452,31 +1488,7 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
 
     if key == MOUSE.LEFT then
         if hoveredInd then
-            local curPageInd = curMenu:getCurPageInd()
-            local choice = curMenu._pages[curPageInd][hoveredInd]
-            local command = choice.command
-            local targetMenuName = choice.menu
-            local func = choice.func
-
-            hook.run( "LKL_RadialMenu_ChoiceClicked", curMenu, curPageInd, hoveredInd )
-
-            if command and player() == owner() then
-                concmd( command )
-            elseif targetMenuName then
-                local targetMenu = menusByName[targetMenuName]
-
-                if targetMenu then
-                    local prev = curMenu
-                    local pageInd = choice.menuPageInd
-
-                    hook.run( "LKL_RadialMenu_OnOpenedSubmenu", prev, targetMenu, pageInd )
-                    targetMenu:open( pageInd )
-                else
-                    error( "Couldn't find a RadialMenu with the name of " .. targetMenuName )
-                end
-            elseif func then
-                func( curMenu, curMenu:getCurPageInd(), hoveredInd )
-            end
+            handleChoiceClick()
         elseif curMenu:getPageCount() > 1 then
             -- Previous page
             curMenu:setCurPageInd( ( curMenu:getCurPageInd() - 2 ) % curMenu:getPageCount() + 1 )
