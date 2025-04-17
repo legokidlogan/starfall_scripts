@@ -132,6 +132,7 @@ local validatePolyUser
                     -- These are mutually exclusive with each other. At least one must be set.
                     command = STRING, -- The concmd to run when the choice is selected. Only works on the owner, otherwise tries the other options.
                     menu = STRING, -- The name of the menu to open when the choice is selected.
+                        menuPageNum = NUMBER (optional), -- The page to open when the choice is selected, if menu is used. nil to not force the page.
                     func = function( menu, pageNum, choiceNum ) end, -- A function to run when the choice is selected.
 
                     -- See the CHOICE_ static vars of RadialMenu for more info and defaults. Colors are in HSV.
@@ -1088,6 +1089,7 @@ editChoice = function(
     realChoice.name = choice.name
     realChoice.command = choice.command
     realChoice.menu = choice.menu
+    realChoice.menuPageNum = choice.menuPageNum
     realChoice.func = choice.func
     realChoice.paint = choice.paint
     realChoice.gradientEnabled = gradientEnabled
@@ -1355,7 +1357,9 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
                 local targetMenu = menusByName[targetMenuName]
 
                 if targetMenu then
-                    targetMenu:open()
+                    local pageNum = choice.menuPageNum
+
+                    targetMenu:open( pageNum )
                 else
                     print( "Radial menu " .. targetMenuName .. " does not exist" )
                 end
