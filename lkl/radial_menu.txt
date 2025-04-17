@@ -261,7 +261,7 @@ function RadialMenu:open( pageNum )
     if curMenu == self then return end
     if not permissionSatisfied or not render.isHUDActive() then return false end
 
-    prevMenu = isValid( curMenu ) and curMenu
+    prevMenu = isValid( curMenu ) and curMenu or nil
     curMenu = self
     hoveredInd = nil
 
@@ -275,7 +275,7 @@ function RadialMenu:open( pageNum )
         self:setCurPageInd( pageNum )
     end
 
-    self:onOpened( pageNum )
+    self:onOpened( prevMenu, pageNum )
 
     return true
 end
@@ -690,11 +690,15 @@ end
     - Called when the menu is opened.
     - DO NOT call :open() inside this function, it could cause an infinite loop.
 
+    prevMenu: RadialMenu or nil
+        - The menu that was just closed to open this one.
+            - If a menu is :close()'d manually and another is :open()'d after, this will be nil.
+        - This is the same as the argument passed to :close().
     pageNum: number or nil
         - The index of the page that was just opened to, or nil if it was not specified.
         - This is the same as the argument passed to :open().
 --]]
-function RadialMenu:onOpened( _pageNum )
+function RadialMenu:onOpened( _prevMenu, _pageNum )
 end
 
 --[[
