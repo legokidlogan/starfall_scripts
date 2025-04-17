@@ -9,6 +9,81 @@
 --[[
     - A heavily customizable, highly performant radial menu class.
     - Each menu can have multiple pages, cycled through with left/right click while hovering over the center.
+
+    - HOOKS:
+        LKL_RadialMenu_OnClosed( menu, fromOtherOpening, dontHideCursor )
+            - Called when a menu is closed.
+
+            menu: (RadialMenu)
+                - The RadialMenu that was closed.
+            fromOtherOpening: (boolean)
+                - Whether the menu was closed because another menu was opened.
+            dontHideCursor: (boolean)
+                - True if the menu was told to not hide the cursor.
+
+
+        LKL_RadialMenu_OnOpened( prevMenu, curMenu, pageInd )
+            - Called when a menu is opened.
+
+            prevMenu: (RadialMenu or nil)
+                - The menu that was closed in order to open the new one.
+                - nil if no menu was open when the new one was opened.
+
+            curMenu: (RadialMenu)
+                - The menu that was opened.
+
+            pageInd: (number or nil)
+                - The page number the menu was opened to, if specified.
+                - If nil, check the menu's current page.
+
+
+        LKL_RadialMenu_OnDestroyed( menu )
+            - Called when a menu is about to be destroyed.
+
+            menu: (RadialMenu)
+                - The menu that is being destroyed.
+
+
+        LKL_RadialMenu_ChoiceClicked( menu, pageInd, choiceInd )
+            - Called when a menu's choice is left-clicked.
+            - Called immediately before processing the choice's action.
+            - Useful for adding universal behaviour like clicking sounds.
+
+            menu: (RadialMenu)
+                - The menu that was clicked.
+
+            pageInd: (number)
+                - The page number of the choice that was clicked.
+
+            choiceInd: (number)
+                - The index of the choice that was clicked.
+
+
+        LKL_RadialMenu_OnOpenedSubmenu( prevMenu, curMenu, pageInd )
+            - Called when a menu is opened directly from the 'menu' parameter of a choice.
+
+            prevMenu: (RadialMenu)
+                - The menu whose choice was clicked to open the new one.
+
+            curMenu: (RadialMenu)
+                - The menu that was opened.
+
+            pageInd: (number or nil)
+                - The page number the menu was opened to, if specified.
+                - If nil, check the menu's current page.
+
+
+        LKL_RadialMenu_InputPressed( menu, key )
+            - Called when a key is pressed with a menu open.
+            - Never called for the left mouse button.
+            - Never called for the right mouse button when not hovering a choice.
+
+            menu: (RadialMenu)
+                - The menu that is open.
+
+            key: (number)
+                - The key that was pressed.
+                - A member of the KEY or MOUSE enums.
 --]]
 
 
@@ -282,6 +357,7 @@ function RadialMenu:open( pageInd )
 
     if prevMenu then
         prevMenu:onClosed( true, true )
+        hook.run( "LKL_RadialMenu_OnClosed", prevMenu, true, true )
     else
         input.enableCursor( true )
     end
@@ -291,6 +367,7 @@ function RadialMenu:open( pageInd )
     end
 
     self:onOpened( prevMenu, pageInd )
+    hook.run( "LKL_RadialMenu_OnOpened", prevMenu, self, pageInd )
 
     return false
 end
@@ -314,6 +391,7 @@ function RadialMenu:close( dontHideCursor )
     end
 
     self:onClosed( false, dontHideCursor )
+    hook.run( "LKL_RadialMenu_OnClosed", self, false, dontHideCursor )
 end
 
 function RadialMenu:setHoverDuration( duration )
@@ -743,6 +821,13 @@ end
 
 
 ----- IMPLEMENTED FUNCTIONS -----
+
+function RadialMenu:destroy()
+    -- Run the hook before any :onDestroyed functions run to ensure no data is missing for the hook listeners.
+    hook.run( "LKL_RadialMenu_OnDestroyed", self )
+
+    RadialMenu.super.destroy( self )
+end
 
 function RadialMenu:onDestroyed()
     local menuNamePrepend = self:getName() .. "_"
@@ -1360,10 +1445,13 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
 
     if key == MOUSE.LEFT then
         if hoveredInd then
-            local choice = curMenu._pages[curMenu:getCurPageInd()][hoveredInd]
+            local curPageInd = curMenu:getCurPageInd()
+            local choice = curMenu._pages[curPageInd][hoveredInd]
             local command = choice.command
             local targetMenuName = choice.menu
             local func = choice.func
+
+            hook.run( "LKL_RadialMenu_ChoiceClicked", curMenu, curPageInd, hoveredInd )
 
             if command and player() == owner() then
                 concmd( command )
@@ -1371,9 +1459,11 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
                 local targetMenu = menusByName[targetMenuName]
 
                 if targetMenu then
+                    local prev = curMenu
                     local pageInd = choice.menuPageInd
 
                     targetMenu:open( pageInd )
+                    hook.run( "LKL_RadialMenu_OnOpenedSubmenu", prev, targetMenu, pageInd )
                 else
                     print( "Radial menu " .. targetMenuName .. " does not exist" )
                 end
@@ -1385,9 +1475,15 @@ hook.add( "inputPressed", "LKL_RadialMenu_Input", function( key )
             curMenu:setCurPageInd( ( curMenu:getCurPageInd() - 2 ) % curMenu:getPageCount() + 1 )
         end
     elseif key == MOUSE.RIGHT then
-        if not hoveredInd and curMenu:getPageCount() > 1 then
-            -- Next page
-            curMenu:setCurPageInd( ( curMenu:getCurPageInd() % curMenu:getPageCount() ) + 1 )
+        if not hoveredInd then
+            if curMenu:getPageCount() > 1 then
+                -- Next page
+                curMenu:setCurPageInd( ( curMenu:getCurPageInd() % curMenu:getPageCount() ) + 1 )
+            end
+        else
+            hook.run( "LKL_RadialMenu_InputPressed", curMenu, key )
         end
+    else
+        hook.run( "LKL_RadialMenu_InputPressed", curMenu, key )
     end
 end )
