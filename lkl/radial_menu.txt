@@ -227,6 +227,11 @@ local handleChoiceClick
                     -- Drawing at xDir * choiceRadius, yDir * choiceRadius will result in drawing at the outermost edge of the choice.
                     -- The render will be facing upright.
                     paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageInd, choiceNum ) return end (optional),
+
+                    -- This function is like paint, but inherits the choice's radial orientation.
+                    -- Drawing at 0, choiceRadius will result in drawing at the outermost edge of the choice.
+                    -- Note that choices below the center have their rotation flipped for ease of readability.
+                    paintRadial = function( choiceRadius, nameHeight, hovered, menu, pageInd, choiceNum ) return end (optional),
                 },
                 ...
             },
@@ -1207,6 +1212,7 @@ editChoice = function(
     realChoice.menuPageInd = choice.menuPageInd
     realChoice.func = choice.func
     realChoice.paint = choice.paint
+    realChoice.paintRadial = choice.paintRadial
     realChoice.gradientEnabled = gradientEnabled
     realChoice.bandEnabled = bandEnabled
 
@@ -1426,6 +1432,12 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
         render.pushMatrix( matrText )
         render.drawSimpleText( 0, 0, choice.name, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
         render.popMatrix()
+
+        local paintRadial = choice.paintRadial
+
+        if paintRadial then
+            paintRadial( nameRadius + menuFontHeight / 2, menuFontHeight, i == hoveredInd, curMenu, curPageInd, i )
+        end
 
         render.popMatrix() -- matrChoice
 
