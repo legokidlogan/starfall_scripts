@@ -124,7 +124,7 @@ function hookRunRemoteByOwner( targetOwner, hookName, ... )
     local targets = {}
 
     for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
-        if chipEnt:getOwner() == targetOwner then
+        if chipEnt:hasInstance() and chipEnt:getOwner() == targetOwner then
             tableInsert( targets, chipEnt )
         end
     end
@@ -151,7 +151,7 @@ function hookRunRemoteGroup( groupName, targetOwner, hookName, ... )
 
     if groupName == nil then
         for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
-            if chipEnt:getOwner() == targetOwner then
+            if chipEnt:hasInstance() and chipEnt:getOwner() == targetOwner then
                 tableInsert( targets, chipEnt )
             end
         end
@@ -327,7 +327,9 @@ function findRemoteGroupByOwner( groupName, targetOwner )
     if targetOwner == nil then
         for _, group in pairs( groupByOwner ) do
             for _, chipEnt in ipairs( group ) do
-                tableInsert( chips, chipEnt )
+                if chipEnt:hasInstance() then
+                    tableInsert( chips, chipEnt )
+                end
             end
         end
 
@@ -337,7 +339,9 @@ function findRemoteGroupByOwner( groupName, targetOwner )
     local group = groupByOwner[targetOwner] or {}
 
     for _, chipEnt in ipairs( group ) do
-        tableInsert( chips, chipEnt )
+        if chipEnt:hasInstance() then
+            tableInsert( chips, chipEnt )
+        end
     end
 
     return chips
@@ -376,7 +380,10 @@ end
     Handled automatically by chips being added or removed, though you can call it manually to force an update.
 --]]
 function queryRemoteGroups()
-    local allChips = find.byClass( "starfall_processor" )
+    local allChips = find.byClass( "starfall_processor", function( chipEnt )
+        return chipEnt:hasInstance()
+    end )
+
     local responses = hookRunRemoteFixed( allChips, "RemoteGroupQuery" )
     local responsesEff = {}
 

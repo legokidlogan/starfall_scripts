@@ -54,10 +54,16 @@ getAllChipsButThis = function()
     local chips = find.byClass( "starfall_processor" )
 
     for i = #chips, 1, -1 do
-        if chips[i] == chip() then
+        local chipEnt = chips[i]
+
+        if chipEnt == chip() then
             table.remove( chips, i )
 
             break
+        end
+
+        if not chipEnt:hasInstance() then
+            table.remove( chips, i )
         end
     end
 
@@ -68,7 +74,7 @@ getAllOwnerChipsButThis = function()
     local chips = {}
 
     for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
-        if chipEnt ~= chip() and chipEnt:getOwner() == owner() then
+        if chipEnt:hasInstance() and chipEnt ~= chip() and chipEnt:getOwner() == owner() then
             table.insert( chips, chipEnt )
         end
     end
