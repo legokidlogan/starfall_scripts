@@ -34,7 +34,7 @@ require( "lkl/global_data_manager.txt" )
 GlobalRadialMenu = class( "GlobalRadialMenu", RadialMenu )
 GlobalRadialMenu.static.PRIORITY = 10000 -- Default priority.
 
--- These values can be changed only through setter functions on the class itself, tso other chips can be informed.
+-- These values can be changed only through setter functions on the class itself, so other chips can be informed.
 GlobalRadialMenu.static.OPEN_KEY = OPEN_KEY_DEFAULT
 GlobalRadialMenu.static.OPEN_ALLOW_KEY = OPEN_ALLOW_KEY_DEFAULT
 GlobalRadialMenu.static.FORCE_RESET_KEY = FORCE_RESET_KEY_DEFAULT
