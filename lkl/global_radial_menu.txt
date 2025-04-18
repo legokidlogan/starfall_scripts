@@ -18,6 +18,33 @@
     - Global radial menus can also be given pririty values, to make sure they always show up in the same order.
         - Higher priority = earlier in the list.
         - Default priority is 10000.
+
+
+    - Example Usage:
+        -- Creates a global radial menu with one submenu. Each copy of this chip will add its own unique variant of this menu.
+        local grm1 = GlobalRadialMenu:new( "GMenu1", "Test Menu 1 " .. chip():entIndex(), {
+            {
+                { name = "MAIN MENU", func = GlobalRadialMenu.MAIN_MENU_FUNC },
+                { name = "Sub-Menu 1", menu = "submenu1" },
+                { name = "FOOBAR" },
+                { name = "FOOBAR" },
+            },
+        }, -chip():getCreationTime() ) -- Set the priority such that menus of newer chips go later in the main menu.
+
+        -- Creates a submenu of the global radial menu.
+        local rm1 = RadialMenu:new( "submenu1", "Sub-Menu 1", {
+            { -- Page 1
+                { name = "BACK", menu = "GMenu1" },
+                { name = "FOO" },
+                { name = "FOO" },
+                { name = "FOO" },
+            },
+            { -- Page 2
+                { name = "BACK", menu = "GMenu1" },
+                { name = "BAR" },
+                { name = "BAR" },
+            },
+        } )
 --]]
 
 if GlobalRadialMenu then return end
