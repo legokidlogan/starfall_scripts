@@ -14,8 +14,8 @@
     - Hold the 'force reset' key while you press the open key to force the main menu to open up.
     - DO NOT use :open() or :close() on instances of the GlobalRadialMenu class directly, it will break things!
     - If you want a menu to have a choice that goes back to the main menu, set func to GlobalRadialMenu.MAIN_MENU_FUNC.
-    - You can have your global radial menus open up as many (non)standard radial menus as you want, by using the 'menu' param of choices.
-    - Global radial menus can also be given pririty values, to make sure they always show up in the same order.
+    - You can have your global radial menus open up as many (non)standard radial menus as you want, by using the 'menu' param in choices.
+    - Global radial menus can also be given priority values, to make sure they always show up in the same order.
         - Higher priority = earlier in the list.
         - Default priority is 10000.
 
