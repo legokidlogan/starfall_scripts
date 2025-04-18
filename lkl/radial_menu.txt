@@ -185,6 +185,7 @@ local nudgeColorUsers
 local editChoice
 local validatePolyUser
 local handleChoiceClick
+local resetHoverProgress
 
 
 ----- STATIC FUNCTIONS -----
@@ -312,6 +313,7 @@ function RadialMenu:setCurPageInd( pageInd )
     end
 
     self._curPageInd = pageInd
+    resetHoverProgress( self )
 
     if curMenu == self then
         hoveredInd = nil
@@ -384,6 +386,8 @@ function RadialMenu:open( pageInd )
 
     if pageInd then
         self:setCurPageInd( pageInd )
+    else
+        resetHoverProgress( self )
     end
 
     self:onOpened( prevMenu, pageInd )
@@ -1286,6 +1290,15 @@ handleChoiceClick = function()
         end
     elseif func then
         func( curMenu, curMenu:getCurPageInd(), hoveredInd )
+    end
+end
+
+resetHoverProgress = function( menu )
+    local page = menu._pages[menu:getCurPageInd()]
+
+    for i = 1, #page do
+        local choice = page[i]
+        choice.hoverProgress = 0
     end
 end
 
