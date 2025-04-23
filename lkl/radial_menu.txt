@@ -211,7 +211,7 @@ local resetHoverProgress
                     command = STRING, -- The concmd to run when the choice is selected. Only works on the owner, otherwise tries the other options.
                     menu = STRING, -- The name of the menu to open when the choice is selected.
                         menuPageInd = NUMBER (optional), -- The page to open when the choice is selected, if menu is used. nil to not force the page.
-                    func = function( menu, pageInd, choiceNum ) end, -- A function to run when the choice is selected.
+                    func = function( menu, pageInd, choiceInd ) end, -- A function to run when the choice is selected.
 
                     -- See the CHOICE_ static vars of RadialMenu for more info and defaults. Colors are in HSV.
                     gradientEnabled = BOOLEAN (optional),
@@ -227,12 +227,12 @@ local resetHoverProgress
                     -- Drawing at 0,0 will result in drawing at the center of the menu/screen.
                     -- Drawing at xDir * choiceRadius, yDir * choiceRadius will result in drawing at the outermost edge of the choice.
                     -- The render will be facing upright.
-                    paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageInd, choiceNum ) return end (optional),
+                    paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd ) return end (optional),
 
                     -- This function is like paint, but inherits the choice's radial orientation.
                     -- Drawing at 0, choiceRadius will result in drawing at the outermost edge of the choice.
                     -- Note that choices below the center have their rotation flipped for ease of readability.
-                    paintRadial = function( choiceRadius, nameHeight, hovered, menu, pageInd, choiceNum ) return end (optional),
+                    paintRadial = function( choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd ) return end (optional),
                 },
                 ...
             },
