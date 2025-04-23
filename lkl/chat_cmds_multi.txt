@@ -226,6 +226,11 @@ function ccmdMulti.getCommandInfo( cmdPrefix, cmdName )
     if mainCmdName then return commands[mainCmdName], mainCmdName end
 end
 
+-- Returns whether or not a given project has been registered.
+function ccmdMulti.isProjectRegistered( cmdPrefix )
+    return cmdPrefixToProject[cmdPrefix] ~= nil
+end
+
 --[[
     - Decides who can and cannot use a project's chat commands.
     - Each command can have its own override which bypasses this.
