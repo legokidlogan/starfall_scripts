@@ -29,7 +29,7 @@ libMeshMinimap.DOT_SIDES = libMeshMinimap.DOT_SIDES or 16 -- Number of sides on 
 libMeshMinimap.DOT_UPDATE_INTERVAL = libMeshMinimap.DOT_UPDATE_INTERVAL or 1 -- How often to search for dots and update color and visibility.
 libMeshMinimap.DOT_TYPES = libMeshMinimap.DOT_TYPES or {} -- You shouldn't override this table after require'ing the file, but you can edit its contents.
 
-libMeshMinimap.COMPASS_FONT = libMeshMinimap.COMPASS_FONT or "RobotoMono" -- Font of the compass.
+libMeshMinimap.COMPASS_FONT = libMeshMinimap.COMPASS_FONT or "Default" -- Font of the compass.
 libMeshMinimap.COMPASS_FONT_SIZE = libMeshMinimap.COMPASS_FONT_SIZE or ( 20 / 1920 ) -- Font size of the compass, as a fraction of the screen width.
 if libMeshMinimap.COMPASS_FONT_ANTIALIAS == nil then libMeshMinimap.COMPASS_FONT_ANTIALIAS = true end -- Whether to antialias the compass font.
 if libMeshMinimap.COMPASS_FONT_OUTLINE == nil then libMeshMinimap.COMPASS_FONT_OUTLINE = false end -- Whether to outline the compass text. 
@@ -198,7 +198,7 @@ end
 local dotPoly = polyTools.polyMakeCircleFilled( 0, 0, 1, libMeshMinimap.DOT_SIDES )
 local activeDots = {}
 local renderHeight = nil
-local progressFont = render.createFont( "RobotoMono", scrW * 40 / 1920, 400, true, false, false, true )
+local progressFont = render.createFont( "Default", scrW * 40 / 1920, 400, true, false, false, true )
 local mapViewMatrix
 local arrowPoly
 local triUpPoly
