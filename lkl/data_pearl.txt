@@ -6,7 +6,7 @@
 dataPearl = dataPearl or {}
 
 -- CONFIG
-dataPearl.NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name. Name needs to be "Data Pearl" serverside for fast detection by the pearl reader.
+dataPearl.NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name. The @name directive needs to be "Data Pearl" for detection by the pearl reader.
 
 if dataPearl.SEND_TO_CLIENTS == nil then dataPearl.SEND_TO_CLIENTS = true end
 if dataPearl.GRAB_ALLOWED == nil then dataPearl.GRAB_ALLOWED = true end
