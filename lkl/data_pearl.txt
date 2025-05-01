@@ -6,7 +6,7 @@
 dataPearl = dataPearl or {}
 
 -- CONFIG
-local NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name. Name needs to be "Data Pearl" serverside for fast detection by the pearl reader.
+dataPearl.NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name. Name needs to be "Data Pearl" serverside for fast detection by the pearl reader.
 
 if dataPearl.SEND_TO_CLIENTS == nil then dataPearl.SEND_TO_CLIENTS = true end
 if dataPearl.GRAB_ALLOWED == nil then dataPearl.GRAB_ALLOWED = true end
@@ -31,9 +31,10 @@ end
 
 
 local VECTOR_ZERO = Vector( 0, 0, 0 )
+
+local NAME = dataPearl.NAME
 local SEND_TO_CLIENTS = dataPearl.SEND_TO_CLIENTS
 local GRAB_ALLOWED = dataPearl.GRAB_ALLOWED
-
 
 local function fixColors( tbl )
     for key, value in pairs( tbl ) do
