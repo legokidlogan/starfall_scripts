@@ -98,6 +98,7 @@ local function fixColors( tbl )
     end
 end
 
+-- Different from HRM's hookRunRemoteFixed() as this ignores empty responses and returns false if no valid results were found.
 local function hookRunRemoteSafe( targets, hookName, ... )
     local results
     local args = { ... }
