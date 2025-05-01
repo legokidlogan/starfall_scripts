@@ -372,31 +372,34 @@ if SERVER then
 
         timer.simple( 0.1, function()
             if isValid( chip():getParent() ) then
+                -- Need to create an entirely new chip because sf messes up the chip's physics if you toolgun spawn it on an entity directly, with no way to fix it.
                 local scripts = getScripts()
-                local code = scripts.main
+                local mainFilePath = "main"
+                local code = scripts[mainFilePath]
 
                 if not code then
                     local stackEnd = string.split( strackTrace.traceback, "\n" )
                     stackEnd = stackEnd[#stackEnd]
 
-                    local mainFilePath = stackEnd:match( "SF:([%g%s]+).txt" )
+                    mainFilePath = stackEnd:match( "SF:([%g%s]+).txt" )
 
                     mainFilePath = ( mainFilePath or "lkl/data_pearl" ) .. ".txt"
-                    code = scripts[mainFilePath] or scripts["lkl/data_pearl.txt"]
+                    code = scripts[mainFilePath]
+
+                    if not code then
+                        mainFilePath = "lkl/data_pearl.txt"
+                        code = scripts[mainFilePath]
+                    end
                 end
 
-                if not code or string.find( code, "--" .. "@include", 1, true ) then
-                    -- This is because prop.createSent() with starfall_processor ignores all include headers, only the main file is used.
-                    -- https://github.com/thegrb93/StarfallEx/blob/master/lua/starfall/libs_sv/prop_sent.lua#L1020
-                    error( "Data pearls can't toolgun spawn onto an entity if --" .. "@include is used. Try spawning on the world instead." )
-                end
+                scripts[mainFilePath] = nil
 
-                -- Need to create an entirely new chip because sf messes up the chip's physics if you toolgun spawn it on an entity directly, with no way to fix it.
                 prop.setPropUndo( true )
                 prop.setPropClean( false )
                 prop.createSent( chip():getPos() + Vector( 0, 0, 2 ), chip():getAngles(), "starfall_processor", false, {
                     Model = "models/sprops/geometry/sphere_3.mdl",
                     Code = code,
+                    Files = scripts,
                 } )
 
                 chip():remove()
