@@ -49,12 +49,13 @@ local ready = false
 local data = {}
 local dataString = ""
 local dataCompressed = ""
+local dataStringIn = ""
 local dataCompressedIn = ""
 
 prop.setPropUndo( false )
 prop.setPropClean( true )
 
-wire.adjustInputs( { "DataCompressedIn", "ForceEject", "ForceEjectWithSpeed", "ForceEjectUpWithSpeed" }, { "STRING", "NUMBER", "NUMBER", "NUMBER" } )
+wire.adjustInputs( { "DataStringIn", "DataCompressedIn", "ForceEject", "ForceEjectWithSpeed", "ForceEjectUpWithSpeed" }, { "STRING", "STRING", "NUMBER", "NUMBER", "NUMBER" } )
 wire.adjustOutputs( { "Data", "DataString", "DataCompressed", "Pearl", "HasAPearl", "PearlSettled", "Powered", "Locked", "OwnerOnly" }, { "TABLE", "STRING", "STRING", "ENTITY", "NUMBER", "NUMBER", "NUMBER", "NUMBER", "NUMBER" } )
 
 wire.ports.Powered = powered and 1 or 0
@@ -243,7 +244,9 @@ local function setOwnerOnly( state )
 end
 
 local function wireInput( name, value )
-    if name == "DataCompressedIn" then
+    if name == "DataStringIn" then
+        dataStringIn = value
+    elseif name == "DataCompressedIn" then
         dataCompressedIn = value
     elseif name == "ForceEject" then
         if value ~= 0 then
@@ -348,7 +351,11 @@ hook.add( "KeyPress", "LKL_DataPearlReader_PressButtons", function( ply, key )
         if not isValid( pearl ) then return end
         if not pearlSettled then return end
 
-        hook.runRemote( pearl, "LKL_DataPearl_WriteData", dataCompressedIn, true )
+        if dataCompressedIn ~= "" then
+            hook.runRemote( pearl, "LKL_DataPearl_WriteData", dataCompressedIn, true )
+        else
+            hook.runRemote( pearl, "LKL_DataPearl_WriteData", dataStringIn, false )
+        end
     elseif ent == btnLock then
         setLocked( not locked )
     elseif ent == btnPower then
@@ -603,5 +610,6 @@ end )
 
 
 timer.simple( 1, function()
+    wireInput( "DataStringIn", wire.ports.DataStringIn )
     wireInput( "DataCompressedIn", wire.ports.DataCompressedIn )
 end )
