@@ -388,7 +388,7 @@ if SERVER then
             end
 
             chip():emitSound( path, 75, IMPACT_SOUND_PITCH, volume )
-        end )
+        end, "LKL_DataPearl_ImpactSound" )
     end )
 
     if userdataCompressed == "" then -- No userdata
