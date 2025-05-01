@@ -24,6 +24,7 @@ require( "lkl/json_extensions.txt" )
             - ForceEjectWithSpeed will eject the pearl with default spread and the given speed.
             - ForceEjectUpWithSpeed will eject the pearl straight up relative to the reader with the given speed.
         - The Data, DataString, and DataCompressed wire outputs will contain the pearl's data, while other outputs track the reader's state.
+        - The DontProcessJSON input will prevent the reader from processing JSON into table form, to prevent cpu spikes when outputting to wire on massive tables.
 
     - This chip should be standalone, but if you include it in another script, keep the @name directory as "Data Pearl Reader" so readers can identify each other.
     - Note that the Data output will be an empty table if DataString is not in JSON format.
@@ -69,6 +70,7 @@ local locked = false
 local powered = true
 local ownerOnly = true
 local ready = false
+local dontProcessJSON = false
 
 local data = {}
 local dataString = ""
@@ -79,7 +81,7 @@ local dataCompressedIn = ""
 prop.setPropUndo( false )
 prop.setPropClean( true )
 
-wire.adjustInputs( { "DataStringIn", "DataCompressedIn", "ForceEject", "ForceEjectWithSpeed", "ForceEjectUpWithSpeed" }, { "STRING", "STRING", "NUMBER", "NUMBER", "NUMBER" } )
+wire.adjustInputs( { "DataStringIn", "DataCompressedIn", "DontProcessJSON", "ForceEject", "ForceEjectWithSpeed", "ForceEjectUpWithSpeed" }, { "STRING", "STRING", "NUMBER", "NUMBER", "NUMBER", "NUMBER" } )
 wire.adjustOutputs( { "Data", "DataString", "DataCompressed", "DataIsJSON", "Decoding", "Pearl", "HasAPearl", "PearlSettled", "Powered", "Locked", "OwnerOnly" }, { "TABLE", "STRING", "STRING", "NUMBER", "NUMBER", "ENTITY", "NUMBER", "NUMBER", "NUMBER", "NUMBER", "NUMBER" } )
 
 wire.ports.Powered = powered and 1 or 0
@@ -174,7 +176,7 @@ local function setData( dataIsJSON, str, compressed )
         end )
     end
 
-    if dataIsJSON then
+    if dataIsJSON and not dontProcessJSON then
         setData_jsonCancelFunc = json.decodeSafe( str, finishDecoding )
     else
         finishDecoding( {} ) -- Skip decode and force data to an empty table if using non-json data.
@@ -300,6 +302,8 @@ local function wireInput( name, value )
         dataStringIn = value
     elseif name == "DataCompressedIn" then
         dataCompressedIn = value
+    elseif name == "DontProcessJSON" then
+        dontProcessJSON = value ~= 0
     elseif name == "ForceEject" then
         if value ~= 0 then
             dropPearl( true )
@@ -662,6 +666,7 @@ end )
 
 
 timer.simple( 1, function()
+    wireInput( "DontProcessJSON", wire.ports.DataStringIn )
     wireInput( "DataStringIn", wire.ports.DataStringIn )
     wireInput( "DataCompressedIn", wire.ports.DataCompressedIn )
 end )
