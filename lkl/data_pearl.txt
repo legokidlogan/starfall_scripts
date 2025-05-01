@@ -201,6 +201,37 @@ if SERVER then
         end
     end
 
+    local function initUserdata()
+        pearlColorStr = string.sub( userdataCompressed, 1, 6 )
+        pearlColor = Color(
+            tonumber( "0x" .. pearlColorStr:sub( 1, 2 ) ),
+            tonumber( "0x" .. pearlColorStr:sub( 3, 4 ) ),
+            tonumber( "0x" .. pearlColorStr:sub( 5, 6 ) ),
+            255
+        )
+
+        setUserdataCompressed( userdataCompressed:sub( 7 ) ) -- Update userdata, remote chips, etc.
+
+        timer.simple( 0.1, function()
+            chip():setColor( pearlColor )
+
+            timer.create( "LKL_DataPearl_UpdateColor", 1, 0, function()
+                local color = chip():getColor()
+                color.a = 255
+
+                if color == pearlColor then return end
+
+                pearlColor = color
+                pearlColorStr = pearlColor:toHex( false )
+
+                setUserdata(
+                    pearlColorStr ..
+                    userdataCompressed
+                )
+            end )
+        end )
+    end
+
 
     ----- SETUP -----
 
@@ -362,12 +393,12 @@ if SERVER then
 
     if userdataCompressed == "" then -- No userdata
         -- Set default material and assign a random color.
-        chip():setMaterial( "sprops/trans/misc/sh_m2" )
-        setUserdata(
-            bit.tohex( math.random( 0, 255 ), 2 ) ..
+        userdataCompressed = bit.tohex( math.random( 0, 255 ), 2 ) ..
             bit.tohex( math.random( 0, 255 ), 2 ) ..
             bit.tohex( math.random( 0, 255 ), 2 )
-        )
+
+        chip():setMaterial( "sprops/trans/misc/sh_m2" )
+        setUserdata( userdataCompressed )
 
         local _, strackTrace = pcall( error )
 
@@ -405,42 +436,16 @@ if SERVER then
 
                 chip():remove()
             else
-                -- Nudge the chip out of the ground and restart it now that it has color data.
+                -- Nudge the chip out of the ground and run init now that it has color data.
                 chip():setMass( 50 )
                 chip():setPos( chip():getPos() + Vector( 0, 0, 2 ) )
                 chip():enableMotion( true )
-                restart()
+
+                initUserdata()
             end
         end )
     else -- Chip has userdata, process it.
-        pearlColorStr = string.sub( userdataCompressed, 1, 6 )
-        pearlColor = Color(
-            tonumber( "0x" .. pearlColorStr:sub( 1, 2 ) ),
-            tonumber( "0x" .. pearlColorStr:sub( 3, 4 ) ),
-            tonumber( "0x" .. pearlColorStr:sub( 5, 6 ) ),
-            255
-        )
-
-        setUserdataCompressed( userdataCompressed:sub( 7 ) )
-
-        timer.simple( 0.1, function()
-            chip():setColor( pearlColor )
-
-            timer.create( "LKL_DataPearl_UpdateColor", 1, 0, function()
-                local color = chip():getColor()
-                color.a = 255
-
-                if color == pearlColor then return end
-
-                pearlColor = color
-                pearlColorStr = pearlColor:toHex( false )
-
-                setUserdata(
-                    pearlColorStr ..
-                    userdataCompressed
-                )
-            end )
-        end )
+        initUserdata()
     end
 else
     local userdataCompressed = ""
