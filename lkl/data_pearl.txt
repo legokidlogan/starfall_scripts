@@ -6,7 +6,6 @@
 --@include lkl/safe_stream.txt
 
 require( "lkl/json_extensions.txt" )
-require( "lkl/safe_stream.txt" )
 
 
 --[[
@@ -80,6 +79,9 @@ local dataIsJSON = false
 local canPlyReadData
 local getReadAllowedChips
 
+if SEND_TO_CLIENTS then
+    require( "lkl/safe_stream.txt" ) -- Don't get pulled into GDM overhead if streams will never be used.
+end
 
 if dataPearl.READ_PERMISSION_MODE == 0 then
     canPlyReadData = function()
