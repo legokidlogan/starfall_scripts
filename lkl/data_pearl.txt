@@ -33,6 +33,8 @@ require( "lkl/json_extensions.txt" )
 
     - By default, pearls can be picked up via physgun, gravgun, or your hands (the recommended way).
     - Be sure to keep the @name directive as "Data Pearl" so that the Data Pearl Reader can detect it.
+    - If your data is in JSON format, it must adhere to the format limitations of json.decodeSafe() from lkl/json_extensions.txt.
+        - This limitation can be ignored if the JSON string is under 5000 characters.
 --]]
 
 
