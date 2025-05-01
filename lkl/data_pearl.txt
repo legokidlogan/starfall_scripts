@@ -34,6 +34,7 @@ end
 
 local VECTOR_ZERO = Vector( 0, 0, 0 )
 
+local VERSION = dataPearl.VERSION
 local NAME = dataPearl.NAME
 local SEND_TO_CLIENTS = dataPearl.SEND_TO_CLIENTS
 local GRAB_ALLOWED = dataPearl.GRAB_ALLOWED
@@ -160,24 +161,32 @@ if SERVER then
 
         if type( targets ) == "Player" then
             if not isValid( targets ) then return end
-            if CLIENT_OWNER_ONLY and targets ~= owner() then return end
+
+            targets = { targets }
         elseif type( targets ) == "table" then
             for i = #targets, 1, -1 do
                 if not isValid( targets[i] ) then
                     table.remove( targets, i )
                 end
             end
-
-            if CLIENT_OWNER_ONLY then
-                if table.hasValue( targets, owner() ) then
-                    targets = owner()
-                else
-                    return -- No one to send to.
-                end
-            end
         elseif targets == nil then
-            if CLIENT_OWNER_ONLY then
-                targets = owner()
+            targets = find.allPlayers()
+        end
+
+        if not SEND_TO_CLIENTS or CLIENT_OWNER_ONLY then
+            -- If not sending data, still send blank status.
+            net.start( "LKL_DataPearl_SetBlankStatus" )
+            net.writeBool( userdataCompressed == "" )
+            net.send( targets )
+
+            if not SEND_TO_CLIENTS then return end
+        end
+
+        if CLIENT_OWNER_ONLY then
+            if table.hasValue( targets, owner() ) then
+                targets = owner() -- Restrict to just the owner.
+            else
+                return -- No one to send data to.
             end
         end
 
@@ -218,9 +227,7 @@ if SERVER then
             dataCompressed = userdataCompressed,
         } )
 
-        if SEND_TO_CLIENTS then
-            sendToClients()
-        end
+        sendToClients()
     end
 
     local function holdingTools( ply )
@@ -352,11 +359,9 @@ if SERVER then
         return chip(), beingReadBy
     end )
 
-    if SEND_TO_CLIENTS then
-        hook.add( "ClientInitialized", "LKL_DataPearl_InitializeData", function( ply )
-            sendToClients( ply )
-        end )
-    end
+    hook.add( "ClientInitialized", "LKL_DataPearl_InitializeData", function( ply )
+        sendToClients( ply )
+    end )
 
     if GRAB_ALLOWED then
         hook.add( "KeyPress", "LKL_DataPearl_Grab", function( ply, key )
@@ -509,6 +514,15 @@ else
     local initialized = false
 
 
+    local function updateName( isBlank )
+        if isBlank then
+            setName( NAME .. " (blank)" )
+        else
+            setName( NAME )
+        end
+    end
+
+
     ----- SETUP -----
 
     hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, callingPly, hookName )
@@ -527,6 +541,10 @@ else
     end )
 
 
+    net.receive( "LKL_DataPearl_SetBlankStatus", function()
+        updateName( net.readBool() )
+    end )
+
     net.receive( "LKL_DataPearl_DataChanged", function()
         local function onRead( str )
             userdataCompressed = str
@@ -543,12 +561,7 @@ else
             end
 
             fixColors( userdata )
-
-            if userdataCompressed == "" then
-                setName( NAME .. " (blank)" )
-            else
-                setName( NAME )
-            end
+            updateName( userdataCompressed == "" )
 
             hookRunRemoteSafe( getReadAllowedChips(), "LKL_DataPearl_DataChanged", {
                 data = userdata,
@@ -563,4 +576,7 @@ else
             net.readStream( onRead )
         end
     end )
+
+
+    updateName( true )
 end
