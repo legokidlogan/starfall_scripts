@@ -532,6 +532,7 @@ else
             userdataCompressed = str
             userdataString = bit.decompress( userdataCompressed ) or userdataCompressed
             userdata = {}
+            initialized = true
 
             local jsonStrSplit = string.split( userdataString, "}," )
 
