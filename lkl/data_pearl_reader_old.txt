@@ -2,9 +2,8 @@
 --@author legokidlogan
 --@server
 --@model models/sprops/misc/domes/size_0/dome_6x3.mdl
---@include lkl/json_extensions.txt
 
-require( "lkl/json_extensions.txt" )
+-- A legacy version of Data Pearl Reader that doesn't use any includes. Will not be maintained.
 
 
 -- CONFIG
@@ -56,7 +55,7 @@ prop.setPropUndo( false )
 prop.setPropClean( true )
 
 wire.adjustInputs( { "DataCompressedIn", "ForceEject", "ForceEjectWithSpeed", "ForceEjectUpWithSpeed" }, { "STRING", "NUMBER", "NUMBER", "NUMBER" } )
-wire.adjustOutputs( { "Data", "DataString", "DataCompressed", "DataIsJSON", "Decoding", "Pearl", "HasAPearl", "PearlSettled", "Powered", "Locked", "OwnerOnly" }, { "TABLE", "STRING", "STRING", "NUMBER", "NUMBER", "ENTITY", "NUMBER", "NUMBER", "NUMBER", "NUMBER", "NUMBER" } )
+wire.adjustOutputs( { "Data", "DataString", "DataCompressed", "Pearl", "HasAPearl", "PearlSettled", "Powered", "Locked", "OwnerOnly" }, { "TABLE", "STRING", "STRING", "ENTITY", "NUMBER", "NUMBER", "NUMBER", "NUMBER", "NUMBER" } )
 
 wire.ports.Powered = powered and 1 or 0
 wire.ports.Locked = locked and 1 or 0
@@ -119,36 +118,14 @@ local function spreadVector( dir, pitchRange, yawRange )
     return ang:getForward()
 end
 
-local setData_jsonCancelFunc = nil
-local function setData( dataIsJSON, str, compressed )
-    if setData_jsonCancelFunc then
-        setData_jsonCancelFunc()
-        setData_jsonCancelFunc = nil
-    end
+local function setData( tbl, str, compressed )
+    data = tbl or {}
+    dataString = str or ""
+    dataCompressed = compressed or ""
 
-    str = str or ""
-    compressed = compressed or ""
-    wire.ports.Decoding = 1
-
-    local function finishDecoding( dataNew )
-        setData_jsonCancelFunc = nil
-
-        data = dataNew
-        dataString = str or ""
-        dataCompressed = compressed or ""
-
-        wire.ports.Data = data
-        wire.ports.DataString = dataString
-        wire.ports.DataCompressed = dataCompressed
-        wire.ports.DataIsJSON = dataIsJSON and 1 or 0
-        wire.ports.Decoding = 0
-    end
-
-    if dataIsJSON then
-        setData_jsonCancelFunc = json.decodeSafe( str, finishDecoding )
-    else
-        finishDecoding( {} ) -- Skip decode and force data to an empty table if using non-json data.
-    end
+    wire.ports.Data = data
+    wire.ports.DataString = dataString
+    wire.ports.DataCompressed = dataCompressed
 end
 
 local function updateLockButton()
@@ -341,7 +318,7 @@ hook.add( "remote", "LKL_DataPearlReader_DataChanged", function( callingChip, _c
     if hookName ~= "LKL_DataPearl_DataChanged" then return end
     if callingChip ~= pearl then return end
 
-    setData( info.dataIsJSON, info.dataString, info.dataCompressed )
+    setData( info.data, info.dataString, info.dataCompressed )
 end )
 
 hook.add( "remote", "LKL_DataPearlReader_ForceDrop", function( _callingChip, callingPly, hookName, pearlToDrop, ejectVel )
@@ -423,7 +400,7 @@ hook.add( "think", "LKL_DataPearlReader_PullInPearl", function()
             if pearlSettled then
                 local result = hook.runRemote( pearl, "LKL_DataPearl_ReadData" )[1][1]
 
-                setData( result.dataIsJSON, result.dataString, result.dataCompressed )
+                setData( result.data, result.dataString, result.dataCompressed )
 
                 if pullSound then
                     pullSound:setVolume( PULL_SOUND_VOLUME_SETTLED, PULL_SOUND_VOLUME_FADE )

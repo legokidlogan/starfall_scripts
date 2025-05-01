@@ -2,10 +2,8 @@
 --@author legokidlogan
 --@shared
 --@model models/sprops/geometry/sphere_3.mdl
---@include lkl/json_extensions.txt
 
-require( "lkl/json_extensions.txt" )
-
+-- A legacy version of Data Pearl that doesn't use any includes. Will not be maintained.
 
 --[[
     - Stores data on the chip which persists through restarts and duplication.
@@ -16,11 +14,10 @@ require( "lkl/json_extensions.txt" )
                 - data must be a string (raw string data or a JSON string).
                 - Provide isCompressed = true if you are giving data as a compressed string.
 
-            - LKL_DataPearl_ReadData( includeJSON )
+            - LKL_DataPearl_ReadData()
                 - Returns the current pearl information as a table: {
                     pearlVersion = VERSION, -- The version of the pearl's Data Pearl library.
-                    data = TABLE or NIL, -- The data as a table, if includeJSON and dataIsJSON are true. May cause a cpu usage spike for large tables.
-                    dataIsJSON = BOOLEAN, -- Whether the data string is considered JSON or not.
+                    data = TABLE, -- The data as a decoded JSON table. Will be an empty table if the pearl stores a non-JSON string.
                     dataString = STRING, -- The data as a string.
                     dataCompressed = STRING, -- The data as a compressed string.
                 }
@@ -28,7 +25,6 @@ require( "lkl/json_extensions.txt" )
             - LKL_DataPearl_DataChanged()
                 - Returns the same values as LKL_DataPearl_ReadData().
                 - Called automatically when the data changes.
-                - Never has the data field, as the remote sanitization process would be too intensive.
 
     - By default, pearls can be picked up via physgun, gravgun, or your hands (the recommended way).
     - Be sure to keep the @name directive as "Data Pearl" so that the Data Pearl Reader can detect it.
@@ -36,7 +32,7 @@ require( "lkl/json_extensions.txt" )
 
 
 dataPearl = dataPearl or {}
-dataPearl.VERSION = "1.0.0"
+dataPearl.VERSION = "0.1.0"
 
 -- CONFIG
 dataPearl.NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name. The @name directive needs to be "Data Pearl" for detection by the pearl reader.
@@ -73,8 +69,6 @@ local SEND_TO_CLIENTS = dataPearl.SEND_TO_CLIENTS
 local GRAB_ALLOWED = dataPearl.GRAB_ALLOWED
 local CLIENT_OWNER_ONLY = dataPearl.CLIENT_OWNER_ONLY
 
-local decodingData = false
-local dataIsJSON = false
 local canPlyReadData
 local getReadAllowedChips
 
@@ -114,6 +108,26 @@ else
 end
 
 
+local function fixColors( tbl )
+    for key, value in pairs( tbl ) do
+        if type( value ) == "table" then
+            local r = value.r
+            if not r then continue end
+
+            local g = value.g
+            if not g then continue end
+
+            local b = value.b
+            if not b then continue end
+
+            local a = value.a
+            if not a then continue end
+
+            tbl[key] = Color( r, g, b, a )
+        end
+    end
+end
+
 -- Different from HRM's hookRunRemoteFixed() as this ignores empty responses and returns false if no valid results were found.
 local function hookRunRemoteSafe( targets, hookName, ... )
     local results
@@ -148,13 +162,6 @@ local function hookRunRemoteSafe( targets, hookName, ... )
     end
 
     return results
-end
-
-local function isJSON( str )
-    if string.startsWith( str, "{" ) then return string.endsWith( str, "}" ) end
-    if string.startsWith( str, "[" ) then return string.endsWith( str, "]" ) end
-
-    return false
 end
 
 
@@ -213,8 +220,6 @@ if SERVER then
         end
 
         net.start( "LKL_DataPearl_DataChanged" )
-            net.writeBool( dataIsJSON )
-
             if #userdataCompressed < net.getBytesLeft() - 200 then
                 net.writeBool( true )
                 net.writeString( userdataCompressed )
@@ -225,58 +230,34 @@ if SERVER then
         net.send( targets )
     end
 
-    local setUserdataCompressed_jsonCancelFunc = nil
     local function setUserdataCompressed( str )
-        if setUserdataCompressed_jsonCancelFunc then
-            setUserdataCompressed_jsonCancelFunc()
-            setUserdataCompressed_jsonCancelFunc = nil
-        end
+        userdataCompressed = str
+        userdataString = bit.decompress( userdataCompressed ) or userdataCompressed
+        userdata = {}
 
-        local userdataCompressedNew = str
-        local userdataStringNew = bit.decompress( userdataCompressedNew ) or userdataCompressedNew
-        local dataIsJSONNew = isJSON( userdataStringNew )
+        local jsonStrSplit = string.split( userdataString, "}," )
 
-        -- Store new userdata immediately, but wait until the json decode finishes before updating the variables.
-        setUserdata(
-            pearlColorStr ..
-            userdataCompressedNew
-        )
-
-        local function finishDecoding( userdataNew )
-            setUserdataCompressed_jsonCancelFunc = nil
-
-            local tooMuchUsage = cpuTotalAverage() > cpuMax() * 0.5
-            local delay = tooMuchUsage and 1 or 0.1
-
-            timer.create( "LKL_DataPearl_FinishDecoding", delay, 1, function()
-                decodingData = false
-
-                userdataCompressed = userdataCompressedNew
-                userdataString = userdataStringNew
-                userdata = userdataNew
-                dataIsJSON = dataIsJSONNew
-
-                hookRunRemoteSafe( getReadAllowedChips(), "LKL_DataPearl_DataChanged", {
-                    pearlVersion = VERSION,
-                    dataIsJSON = dataIsJSON,
-                    dataString = userdataString,
-                    dataCompressed = userdataCompressed,
-                    decodingData = decodingData,
-                } )
-
-                sendToClients()
+        if #jsonStrSplit < 1000 then
+            pcall( function()
+                userdata = json.decode( userdataString ) or {}
             end )
         end
 
-        net.start( "LKL_DataPearl_DecodingData" )
-        net.send()
+        fixColors( userdata )
 
-        if dataIsJSONNew then
-            decodingData = true
-            setUserdataCompressed_jsonCancelFunc = json.decodeSafe( userdataStringNew, finishDecoding )
-        else
-            finishDecoding( {} ) -- Skip decode and force data to an empty table if using non-json data.
-        end
+        setUserdata(
+            pearlColorStr ..
+            userdataCompressed
+        )
+
+        hookRunRemoteSafe( getReadAllowedChips(), "LKL_DataPearl_DataChanged", {
+            pearlVersion = VERSION,
+            data = userdata,
+            dataString = userdataString,
+            dataCompressed = userdataCompressed,
+        } )
+
+        sendToClients()
     end
 
     local function holdingTools( ply )
@@ -364,17 +345,15 @@ if SERVER then
         end
     end )
 
-    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, callingPly, hookName, includeJSON )
+    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, callingPly, hookName )
         if hookName ~= "LKL_DataPearl_ReadData" then return end
         if not canPlyReadData( callingPly ) then return end
 
         return {
             pearlVersion = VERSION,
-            data = includeJSON and dataIsJSON and userdata or nil,
-            dataIsJSON = dataIsJSON,
+            data = userdata,
             dataString = userdataString,
             dataCompressed = userdataCompressed,
-            decodingData = decodingData,
         }
     end )
 
@@ -409,12 +388,6 @@ if SERVER then
         if not isValid( beingReadBy ) then return end
 
         return chip(), beingReadBy
-    end )
-
-    hook.add( "remote", "LKL_DataPearl_IsDecodingData", function( _callingChip, _callingPly, hookName )
-        if hookName ~= "LKL_DataPearl_IsDecodingData" then return end
-
-        return decodingData
     end )
 
     hook.add( "ClientInitialized", "LKL_DataPearl_InitializeData", function( ply )
@@ -574,7 +547,7 @@ else
 
     local function updateName( isBlank )
         if isBlank then
-            setName( NAME .. "\n(blank)" )
+            setName( NAME .. " (blank)" )
         else
             setName( NAME )
         end
@@ -583,7 +556,7 @@ else
 
     ----- SETUP -----
 
-    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, callingPly, hookName, includeJSON )
+    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, callingPly, hookName )
         if hookName ~= "LKL_DataPearl_ReadData" then return end
         if not canPlyReadData( callingPly ) then return end
 
@@ -593,65 +566,41 @@ else
 
         return {
             pearlVersion = VERSION,
-            data = includeJSON and dataIsJSON and userdata or nil,
-            dataIsJSON = dataIsJSON,
+            data = userdata,
             dataString = userdataString,
             dataCompressed = userdataCompressed,
-            decodingData = decodingData,
         }
     end )
 
-
-    net.receive( "LKL_DataPearl_DecodingData", function()
-        setName( NAME .. "\n(server decoding)" )
-    end )
 
     net.receive( "LKL_DataPearl_SetBlankStatus", function()
         updateName( net.readBool() )
     end )
 
-    local dataChanged_jsonCancelFunc = nil
     net.receive( "LKL_DataPearl_DataChanged", function()
-        local dataIsJSONNew = net.readBool()
-
         local function onRead( str )
-            if dataChanged_jsonCancelFunc then
-                dataChanged_jsonCancelFunc()
-                dataChanged_jsonCancelFunc = nil
+            userdataCompressed = str
+            userdataString = bit.decompress( userdataCompressed ) or userdataCompressed
+            userdata = {}
+            initialized = true
+
+            local jsonStrSplit = string.split( userdataString, "}," )
+
+            if #jsonStrSplit < 1000 then
+                pcall( function()
+                    userdata = json.decode( userdataString ) or {}
+                end )
             end
 
-            local userdataCompressedNew = str
-            local userdataStringNew = bit.decompress( userdataCompressedNew ) or userdataCompressedNew
+            fixColors( userdata )
+            updateName( userdataCompressed == "" )
 
-            setName( NAME .. "\n(client decoding)" )
-
-            local function finishDecoding( userdataNew )
-                dataChanged_jsonCancelFunc = nil
-                decodingData = false
-                initialized = true
-
-                userdataCompressed = userdataCompressedNew
-                userdataString = userdataStringNew
-                userdata = userdataNew
-                dataIsJSON = dataIsJSONNew
-
-                updateName( userdataCompressed == "" )
-
-                hookRunRemoteSafe( getReadAllowedChips(), "LKL_DataPearl_DataChanged", {
-                    pearlVersion = VERSION,
-                    dataIsJSON = dataIsJSON,
-                    dataString = userdataString,
-                    dataCompressed = userdataCompressed,
-                    decodingData = decodingData,
-                } )
-            end
-
-            if dataIsJSONNew then
-                decodingData = true
-                dataChanged_jsonCancelFunc = json.decodeSafe( userdataStringNew, finishDecoding )
-            else
-                finishDecoding( {} ) -- Skip decode and force data to an empty table if using non-json data.
-            end
+            hookRunRemoteSafe( getReadAllowedChips(), "LKL_DataPearl_DataChanged", {
+                pearlVersion = VERSION,
+                data = userdata,
+                dataString = userdataString,
+                dataCompressed = userdataCompressed,
+            } )
         end
 
         if net.readBool() then
