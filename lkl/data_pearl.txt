@@ -7,6 +7,7 @@ dataPearl = dataPearl or {}
 
 -- CONFIG
 dataPearl.NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name. The @name directive needs to be "Data Pearl" for detection by the pearl reader.
+dataPearl.READ_PERMISSION_MODE = dataPearl.READ_PERMISSION_MODE or 1 -- Who can use remote hooks to read the data. 0 = anyone, 1 = owner-only, or function( ply ) return canRead end
 
 if dataPearl.SEND_TO_CLIENTS == nil then dataPearl.SEND_TO_CLIENTS = true end
 if dataPearl.GRAB_ALLOWED == nil then dataPearl.GRAB_ALLOWED = true end
@@ -35,6 +36,45 @@ local VECTOR_ZERO = Vector( 0, 0, 0 )
 local NAME = dataPearl.NAME
 local SEND_TO_CLIENTS = dataPearl.SEND_TO_CLIENTS
 local GRAB_ALLOWED = dataPearl.GRAB_ALLOWED
+
+local canPlyReadData
+local getReadAllowedChips
+
+
+if dataPearl.READ_PERMISSION_MODE == 0 then
+    canPlyReadData = function()
+        return true
+    end
+
+    getReadAllowedChips = function()
+        return find.byClass( "starfall_processor" )
+    end
+elseif dataPearl.READ_PERMISSION_MODE == 1 then
+    canPlyReadData = function( ply )
+        return ply == owner()
+    end
+
+    getReadAllowedChips = function()
+        return find.byClass( "starfall_processor", function( ent )
+            if not isValid( ent ) then return false end
+
+            return ent:getOwner() == owner()
+        end )
+    end
+elseif type( dataPearl.READ_PERMISSION_MODE ) == "function" then
+    canPlyReadData = dataPearl.READ_PERMISSION_MODE
+
+    getReadAllowedChips = function()
+        return find.byClass( "starfall_processor", function( ent )
+            if not isValid( ent ) then return false end
+
+            return canPlyReadData( ent:getOwner() )
+        end )
+    end
+else
+    error( "Invalid dataPearl.READ_PERMISSION_MODE; it must be 0, 1, or a function" )
+end
+
 
 local function fixColors( tbl )
     for key, value in pairs( tbl ) do
@@ -77,6 +117,8 @@ local function hookRunRemoteSafe( targets, hookName, ... )
 
         return results
     end
+
+    if not isValid( targets ) or not targets:hasInstance() then return false end
 
     pcall( function()
         results = hook.runRemote( targets, hookName, unpack( args ) )
@@ -154,7 +196,7 @@ if SERVER then
             userdataCompressed
         )
 
-        hook.runRemote( nil, "LKL_DataPearl_DataChanged", {
+        hookRunRemoteSafe( getReadAllowedChips(), "LKL_DataPearl_DataChanged", {
             data = userdata,
             dataString = userdataString,
             dataCompressed = userdataCompressed,
@@ -250,8 +292,9 @@ if SERVER then
         end
     end )
 
-    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, _callingPly, hookName )
+    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, callingPly, hookName )
         if hookName ~= "LKL_DataPearl_ReadData" then return end
+        if not canPlyReadData( callingPly ) then return end
 
         return {
             data = userdata,
@@ -452,8 +495,9 @@ else
 
     ----- SETUP -----
 
-    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, _callingPly, hookName )
+    hook.add( "remote", "LKL_DataPearl_ReadData", function( _callingChip, callingPly, hookName )
         if hookName ~= "LKL_DataPearl_ReadData" then return end
+        if not canPlyReadData( callingPly ) then return end
 
         if not initialized then
             return false
@@ -489,7 +533,7 @@ else
                 setName( NAME )
             end
 
-            hook.runRemote( nil, "LKL_DataPearl_DataChanged", {
+            hookRunRemoteSafe( getReadAllowedChips(), "LKL_DataPearl_DataChanged", {
                 data = userdata,
                 dataString = userdataString,
                 dataCompressed = userdataCompressed,
