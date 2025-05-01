@@ -7,6 +7,29 @@
 require( "lkl/json_extensions.txt" )
 
 
+--[[
+    - Reads/writes data from/to a Data Pearl.
+    - Usage:
+        - Place a pearl close to the reader and it will automatically be pulled in and hover above the reader.
+        - Once the pearl settles, the reader's wire outputs will contain the pearl's data, and the set and lock buttons can be used.
+        - The four buttons on the reader can be interacted with by looking at them and pressing your 'use' key (E).
+        - Press the set button to write data from the reader's wire inputs to the pearl.
+            - Either the DataStringIn or DataCompressedIn input can be used, with priority given to DataCompressedIn.
+        - Press the lock button (X when locked, - when unlocked) to (un)lock the pearl, welding it to the reader.
+        - Press the power button (green when powered, red when off) to (un)power the reader.
+        - Press the owner only button (cyan when on, green when off) to (dis)allow other players to press the other buttons.
+        - While the reader is unlocked, you can pick up the pearl or physically hit it out of the reader's range to make it stop reading.
+        - The ForceEject, ForceEjectWithSpeed, and ForceEjectUpWithSpeed wire inputs can be used to eject the pearl as well.
+            - ForceEject will eject the pearl with default spread and speed.
+            - ForceEjectWithSpeed will eject the pearl with default spread and the given speed.
+            - ForceEjectUpWithSpeed will eject the pearl straight up relative to the reader with the given speed.
+        - The Data, DataString, and DataCompressed wire outputs will contain the pearl's data, while other outputs track the reader's state.
+
+    - This chip should be standalone, but if you include it in another script, keep the @name directory as "Data Pearl Reader" so readers can identify each other.
+    - Note that the Data output will be an empty table if DataString is not in JSON format.
+--]]
+
+
 -- CONFIG
 local READER_BUTTON_RANGE = 100
 
