@@ -11,6 +11,7 @@ dataPearl.READ_PERMISSION_MODE = dataPearl.READ_PERMISSION_MODE or 1 -- Who can 
 
 if dataPearl.SEND_TO_CLIENTS == nil then dataPearl.SEND_TO_CLIENTS = true end
 if dataPearl.GRAB_ALLOWED == nil then dataPearl.GRAB_ALLOWED = true end
+if dataPearl.CLIENT_OWNER_ONLY == nil then dataPearl.CLIENT_OWNER_ONLY = false end -- Only sends data to the owner's client instead of everyone.
 
 local GRAB_RANGE = 120
 local GRAB_DISTANCE = 50
@@ -36,6 +37,7 @@ local VECTOR_ZERO = Vector( 0, 0, 0 )
 local NAME = dataPearl.NAME
 local SEND_TO_CLIENTS = dataPearl.SEND_TO_CLIENTS
 local GRAB_ALLOWED = dataPearl.GRAB_ALLOWED
+local CLIENT_OWNER_ONLY = dataPearl.CLIENT_OWNER_ONLY
 
 local canPlyReadData
 local getReadAllowedChips
@@ -157,11 +159,24 @@ if SERVER then
 
         if type( targets ) == "Player" then
             if not isValid( targets ) then return end
+            if CLIENT_OWNER_ONLY and targets ~= owner() then return end
         elseif type( targets ) == "table" then
             for i = #targets, 1, -1 do
                 if not isValid( targets[i] ) then
                     table.remove( targets, i )
                 end
+            end
+
+            if CLIENT_OWNER_ONLY then
+                if table.hasValue( targets, owner() ) then
+                    targets = owner()
+                else
+                    return -- No one to send to.
+                end
+            end
+        elseif targets == nil then
+            if CLIENT_OWNER_ONLY then
+                targets = owner()
             end
         end
 
