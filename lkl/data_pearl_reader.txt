@@ -66,6 +66,7 @@ end
 
 ----- PRIVATE FUNCTIONS -----
 
+-- Different from HRM's hookRunRemoteFixed() as this ignores empty responses and returns false if no valid results were found.
 local function hookRunRemoteSafe( targets, hookName, ... )
     local results
     local args = { ... }
@@ -87,6 +88,8 @@ local function hookRunRemoteSafe( targets, hookName, ... )
 
         return results
     end
+
+    if not isValid( targets ) or not targets:hasInstance() then return false end
 
     pcall( function()
         results = hook.runRemote( targets, hookName, unpack( args ) )
