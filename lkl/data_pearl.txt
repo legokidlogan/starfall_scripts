@@ -360,7 +360,8 @@ if SERVER then
         end )
     end )
 
-    if userdataCompressed == "" then
+    if userdataCompressed == "" then -- No userdata
+        -- Set default material and assign a random color.
         chip():setMaterial( "sprops/trans/misc/sh_m2" )
         setUserdata(
             bit.tohex( math.random( 0, 255 ), 2 ) ..
@@ -404,13 +405,14 @@ if SERVER then
 
                 chip():remove()
             else
+                -- Nudge the chip out of the ground and restart it now that it has color data.
                 chip():setMass( 50 )
                 chip():setPos( chip():getPos() + Vector( 0, 0, 2 ) )
                 chip():enableMotion( true )
                 restart()
             end
         end )
-    else
+    else -- Chip has userdata, process it.
         pearlColorStr = string.sub( userdataCompressed, 1, 6 )
         pearlColor = Color(
             tonumber( "0x" .. pearlColorStr:sub( 1, 2 ) ),
