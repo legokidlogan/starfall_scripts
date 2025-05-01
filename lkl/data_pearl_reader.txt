@@ -82,11 +82,12 @@ prop.setPropUndo( false )
 prop.setPropClean( true )
 
 wire.adjustInputs( { "DataStringIn", "DataCompressedIn", "DontProcessJSON", "ForceEject", "ForceEjectWithSpeed", "ForceEjectUpWithSpeed" }, { "STRING", "STRING", "NUMBER", "NUMBER", "NUMBER", "NUMBER" } )
-wire.adjustOutputs( { "Data", "DataString", "DataCompressed", "DataIsJSON", "Decoding", "Pearl", "HasAPearl", "PearlSettled", "Powered", "Locked", "OwnerOnly" }, { "TABLE", "STRING", "STRING", "NUMBER", "NUMBER", "ENTITY", "NUMBER", "NUMBER", "NUMBER", "NUMBER", "NUMBER" } )
+wire.adjustOutputs( { "Data", "DataString", "DataCompressed", "DataIsJSON", "Decoding", "Pearl", "HasAPearl", "PearlSettled", "Powered", "Locked", "OwnerOnly", "One" }, { "TABLE", "STRING", "STRING", "NUMBER", "NUMBER", "ENTITY", "NUMBER", "NUMBER", "NUMBER", "NUMBER", "NUMBER", "NUMBER" } )
 
 wire.ports.Powered = powered and 1 or 0
 wire.ports.Locked = locked and 1 or 0
 wire.ports.OwnerOnly = ownerOnly and 1 or 0
+wire.ports.One = 1 -- For easy wire config
 
 if chip():getMaterial() == "" then
     chip():setMaterial( "phoenix_storms/FuturisticTrackRamp_1-2" )
