@@ -3,6 +3,32 @@
 --@shared
 --@model models/sprops/geometry/sphere_3.mdl
 
+--[[
+    - Stores data on the chip which persists through restarts and duplication.
+    - The standard way to read/write data is through the Data Pearl Reader chip.
+        - However, you can also use the following remote hooks to write/read/monitor data:
+            - LKL_DataPearl_WriteData( data, isCompressed )
+                - Writes data to the pearl.
+                - data must be a string (raw string data or a JSON string).
+                - Provide isCompressed = true if you are giving data as a compressed string.
+
+            - LKL_DataPearl_ReadData()
+                - Returns the current pearl information as a table: {
+                    data = TABLE, -- The data as a decoded JSON table. Will be an empty table if the pearl stores a non-JSON string.
+                    dataString = STRING, -- The data as a string.
+                    dataCompressed = STRING, -- The data as a compressed string.
+                    pearlVersion = VERSION, -- The version of the pearl's Data Pearl library.
+                }
+
+            - LKL_DataPearl_DataChanged()
+                - Returns the same values as LKL_DataPearl_ReadData().
+                - Called automatically when the data changes.
+
+    - By default, pearls can be picked up via physgun, gravgun, or your hands (the recommended way).
+    - Be sure to keep the @name directive as "Data Pearl" so that the Data Pearl Reader can detect it.
+--]]
+
+
 dataPearl = dataPearl or {}
 
 -- CONFIG
