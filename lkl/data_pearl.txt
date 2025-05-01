@@ -39,7 +39,7 @@ require( "lkl/json_extensions.txt" )
 
 
 dataPearl = dataPearl or {}
-dataPearl.VERSION = "1.0.0"
+dataPearl.VERSION = "1.1.0"
 
 -- CONFIG
 dataPearl.NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name. The @name directive needs to be "Data Pearl" for detection by the pearl reader.
