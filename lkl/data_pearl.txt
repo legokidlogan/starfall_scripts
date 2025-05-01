@@ -409,7 +409,7 @@ if SERVER then
                 local mainFilePath = "main"
                 local code = scripts[mainFilePath]
 
-                if not code then
+                if not code then -- Find the name of the main file.
                     local stackEnd = string.split( strackTrace.traceback, "\n" )
                     stackEnd = stackEnd[#stackEnd]
 
