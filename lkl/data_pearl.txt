@@ -10,8 +10,8 @@ dataPearl.NAME = dataPearl.NAME or "Data Pearl" -- Clientside-only display name.
 dataPearl.READ_PERMISSION_MODE = dataPearl.READ_PERMISSION_MODE or 1 -- Who can use remote hooks to read the data. 0 = anyone, 1 = owner-only, or function( ply ) return canRead end
 
 if dataPearl.SEND_TO_CLIENTS == nil then dataPearl.SEND_TO_CLIENTS = false end -- Also send data to clients. Only useful if you have a clientside chip using LKL_DataPearl_DataChanged or LKL_DataPearl_ReadData.
-if dataPearl.GRAB_ALLOWED == nil then dataPearl.GRAB_ALLOWED = true end
 if dataPearl.CLIENT_OWNER_ONLY == nil then dataPearl.CLIENT_OWNER_ONLY = false end -- Only sends data to the owner's client instead of everyone.
+if dataPearl.GRAB_ALLOWED == nil then dataPearl.GRAB_ALLOWED = true end
 
 local GRAB_RANGE = 120
 local GRAB_DISTANCE = 50
