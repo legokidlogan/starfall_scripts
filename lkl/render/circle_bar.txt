@@ -1,0 +1,554 @@
+--@name Circle Bar
+--@author legokidlogan
+--@client
+--@include lkl/destroyable.txt
+
+if CircleBar then return end
+
+require( "lkl/destroyable.txt" )
+
+CircleBar = class( "CircleBar", Destroyable )
+CircleBar.static.DEFAULT_ROTATION = 0 -- In radians
+CircleBar.static.DEFAULT_NUM_SEGMENTS = 32
+CircleBar.static.DEFAULT_U0 = 0
+CircleBar.static.DEFAULT_V0 = 0
+CircleBar.static.DEFAULT_U1 = 1
+CircleBar.static.DEFAULT_V1 = 1
+CircleBar.static.DEFAULT_U_IS_LONG = false
+CircleBar.static.DEFAULT_CLOCKWISE = false
+
+
+local allCircleBars = {}
+local circleBarsByID = {}
+local circleBarIncr = 0
+local polyCache = {}
+
+local removePolyUser
+local makePolyStr
+local makePoly
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    - A circular progress bar which caches polygons for extreme performance.
+
+    x: number
+        - The x position of the center of the circle.
+    y: number
+        - The y position of the center of the circle.
+    radiusInner: number >= 0
+        - The inner radius of the circle.
+    radiusOuter: number > radiusInner
+        - The outer radius of the circle.
+    options: (optional) table
+        - Optional parameters. Each value can be left as nil.
+        {
+            rotation: number
+                - The start/end angle of the circle, in radians.
+                - 0 is right, pi / 2 is up, etc.
+            rotationDeg: number
+                - The start/end angle of the circle, in degrees.
+                - Mutually exclusive with rotation.
+                - 0 is right, 90 is up, etc.
+            numSegments: number >= 3
+                - The number of segments to use for the circle.
+                - More segments = smoother circle, but more polygons.
+            u0, v0, u1, v1: number
+                - UV coordinates.
+                - Note that if you use gui/gradient_up, you should use 0.01 instead of 0.
+            uIsLong: boolean
+                - If true, u0/u1 correspond with the start/end edges, while v0/v1 correspond to the inside/outside edges.
+                - If false, u0/u1 correspond with the inside/outside edges, while v0/v1 correspond to the start/end edges.
+            clockwise: boolean
+                - If true, the circle will be clockwise from low to high progress.
+                - If false, the circle will be counter-clockwise from low to high progress.
+        }
+--]]
+function CircleBar:initialize( x, y, radiusInner, radiusOuter, options )
+    if type( x ) ~= "number" then error( "Expected x to be a number" ) end
+    if type( y ) ~= "number" then error( "Expected y to be a number" ) end
+    if type( radiusInner ) ~= "number" then error( "Expected radiusInner to be a number" ) end
+    if type( radiusOuter ) ~= "number" then error( "Expected radiusOuter to be a number" ) end
+    if radiusInner >= radiusOuter then error( "Expected radiusInner < radiusOuter" ) end
+    if radiusInner < 0 then error( "Expected radiusInner >= 0" ) end
+
+    if options ~= nil and type( options ) ~= "table" then error( "Expected options to be a table or nil" ) end
+
+    options = options or {}
+
+    local rotation = options.rotation
+    local rotationDeg = options.rotationDeg
+    local numSegments = options.numSegments
+    local u0 = options.u0
+    local v0 = options.v0
+    local u1 = options.u1
+    local v1 = options.v1
+    local uIsLong = options.uIsLong
+    local clockwise = options.clockwise
+
+    if rotation ~= nil and type( rotation ) ~= "number" then error( "Expected rotation to be a number or nil" ) end
+    if rotationDeg ~= nil and type( rotationDeg ) ~= "number" then error( "Expected rotationDeg to be a number or nil" ) end
+    if numSegments ~= nil and type( numSegments ) ~= "number" then error( "Expected numSegments to be a number or nil" ) end
+    if numSegments and numSegments < 3 then error( "Expected numSegments >= 3" ) end
+    if u0 ~= nil and type( u0 ) ~= "number" then error( "Expected u0 to be a number or nil" ) end
+    if v0 ~= nil and type( v0 ) ~= "number" then error( "Expected v0 to be a number or nil" ) end
+    if u1 ~= nil and type( u1 ) ~= "number" then error( "Expected u1 to be a number or nil" ) end
+    if v1 ~= nil and type( v1 ) ~= "number" then error( "Expected v1 to be a number or nil" ) end
+    if uIsLong ~= nil and type( uIsLong ) ~= "boolean" then error( "Expected uIsLong to be a boolean or nil" ) end
+    if clockwise ~= nil and type( clockwise ) ~= "boolean" then error( "Expected clockwise to be a boolean or nil" ) end
+
+    circleBarIncr = circleBarIncr + 1
+    circleBarsByID[circleBarIncr] = self
+    table.insert( allCircleBars, self )
+
+    self._id = circleBarIncr
+    self._matrix = Matrix()
+    self._matrix:setTranslation( Vector( x, y, 0 ) )
+    self._progress = 0
+    self._x = x
+    self._y = y
+    self._radiusInner = radiusInner
+    self._radiusOuter = radiusOuter
+
+    if rotationDeg then
+        self._rotation = math.rad( rotationDeg )
+    else
+        self._rotation = rotation or self.class.DEFAULT_ROTATION
+    end
+
+    self._numSegments = numSegments or self.class.DEFAULT_NUM_SEGMENTS
+    self._u0 = u0 or self.class.DEFAULT_U0
+    self._v0 = v0 or self.class.DEFAULT_V0
+    self._u1 = u1 or self.class.DEFAULT_U1
+    self._v1 = v1 or self.class.DEFAULT_V1
+
+    if uIsLong == nil then
+        self._uIsLong = self.class.DEFAULT_U_IS_LONG
+    else
+        self._uIsLong = uIsLong
+    end
+
+    if clockwise == nil then
+        self._clockwise = self.class.DEFAULT_CLOCKWISE
+    else
+        self._clockwise = clockwise
+    end
+
+    self:updateCacheUsage()
+end
+
+-- Returns by reference. Do not modify.
+function CircleBar.static:getAll()
+    return allCircleBars
+end
+
+function CircleBar.static:getByID( id )
+    return circleBarsByID[id]
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+--[[
+    - Draws the CircleBar.
+--]]
+function CircleBar:draw()
+    render.pushMatrix( self._matrix )
+
+    local polyGroup = polyCache[self._polyStr]
+    local progress = self:getProgress()
+    local numSegments = self:getNumSegments()
+    local segmentIndStart = 1
+    local segmentIndEnd = math.floor( progress * numSegments )
+
+    if self:getClockwise() then
+        segmentIndStart = numSegments - segmentIndEnd + 1
+        segmentIndEnd = numSegments
+    end
+
+    for i = segmentIndStart, segmentIndEnd do
+        local poly = polyGroup[i]
+
+        if not poly then
+            if cpuTotalAverage() > cpuMax() * 0.8 then break end -- Avoid exceeding quota. Will cause the render to be incomplete this frame.
+
+            poly = makePoly( polyGroup, i )
+        end
+
+        render.drawPoly( poly )
+    end
+
+    render.popMatrix()
+end
+
+function CircleBar:setProgress( progress )
+    self._progress = math.clamp( progress, 0, 1 )
+end
+
+function CircleBar:getProgress()
+    return self._progress
+end
+
+function CircleBar:getID()
+    return self._id
+end
+
+function CircleBar:setX( x )
+    if self._x == x then return end
+    if type( x ) ~= "number" then error( "Expected x to be a number" ) end
+
+    self._x = x
+    self._matrix:setTranslation( Vector( x, self._y, 0 ) )
+end
+
+function CircleBar:getX()
+    return self._x
+end
+
+function CircleBar:setY( y )
+    if self._y == y then return end
+    if type( y ) ~= "number" then error( "Expected y to be a number" ) end
+
+    self._y = y
+    self._matrix:setTranslation( Vector( self._x, y, 0 ) )
+end
+
+function CircleBar:getY()
+    return self._y
+end
+
+function CircleBar:setXY( x, y )
+    if self._x == x and self._y == y then return end
+    if type( x ) ~= "number" then error( "Expected x to be a number" ) end
+    if type( y ) ~= "number" then error( "Expected y to be a number" ) end
+
+    self._x = x
+    self._y = y
+    self._matrix:setTranslation( Vector( x, y, 0 ) )
+end
+
+function CircleBar:getXY()
+    return self._x, self._y
+end
+
+function CircleBar:setRadiusInner( radiusInner )
+    if self._radiusInner == radiusInner then return end
+    if type( radiusInner ) ~= "number" then error( "Expected radiusInner to be a number" ) end
+    if radiusInner < 0 then error( "Expected radiusInner >= 0" ) end
+    if radiusInner >= self._radiusOuter then error( "Expected radiusInner < radiusOuter" ) end
+
+    self._radiusInner = radiusInner
+    self:updateCacheUsage()
+end
+
+function CircleBar:getRadiusInner()
+    return self._radiusInner
+end
+
+function CircleBar:setRadiusOuter( radiusOuter )
+    if self._radiusOuter == radiusOuter then return end
+    if type( radiusOuter ) ~= "number" then error( "Expected radiusOuter to be a number" ) end
+    if radiusOuter <= self._radiusInner then error( "Expected radiusOuter > radiusInner" ) end
+
+    self._radiusOuter = radiusOuter
+    self:updateCacheUsage()
+end
+
+function CircleBar:getRadiusOuter()
+    return self._radiusOuter
+end
+
+function CircleBar:setRadii( radiusInner, radiusOuter )
+    if self._radiusInner == radiusInner and self._radiusOuter == radiusOuter then return end
+    if type( radiusInner ) ~= "number" then error( "Expected radiusInner to be a number" ) end
+    if type( radiusOuter ) ~= "number" then error( "Expected radiusOuter to be a number" ) end
+    if radiusInner < 0 then error( "Expected radiusInner >= 0" ) end
+    if radiusInner >= radiusOuter then error( "Expected radiusInner < radiusOuter" ) end
+
+    self._radiusInner = radiusInner
+    self._radiusOuter = radiusOuter
+    self:updateCacheUsage()
+end
+
+function CircleBar:getRadii()
+    return self._radiusInner, self._radiusOuter
+end
+
+-- Rotation is in radians.
+function CircleBar:setRotation( rotation )
+    if rotation ~= nil and type( rotation ) ~= "number" then error( "Expected rotation to be a number or nil" ) end
+
+    rotation = rotation or self.class.DEFAULT_ROTATION
+    if self._rotation == rotation then return end
+
+    self._rotation = rotation
+    self:updateCacheUsage()
+end
+
+function CircleBar:getRotation()
+    return self._rotation
+end
+
+-- Sets the rotation in degrees.
+function CircleBar:setRotationDeg( rotationDeg )
+    if rotationDeg == nil then
+        self:setRotation()
+
+        return
+    end
+
+    if type( rotationDeg ) ~= "number" then error( "Expected rotationDeg to be a number or nil" ) end
+
+    self._rotation = math.rad( rotationDeg )
+    self:updateCacheUsage()
+end
+
+function CircleBar:getRotationDeg()
+    return math.deg( self._rotation )
+end
+
+function CircleBar:setNumSegments( numSegments )
+    if numSegments ~= nil and type( numSegments ) ~= "number" then error( "Expected numSegments to be a number or nil" ) end
+
+    numSegments = numSegments or self.class.DEFAULT_NUM_SEGMENTS
+    if self._numSegments == numSegments then return end
+    if numSegments < 3 then error( "Expected numSegments >= 3" ) end
+
+    self._numSegments = numSegments
+    self:updateCacheUsage()
+end
+
+function CircleBar:getNumSegments()
+    return self._numSegments
+end
+
+function CircleBar:setU0( u0 )
+    if u0 ~= nil and type( u0 ) ~= "number" then error( "Expected u0 to be a number or nil" ) end
+
+    u0 = u0 or self.class.DEFAULT_U0
+    if self._u0 == u0 then return end
+
+    self._u0 = u0
+    self:updateCacheUsage()
+end
+
+function CircleBar:getU0()
+    return self._u0
+end
+
+function CircleBar:setV0( v0 )
+    if v0 ~= nil and type( v0 ) ~= "number" then error( "Expected v0 to be a number or nil" ) end
+
+    v0 = v0 or self.class.DEFAULT_V0
+    if self._v0 == v0 then return end
+
+    self._v0 = v0
+    self:updateCacheUsage()
+end
+
+function CircleBar:getV0()
+    return self._v0
+end
+
+function CircleBar:setU1( u1 )
+    if u1 ~= nil and type( u1 ) ~= "number" then error( "Expected u1 to be a number or nil" ) end
+
+    u1 = u1 or self.class.DEFAULT_U1
+    if self._u1 == u1 then return end
+
+    self._u1 = u1
+    self:updateCacheUsage()
+end
+
+function CircleBar:getU1()
+    return self._u1
+end
+
+function CircleBar:setV1( v1 )
+    if v1 ~= nil and type( v1 ) ~= "number" then error( "Expected v1 to be a number or nil" ) end
+
+    v1 = v1 or self.class.DEFAULT_V1
+    if self._v1 == v1 then return end
+
+    self._v1 = v1
+    self:updateCacheUsage()
+end
+
+function CircleBar:getV1()
+    return self._v1
+end
+
+function CircleBar:setUIsLong( uIsLong )
+    if uIsLong ~= nil and type( uIsLong ) ~= "boolean" then error( "Expected uIsLong to be a boolean or nil" ) end
+
+    if uIsLong == nil then
+        self._uIsLong = self.class.DEFAULT_U_IS_LONG
+    else
+        self._uIsLong = uIsLong
+    end
+
+    self:updateCacheUsage()
+end
+
+function CircleBar:getUIsLong()
+    return self._uIsLong
+end
+
+function CircleBar:setClockwise( clockwise )
+    if clockwise ~= nil and type( clockwise ) ~= "boolean" then error( "Expected clockwise to be a boolean or nil" ) end
+
+    if clockwise == nil then
+        self._clockwise = self.class.DEFAULT_CLOCKWISE
+    else
+        self._clockwise = clockwise
+    end
+end
+
+function CircleBar:getClockwise()
+    return self._clockwise
+end
+
+function CircleBar:updateCacheUsage()
+    local polyStrOld = self._polyStr
+    local polyStr = makePolyStr( self )
+    if polyStr == polyStrOld then return end
+
+    -- Remove from old poly group
+    if polyStrOld then
+        removePolyUser( self._id, polyStrOld )
+    end
+
+    -- Add to new poly group
+    local polyGroup = polyCache[polyStr]
+
+    if not polyGroup then
+        polyGroup = {}
+        polyGroup.users = {}
+        polyCache[polyStr] = polyGroup
+
+        polyGroup.rotation = self._rotation
+        polyGroup.radiusInner = self._radiusInner
+        polyGroup.radiusOuter = self._radiusOuter
+        polyGroup.numSegments = self._numSegments
+        polyGroup.u0 = self._u0
+        polyGroup.v0 = self._v0
+        polyGroup.u1 = self._u1
+        polyGroup.v1 = self._v1
+        polyGroup.uIsLong = self._uIsLong
+
+        polyGroup.thetaStep = math.pi * 2 / polyGroup.numSegments
+    end
+
+    polyGroup.users[self._id] = true
+    self._polyStr = polyStr
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function CircleBar:onDestroyed()
+    table.removeByValue( allCircleBars, self )
+    circleBarsByID[self._id] = nil
+    removePolyUser( self._id, self._polyStr )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+removePolyUser = function( id, polyStr )
+    local polyGroup = polyCache[polyStr]
+    if not polyGroup then return end
+
+    local users = polyGroup.users
+    users[id] = nil
+
+    -- Destroy empty poly group
+    if table.isEmpty( users ) then
+        for i = 1, #polyGroup do
+            polyGroup[i] = nil
+        end
+
+        polyGroup.users = nil
+    end
+end
+
+makePolyStr = function( circleBar )
+    return
+        circleBar:getRotation() .. "_" ..
+        circleBar:getRadiusInner() .. "_" ..
+        circleBar:getRadiusOuter() .. "_" ..
+        circleBar:getNumSegments() .. "_" ..
+        circleBar:getU0() .. "_" ..
+        circleBar:getV0() .. "_" ..
+        circleBar:getU1() .. "_" ..
+        circleBar:getV1() .. "_" ..
+        tostring( circleBar:getUIsLong() )
+end
+
+makePoly = function( polyGroup, segmentInd )
+    local rotation = polyGroup.rotation
+    local radiusInner = polyGroup.radiusInner
+    local radiusOuter = polyGroup.radiusOuter
+    local numSegments = polyGroup.numSegments
+    local u0 = polyGroup.u0
+    local v0 = polyGroup.v0
+    local u1 = polyGroup.u1
+    local v1 = polyGroup.v1
+    local uIsLong = polyGroup.uIsLong
+
+    local thetaStep = polyGroup.thetaStep
+
+    local thetaLeft = rotation + thetaStep * segmentInd
+    local thetaRight = rotation + thetaStep * ( segmentInd - 1 )
+    local fracLeft = segmentInd / numSegments
+    local fracRight = ( segmentInd - 1 ) / numSegments
+    local uvLongLeft, uvLongRight
+
+    if uIsLong then
+        uvLongLeft = u0 + ( u1 - u0 ) * fracLeft
+        uvLongRight = u0 + ( u1 - u0 ) * fracRight
+    else
+        uvLongLeft = v0 + ( v1 - v0 ) * fracLeft
+        uvLongRight = v0 + ( v1 - v0 ) * fracRight
+    end
+
+    local poly = {
+        {
+            x = math.cos( thetaLeft ) * radiusOuter,
+            y = -math.sin( thetaLeft ) * radiusOuter,
+            u = uIsLong and uvLongLeft or u1,
+            v = uIsLong and v1 or uvLongLeft,
+        },
+        {
+            x = math.cos( thetaRight ) * radiusOuter,
+            y = -math.sin( thetaRight ) * radiusOuter,
+            u = uIsLong and uvLongRight or u1,
+            v = uIsLong and v1 or uvLongRight,
+        },
+        {
+            x = math.cos( thetaRight ) * radiusInner,
+            y = -math.sin( thetaRight ) * radiusInner,
+            u = uIsLong and uvLongRight or u0,
+            v = uIsLong and v0 or uvLongRight,
+        },
+        {
+            x = math.cos( thetaLeft ) * radiusInner,
+            y = -math.sin( thetaLeft ) * radiusInner,
+            u = uIsLong and uvLongLeft or u0,
+            v = uIsLong and v0 or uvLongLeft,
+        },
+    }
+
+    polyGroup[segmentInd] = poly
+
+    return poly
+end
+
+
+----- SETUP -----
+
