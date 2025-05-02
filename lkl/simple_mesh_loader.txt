@@ -3,6 +3,7 @@
 --@shared
 --@include lkl/math/vector_math.txt
 --@include lkl/json_extensions.txt
+--@include lkl/safe_stream.txt
 
 simpleMeshLoader = simpleMeshLoader or {}
 if simpleMeshLoader._alreadyLoaded then return end
@@ -10,6 +11,8 @@ simpleMeshLoader._alreadyLoaded = true
 
 simpleMeshLoader.PERF_LIMIT = simpleMeshLoader.PERF_LIMIT or 0.4
 simpleMeshLoader.WIREFRAME = simpleMeshLoader.WIREFRAME or false
+
+require( "lkl/safe_stream.txt" )
 
 
 if SERVER then
@@ -45,7 +48,7 @@ if SERVER then
                 net.writeUInt( jsonStrLengths[i], 32 )
             end
 
-            net.writeStream( jsonStrCombined, false )
+            safeStream.write( jsonStrCombined, false )
         net.send( targets )
     end
 
@@ -77,7 +80,7 @@ if SERVER then
             table.insert( jsonStrLengths, net.readUInt( 32 ) )
         end
 
-        net.readStream( function( jsonStrsCombined )
+        safeStream.read( function( jsonStrsCombined )
             for i = #targets, 1, -1 do
                 if not isValid( targets[i] ) then
                     table.remove( targets, i )
@@ -98,7 +101,7 @@ if SERVER then
                     net.writeUInt( jsonStrLengths[i], 32 )
                 end
 
-                net.writeStream( jsonStrsCombined, false )
+                safeStream.write( jsonStrsCombined, false )
             net.send( targets )
         end )
     end )
@@ -394,7 +397,7 @@ function simpleMeshLoader.loadJSONOnOthers( jsonStrs, pos, ang, scale, mat, call
             jsonStrsCombined = jsonStrsCombined .. jsonStr
         end
 
-        net.writeStream( jsonStrsCombined, false )
+        safeStream.write( jsonStrsCombined, false )
     net.send()
 end
 
@@ -471,7 +474,7 @@ net.receive( "LKL_SML_LoadMeshesFromJSONCompressed", function()
         table.insert( jsonStrLengths, net.readUInt( 32 ) )
     end
 
-    net.readStream( function( jsonStrsCombined )
+    safeStream.read( function( jsonStrsCombined )
         local jsonStrs = {}
         local startInd = 1
 
