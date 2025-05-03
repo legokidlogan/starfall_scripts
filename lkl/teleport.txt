@@ -65,6 +65,13 @@ function tpLib.doesReturnSlotExist( returnSlot )
     return true
 end
 
+function tpLib.clearReturnSlot( returnSlot )
+    returnSlot = returnSlot or 1
+
+    returnSpots[returnSlot] = nil
+    returnTargets[returnSlot] = nil
+end
+
 -- Cancels the current teleport attempt.
 function tpLib.cancelTeleport()
     if not isValid( chair ) then
