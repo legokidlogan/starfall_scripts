@@ -1,0 +1,461 @@
+--@name Teleport
+--@author legokidlogan
+--@server
+
+tpLib = tpLib or {}
+
+
+local tpChairColor = Color( 255, 255, 255, 0 )
+local tpChairMaterial = "models/alyx/emptool_glow"
+
+local tpDoHolo = false
+local tpHoloColor = Color( 255, 255, 255, 255 )
+local tpHoloMaterial = "models/alyx/emptool_glow"
+local tpHoloModel = "models/hunter/blocks/cube1x1x1.mdl"
+local tpHoloSize = Vector( -50, -50, -50 )
+
+local chair
+local chairHolo
+local returnSpots = {}
+local returnTargets = {}
+local chairType = ""
+local storePos = Vector( 0, 0, -2000 )
+--local exitOffsetPos = Vector( 90, 0, -11 )
+--local exitOffsetPlyAdjust = Vector( 0.7, 0, 0 )
+local exitOffsetAng = Angle( 0, 0, 0 )
+local colorInvis = Color( 0, 0, 0, 0 )
+
+local spawnChair
+
+
+----- GLOBAL FUNCTIONS -----
+
+function tpLib.getChair()
+    if not isValid( chair ) then
+        spawnChair()
+    end
+
+    return chair
+end
+
+function tpLib.isBusy()
+    if not isValid( chair ) then
+        spawnChair()
+
+        return true
+    end
+
+    return chair.tpIsBusy or false
+end
+
+function tpLib.doesReturnSlotExist( returnSlot )
+    returnSlot = returnSlot or 1
+
+    local returnSpot = returnSpots[returnSlot]
+    local returnTarget = returnTargets[returnSlot]
+
+    if not returnSpot or not returnTarget then return false end
+    if not isValid( returnTarget ) then
+        returnSpots[returnSlot] = nil
+        returnTargets[returnSlot] = nil
+
+        return false
+    end
+
+    return true
+end
+
+-- Cancels the current teleport attempt.
+function tpLib.cancelTeleport()
+    if not isValid( chair ) then
+        spawnChair()
+
+        if not isValid( chair ) then return "tele-chair does not exist" end
+    end
+
+    if chair.tpIsBusy then return "tele-chair is busy" end
+    if not chair.tpDest then return end
+
+    local returnSlot = chair.tpReturnSlot
+
+    if returnSlot then
+        chair.tpReturnSlot = nil
+        returnSpots[returnSlot] = nil
+    end
+
+    chair.tpDest = nil
+    chair.tpDestOffset = nil
+    chair.tpManualFollow = nil
+    chair.tpTargetEnt = nil
+
+    chair:setParent()
+    chair:enableMotion( false )
+    chair:setPos( storePos )
+
+    if tpDoHolo and isValid( chairHolo ) then
+        chairHolo:setColor( colorInvis )
+    end
+
+    timer.remove( "LKL_TP_ActivationTimeout" )
+    timer.remove( "LKL_TP_FollowTarget" )
+end
+
+--[[
+    - Prepares a teleport.
+    - Note that the chair still needs to be sat in.
+
+    targetEntOrPos: Entity or Vector
+        - The position or entity to place the chair at (and follow if it moves).
+        - If a player, the chair will only allow that player to use it.
+    destinationEntOrPos: Entity or Vector
+        - The position or entity to teleport the player to.
+    returnSlot: (optional) number or string
+        - When the teleport is used, their original position will be stored in this slot.
+        - Unique strings are recommended for this.
+        - If the slot is already occupied, it will be replaced.
+    targetOffsetPos: (optional) Vector
+        - The offset from the target to place the chair at.
+        - Defaults to 0,0,0.
+    destinationOffsetPos: (optional) Vector
+        - The offset from the destination to place the player at.
+        - Defaults to 0,0,0.
+    shouldFollowTarget: (optional) boolean
+        - If the target is an entity, should the chair follow it?
+        - Defaults to true.
+    activationTimeout: (optional) number
+        - If provided, automatically cancels the teleport if it doesn't happen within this time.
+--]]
+function tpLib.prepareTeleport( targetEntOrPos, destinationEntOrPos, returnSlot, targetOffsetPos, destinationOffsetPos, shouldFollowTarget, activationTimeout )
+    if not targetEntOrPos or not destinationEntOrPos then return "invalid target or destination" end
+
+    if not isValid( chair ) then
+        spawnChair()
+
+        if not isValid( chair ) then return "tele-chair does not exist" end
+    end
+
+    if chair.tpIsBusy then return "tele-chair is busy" end
+
+    returnSlot = returnSlot
+    shouldFollowTarget = shouldFollowTarget ~= false
+
+    if returnSlot == nil then
+        returnSlot = 1
+    end
+
+    destinationOffsetPos = destinationOffsetPos or Vector( 0, 0, 0 )
+    local targetEnt = ( type( targetEntOrPos ) == "Entity" or type( targetEntOrPos ) == "Player" ) and isValid( targetEntOrPos ) and targetEntOrPos
+    local destEnt = ( type( destinationEntOrPos ) == "Entity" or type( destinationEntOrPos ) == "Player" ) and isValid( destinationEntOrPos ) and destinationEntOrPos
+
+    if not targetOffsetPos then
+        if targetEnt and targetEnt:isPlayer() then
+            targetOffsetPos = targetEnt:getEyePos() - targetEnt:getPos()
+        else
+            targetOffsetPos = Vector( 0, 0, 0 )
+        end
+    end
+
+    local placePos = ( targetEnt and targetEnt:getPos() or targetEntOrPos ) + targetOffsetPos
+
+    if type( placePos ) ~= "Vector" then return "invalid target" end
+
+    if chair.tpDest then
+        tpLib.cancelTeleport()
+    end
+
+    chair.tpTargetEnt = targetEnt
+    chair.tpDest = destEnt or destinationEntOrPos
+    chair.tpDestOffset = destinationOffsetPos
+    chair.tpReturnSlot = returnSlot
+
+    chair:setParent()
+    chair:enableMotion( false )
+    chair:setPos( placePos )
+
+    if tpDoHolo and isValid( chairHolo ) then
+        chairHolo:setColor( tpHoloColor )
+    end
+
+    if targetEnt and shouldFollowTarget then
+        timer.simple( 0.01, function()
+            if not isValid( chair ) or not isValid( targetEnt ) then return end
+
+            local success = pcall( function()
+                chair:setParent( targetEnt )
+            end )
+
+            chair.tpManualFollow = not success
+            chair.tpTargetOffsetPos = targetOffsetPos
+
+            if chair.tpManualFollow then
+                timer.create( "LKL_TP_FollowTarget", 0.05, 0, function()
+                    if not isValid( chair ) then return end
+                    if not chair.tpManualFollow then return end
+
+                    local target = chair.tpTargetEnt
+                    if not isValid( target ) then return end
+
+                    chair:setPos( target:getPos() + chair.tpTargetOffsetPos )
+                end )
+            end
+        end )
+    end
+
+    if activationTimeout then
+        timer.create( "LKL_TP_ActivationTimeout", activationTimeout, 1, tpLib.cancelTeleport )
+    end
+end
+
+--[[
+    - Prepares a teleport to a return slot.
+    - Note that the chair still needs to be sat in.
+    - The return slot will be cleared after use.
+    - Uses the same target that was used to prepare the original teleport.
+
+    returnSlot: number or string
+        - The slot to return to.
+    shouldFollowTarget: (optional) boolean
+        - If the target is an entity, should the chair follow it?
+        - Defaults to true.
+    activationTimeout: (optional) number
+        - If provided, automatically cancels the teleport if it doesn't happen within this time.
+--]]
+function tpLib.prepareReturn( returnSlot, shouldFollowTarget, activationTimeout )
+    if not returnSlot then return "return slot is empty" end
+
+    local returnSpot = returnSpots[returnSlot]
+    local returnTarget = returnTargets[returnSlot]
+    returnSpots[returnSlot] = nil
+    returnTargets[returnSlot] = nil
+
+    if not returnSpot then return "return slot is empty" end
+    if not isValid( returnTarget ) then return "invalid return target" end
+
+    return tpLib.prepareTeleport( returnTarget, returnSpot, false, nil, nil, shouldFollowTarget, activationTimeout )
+end
+
+function tpLib.setChairColor( color )
+    tpChairColor = color
+
+    if isValid( chair ) then
+        chair:setColor( color )
+    end
+end
+
+function tpLib.setChairMaterial( material )
+    tpChairMaterial = material
+
+    if isValid( chair ) then
+        chair:setMaterial( material )
+    end
+end
+
+function tpLib.setDoHolo( doHolo )
+    tpDoHolo = doHolo
+
+    if not isValid( chairHolo ) then return end
+
+    if tpDoHolo and isValid( chair ) and tpLib.isBusy() then
+        chairHolo:setColor( tpHoloColor )
+    else
+        chairHolo:setColor( colorInvis )
+    end
+end
+
+function tpLib.setHoloColor( color )
+    tpHoloColor = color
+
+    if tpDoHolo and isValid( chairHolo ) and isValid( chair ) and tpLib.isBusy() then
+        chairHolo:setColor( color )
+    end
+end
+
+function tpLib.setHoloMaterial( material )
+    tpHoloMaterial = material
+
+    if isValid( chairHolo ) then
+        chairHolo:setMaterial( material )
+    end
+end
+
+function tpLib.setHoloModel( model )
+    tpHoloModel = model
+
+    if isValid( chairHolo ) then
+        chairHolo:setModel( model )
+    end
+end
+
+function tpLib.setHoloSize( size )
+    tpHoloSize = size
+
+    if isValid( chairHolo ) then
+        chairHolo:setSize( size )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+spawnChair = function()
+    if isValid( chair ) then return end
+
+    local ent
+
+    pcall( function()
+        ent = prop.createSent( storePos, Angle( 0, 0, 0 ), chairType, true )
+    end )
+
+    if isValid( ent ) then
+        chair = ent
+        ent:setNocollideAll( true )
+        ent:setMass( 50000 )
+        ent:setColor( tpChairColor )
+        ent:setMaterial( tpChairMaterial )
+
+        if tpDoHolo then
+            if not isValid( chairHolo ) then
+                chairHolo = hologram.create( storePos, Angle( 0, 0, 0 ), tpHoloModel )
+                chairHolo:setSize( tpHoloSize )
+                chairHolo:setMaterial( tpHoloMaterial )
+                chairHolo:setParent( chair )
+            end
+
+            chairHolo:setColor( colorInvis )
+        end
+
+        return true
+    end
+
+    timer.simple( 1, function()
+        spawnChair()
+    end )
+
+    return false
+end
+
+
+----- SETUP -----
+
+hook.add( "PlayerEnteredVehicle", "LKL_TP_EnterChair", function( ply, ent )
+    if not isValid( ent ) then return end
+    if ent ~= chair then return end
+
+    local dest = chair.tpDest
+    local destEnt = false
+
+    if not dest then return end
+    if ent.tpIsBusy then return end
+
+    local targetEnt = chair.tpTargetEnt
+
+    -- If intended for a specific player to get teleported, reject other players.
+    if isValid( targetEnt ) and type( targetEnt ) == "Player" and ply ~= targetEnt then
+        ent:unlock()
+        ent:ejectDriver()
+
+        return
+    end
+
+    -- If the destination is an entity that's no longer valid, cancel the teleport.
+    if type( dest ) ~= "Vector" then
+        if not isValid( dest ) then
+            ent:unlock()
+            ent:ejectDriver()
+            tpLib.cancelTeleport()
+
+            return
+        end
+
+        destEnt = dest
+        dest = destEnt:getPos()
+    end
+
+    local plySize = ply:obbSize()
+    local returnSlot = ent.tpReturnSlot
+    local exitAng = Angle( 0, 0, 0 )
+    plySize = ( math.abs( plySize[1] ) + math.abs( plySize[2] ) ) / 2
+    dest = dest + ent.tpDestOffset
+
+    if returnSlot then
+        returnSpots[returnSlot] = ent:getPos()
+        returnTargets[returnSlot] = ply
+    end
+
+    if destEnt then
+        exitAng = Angle( 0, destEnt:getAngles()[2], 0 )
+    end
+
+    ent.tpIsBusy = true
+    ent.tpTargetEnt = nil
+    ent:lock()
+    ent:setParent()
+    ent:enableMotion( false )
+    --ent:setPos( exit:localToWorld( exitOffsetPos + exitOffsetPlyAdjust * plySize + exitBox ) )
+    --ent:setAngles( exit:localToWorldAngles( exitOffsetAng ) )
+    ----ent:setPos( dest + ( exitOffsetPos + exitOffsetPlyAdjust * plySize ) )
+    ent:setPos( dest )
+    ent:setAngles( exitAng + exitOffsetAng )
+
+    timer.simple( 0.1, function()
+        if not isValid( ent ) then return end
+
+        --ent:emitSound( doorSounds[ind] or doorSounds.Default, 75, 100, 1 )
+        ent:unlock()
+        ent:ejectDriver()
+
+        timer.simple( 0.1, function()
+            if not isValid( ent ) then return end
+
+            ent:setPos( storePos )
+            ent.tpDest = false
+            ent.tpDestOffset = nil
+            ent.tpReturnSlot = nil
+            ent.tpManualFollow = nil
+
+            if tpDoHolo and isValid( chairHolo ) then
+                chairHolo:setColor( colorInvis )
+            end
+
+            timer.remove( "LKL_TP_ActivationTimeout" )
+            timer.remove( "LKL_TP_FollowTarget" )
+            timer.simple( 0.1, function()
+                if not isValid( ent ) then return end
+
+                ent.tpIsBusy = false
+            end )
+        end )
+    end )
+end )
+
+hook.add( "EntityRemoved", "LKL_TP_RetainEnts", function( ent )
+    if ent ~= chair then
+        if isValid( chair ) and ent == chair.tpTargetEnt then
+            chair:setParent()
+        end
+
+        return
+    end
+
+    if isValid( chairHolo ) then
+        chairHolo:setParent()
+        chairHolo:setColor( colorInvis )
+        chairHolo:setPos( storePos )
+    end
+end )
+
+
+do
+    prop.setPropUndo( false )
+
+    local spawnables = prop.getSpawnableSents( true ).Vehicles
+    local mainType = "Couch_Furniture_01"
+    local fallbackType = "Seat_Airboat"
+    local useMainType = table.hasValue( spawnables, mainType )
+
+    chairType = useMainType and mainType or fallbackType
+end
+
+timer.simple( 1, function()
+    spawnChair()
+end )
