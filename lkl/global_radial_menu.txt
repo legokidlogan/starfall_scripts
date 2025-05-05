@@ -18,6 +18,8 @@
     - Global radial menus can also be given priority values, to make sure they always show up in the same order.
         - Higher priority = earlier in the list.
         - Default priority is 10000.
+    - If you want to use GlobalRadialMenu:setOpenKey() or similar functions when the chip is removed/restarted,
+        Use the LKL_GlobalRadialMenu_PreRemove hook, NOT the Removed hook. The system will break otherwise.
 
 
     - Example Usage:
@@ -501,6 +503,8 @@ end
 
 
 hook.add( "Removed", "LKL_GlobalRadialMenu_FindNewMainResponderAndRemoveMenus", function()
+    hook.run( "LKL_GlobalRadialMenu_PreRemove" ) -- For running :setOpenKey() and similar functions on chip removal/restart.
+
     if mainResponderID == myID then
         findNewMainResponder()
 
