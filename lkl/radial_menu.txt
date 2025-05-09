@@ -227,12 +227,12 @@ local resetHoverProgress
                     -- Drawing at 0,0 will result in drawing at the center of the menu/screen.
                     -- Drawing at xDir * choiceRadius, yDir * choiceRadius will result in drawing at the outermost edge of the choice.
                     -- The render will be facing upright.
-                    paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd ) return end (optional),
+                    paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd, hoverProgress ) return end (optional),
 
                     -- This function is like paint, but inherits the choice's radial orientation.
                     -- Drawing at 0, choiceRadius will result in drawing at the outermost edge of the choice.
                     -- Note that choices below the center have their rotation flipped for ease of readability.
-                    paintRadial = function( choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd ) return end (optional),
+                    paintRadial = function( choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd, hoverProgress ) return end (optional),
                 },
                 ...
             },
@@ -815,6 +815,11 @@ function RadialMenu:getChoiceNameColorEff( pageInd, choiceInd )
     return self._pages[pageInd][choiceInd]._nameColorEff
 end
 
+-- Gets the current hover progress of a choice. This is a value between 0 and 1.
+function RadialMenu:getChoiceHoverProgress( pageInd, choiceInd )
+    return self._pages[pageInd][choiceInd]._hoverProgress
+end
+
 
 ----- OVERRIDABLE FUNCTIONS -----
 
@@ -1259,8 +1264,8 @@ editChoice = function(
     realChoice.bandColorStr = bandColorStr
     realChoice.nameColorStr = nameColorStr
 
-    if not realChoice.hoverProgress then
-        realChoice.hoverProgress = 0
+    if not realChoice._hoverProgress then
+        realChoice._hoverProgress = 0
     end
 end
 
@@ -1313,7 +1318,7 @@ resetHoverProgress = function( menu )
 
     for i = 1, #page do
         local choice = page[i]
-        choice.hoverProgress = 0
+        choice._hoverProgress = 0
     end
 end
 
@@ -1414,7 +1419,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
     -- Draw choices
     for i, choice in ipairs( curPage ) do
         local deg = ( i - 1 ) * degStep
-        local hoverProgress = choice.hoverProgress
+        local hoverProgress = choice._hoverProgress
 
         if i == hoveredInd then
             hoverProgress = math.min( hoverProgress + hoverDT, 1 )
@@ -1422,7 +1427,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
             hoverProgress = math.max( hoverProgress - hoverDT, 0 )
         end
 
-        choice.hoverProgress = hoverProgress
+        choice._hoverProgress = hoverProgress
         local frameInd = math.round( hoverProgress * CHOICE_FRAME_COUNT )
         local gradientPoly = choiceGradientPolys[frameInd]
 
@@ -1470,7 +1475,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
         local paintRadial = choice.paintRadial
 
         if paintRadial then
-            paintRadial( nameRadius + menuFontHeight / 2, menuFontHeight, i == hoveredInd, curMenu, curPageInd, i )
+            paintRadial( nameRadius + menuFontHeight / 2, menuFontHeight, i == hoveredInd, curMenu, curPageInd, i, hoverProgress )
         end
 
         render.popMatrix() -- matrChoice
@@ -1484,7 +1489,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
             local xDir = -math.cos( rad )
             local yDir = -math.sin( rad )
 
-            paint( xDir, yDir, nameRadius + menuFontHeight / 2, menuFontHeight, i == hoveredInd, curMenu, curPageInd, i )
+            paint( xDir, yDir, nameRadius + menuFontHeight / 2, menuFontHeight, i == hoveredInd, curMenu, curPageInd, i, hoverProgress )
         end
     end
 
