@@ -800,6 +800,21 @@ function RadialMenu:getChoiceGap()
     return self._choiceGap
 end
 
+-- Gets the current effective gradient color of a choice. Returns by reference, do not modify.
+function RadialMenu:getChoiceGradientColorEff( pageInd, choiceInd )
+    return self._pages[pageInd][choiceInd]._gradientColorEff
+end
+
+-- Gets the current effective band color of a choice. Returns by reference, do not modify.
+function RadialMenu:getChoiceBandColorEff( pageInd, choiceInd )
+    return self._pages[pageInd][choiceInd]._bandColorEff
+end
+
+-- Gets the current effective name color of a choice. Returns by reference, do not modify.
+function RadialMenu:getChoiceNameColorEff( pageInd, choiceInd )
+    return self._pages[pageInd][choiceInd]._nameColorEff
+end
+
 
 ----- OVERRIDABLE FUNCTIONS -----
 
@@ -1418,18 +1433,24 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
 
         render.pushMatrix( matrChoice )
 
+        local gradientColorEff = getColorFrame( choiceGradientColorsLookup, choice.gradientColorStr, frameInd )
+        choice._gradientColorEff = gradientColorEff
         render.setMaterial( choice.gradientEnabled and matGradient or nil )
-        render.setColor( getColorFrame( choiceGradientColorsLookup, choice.gradientColorStr, frameInd ) )
+        render.setColor( gradientColorEff )
         render.drawPoly( gradientPoly )
 
         if choice.bandEnabled then
+            local bandColorEff = getColorFrame( choiceBandColorsLookup, choice.bandColorStr, frameInd )
+            choice._bandColorEff = bandColorEff
             render.setMaterial()
-            render.setColor( getColorFrame( choiceBandColorsLookup, choice.bandColorStr, frameInd ) )
+            render.setColor( bandColorEff )
             render.drawPoly( choiceBandPolys[frameInd] )
         end
 
+        local nameColorEff = getColorFrame( choiceNameColorsLookup, choice.nameColorStr, frameInd )
+        choice._nameColorEff = nameColorEff
         render.setFont( menuFont )
-        render.setColor( getColorFrame( choiceNameColorsLookup, choice.nameColorStr, frameInd ) )
+        render.setColor( nameColorEff )
 
         local matrText = Matrix()
         local nameRadius = choiceNameRadii[frameInd]
