@@ -230,7 +230,7 @@ local resetHoverProgress
                     paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd, hoverProgress ) return end (optional),
 
                     -- This function is like paint, but inherits the choice's radial orientation.
-                    -- Drawing at 0, choiceRadius will result in drawing at the outermost edge of the choice.
+                    -- Drawing at 0, -choiceRadius will result in drawing at the outermost edge of the choice.
                     -- Note that choices below the center have their rotation flipped for ease of readability.
                     paintRadial = function( choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd, hoverProgress ) return end (optional),
                 },
