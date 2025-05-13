@@ -3,6 +3,7 @@
 --@shared
 
 --@include lkl/hook_remote_fix.txt
+--@include lkl/version_compare.txt
 
 --@include lkl/spellbook/spellbook_sv.txt
 --@include lkl/spellbook/spellbook_cl.txt
@@ -17,6 +18,7 @@
 spellbook = spellbook or {}
 
 require( "lkl/hook_remote_fix.txt" )
+require( "lkl/version_compare.txt" )
 
 
 -- To avoid redundant file sending for custom spellbooks, the includir directive was removed from this chip.
@@ -82,6 +84,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
+spellbook.VERSION = "1.1.0"
 
 require( "lkl/spellbook/spell.txt" )
 require( "lkl/spellbook/instant_spell.txt" )
@@ -236,6 +239,7 @@ function spellbook.getEveryoneButOwner( actuallyJustNoOne )
 end
 
 -- Returns a list and lookup table of all players who have a spellbook.
+-- The lookup table also notes the latest version of the spellbook library the player is using.
 function spellbook.getSpellbookUsers()
     local results = hookRunRemoteFixed( nil, "LKL_Spellbook_FindSpellbooks" )
     local plys = {}
@@ -245,9 +249,17 @@ function spellbook.getSpellbookUsers()
         if result[1] == "HelloYesIAmASpellbook" then
             local ply = result.Chip:getOwner()
 
-            if isValid( ply ) and not plyLookup[ply] then
-                plyLookup[ply] = true
-                table.insert( plys, ply )
+            if isValid( ply ) then
+                local oldVersion = plyLookup[ply]
+                local curVersion = result[2] or "1.0.0"
+
+                if not oldVersion then
+                    table.insert( plys, ply )
+                end
+
+                if not oldVersion or compareVersions( curVersion, oldVersion ) > 0 then
+                    plyLookup[ply] = curVersion
+                end
             end
         end
     end
@@ -303,7 +315,8 @@ end
 hook.add( "remote", "LKL_Spellbook_IdentifyAsSpellbook", function( _, _, hookName )
     if hookName ~= "LKL_Spellbook_FindSpellbooks" then return end
 
-    return "HelloYesIAmASpellbook"
+    --return { "HelloYesIAmASpellbook", spellbook.VERSION }
+    return "HelloYesIAmASpellbook", spellbook.VERSION
 end )
 
 
