@@ -1,0 +1,27 @@
+--@name Version Compare
+--@author legokidlogan
+--@shared
+
+function compareVersions( version1, version2 )
+    version1 = version1:sub( 2 ):split( "." )
+    version2 = version2:sub( 2 ):split( "." )
+
+    for i, vPart in ipairs( version1 ) do
+        version1[i] = tonumber( vPart )
+    end
+
+    for i, vPart in ipairs( version2 ) do
+        version2[i] = tonumber( vPart )
+    end
+
+    for i, vPart1 in ipairs( version1 ) do
+        local vPart2 = version2[i]
+        if not vPart2 then return 1 end
+        if vPart1 > vPart2 then return 1 end
+        if vPart1 < vPart2 then return -1 end
+    end
+
+    if #version1 < #version2 then return -1 end
+
+    return 0
+end
