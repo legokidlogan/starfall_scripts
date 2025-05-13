@@ -3,8 +3,8 @@
 --@shared
 
 function compareVersions( version1, version2 )
-    version1 = version1:sub( 2 ):split( "." )
-    version2 = version2:sub( 2 ):split( "." )
+    version1 = version1:split( "." )
+    version2 = version2:split( "." )
 
     for i, vPart in ipairs( version1 ) do
         version1[i] = tonumber( vPart )
