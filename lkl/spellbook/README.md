@@ -130,3 +130,12 @@ Hooks:
 - `LKL_Spellbook_OwnerRespawned( respawnTime )`
     - All realms.
     - Called when the owner respawns.
+- `LKL_Spellbook_Spell_AssociateModel( spellID, niceName, model, provider )`
+    - All realms.
+    - Called when a spell is associated with a model and niceName from some kind of prop buffer.
+- `count = LKL_Spellbook_Spell_GetAssociatedModelCount( spellID, niceName, model, provider )`
+    - SERVER realm.
+    - For prop buffer providers to return the amount of available props they have for the given model.
+- `LKL_Spellbook_Spell_AssociatedModelCountChanged( spellID, niceName, oldCount, count )`
+    - All realms.
+    - Called when the available count for a niceName changes for a spell.

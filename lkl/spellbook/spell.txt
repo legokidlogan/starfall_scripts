@@ -27,6 +27,8 @@ local iconCount = 0
 local iconsPerRow = math.floor( 1024 / ICON_SIZE )
 local iconsPerRT = iconsPerRow * iconsPerRow
 local setParamCameFromOwner = false
+local allSpellsLoaded = false
+local modelAssociationQueue = {}
 
 local netTypes = {
     boolean = "Bool",
@@ -125,6 +127,8 @@ function Spell:initialize( params )
     self._nameColorHovered = nameColorHovered
     self._hasIcon = false
     self._active = false
+    self._modelAssociations = {}
+    self._modelAssociationOrder = {}
 
     if hasIcon and CLIENT then
         table.insert( iconQueue, {
@@ -173,6 +177,49 @@ if SERVER or player() == owner() then
         strength = strength or 1
 
         spellbook.spendMana( -self:getManaCost() * strength )
+    end
+end
+
+
+if SERVER then
+    -- Updates the associated model count for a specific niceName, and notifies clients.
+    function Spell:updateAssociatedModelCount( niceName )
+        if not allSpellsLoaded then return end
+
+        local byModel = self._modelAssociations[niceName]
+        local oldCount = byModel.__count
+        local count = self:getAssociatedModelCount( niceName )
+        if count == oldCount then return end
+
+        byModel.__count = count
+
+        local spellID = self:getSpellID()
+        local timerName = "LKL_Spellbook_Spell_SafeNet_AssociatedModelCount_" .. spellID .. "_" .. niceName
+
+        local function checkBad()
+            return net.getBytesLeft() - 100 < 4 + #niceName
+        end
+
+        local function send()
+            net.start( "LKL_Spellbook_Spell_SetAssociatedModelCount" )
+            net.writeUInt( spellID, 16 )
+            net.writeString( niceName )
+            net.writeInt( count, 16 )
+            net.send()
+        end
+
+        if checkBad() then
+            timer.create( timerName, 0.05, 1, function()
+                if checkBad() then return end
+
+                timer.remove( timerName )
+                send()
+            end )
+        else
+            send()
+        end
+
+        hook.run( "LKL_Spellbook_Spell_AssociatedModelCountChanged", self:getSpellID(), niceName, oldCount, count )
     end
 end
 
@@ -310,6 +357,101 @@ end
 
 function Spell:getActiveStartTime()
     return self._activeStartTime
+end
+
+--[[
+    - Associates a spell with a prop model, displaying its buffer count at the bottom of the left page.
+    - If used, this must be called in all realms, ideally during spell init.
+    - Multiple models per niceName are allowed.
+    - Multiple unique providers per niceName and model combination are allowed.
+    - Note that counts will be driven by the server, so your provider should be server-based as well.
+
+    niceName: (string)
+        - The short name to display in the spellbook.
+    model: (string)
+        - The prop model to associate with.
+        - Can technically be any arbitrary non-model string, as long as the provider understands it.
+    provider: (any) (must be non-nil on server)
+        - The provider of the model.
+        - Stricly necessary on server, not needed on client.
+        - By default, only the "lkl/prop_buffer" provider is supported.
+        - Listen to the LKL_Spellbook_Spell_AssociateModel hook to add support for other providers that need/prefer setup at init.
+        - Listen to the LKL_Spellbook_Spell_GetAssociatedModelCount hook for the provider to return its count.
+        - Be sure to use spell:updateAssociatedModelCount( niceName ) on the server when the provider's count changes.
+--]]
+function Spell:associateModel( niceName, model, provider )
+    if not self._spellID then
+        table.insert( modelAssociationQueue, {
+            spell = self,
+            niceName = niceName,
+            model = model,
+            provider = provider,
+            stack = debug.traceback(),
+        } )
+
+        return
+    end
+
+    if type( niceName ) ~= "string" then error( "Expected niceName to be a string" ) end
+    if type( model ) ~= "string" then error( "Expected model to be a string" ) end
+    if model == "__count" then error( "model can not be '__count'" ) end
+    if SERVER and provider == nil then error( "Expected provider to not be nil on server" ) end
+
+    local byNiceName = self._modelAssociations
+    local byModel = byNiceName[niceName]
+
+    if not byModel then
+        byModel = {}
+        byNiceName[niceName] = byModel
+        table.insert( self._modelAssociationOrder, niceName )
+    end
+
+    local providers = byModel[model]
+
+    if not providers then
+        providers = {}
+        byModel[model] = providers
+    end
+
+    if provider ~= nil then
+        if table.hasValue( providers, provider ) then error( "Cannot have two of the same provider for the same niceName, model combo" ) end
+
+        table.insert( providers, provider )
+    end
+
+    hook.run( "LKL_Spellbook_Spell_AssociateModel", self:getSpellID(), niceName, model, provider )
+end
+
+-- Returns a lookup of niceName -> count. Only returns the latest cached result.
+function Spell:getAssociatedModelCounts()
+    local countsByNiceName = {}
+
+    for niceName, byModel in pairs( self._modelAssociations ) do
+        countsByNiceName[niceName] = byModel.__count or 0
+    end
+
+    return countsByNiceName
+end
+
+-- Gets (cached if on client) the associated model count for a specific niceName.
+function Spell:getAssociatedModelCount( niceName )
+    if not allSpellsLoaded then return 0 end
+
+    local byModel = self._modelAssociations[niceName]
+    if CLIENT then return byModel.__count or 0 end
+
+    local count = 0
+    local spellID = self:getSpellID()
+
+    for model, providers in pairs( byModel ) do
+        if model ~= "__count" then
+            for _, provider in ipairs( providers ) do
+                count = count + ( hook.run( "LKL_Spellbook_Spell_GetAssociatedModelCount", spellID, niceName, model, provider ) or 0 )
+            end
+        end
+    end
+
+    return count
 end
 
 -- Sets the spell's name. Will NOT change its order in the radial menu. noNet causes the change to not be networked.
@@ -704,6 +846,39 @@ end
 
 ----- SETUP -----
 
+hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_Spell_Setup", function()
+    allSpellsLoaded = true
+
+    timer.simple( 1, function()
+        for i = 1, #modelAssociationQueue do
+            local info = modelAssociationQueue[i]
+            local spell = info.spell
+            local niceName = info.niceName
+            local model = info.model
+            local provider = info.provider
+
+            local success = pcall( function()
+                spell:associateModel( niceName, model, provider )
+            end )
+
+            if not success then
+                print( "Failed to associate model with spell '" .. spell:getName() .. ":\n" .. info.stack )
+            end
+
+            modelAssociationQueue[i] = nil -- Clean up memory
+
+            if SERVER then
+                spell:updateAssociatedModelCount( niceName )
+            end
+        end
+
+        if CLIENT then
+            net.start( "LKL_Spellbook_Spell_RequestAssociatedModelCounts" )
+            net.send()
+        end
+    end )
+end )
+
 hook.add( "tick", "LKL_Spellbook_Spell_ActiveThink", function()
     local now = timer.curtime()
     local dt = now - lastTickTime
@@ -737,6 +912,113 @@ hook.add( "tick", "LKL_Spellbook_Spell_ActiveThink", function()
 end )
 
 
+if SERVER then
+    local propBufferAssociations = {}
+
+
+    local function updateFromPropBuffer( ent )
+        local model = ent:getModel()
+        local bySpellID = propBufferAssociations[model]
+        if not bySpellID then return end
+
+        for spellID, niceNames in pairs( bySpellID ) do
+            local spell = Spell:getByID( spellID )
+
+            for _, niceName in ipairs( niceNames ) do
+                spell:updateAssociatedModelCount( niceName )
+            end
+        end
+    end
+
+
+    hook.add( "LKL_Spellbook_Spell_AssociateModel", "LKL_Spellbook_Spell_SupportLKLPropBuffer", function( spellID, niceName, model, provider )
+        if provider ~= "lkl/prop_buffer" then return end
+
+        local bySpellID = propBufferAssociations[model]
+
+        if not bySpellID then
+            bySpellID = {}
+            propBufferAssociations[model] = bySpellID
+        end
+
+        local niceNames = bySpellID[spellID]
+
+        if not niceNames then
+            niceNames = {}
+            bySpellID[spellID] = niceNames
+        end
+
+        table.insert( niceNames, niceName )
+    end )
+
+    hook.add( "LKL_Spellbook_Spell_GetAssociatedModelCount", "LKL_Spellbook_Spell_SupportLKLPropBuffer", function( _spellID, _niceName, model, provider )
+        if provider ~= "lkl/prop_buffer" then return end
+
+        return propBuffer.getReadyCount( model ) or 0
+    end )
+
+    hook.add( "LKL_PropBuffer_PropCreated", "LKL_Spellbook_Spell_SupportLKLPropBuffer", updateFromPropBuffer )
+    hook.add( "LKL_PropBuffer_PropStored", "LKL_Spellbook_Spell_SupportLKLPropBuffer", updateFromPropBuffer )
+    hook.add( "LKL_PropBuffer_PropTaken", "LKL_Spellbook_Spell_SupportLKLPropBuffer", updateFromPropBuffer )
+
+
+    net.receive( "LKL_Spellbook_Spell_RequestAssociatedModelCounts", function( _, ply )
+        if not allSpellsLoaded then return end
+
+        local bySpellID = {}
+        local bytesNeeded = 2
+
+        for spellID, spell in ipairs( spellbook.spells ) do
+            local countsByNiceName = spell:getAssociatedModelCounts()
+            local niceNameCount = table.count( countsByNiceName )
+
+            if niceNameCount > 0 then
+                bySpellID[spellID] = countsByNiceName
+                bytesNeeded = bytesNeeded + 4
+
+                for niceName in pairs( countsByNiceName ) do
+                    bytesNeeded = bytesNeeded + #niceName + 2
+                end
+            end
+        end
+
+        local timerName = "LKL_Spellbook_Spell_SafeNet_SetAssociatedModelCounts_" .. ply:getSteamID()
+
+        local function checkBad()
+            return net.getBytesLeft() - 100 < bytesNeeded
+        end
+
+        local function send()
+            net.start( "LKL_Spellbook_Spell_SetAssociatedModelCounts" )
+            net.writeUInt( table.count( bySpellID ), 16 )
+
+            for spellID, countsByNiceName in pairs( bySpellID ) do
+                net.writeUInt( spellID, 16 )
+                net.writeUInt( table.count( countsByNiceName ), 16 )
+
+                for niceName, count in pairs( countsByNiceName ) do
+                    net.writeString( niceName )
+                    net.writeInt( count, 16 )
+                end
+            end
+
+            net.send( ply )
+        end
+
+        if checkBad() then
+            timer.create( timerName, 0.05, 1, function()
+                if checkBad() then return end
+
+                timer.remove( timerName )
+                send()
+            end )
+        else
+            send()
+        end
+    end )
+end
+
+
 if CLIENT and player() == owner() then
     hook.add( "drawhud", "LKL_Spellbook_Spell_DrawSimpleMessage", function()
         if simpleMessageEndTime < timer.curtime() then return end
@@ -755,6 +1037,51 @@ if CLIENT and player() == owner() then
         simpleMessageEndTime = endTime
         simpleMessageStr = str
         simpleMessageColor = color
+    end )
+end
+
+
+if CLIENT then
+    net.receive( "LKL_Spellbook_Spell_SetAssociatedModelCount", function()
+        local spellID = net.readUInt( 16 )
+        local niceName = net.readString()
+        local count = net.readInt( 16 )
+
+        local spell = Spell:getByID( spellID )
+        local byModel = spell._modelAssociations[niceName]
+        if not byModel then return end
+
+        local oldCount = byModel.__count
+        byModel.__count = count
+
+        if oldCount == count then return end
+
+        hook.run( "LKL_Spellbook_Spell_AssociatedModelCountChanged", spellID, niceName, oldCount or 0, count )
+    end )
+
+    net.receive( "LKL_Spellbook_Spell_SetAssociatedModelCounts", function()
+        local spellCount = net.readUInt( 16 )
+
+        for _ = 1, spellCount do
+            local spellID = net.readUInt( 16 )
+            local niceNameCount = net.readUInt( 16 )
+            local spell = Spell:getByID( spellID )
+            local byNiceName = spell._modelAssociations
+
+            for _ = 1, niceNameCount do
+                local niceName = net.readString()
+                local count = net.readInt( 16 )
+                local byModel = byNiceName[niceName]
+                if not byModel then continue end
+
+                local oldCount = byModel.__count
+                byModel.__count = count
+
+                if oldCount == count then continue end
+
+                hook.run( "LKL_Spellbook_Spell_AssociatedModelCountChanged", spellID, niceName, oldCount or 0, count )
+            end
+        end
     end )
 end
 
