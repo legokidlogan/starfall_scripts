@@ -857,12 +857,12 @@ hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_Spell_Setup", function
             local model = info.model
             local provider = info.provider
 
-            local success = pcall( function()
+            local success, err = pcall( function()
                 spell:associateModel( niceName, model, provider )
             end )
 
             if not success then
-                print( "Failed to associate model with spell '" .. spell:getName() .. ":\n" .. info.stack )
+                print( "Failed to associate model with spell '" .. spell:getName() .. ":\n" .. err .. "\n" .. info.stack )
             end
 
             modelAssociationQueue[i] = nil -- Clean up memory
