@@ -186,6 +186,7 @@ local editChoice
 local validatePolyUser
 local handleChoiceClick
 local resetHoverProgress
+local getColorEff
 
 
 ----- STATIC FUNCTIONS -----
@@ -801,18 +802,21 @@ function RadialMenu:getChoiceGap()
 end
 
 -- Gets the current effective gradient color of a choice. Returns by reference, do not modify.
-function RadialMenu:getChoiceGradientColorEff( pageInd, choiceInd )
-    return self._pages[pageInd][choiceInd]._gradientColorEff
+-- Provide hoverProgress to force-calculate at a fraction of your choice, independent of the choice's current state.
+function RadialMenu:getChoiceGradientColorEff( pageInd, choiceInd, hoverProgress )
+    return getColorEff( self, pageInd, choiceInd, hoverProgress, choiceGradientColorsLookup, "_gradientColorEff", "gradientColorStr" )
 end
 
 -- Gets the current effective band color of a choice. Returns by reference, do not modify.
-function RadialMenu:getChoiceBandColorEff( pageInd, choiceInd )
-    return self._pages[pageInd][choiceInd]._bandColorEff
+-- Provide hoverProgress to force-calculate at a fraction of your choice, independent of the choice's current state.
+function RadialMenu:getChoiceBandColorEff( pageInd, choiceInd, hoverProgress )
+    return getColorEff( self, pageInd, choiceInd, hoverProgress, choiceBandColorsLookup, "_bandColorEff", "bandColorStr" )
 end
 
 -- Gets the current effective name color of a choice. Returns by reference, do not modify.
-function RadialMenu:getChoiceNameColorEff( pageInd, choiceInd )
-    return self._pages[pageInd][choiceInd]._nameColorEff
+-- Provide hoverProgress to force-calculate at a fraction of your choice, independent of the choice's current state.
+function RadialMenu:getChoiceNameColorEff( pageInd, choiceInd, hoverProgress )
+    return getColorEff( self, pageInd, choiceInd, hoverProgress, choiceNameColorsLookup, "_nameColorEff", "nameColorStr" )
 end
 
 -- Gets the current hover progress of a choice. This is a value between 0 and 1.
@@ -1320,6 +1324,21 @@ resetHoverProgress = function( menu )
         local choice = page[i]
         choice._hoverProgress = 0
     end
+end
+
+getColorEff = function( menu, pageInd, choiceInd, hoverProgress, lookup, storedName, colorStrName )
+    local choice = menu._pages[pageInd][choiceInd]
+
+    if not hoverProgress then
+        local color = choice[storedName]
+        if color then return color end
+
+        hoverProgress = choice._hoverProgress -- Choice has yet to be rendered.
+    end
+
+    local frameInd = math.floor( hoverProgress * CHOICE_FRAME_COUNT )
+
+    return getColorFrame( lookup, choice[colorStrName], frameInd )
 end
 
 
