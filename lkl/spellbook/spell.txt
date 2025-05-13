@@ -124,6 +124,7 @@ function Spell:initialize( params )
     self._nameColorUnhovered = nameColorUnhovered
     self._nameColorHovered = nameColorHovered
     self._hasIcon = false
+    self._active = false
 
     if hasIcon and CLIENT then
         table.insert( iconQueue, {
