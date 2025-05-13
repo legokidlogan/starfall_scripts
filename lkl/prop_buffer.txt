@@ -26,6 +26,14 @@
             ent: (Entity)
                 - The prop that has been stored.
 
+        LKL_PropBuffer_PropTaken( ent )
+            - Called when a prop has been taken from the buffer.
+            - You should not manipulate the prop here, as it is in use by another script.
+            - This is purely for logging purposes.
+
+            ent: (Entity)
+                - The prop that has been taken.
+
 
     - Example usage:
         local pelletModel = "models/hunter/plates/plate.mdl"
@@ -141,6 +149,8 @@ function propBuffer.takeProp( model )
         table.remove( readyProps, 1 )
         usedPropLookup[readyProp] = true
         propBuffer.onTakeProp( readyProp )
+
+        hook.run( "LKL_PropBuffer_PropTaken", readyProp )
 
         return readyProp
     end
