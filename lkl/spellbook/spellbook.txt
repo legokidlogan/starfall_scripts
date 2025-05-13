@@ -37,6 +37,12 @@ if spellbook.DISABLE_COOLDOWN_SOUND == nil then spellbook.DISABLE_COOLDOWN_SOUND
 if spellbook.DRAW_MANA_PREVIEW == nil then spellbook.DRAW_MANA_PREVIEW = true end -- Draws a preview of mana consumption on the spellbook.
 if spellbook.DRAW_MANA_HUD == nil then spellbook.DRAW_MANA_HUD = true end -- Draws a HL2-style mana bar on the screen.
 
+if spellbook.DRAW_SPELL_CROSSHAIR == nil then spellbook.DRAW_SPELL_CROSSHAIR = true end -- Replaces the normal crosshair with a custom one while the spellbook is open.
+if spellbook.SPELL_CROSSHAIR_SMALL_USES_SPELL_COLOR == nil then spellbook.SPELL_CROSSHAIR_SMALL_USES_SPELL_COLOR = true end -- Makes the small dots use the selected spell's color.
+spellbook.SPELL_CROSSHAIR_BIG_COLOR = spellbook.SPELL_CROSSHAIR_BIG_COLOR or Color( 255, 255, 255, 255 )
+spellbook.SPELL_CROSSHAIR_SMALL_COLOR = spellbook.SPELL_CROSSHAIR_SMALL_COLOR or Color( 255, 255, 255, 255 )
+spellbook.SPELL_CROSSHAIR_CANT_CAST_COLOR = spellbook.SPELL_CROSSHAIR_CANT_CAST_COLOR or Color( 255, 0, 0, 150 )
+
 spellbook.HOLO_BUFFER_START_SIZE = spellbook.HOLO_BUFFER_START_SIZE or 30 -- For serverside holos.
 spellbook.HOLO_BUFFER_MAX_SIZE = spellbook.HOLO_BUFFER_MAX_SIZE or 100
 
@@ -84,7 +90,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.1.0"
+spellbook.VERSION = "1.2.0"
 
 require( "lkl/spellbook/spell.txt" )
 require( "lkl/spellbook/instant_spell.txt" )

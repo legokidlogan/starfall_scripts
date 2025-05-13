@@ -19,6 +19,7 @@ local spellCooldownEndTimes = spellbook.spellCooldownEndTimes
 local spellCooldownDurations = spellbook.spellCooldownDurations
 local lastTickTime = timer.curtime()
 local scrW, scrH = render.getGameResolution()
+local scrWH, scrHH = scrW / 2, scrH / 2
 local manaTextFont
 
 if spellbook.DRAW_MANA_HUD then
@@ -134,6 +135,73 @@ end
 -- Returns by reference, do not modify.
 function spellbook.getTraceIgnoreEntLookup()
     return traceIgnoreLookup
+end
+
+-- Does a rough check for if the slected spell (should) be castable right now. Doesn't account for special requirements like prop buffers.
+function spellbook.canCastCurSpell()
+    local spell = spellbook.getSelectedSpell()
+    if not spell:checkCooldowns() then return false end
+
+    local manaCost = spell:getManaCost()
+
+    if spell:isInstanceOf( ChargedSpell ) then
+        manaCost = manaCost * spell:getChargeStrength()
+    end
+
+    if spellbook.mana <= manaCost then return false end
+
+    return true
+end
+
+-- Can be overridden to draw your own crosshair. Only renders while the spellbook is summoned and open.
+-- Default crosshair code written by shrooblooms, modified by legokidlogan.
+function spellbook.drawSpellCrosshair()
+    local bigRadius = math.round( scrW * 0.00546875 )
+    local smallRadius = math.round( scrW * 0.00078125 )
+    local activeFadeDuration = 1.5
+
+    local smallWidth = smallRadius * 2
+    local spell = spellbook.getSelectedSpell()
+    local active = spell:isActive()
+    local canCast = active or spellbook.canCastCurSpell()
+
+    if active then
+        local frac = ( ( timer.realtime() - spell:getActiveStartTime() ) % activeFadeDuration ) / activeFadeDuration
+        local color = spellbook.SPELL_CROSSHAIR_BIG_COLOR
+
+        render.setRGBA( color.r, color.g, color.b, color.a * frac )
+
+        frac = math.lerp( frac, 2.5, 1 )
+
+        render.drawLine( scrWH - bigRadius * frac, scrHH, scrWH + 1, scrHH - ( bigRadius + 0 ) * frac )
+        render.drawLine( scrWH + bigRadius * frac, scrHH, scrWH, scrHH - bigRadius * frac )
+        render.drawLine( scrWH - bigRadius * frac, scrHH, scrWH + 1 , scrHH + ( bigRadius + 0 ) * frac )
+        render.drawLine( scrWH + bigRadius * frac, scrHH, scrWH, scrHH + bigRadius * frac )
+    end
+
+    if canCast then
+        render.setColor( spellbook.SPELL_CROSSHAIR_BIG_COLOR )
+    else
+        render.setColor( spellbook.SPELL_CROSSHAIR_CANT_CAST_COLOR )
+    end
+
+    render.drawLine( scrWH - bigRadius, scrHH, scrWH + 1, scrHH - bigRadius - 1 )
+    render.drawLine( scrWH + bigRadius, scrHH, scrWH, scrHH - bigRadius )
+    render.drawLine( scrWH - bigRadius, scrHH, scrWH + 1, scrHH + bigRadius + 1 )
+    render.drawLine( scrWH + bigRadius, scrHH, scrWH, scrHH + bigRadius )
+
+    if canCast then
+        if spellbook.SPELL_CROSSHAIR_SMALL_USES_SPELL_COLOR then
+            render.setColor( spell:getColorRGB() )
+        else
+            render.setColor( spellbook.SPELL_CROSSHAIR_SMALL_COLOR )
+        end
+    end
+
+    render.drawRectRotated( scrWH + bigRadius - smallRadius, scrHH + bigRadius - smallRadius, smallWidth, smallWidth, 45 )
+    render.drawRectRotated( scrWH - bigRadius + smallRadius, scrHH + bigRadius - smallRadius, smallWidth, smallWidth, 45 )
+    render.drawRectRotated( scrWH + bigRadius - smallRadius, scrHH - bigRadius + smallRadius, smallWidth, smallWidth, 45 )
+    render.drawRectRotated( scrWH - bigRadius + smallRadius, scrHH - bigRadius + smallRadius, smallWidth, smallWidth, 45 )
 end
 
 
@@ -335,6 +403,20 @@ hook.add( "LKL_Spellbook_OwnerRespawned", "LKL_Spellbook_ReplenishManaAndResetCo
         end
     end
 end )
+
+
+if spellbook.DRAW_SPELL_CROSSHAIR then
+    hook.add( "HUDShouldDraw", "LKL_Spellbook_BlockCrosshair", function( name )
+        if name ~= "CHudCrosshair" then return end
+        if spellbook.summoned and spellbook.open then return false end
+    end )
+
+    hook.add( "DrawHUD", "LKL_Spellbook_DrawCrosshair", function()
+        if spellbook.summoned and spellbook.open then
+            spellbook.drawSpellCrosshair()
+        end
+    end )
+end
 
 
 net.receive( "LKL_Spellbook_SpendMana", function()

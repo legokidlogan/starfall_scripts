@@ -26,6 +26,13 @@ spellbook.DISABLE_COOLDOWN_SOUND = false
 spellbook.DRAW_MANA_PREVIEW = true -- Draws a preview of mana consumption on the spellbook.
 spellbook.DRAW_MANA_HUD = true -- Draws a HL2-style mana bar on the screen.
 
+spellbook.DRAW_SPELL_CROSSHAIR = true -- Replaces the normal crosshair with a custom one while the spellbook is open.
+spellbook.SPELL_CROSSHAIR_SMALL_USES_SPELL_COLOR = true -- Makes the small dots use the selected spell's color.
+spellbook.SPELL_CROSSHAIR_BIG_COLOR = Color( 255, 255, 255, 255 )
+spellbook.SPELL_CROSSHAIR_SMALL_COLOR = Color( 255, 255, 255, 255 )
+spellbook.SPELL_CROSSHAIR_CANT_CAST_COLOR = Color( 255, 0, 0, 150 )
+spellbook.SPELL_CROSSHAIR_ACTIVE_COLOR = Color( 120, 0, 255, 255 )
+
 spellbook.COVER_MATERIAL = "phoenix_storms/concrete0"
 spellbook.COVER_COLOR = Color( 150, 50, 50, 255 )
 
