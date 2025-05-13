@@ -2,6 +2,8 @@
 --@author legokidlogan and shrooblooms
 --@shared
 
+--@include lkl/hook_remote_fix.txt
+
 --@include lkl/spellbook/spellbook_sv.txt
 --@include lkl/spellbook/spellbook_cl.txt
 --@include lkl/spellbook/spellbook_cl_owner.txt
@@ -13,6 +15,8 @@
 --@include lkl/spellbook/passive_spell.txt
 
 spellbook = spellbook or {}
+
+require( "lkl/hook_remote_fix.txt" )
 
 
 -- To avoid redundant file sending for custom spellbooks, the includir directive was removed from this chip.
@@ -231,6 +235,26 @@ function spellbook.getEveryoneButOwner( actuallyJustNoOne )
     return find.allPlayers( function( ent ) return ent ~= owner() end )
 end
 
+-- Returns a list and lookup table of all players who have a spellbook.
+function spellbook.getSpellbookUsers()
+    local results = hookRunRemoteFixed( nil, "LKL_Spellbook_FindSpellbooks" )
+    local plys = {}
+    local plyLookup = {}
+
+    for _, result in ipairs( results ) do
+        if result[1] == "HelloYesIAmASpellbook" then
+            local ply = result.Chip:getOwner()
+
+            if isValid( ply ) and not plyLookup[ply] then
+                plyLookup[ply] = true
+                table.insert( plys, ply )
+            end
+        end
+    end
+
+    return plys, plyLookup
+end
+
 
 if SERVER then
     require( "lkl/spellbook/spellbook_sv.txt" )
@@ -274,6 +298,13 @@ if SERVER or player() == owner() then
         spell:onKeyRelease( key )
     end )
 end
+
+
+hook.add( "remote", "LKL_Spellbook_IdentifyAsSpellbook", function( _, _, hookName )
+    if hookName ~= "LKL_Spellbook_FindSpellbooks" then return end
+
+    return "HelloYesIAmASpellbook"
+end )
 
 
 net.receive( "LKL_Spellbook_SelectSpell", function( _, ply )
