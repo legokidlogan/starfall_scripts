@@ -1,0 +1,37 @@
+--@name Mana Surge
+--@author legokidlogan
+--@shared
+
+
+--[[
+    - Test spell used for boosting mana regen.
+--]]
+
+
+local spellDesc =
+[[Test spell.
+Replenishes mana quickly while active.]]
+
+local spell = PassiveSpell:new( {
+    name = "Mana Surge",
+    description = spellDesc,
+    manaCost = 1,
+    manaCostActive = -40,
+    spellCooldown = 0.001,
+    globalCooldown = 0.001,
+    cooldownResetsOnRespawn = true,
+    color = Color( 240, 0.7, 1 ), -- HSV.
+    nameColorUnhovered = Color( 0, 0, 1, 255 ), -- HSV, set hue to -1 to copy from color.
+    nameColorHovered = Color( 0, 0, 0, 255 ), -- HSV, set hue to -1 to copy from color.
+
+    iconURL = "",
+    iconUseColor = true,
+} )
+
+function spell:think()
+    -- Do nothing.
+end
+
+
+
+return spell

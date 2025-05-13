@@ -1,0 +1,311 @@
+--@name Spellbook
+--@author legokidlogan and shrooblooms
+--@shared
+
+--@include lkl/spellbook/spellbook_sv.txt
+--@include lkl/spellbook/spellbook_cl.txt
+--@include lkl/spellbook/spellbook_cl_owner.txt
+
+--@include lkl/spellbook/spell.txt
+--@include lkl/spellbook/instant_spell.txt
+--@include lkl/spellbook/charged_spell.txt
+--@include lkl/spellbook/channeled_spell.txt
+--@include lkl/spellbook/passive_spell.txt
+
+spellbook = spellbook or {}
+
+
+-- To avoid redundant file sending for custom spellbooks, the includir directive was removed from this chip.
+-- Treat this as a library only, and use custom_spellbook.txt for actually placing the spellbook.
+-- It's HIGHLY recommended to copy it to another file and make your own custom edits, and for you to make your own spells.
+
+-- CONFIG DEFAULTS (Override these before require()'ing this file)
+spellbook.MANA_MAX = spellbook.MANA_MAX or 100
+spellbook.MANA_REGEN = spellbook.MANA_REGEN or 3
+spellbook.SPELL_FOLDER = spellbook.SPELL_FOLDER or "lkl/spellbook/spells" -- If you change/add a folder here, remember to includedir it!
+spellbook.SPELL_FOLDER_EXTRA = spellbook.SPELL_FOLDER_EXTRA or "" -- If you change/add a folder here, remember to includedir it!
+spellbook.CHOICES_PER_PAGE = spellbook.CHOICES_PER_PAGE or 12
+spellbook.SUMMON_KEY = spellbook.SUMMON_KEY or KEY.R -- Press while the radial menu is open.
+spellbook.WEAPON_CLASS = spellbook.WEAPON_CLASS or "none" -- This swep has to be held for the book to open. The default is "none", the hands swep from https://steamcommunity.com/sharedfiles/filedetails/?id=245482078
+if spellbook.DISABLE_COOLDOWN_SOUND == nil then spellbook.DISABLE_COOLDOWN_SOUND = false end
+if spellbook.DRAW_MANA_PREVIEW == nil then spellbook.DRAW_MANA_PREVIEW = true end -- Draws a preview of mana consumption on the spellbook.
+if spellbook.DRAW_MANA_HUD == nil then spellbook.DRAW_MANA_HUD = true end -- Draws a HL2-style mana bar on the screen.
+
+spellbook.HOLO_BUFFER_START_SIZE = spellbook.HOLO_BUFFER_START_SIZE or 30 -- For serverside holos.
+spellbook.HOLO_BUFFER_MAX_SIZE = spellbook.HOLO_BUFFER_MAX_SIZE or 100
+
+spellbook.ICON_SIZE = spellbook.ICON_SIZE or 256
+if spellbook.ICON_AT_TOP == nil then spellbook.ICON_AT_TOP = true end -- Top vs bottom of the page.
+
+spellbook.BOOK_WIDTH = spellbook.BOOK_WIDTH or 16
+spellbook.BOOK_HEIGHT = spellbook.BOOK_HEIGHT or 16
+spellbook.BOOK_DEPTH = spellbook.BOOK_DEPTH or 4
+spellbook.PAGE_INSET = spellbook.PAGE_INSET or 0.5
+spellbook.COVER_THICKNESS = spellbook.COVER_THICKNESS or 1
+spellbook.COVER_MATERIAL = spellbook.COVER_MATERIAL or "phoenix_storms/concrete0"
+spellbook.PAGE_MATERIAL = spellbook.PAGE_MATERIAL or "sprops/sprops_plastic"
+spellbook.COVER_COLOR = spellbook.COVER_COLOR or Color( 150, 50, 50, 255 )
+spellbook.PAGE_COLOR = spellbook.PAGE_COLOR or Color( 255, 230, 180, 255 )
+
+spellbook.OPEN_ANGLE = spellbook.OPEN_ANGLE or 75
+spellbook.OPEN_DURATION = spellbook.OPEN_DURATION or 0.5
+spellbook.CLOSE_DURATION = spellbook.CLOSE_DURATION or 0.5
+spellbook.POS_OPEN = spellbook.POS_OPEN or Vector( 40, 0, -15 )
+spellbook.POS_OPEN_FIRST_PERSON = spellbook.POS_OPEN_FIRST_PERSON or Vector( 40, 0, -15 )
+spellbook.POS_CLOSED = spellbook.POS_CLOSED or Vector( 10, -20, -25 )
+spellbook.POS_CLOSED_FIRST_PERSON = spellbook.POS_CLOSED_FIRST_PERSON or Vector( 40, -30, -15 )
+
+ -- Provide a list of (case-sensitive) spell names to force their order, and any remaining spells will go in arbitrary order after them.
+spellbook.MANUAL_SPELL_ORDER = spellbook.MANUAL_SPELL_ORDER or {
+    "Chain Bolt",
+    "Saw Blast",
+    "Arcane Blast",
+    "Fireball",
+    "Mana Potion",
+    "Wall",
+    "Wind Gust",
+    "Teleport",
+}
+-- END CONFIG DEFAULTS
+
+
+spellbook.COLOR_FAIL = Color( 200, 0, 0, 255 )
+spellbook.COLOR_MANA = Color( 75, 75, 255, 255 )
+spellbook.COLOR_MANA_DRAIN_ACTIVE = Color( 89, 38, 153 )
+spellbook.COLOR_MANA_GAIN_ACTIVE = Color( 184, 127, 255 )
+spellbook.COLOR_MANA_DRAIN_CHARGED = Color( 38, 153, 120 )
+spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
+spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
+spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
+
+
+require( "lkl/spellbook/spell.txt" )
+require( "lkl/spellbook/instant_spell.txt" )
+require( "lkl/spellbook/charged_spell.txt" )
+require( "lkl/spellbook/channeled_spell.txt" )
+require( "lkl/spellbook/passive_spell.txt" )
+
+
+local spells = {}
+spellbook.spells = spells
+
+do
+    local spellResults = dodir( spellbook.SPELL_FOLDER )
+    local spellNameToPath = {}
+
+    if spellbook.SPELL_FOLDER_EXTRA ~= "" then
+        for path, spell in pairs( dodir( spellbook.SPELL_FOLDER_EXTRA ) ) do
+            spellResults[path] = spell
+        end
+    end
+
+    for path, spell in pairs( spellResults ) do
+        spellNameToPath[spell:getName()] = path
+    end
+
+    -- Collect manually-ordered spells.
+    for _, spellName in ipairs( spellbook.MANUAL_SPELL_ORDER ) do
+        local path = spellNameToPath[spellName]
+
+        if path then
+            table.insert( spells, spellResults[path] )
+            spellResults[path] = nil
+        end
+    end
+
+    -- Append the remaining spells in arbitrary order.
+    for _, spell in pairs( spellResults ) do
+        table.insert( spells, spell )
+    end
+end
+
+spellbook.mana = spellbook.MANA_MAX
+spellbook.selectedSpellID = 1
+spellbook.summoned = false
+spellbook.open = false
+
+for spellID, spell in ipairs( spells ) do
+    spell._spellID = spellID
+end
+
+
+----- GLOBAL FUNCTIONS -----
+
+function spellbook.getSelectedSpell()
+    return spells[spellbook.selectedSpellID]
+end
+
+--[[
+    - Calculates the position, angle, and anim fraction of the book's spine.
+    - Forward points outward, away from the owner.
+
+    openCloseEndTime: (optional) number
+        - The time at which the current open/close animation ends.
+        - If not provided, assumes the animation is fully complete.
+    isFirstPerson: (optional) boolean
+        - If true, the book is in first person view.
+        - If false, the book is in third person view.
+        - Defaults to false.
+
+    RETURNS: pos, ang, frac
+        pos: Vector
+            - The position of the book's spine.
+        ang: Angle
+            - The angle of the book's spine.
+        frac: number (0-1)
+            - The fraction of the current animation's progress.
+            - Whether the book is currently opening or closing can be gotten from spellbook.open.
+
+    - Calls the LKL_Spellbook_OverrideBookPosAng( pos, ang, frac, openCloseEndTime, isFirstPerson ) hook to allow for custom calculations.
+--]]
+function spellbook.calcBookPosAng( openCloseEndTime, isFirstPerson )
+    local duration
+    local timeSince
+    local frac = 1
+    local open = spellbook.open
+    local posOffset = isFirstPerson and ( open and spellbook.POS_OPEN_FIRST_PERSON or spellbook.POS_CLOSED_FIRST_PERSON ) or ( open and spellbook.POS_OPEN or spellbook.POS_CLOSED )
+
+    if openCloseEndTime then
+        duration = open and spellbook.OPEN_DURATION or spellbook.CLOSE_DURATION
+        timeSince = timer.curtime() - ( openCloseEndTime - duration )
+        frac = math.clamp( timeSince / duration, 0, 1 )
+        frac = math.easeInOutQuad( frac )
+
+        -- Lerp the position as well
+        local posOffsetOther = isFirstPerson and ( open and spellbook.POS_CLOSED_FIRST_PERSON or spellbook.POS_OPEN_FIRST_PERSON ) or ( open and spellbook.POS_CLOSED or spellbook.POS_OPEN )
+
+        posOffset = posOffset * frac + posOffsetOther * ( 1 - frac )
+    end
+
+    local eyeAng = owner():getEyeAngles()
+
+    if not isFirstPerson and not open then
+        eyeAng.p = 0
+    end
+
+    local pos = owner():getShootPos() +
+        eyeAng:getForward() * posOffset.x -
+        eyeAng:getRight() * posOffset.y +
+        eyeAng:getUp() * posOffset.z
+
+    local newPos, newAng, newFrac = hook.run( "LKL_Spellbook_OverrideBookPosAng", pos, eyeAng, frac, openCloseEndTime, isFirstPerson )
+
+    if newPos then
+        pos = newPos
+    end
+
+    if newAng then
+        eyeAng = newAng
+    end
+
+    if newFrac then
+        frac = newFrac
+    end
+
+    return pos, eyeAng, frac
+end
+
+function spellbook.targetFilter( ent )
+    if not isValid( ent ) then return false end
+    if ent == owner() then return false end
+
+    local isPlayer = ent:isPlayer()
+    if not isPlayer and not ent:isNPC() and not ent:isNextBot() then return false end
+
+    if isPlayer then
+        if not ent:isAlive() then return false end
+        if ent.isInPvp and not ent:isInPvp() then return false end
+        if SERVER and ent:hasGodMode() then return false end
+    else
+        if ent:getHealth() <= 0 then return false end
+    end
+
+    return true
+end
+
+-- A helper function for net messages.
+-- actuallyJustNoOne makes it return nil, for convenience with messages sent by both server and client owner.
+function spellbook.getEveryoneButOwner( actuallyJustNoOne )
+    if actuallyJustNoOne then return end
+
+    return find.allPlayers( function( ent ) return ent ~= owner() end )
+end
+
+
+if SERVER then
+    require( "lkl/spellbook/spellbook_sv.txt" )
+else
+    require( "lkl/spellbook/spellbook_cl.txt" )
+
+    if player() == owner() then
+        require( "lkl/spellbook/spellbook_cl_owner.txt" )
+    end
+end
+
+
+if SERVER or player() == owner() then
+    hook.add( "KeyPress", "LKL_Spellbook_KeyPress", function( ply, key )
+        if not spellbook.summoned then return end
+        if not spellbook.open then return end
+
+        if SERVER then
+            if ply ~= owner() then return end
+        else
+            if not isFirstTimePredicted() then return end
+        end
+
+        local spell = spellbook.getSelectedSpell()
+
+        spell:onKeyPress( key )
+    end )
+
+    hook.add( "KeyRelease", "LKL_Spellbook_KeyRelease", function( ply, key )
+        if not spellbook.summoned then return end
+        if not spellbook.open then return end
+
+        if SERVER then
+            if ply ~= owner() then return end
+        else
+            if not isFirstTimePredicted() then return end
+        end
+
+        local spell = spellbook.getSelectedSpell()
+
+        spell:onKeyRelease( key )
+    end )
+end
+
+
+net.receive( "LKL_Spellbook_SelectSpell", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local spellID = net.readUInt( 16 )
+    local prevSpell = spellbook.getSelectedSpell()
+
+    spellbook.selectedSpellID = spellID
+
+    hook.run( "LKL_Spellbook_OnSpellSelected", prevSpell, spellbook.getSelectedSpell() )
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_SelectSpell" )
+    net.writeUInt( spellID, 16 )
+    net.send( spellbook.getEveryoneButOwner() )
+end )
+
+net.receive( "LKL_Spellbook_SetSummoned", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local state = net.readBool()
+
+    spellbook.summoned = state
+    spellbook.open = false
+
+    hook.run( "LKL_Spellbook_OnSetSummoned", state )
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_SetSummoned" )
+    net.writeBool( state )
+    net.send( spellbook.getEveryoneButOwner() )
+end )

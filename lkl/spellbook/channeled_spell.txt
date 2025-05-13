@@ -1,0 +1,93 @@
+--@name Channeled Spell
+--@author legokidlogan
+--@shared
+
+if ChanneledSpell then return end
+
+ChanneledSpell = class( "ChanneledSpell", Spell )
+
+
+----- STATIC FUNCTIONS -----
+
+function ChanneledSpell:initialize( params )
+    ChanneledSpell.super.initialize( self, params )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function ChanneledSpell:onCast( _castTime )
+    -- Called in server and owner client realms.
+end
+
+function ChanneledSpell:onSetActive( _state, _startTime )
+    -- Called in all realms.
+end
+
+function ChanneledSpell:onManaEmpty()
+    -- Called when an active wpell is forcefully stopped due to running out of mana.
+end
+
+function ChanneledSpell:paintActive()
+    -- Called in owner client realm.
+end
+
+function ChanneledSpell:think()
+    -- Called in all realms.
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+if CLIENT and player() == owner() then
+    function ChanneledSpell:onBookClosed()
+        self:setActive( false )
+    end
+end
+
+
+function ChanneledSpell:onKeyPress( key )
+    if SERVER then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    local manaAfterUse = spellbook.mana - self:getManaCost()
+
+    if manaAfterUse >= 0 then
+        if self:checkCooldowns() then
+            spellbook.setMana( manaAfterUse )
+            self:setActive( true )
+        else
+            self:playCooldownSound()
+        end
+    else
+        self:startManaWarning( 1.5 )
+        self:fumble( "Mana", true )
+    end
+end
+
+function ChanneledSpell:onKeyRelease( key )
+    if SERVER then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    self:setActive( false )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+if CLIENT and player() == owner() then
+    hook.add( "LKL_Spellbook_OnSpellSelected", "LKL_Spellbook_ChanneledSpell_StopChanneling", function( oldSpell )
+        if oldSpell:isInstanceOf( ChanneledSpell ) then
+            oldSpell:setActive( false )
+        end
+    end )
+end
+

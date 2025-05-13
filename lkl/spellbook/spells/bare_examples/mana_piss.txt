@@ -1,0 +1,37 @@
+--@name Mana Piss
+--@author legokidlogan
+--@shared
+
+
+--[[
+    - Test spell used for draining mana while being channeled.
+--]]
+
+
+local spellDesc =
+[[Test spell.
+Drains mana quickly while channeled.]]
+
+local spell = ChanneledSpell:new( {
+    name = "Mana Piss",
+    description = spellDesc,
+    manaCost = 1,
+    manaCostActive = 40,
+    spellCooldown = 0.001,
+    globalCooldown = 0.001,
+    cooldownResetsOnRespawn = true,
+    color = Color( 52, 0.97, 0.94 ), -- HSV.
+    nameColorUnhovered = Color( 0, 0, 1, 255 ), -- HSV, set hue to -1 to copy from color.
+    nameColorHovered = Color( 0, 0, 0, 255 ), -- HSV, set hue to -1 to copy from color.
+
+    iconURL = "",
+    iconUseColor = true,
+} )
+
+function spell:think()
+    -- Do nothing.
+end
+
+
+
+return spell

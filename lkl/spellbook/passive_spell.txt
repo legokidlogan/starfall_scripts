@@ -1,0 +1,83 @@
+--@name Passive Spell
+--@author legokidlogan
+--@shared
+
+if PassiveSpell then return end
+
+PassiveSpell = class( "PassiveSpell", Spell )
+
+
+----- STATIC FUNCTIONS -----
+
+function PassiveSpell:initialize( params )
+    PassiveSpell.super.initialize( self, params )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function PassiveSpell:onKeyRelease( _key )
+    -- Called in server and owner client realms.
+end
+
+function PassiveSpell:onCast( _castTime )
+    -- Called in server and owner client realms.
+end
+
+function PassiveSpell:onSetActive( _state, _startTime )
+    -- Called in all realms.
+end
+
+function ChanneledSpell:onManaEmpty()
+    -- Called when an active wpell is forcefully stopped due to running out of mana.
+end
+
+function PassiveSpell:paintActive()
+    -- Called in owner client realm.
+end
+
+function PassiveSpell:think()
+    -- Called in all realms.
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+
+function PassiveSpell:onKeyPress( key )
+    if SERVER then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    if self:isActive() then
+        self:setActive( false )
+
+        return
+    end
+
+    local manaAfterUse = spellbook.mana - self:getManaCost()
+
+    if manaAfterUse >= 0 then
+        if self:checkCooldowns() then
+            spellbook.setMana( manaAfterUse )
+            self:setActive( true )
+        else
+            self:playCooldownSound()
+        end
+    else
+        self:startManaWarning( 1.5 )
+        self:fumble( "Mana", true )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+

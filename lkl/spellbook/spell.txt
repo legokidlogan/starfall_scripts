@@ -1,0 +1,861 @@
+--@name Spell
+--@author legokidlogan
+--@shared
+--@include lkl/standard_printable.txt
+
+-- Base class for spells, not meant to be used directly.
+
+if Spell then return end
+
+require( "lkl/standard_printable.txt" )
+
+Spell = class( "Spell", StandardPrintable )
+
+
+local ICON_SIZE = spellbook.ICON_SIZE
+
+local spellsByName = {}
+local spellHUDFont = nil
+local scrW, scrH
+local lastTickTime = timer.curtime()
+local simpleMessageEndTime = 0
+local simpleMessageStr = false
+local simpleMessageColor = false
+local iconQueue = {}
+local iconRTs = {}
+local iconCount = 0
+local iconsPerRow = math.floor( 1024 / ICON_SIZE )
+local iconsPerRT = iconsPerRow * iconsPerRow
+local setParamCameFromOwner = false
+
+local netTypes = {
+    boolean = "Bool",
+    number = "Float",
+    string = "String",
+    Vector = "Vector",
+    Angle = "Angle",
+    Entity = "Entity",
+}
+
+local loadNextIcon
+local netGenericWrite
+local netGenericRead
+
+if CLIENT then
+    spellHUDFont = render.createFont( "Default", 48, 400, true, false, false, false, false, false, false )
+    scrW, scrH = render.getGameResolution()
+end
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    params: {
+        name = string, -- Spell name.
+        description = string, -- Spell description. Can have newlines.
+        manaCost = number, -- Mana cost.
+        manaCostActive = number, -- Mana cost while active.
+        spellCooldown = number, -- Spell cooldown.
+        globalCooldown = number, -- Global cooldown.
+        cooldownResetsOnRespawn = (optional) boolean, -- Whether to reset the spell cooldown on respawn. Defaults to true.
+        color = Color, -- HSV color for the spell. Affects the radial menu and spellbook icon.
+        nameColorUnhovered = Color, -- HSVA color for the radial menu spell name when unhovered. Set hue to -1 to copy from color.
+        nameColorHovered = Color, -- HSVA color for the radial menu spell name when hovered. Set hue to -1 to copy from color.
+        iconURL = (optional) string, -- URL or base64 string for the spell icon. Can be left as an empty string. If non-empty, must match ICON_SIZE x ICON_SIZE.
+        iconUseColor = (optional) boolean, -- If true, the icon will be tinted with the spell's color. Default is false.
+    }
+--]]
+function Spell:initialize( params )
+    if type( params ) ~= "table" then error( "Expected params to be a table" ) end
+    if type( params.name ) ~= "string" then error( "Expected params.name to be a string" ) end
+    if type( params.description ) ~= "string" then error( "Expected params.description to be a string" ) end
+    if type( params.manaCost ) ~= "number" then error( "Expected params.manaCost to be a number" ) end
+    if type( params.manaCostActive ) ~= "number" then error( "Expected params.manaCostActive to be a number" ) end
+    if type( params.spellCooldown ) ~= "number" then error( "Expected params.spellCooldown to be a number" ) end
+    if type( params.globalCooldown ) ~= "number" then error( "Expected params.globalCooldown to be a number" ) end
+    if params.cooldownResetsOnRespawn ~= nil and type( params.cooldownResetsOnRespawn ) ~= "boolean" then error( "Expected params.cooldownResetsOnRespawn to be a boolean or nil" ) end
+    if type( params.color ) ~= "Color" then error( "Expected params.color to be a Color" ) end
+    if type( params.nameColorUnhovered ) ~= "Color" then error( "Expected params.nameColorUnhovered to be a Color" ) end
+    if type( params.nameColorHovered ) ~= "Color" then error( "Expected params.nameColorHovered to be a Color" ) end
+    if params.iconURL ~= nil and type( params.iconURL ) ~= "string" then error( "Expected params.iconURL to be a string or nil" ) end
+    if params.iconUseColor ~= nil and type( params.iconUseColor ) ~= "boolean" then error( "Expected params.iconUseColor to be a boolean or nil" ) end
+
+    if spellsByName[params.name] then error( "Spell with name '" .. params.name .. "' already exists" ) end
+
+    spellsByName[params.name] = self
+
+    local description = string.trim( params.description )
+    local classNameNice = string.gsub( self.class.name, "([a-z])([A-Z])", "%1 %2" ) -- Add spaces between pascale case words.
+    description = "(" .. classNameNice .. ")\n" .. description
+
+    self._name = params.name
+    self._description = description
+    self._descriptionLines = string.split( description, "\n" )
+    self._manaCost = params.manaCost
+    self._manaCostActive = params.manaCostActive
+    self._spellCooldown = params.spellCooldown
+    self._globalCooldown = params.globalCooldown
+    self._iconUseColor = params.iconUseColor or false
+
+    if params.cooldownResetsOnRespawn == nil then
+        self._cooldownResetsOnRespawn = true
+    else
+        self._cooldownResetsOnRespawn = params.cooldownResetsOnRespawn
+    end
+
+    local color = params.color:clone()
+    local nameColorUnhovered = params.nameColorUnhovered:clone()
+    local nameColorHovered = params.nameColorHovered:clone()
+    local iconURL = params.iconURL or ""
+    local hasIcon = iconURL ~= ""
+    local colorRGB = color:hsvToRGB()
+    colorRGB.a = color.a
+
+    if nameColorUnhovered.r == -1 then
+        self._nameColorUnhoveredCopiesHue = true
+    end
+
+    if nameColorHovered.r == -1 then
+        self._nameColorHoveredCopiesHue = true
+    end
+
+    self._color = color
+    self._colorRGB = colorRGB
+    self._nameColorUnhovered = nameColorUnhovered
+    self._nameColorHovered = nameColorHovered
+    self._hasIcon = false
+
+    if hasIcon and CLIENT then
+        table.insert( iconQueue, {
+            url = iconURL,
+            spell = self,
+        } )
+
+        if #iconQueue == 1 then
+            loadNextIcon()
+        end
+    end
+end
+
+function Spell.static:getByName( name )
+    return spellsByName[name]
+end
+
+function Spell.static:getByID( id )
+    return spellbook.spells[id]
+end
+
+
+if SERVER or player() == owner() then
+    function Spell.static:startSimpleMessage( duration, str, color )
+        if CLIENT then
+            simpleMessageEndTime = timer.curtime() + duration
+            simpleMessageStr = str
+            simpleMessageColor = color or Color( 255, 255, 255, 255 )
+        else
+            net.start( "LKL_Spellbook_Spell_StartSimpleMessage" )
+                net.writeFloat( timer.curtime() + duration )
+                net.writeString( str )
+                net.writeColor( color or Color( 255, 255, 255, 255 ) )
+            net.send( owner() )
+        end
+    end
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+if SERVER or player() == owner() then
+    -- Refunds the mana cost of a spell, without affecting cooldowns.
+    -- Useful for when a spell fails due to the prop buffer being empty, cpu quota being too high, etc.
+    function Spell:refundManaCost( strength )
+        strength = strength or 1
+
+        spellbook.spendMana( -self:getManaCost() * strength )
+    end
+end
+
+
+if CLIENT and player() == owner() then
+    function Spell:setActive( state )
+        if self._active == state then return end
+
+        local now = timer.curtime()
+
+        self._active = state
+
+        net.start( "LKL_Spellbook_Spell_SetActive" )
+        net.writeUInt( self:getSpellID(), 16 )
+        net.writeBool( state )
+
+        if state then
+            self._activeStartTime = now
+            net.writeFloat( now )
+        end
+
+        net.send()
+
+        self:onSetActive( state, now ) -- Most systems (mana usage, radial menu, etc) shouldn't rely on this, this is for start/stop sounds, etc.
+    end
+
+    function Spell:checkCooldowns()
+        local now = timer.curtime()
+
+        if spellbook.globalCooldownEndTime > now then return false end
+        if ( spellbook.spellCooldownEndTimes[self:getSpellID()] or 0 ) > now then return false end
+
+        return true
+    end
+
+    function Spell:playCooldownSound()
+        if spellbook.DISABLE_COOLDOWN_SOUND then return end
+
+        local now = timer.curtime()
+        if ( self._nextCooldownSoundTime or 0 ) > now then return end
+
+        self._nextCooldownSoundTime = now + 0.5
+
+        pcall( function() -- pcall for emitsound burst limit.
+            player():emitSound( "physics/wood/wood_box_impact_bullet1.wav", 75, 85, 0.5 )
+            player():emitSound( "physics/wood/wood_solid_impact_bullet4.wav", 75, 100, 0.1 )
+        end )
+    end
+
+    function Spell:cast( strength )
+        strength = strength or 1
+
+        spellbook.setMana( spellbook.mana - self:getManaCost() * strength )
+        spellbook.setSpellCooldown( self:getSpellID(), self:getSpellCooldown() )
+        spellbook.setGlobalCooldown( self:getGlobalCooldown() )
+
+        local now = timer.curtime()
+
+        net.start( "LKL_Spellbook_CastSpell" )
+            net.writeUInt( self:getSpellID(), 16 )
+            net.writeFloat( strength )
+            net.writeFloat( now )
+        net.send()
+
+        self:onCast( strength, now )
+    end
+
+    function Spell:fumble( reason, noCooldowns )
+        reason = reason or ""
+
+        if not noCooldowns then
+            spellbook.setSpellCooldown( self:getSpellID(), self:getSpellCooldown() )
+            spellbook.setGlobalCooldown( self:getGlobalCooldown() )
+        end
+
+        local now = timer.curtime()
+
+        net.start( "LKL_Spellbook_FumbleSpell" )
+            net.writeUInt( self:getSpellID(), 16 )
+            net.writeString( reason )
+            net.writeFloat( now )
+        net.send()
+
+        self:onFumble( reason, now )
+    end
+
+    function Spell:drawManaWarning()
+        render.setFont( spellHUDFont )
+
+        local x = scrW * 0.5
+        local y = scrH * 0.6
+        local baseStr = "Not enough mana to cast "
+        local name = self:getName()
+        local widthBase = render.getTextSize( baseStr )
+        local widthName = render.getTextSize( name )
+        local w = widthBase + widthName
+
+        render.setRGBA( 150, 0, 50, 255 )
+        render.drawSimpleText( x - w / 2, y, baseStr, TEXT_ALIGN.LEFT, TEXT_ALIGN.CENTER )
+
+        render.setColor( self:getColorRGB() )
+        render.drawSimpleText( x + w / 2, y, name, TEXT_ALIGN.RIGHT, TEXT_ALIGN.CENTER )
+    end
+
+    function Spell:startManaWarning( duration )
+        -- Only one at a time.
+        for _, spell in ipairs( spellbook.spells ) do
+            spell._showManaWarningEndTime = 0
+        end
+
+        self._showManaWarningEndTime = timer.curtime() + duration
+    end
+end
+
+
+if CLIENT then
+    -- For spells with icons, this won't be true until the icon loads.
+    function Spell:hasIcon()
+        return self._hasIcon
+    end
+end
+
+
+function Spell:getSpellID()
+    return self._spellID
+end
+
+function Spell:isActive()
+    return self._active
+end
+
+function Spell:isSelected()
+    return spellbook.selectedSpellID == self._spellID
+end
+
+function Spell:getActiveStartTime()
+    return self._activeStartTime
+end
+
+-- Sets the spell's name. Will NOT change its order in the radial menu. noNet causes the change to not be networked.
+function Spell:setName( name, noNet )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+    if self._name == name then return end
+    if spellsByName[name] then error( "There is already a spell named '" .. name .. "'" ) end
+
+    local oldName = self._name
+
+    if not self:_setParamVar( "name", name, noNet ) then return end
+
+    spellsByName[oldName] = nil
+    spellsByName[name] = self
+
+    hook.run( "LKL_Spellbook_Spell_NameChanged", self:getSpellID(), oldName, name )
+end
+
+function Spell:getName()
+    return self._name
+end
+
+-- Sets the description. noNet causes the change to not be networked.
+function Spell:setDescription( description, noNet )
+    if type( description ) ~= "string" then error( "Expected description to be a string" ) end
+
+    if not self:_setParamVar( "description", description, noNet ) then return end
+
+    local descriptionLines = string.split( description, "\n" )
+    self._descriptionLines = descriptionLines
+
+    hook.run( "LKL_Spellbook_Spell_DescriptionChanged", self:getSpellID(), description, descriptionLines )
+end
+
+function Spell:getDescription()
+    return self._description
+end
+
+function Spell:getDescriptionLines()
+    return self._descriptionLines
+end
+
+-- Sets the mana cost. noNet causes the change to not be networked. Note that the client owner is what handles mana, cooldowns, etc.
+function Spell:setManaCost( manaCost, noNet )
+    if type( manaCost ) ~= "number" then error( "Expected manaCost to be a number" ) end
+
+    self:_setParamVar( "manaCost", manaCost, noNet )
+end
+
+function Spell:getManaCost()
+    return self._manaCost
+end
+
+-- Sets the active mana cost. noNet causes the change to not be networked. Note that the client owner is what handles mana, cooldowns, etc.
+function Spell:setManaCostActive( manaCostActive, noNet )
+    if type( manaCostActive ) ~= "number" then error( "Expected manaCostActive to be a number" ) end
+
+    self:_setParamVar( "manaCostActive", manaCostActive, noNet )
+end
+
+function Spell:getManaCostActive()
+    return self._manaCostActive
+end
+
+-- Sets the spell cooldown duration. Does NOT affect currently-existing cooldowns. noNet causes the change to not be networked.
+function Spell:setSpellCooldown( spellCooldown, noNet )
+    if type( spellCooldown ) ~= "number" then error( "Expected spellCooldown to be a number" ) end
+
+    self:_setParamVar( "spellCooldown", spellCooldown, noNet )
+end
+
+function Spell:getSpellCooldown()
+    return self._spellCooldown
+end
+
+-- Sets the global cooldown duration. Does NOT affect currently-existing cooldowns. noNet causes the change to not be networked.
+function Spell:setGlobalCooldown( globalCooldown, noNet )
+    if type( globalCooldown ) ~= "number" then error( "Expected globalCooldown to be a number" ) end
+
+    self:_setParamVar( "globalCooldown", globalCooldown, noNet )
+end
+
+function Spell:getGlobalCooldown()
+    return self._globalCooldown
+end
+
+-- Sets whether the spell cooldown resets on respawn. noNet causes the change to not be networked.
+function Spell:setCooldownResetsOnDeath( resetsOnDeath, noNet )
+    if type( resetsOnDeath ) ~= "boolean" then error( "Expected resetsOnDeath to be a boolean" ) end
+
+    self:_setParamVar( "cooldownResetsOnRespawn", resetsOnDeath, noNet )
+end
+
+function Spell:doesCooldownResetOnDeath()
+    return self._cooldownResetsOnRespawn
+end
+
+-- Sets the color in HSV. noNet causes the change to not be networked.
+function Spell:setColor( color, noNet )
+    if type( color ) ~= "Color" then error( "Expected color to be a Color" ) end
+
+    color = color:clone()
+
+    if not self:_setParamVar( "color", color, noNet ) then return end
+
+    local colorRGB = color:hsvToRGB()
+    colorRGB.a = color.a
+    self._colorRGB = colorRGB
+
+    hook.run( "LKL_Spellbook_Spell_ColorChanged", self:getSpellID(), color, colorRGB )
+
+    -- Update name colors if they use the spell's hue.
+    if self:doesNameColorUnhoveredCopyHue() then
+        hook.run( "LKL_Spellbook_Spell_NameColorUnhoveredChanged", self:getSpellID(), self:getNameColorUnhovered() )
+    end
+
+    if self:doesNameColorHoveredCopyHue() then
+        hook.run( "LKL_Spellbook_Spell_NameColorHoveredChanged", self:getSpellID(), self:getNameColorHovered() )
+    end
+end
+
+function Spell:getColor()
+    return self._color
+end
+
+function Spell:getColorRGB()
+    return self._colorRGB
+end
+
+-- Sets the unhovered name color in HSV. noNet causes the change to not be networked.
+function Spell:setNameColorUnhovered( nameColorUnhovered, noNet )
+    if type( nameColorUnhovered ) ~= "Color" then error( "Expected nameColorUnhovered to be a Color" ) end
+
+    nameColorUnhovered = nameColorUnhovered:clone()
+    self._nameColorUnhoveredCopiesHue = nameColorUnhovered.r == -1
+
+    if not self:_setParamVar( "nameColorUnhovered", nameColorUnhovered, noNet ) then return end
+
+    hook.run( "LKL_Spellbook_Spell_NameColorUnhoveredChanged", self:getSpellID(), self:getNameColorUnhovered() )
+end
+
+-- Returns by reference. Do not modify the color directly.
+function Spell:getNameColorUnhovered()
+    local color = self._nameColorUnhovered
+
+    if self:doesNameColorUnhoveredCopyHue() then
+        color = color:clone()
+        color.r = self._color.r
+    end
+
+    return color
+end
+
+function Spell:doesNameColorUnhoveredCopyHue()
+    return self._nameColorUnhoveredCopiesHue
+end
+
+-- Sets the hovered name color in HSV. noNet causes the change to not be networked.
+function Spell:setNameColorHovered( nameColorHovered, noNet )
+    if type( nameColorHovered ) ~= "Color" then error( "Expected nameColorHovered to be a Color" ) end
+
+    nameColorHovered = nameColorHovered:clone()
+    self._nameColorHoveredCopiesHue = nameColorHovered.r == -1
+
+    if not self:_setParamVar( "nameColorHovered", nameColorHovered, noNet ) then return end
+
+    hook.run( "LKL_Spellbook_Spell_NameColorHoveredChanged", self:getSpellID(), self:getNameColorHovered() )
+end
+
+-- Returns by reference. Do not modify the color directly.
+function Spell:getNameColorHovered()
+    local color = self._nameColorHovered
+
+    if self:doesNameColorHoveredCopyHue() then
+        color = color:clone()
+        color.r = self._color.r
+    end
+
+    return color
+end
+
+function Spell:doesNameColorHoveredCopyHue()
+    return self._nameColorHoveredCopiesHue
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+if CLIENT and player() == owner() then
+    function Spell:paint()
+        local showManaWarningEndTime = self._showManaWarningEndTime or 0
+
+        if showManaWarningEndTime > timer.curtime() then
+            self:drawManaWarning()
+        end
+    end
+
+    function Spell:onBookClosed()
+        -- Called when the book is forcibly desummoned/closed while this spell is selected.
+    end
+end
+
+
+function Spell:onKeyPress( _key )
+    -- Called in server and owner client realms.
+    -- Won't be called unless the spellbook is summoned, open, and this spell is selected.
+end
+
+function Spell:onKeyRelease( _key )
+    -- Called in server and owner client realms.
+end
+
+function Spell:onCast( _strength, _castTime )
+    -- Called in all realms.
+end
+
+function Spell:onFumble( _reason, _fumbleTime )
+    --[[
+        - Called in all realms.
+        - Not normally called for casts blocked by cooldowns.
+        - Built-in reasons:
+            - "Mana" - Not enough mana to cast the spell.
+            - "ChargeThreshold" - Wasn't charged for long enough.
+    --]]
+end
+
+function Spell:onSetActive( _state, _startTime )
+    -- Called in all realms.
+end
+
+function Spell:onManaEmpty()
+    -- Called when an active wpell is forcefully stopped due to running out of mana.
+end
+
+function Spell:think( _dt )
+    -- Called in all realms.
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function Spell:tostringInner()
+    return self._name
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+if CLIENT then
+    local iconMat = render.createMaterial( "UnlitGeneric" )
+    iconMat:setInt( "$flags", 32768 + 2097152 + 16 + 32 )
+
+
+    loadNextIcon = function()
+        local iconInfo = iconQueue[1]
+        if not iconInfo then return end
+
+        local url = iconInfo.url
+        local spell = iconInfo.spell
+        local loaded = false
+        local wh = nil
+
+        hook.add( "renderoffscreen", "LKL_Spellbook_Spell_StoreIcon", function()
+            if not loaded then return end
+
+            if iconCount % iconsPerRT == 0 then
+                local rtCount = #iconRTs + 1
+                local rtName = "lkl_spellbook_icon_" .. rtCount
+
+                render.createRenderTarget( rtName )
+                iconRTs[rtCount] = rtName
+            end
+
+            iconCount = iconCount + 1
+
+            local rtName = iconRTs[#iconRTs]
+            local iconPageInd = iconCount % iconsPerRT
+            --local x = ( iconCount - 1 ) % iconsPerRow * ICON_SIZE
+            --local y = math.floor( ( iconCount - 1 ) / iconsPerRow ) * ICON_SIZE
+            local x = ( ( iconPageInd - 1 ) % iconsPerRow ) * ICON_SIZE
+            local y = math.floor( ( iconPageInd - 1 ) / iconsPerRow ) * ICON_SIZE
+
+            render.selectRenderTarget( rtName )
+
+            if iconCount == 1 then
+                render.clearRGBA( 0, 0, 0, 0 )
+            end
+
+            --render.setColor( spell._iconUseColor and spell:getColorRGB() or Color( 255, 255, 255, 255 ) )
+            render.setRGBA( 255, 255, 255, 255 )
+            render.setMaterial( iconMat )
+            render.drawTexturedRectUV( x, y, ICON_SIZE, ICON_SIZE, 0, 0, wh / 1024, wh / 1024 )
+            render.selectRenderTarget()
+
+            spell._hasIcon = true
+            spell._iconRT = rtName
+            spell._iconU0 = x / 1024
+            spell._iconV0 = y / 1024
+            spell._iconU1 = ( x + ICON_SIZE ) / 1024
+            spell._iconV1 = ( y + ICON_SIZE ) / 1024
+
+            table.remove( iconQueue, 1 )
+            hook.remove( "renderoffscreen", "LKL_Spellbook_Spell_StoreIcon" )
+            hook.run( "LKL_Spellbook_Spell_IconLoaded", spell:getSpellID() )
+            loadNextIcon()
+        end )
+
+        local success = pcall( function()
+            iconMat:setTextureURL(
+                "$basetexture",
+                url,
+                function( _, _, w, h )
+                    if not w then
+                        -- Failed to load the icon.
+                        table.remove( iconQueue, 1 )
+                        hook.remove( "renderoffscreen", "LKL_Spellbook_Spell_StoreIcon" )
+                        loadNextIcon()
+                        return
+                    end
+
+                    wh = math.max( w, h )
+                end,
+                function()
+                    if not wh then return end
+
+                    loaded = true
+                end
+            )
+        end )
+
+        if not success then
+            -- Insufficient permissions or base64 was too large.
+            table.remove( iconQueue, 1 )
+            hook.remove( "renderoffscreen", "LKL_Spellbook_Spell_StoreIcon" )
+            loadNextIcon()
+        end
+    end
+end
+
+
+netGenericWrite = function( val )
+    --net["write" .. netTypes[type( val )]]( val, 16 )
+
+    local typeStr = type( val )
+
+    -- Spellbook colors use HSV, which are floats, so Colors need to be networked manually, as they normally use uints.
+    if typeStr == "Color" then
+        net.writeFloat( val.r )
+        net.writeFloat( val.g )
+        net.writeFloat( val.b )
+    else
+        net["write" .. netTypes[typeStr]]( val, 16 )
+    end
+end
+
+netGenericRead = function( typeStr )
+    --return net["read" .. netTypes[typeStr]]( 16 )
+
+    if typeStr == "Color" then
+        local r = net.readFloat()
+        local g = net.readFloat()
+        local b = net.readFloat()
+
+        return Color( r, g, b )
+    end
+
+    return net["read" .. netTypes[typeStr]]( 16 )
+end
+
+
+-- Internal function, do not use!
+function Spell:_setParamVar( name, val, noNet )
+    local privateName = "_" .. name
+    local sendAll = CLIENT or not setParamCameFromOwner
+    setParamCameFromOwner = false
+
+    if self[privateName] == val then return false end
+
+    self[privateName] = val
+
+    if noNet or ( CLIENT and player() ~= owner() ) then return true end
+
+    net.start( "LKL_Spellbook_Spell_SetParam" )
+    net.writeUInt( self:getSpellID(), 16 )
+    net.writeString( name )
+    netGenericWrite( val )
+    net.send( spellbook.getEveryoneButOwner( sendAll ) )
+
+    return true
+end
+
+
+----- SETUP -----
+
+hook.add( "tick", "LKL_Spellbook_Spell_ActiveThink", function()
+    local now = timer.curtime()
+    local dt = now - lastTickTime
+    lastTickTime = now
+
+    for _, spell in ipairs( spellbook.spells ) do
+        if spell:isActive() then
+            if CLIENT and player() == owner() then
+                local manaWhenUsed = spellbook.mana - spell:getManaCostActive() * dt
+
+                if manaWhenUsed > 0 then
+                    spellbook.mana = manaWhenUsed
+                    spell:think( dt )
+                else
+                    spellbook.mana = 0
+                    spell:setActive( false )
+                    spell:onManaEmpty()
+
+                    net.start( "LKL_Spellbook_Spell_OnManaEmpty" )
+                        net.writeUInt( spell:getSpellID(), 16 )
+                        net.writeFloat( now )
+                    net.send()
+                end
+            else
+                spell:think( dt )
+            end
+        else
+            spell:think( dt )
+        end
+    end
+end )
+
+
+if CLIENT and player() == owner() then
+    hook.add( "drawhud", "LKL_Spellbook_Spell_DrawSimpleMessage", function()
+        if simpleMessageEndTime < timer.curtime() then return end
+
+        render.setFont( spellHUDFont )
+        render.setColor( simpleMessageColor )
+        render.drawSimpleText( scrW * 0.5, scrH * 0.55, simpleMessageStr, TEXT_ALIGN.CENTER, TEXT_ALIGN.CENTER )
+    end )
+
+
+    net.receive( "LKL_Spellbook_Spell_StartSimpleMessage", function()
+        local endTime = net.readFloat()
+        local str = net.readString()
+        local color = net.readColor()
+
+        simpleMessageEndTime = endTime
+        simpleMessageStr = str
+        simpleMessageColor = color
+    end )
+end
+
+
+net.receive( "LKL_Spellbook_Spell_SetActive", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local spellID = net.readUInt( 16 )
+    local spell = Spell:getByID( spellID )
+    local state = net.readBool()
+    local startTime
+
+    if state then
+        startTime = net.readFloat()
+    end
+
+    spell._active = state
+    spell._activeStartTime = startTime
+
+    spell:onSetActive( state, startTime )
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_Spell_SetActive" )
+        net.writeUInt( spellID, 16 )
+        net.writeBool( state )
+
+        if state then
+            net.writeFloat( startTime )
+        end
+    net.send( spellbook.getEveryoneButOwner() )
+end )
+
+net.receive( "LKL_Spellbook_CastSpell", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local spellID = net.readUInt( 16 )
+    local spell = Spell:getByID( spellID )
+    local strength = net.readFloat()
+    local castTime = net.readFloat()
+
+    spell:onCast( strength, castTime )
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_CastSpell" )
+        net.writeUInt( spellID, 16 )
+        net.writeFloat( strength )
+        net.writeFloat( castTime )
+    net.send( spellbook.getEveryoneButOwner() )
+end )
+
+net.receive( "LKL_Spellbook_FumbleSpell", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local spellID = net.readUInt( 16 )
+    local spell = Spell:getByID( spellID )
+    local reason = net.readString()
+    local fumbleTime = net.readFloat()
+
+    spell:onFumble( reason, fumbleTime )
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_FumbleSpell" )
+        net.writeUInt( spellID, 16 )
+        net.writeString( reason )
+        net.writeFloat( fumbleTime )
+    net.send( spellbook.getEveryoneButOwner() )
+end )
+
+net.receive( "LKL_Spellbook_Spell_OnManaEmpty", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local spellID = net.readUInt( 16 )
+    local spell = Spell:getByID( spellID )
+    local castTime = net.readFloat()
+
+    spell:onManaEmpty()
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_Spell_OnManaEmpty" )
+        net.writeUInt( spellID, 16 )
+        net.writeFloat( castTime )
+    net.send( spellbook.getEveryoneButOwner() )
+end )
+
+net.receive( "LKL_Spellbook_Spell_SetParam", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local spellID = net.readUInt( 16 )
+    local spell = Spell:getByID( spellID )
+    local name = net.readString()
+    local privateName = "_" .. name
+    local upperName = string.upper( string.sub( name, 1, 1 ) ) .. string.sub( name, 2 )
+    local val = netGenericRead( type( spell[privateName] ) )
+
+    if SERVER then
+        setParamCameFromOwner = true
+    end
+
+    spell["set" .. upperName]( spell, val, CLIENT )
+    setParamCameFromOwner = false -- In something returns early.
+end )

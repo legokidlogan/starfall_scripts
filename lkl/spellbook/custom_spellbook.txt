@@ -1,0 +1,74 @@
+--@name [TEMPLATE]'s Spellbook
+--@author legokidlogan and shrooblooms
+--@shared
+--@include lkl/spellbook/spellbook.txt
+
+--@includedir lkl/spellbook/spells
+
+
+spellbook = spellbook or {}
+
+
+-- EXTRA CONFIG
+local OVERRIDE_RADIAL_MENU_KEY = KEY.R -- If not false, will override the default GRM key while the spellbook is spawned.
+local OVERRIDE_RADIAL_MENU_REVERT_KEY = KEY.COMMA -- The GRM key to switch back to when removing the spellbook.
+-- END EXTRA CONFIG
+
+-- CONFIG OVERRIDES (more vars can be found in spellbook.txt)
+spellbook.MANA_MAX = 100
+spellbook.MANA_REGEN = 2.5
+spellbook.SPELL_FOLDER = "lkl/spellbook/spells" -- If you change/add a folder here, remember to includedir it!
+spellbook.SPELL_FOLDER_EXTRA = "" -- If you change/add a folder here, remember to includedir it!
+spellbook.CHOICES_PER_PAGE = 12
+spellbook.SUMMON_KEY = MOUSE.MIDDLE -- Press while the radial menu is open.
+spellbook.WEAPON_CLASS = "none" -- This swep has to be held for the book to open. The default is "none", the hands swep from https://steamcommunity.com/sharedfiles/filedetails/?id=245482078
+spellbook.DISABLE_COOLDOWN_SOUND = false
+spellbook.DRAW_MANA_PREVIEW = true -- Draws a preview of mana consumption on the spellbook.
+spellbook.DRAW_MANA_HUD = true -- Draws a HL2-style mana bar on the screen.
+
+spellbook.COVER_MATERIAL = "phoenix_storms/concrete0"
+spellbook.COVER_COLOR = Color( 150, 50, 50, 255 )
+
+spellbook.MANUAL_SPELL_ORDER = { -- Put the names of spells here, in the order you want them to appear in the radial menu.
+    "",
+}
+-- END CONFIG OVERRIDES
+
+-- Add custom holos to the spellbook here:
+hook.add( "LKL_Spellbook_SpellbookHolosCreated", "LKL_Spellbook_CustomHolos", function( info, bookHolos )
+    -- Holos:
+    local spine = info.holoSpine
+    local coverJointLeft = info.holoCoverJointLeft
+    local coverJointRight = info.holoCoverJointRight
+    local coverLeft = info.holoCoverLeft
+    local coverRight = info.holoCoverRight
+    local pageBlockLeft = info.holoPageBlockLeft
+    local pageBlockRight = info.holoPageBlockRight
+    local pageLeft = info.holoPageLeft
+    local pageRight = info.holoPageRight
+
+    -- Other vars:
+    local pageWidth = info.pageWidth
+    local pageHeight = info.pageHeight
+    local pageBlockThickness = info.pageBlockThickness
+    local cubeModel = info.cubeModel
+    local coverOBB = info.coverOBB
+    local spineOBB = info.spineOBB
+
+    -- Make sure to insert holos you create into bookHolos so they can be hidden/shown properly.
+    -- YOUR CODE HERE:
+
+
+end )
+
+
+require( "lkl/spellbook/spellbook.txt" )
+
+
+if OVERRIDE_RADIAL_MENU_KEY and CLIENT and player() == owner() then
+    GlobalRadialMenu:setOpenKey( OVERRIDE_RADIAL_MENU_KEY )
+
+    hook.add( "LKL_GlobalRadialMenu_PreRemove", "LKL_Spellbook_ResetRadialMenuButton", function()
+        GlobalRadialMenu:setOpenKey( OVERRIDE_RADIAL_MENU_REVERT_KEY )
+    end )
+end

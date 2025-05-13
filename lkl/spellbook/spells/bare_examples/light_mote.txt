@@ -1,0 +1,105 @@
+--@name Light Mote
+--@author legokidlogan
+--@shared
+
+
+--[[
+    - Test spell which spawns a ball of light at your aimpos.
+--]]
+
+
+local lightLifetime = 5
+local lightRadius = 300
+local lightBrightness = 2
+
+local holoModel = "models/holograms/hq_sphere.mdl"
+local holoMaterial = "model_color"
+local holoWidth = 10
+local holoBackUp = 20
+
+local spellDesc =
+[[Test spell.
+Spawns a ball of light at your aimpos.]]
+
+local spell = InstantSpell:new( {
+    name = "Light Mote",
+    description = spellDesc,
+    manaCost = 1,
+    manaCostActive = 0,
+    spellCooldown = 0.5,
+    globalCooldown = 0.5,
+    cooldownResetsOnRespawn = true,
+    color = Color( 54, 0.25, 1, 255 ), -- HSV.
+    nameColorUnhovered = Color( 0, 0, 1, 255 ), -- HSV, set hue to -1 to copy from color.
+    nameColorHovered = Color( 0, 0, 0, 255 ), -- HSV, set hue to -1 to copy from color.
+
+    iconURL = "",
+    iconUseColor = true,
+} )
+
+
+local lightObj = nil
+local holo = nil
+
+
+function spell:onCast()
+    if CLIENT then return end
+
+    local startPos = owner():getShootPos()
+    local dir = owner():getAimVector()
+    local tr = trace.line( startPos, startPos + dir * 40000, spellbook.getTraceIgnoreEnts(), MASK.SHOT )
+    local pos = tr.HitPos + tr.HitNormal * holoBackUp, Angle(), holoModel
+
+    net.start( "LKL_Spellbook_Spell_LightMote_Spawn" )
+    net.writeVector( pos )
+    net.send()
+
+    pcall( function() -- pcall for emitsound burst limit.
+        spellbook.playOwnerSound( "npc/scanner/scanner_nearmiss1.wav", 85, 110, 1 )
+    end )
+end
+
+
+if CLIENT then
+    hook.add( "think", "LKL_Spellbook_Spell_LightMote_DrawLight", function()
+        if not lightObj then return end
+
+        lightObj:draw()
+    end )
+
+
+    net.receive( "LKL_Spellbook_Spell_LightMote_Spawn", function()
+        if lightObj then
+            lightObj:destroy()
+            lightObj = nil
+        end
+
+        if isValid( holo ) then
+            holo:remove()
+        end
+
+        local pos = net.readVector()
+
+        holo = hologram.create( pos, Angle(), holoModel )
+        holo:setSize( Vector( holoWidth ) )
+        holo:setMaterial( holoMaterial )
+        holo:setColor( spell:getColorRGB() )
+
+        lightObj = light.create( pos, lightRadius, lightBrightness, spell:getColorRGB() )
+
+        timer.create( "LKL_Spellbook_Spell_LightMote_Expire", lightLifetime, 1, function()
+            if lightObj then
+                lightObj:destroy()
+                lightObj = nil
+            end
+
+            if isValid( holo ) then
+                holo:remove()
+            end
+        end )
+    end )
+end
+
+
+
+return spell

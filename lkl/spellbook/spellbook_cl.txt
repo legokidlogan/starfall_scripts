@@ -1,0 +1,435 @@
+--@name spellbook_cl
+--@author legokidlogan and shrooblooms
+--@client
+--@include lkl/render/circle_bar.txt
+--@include lkl/render/poly_tools.txt
+
+local bookWidth = spellbook.BOOK_WIDTH
+local bookHeight = spellbook.BOOK_HEIGHT
+local bookDepth = spellbook.BOOK_DEPTH
+local pageInset = spellbook.PAGE_INSET
+local coverThickness = spellbook.COVER_THICKNESS
+local iconSize = spellbook.ICON_SIZE
+local iconAtTop = spellbook.ICON_AT_TOP
+
+local bookHolos = {}
+local openEndTime = false
+local leftPageDirty = true
+local spellNameFontSize = 100
+local spellNameFont = render.createFont( "Default", spellNameFontSize, 400, true, false, false, false, false, false, false )
+local spellDescFontSize = 55
+local spellDescFont = render.createFont( "Default", spellDescFontSize, 400, true, false, false, false, false, false, false )
+local rtNamePageLeft = "LKL_Spellbook_PageLeft"
+local rtNamePageRight = "LKL_Spellbook_PageRight"
+local holoSpine = nil
+local holoCoverJointLeft = nil
+local holoCoverJointRight = nil
+local particleEmitter2D = nil
+local particleEmitter3D = nil
+
+render.createRenderTarget( rtNamePageLeft )
+
+if player() == owner() then
+    render.createRenderTarget( rtNamePageRight )
+end
+
+
+----- GLOBAL FUNCTIONS -----
+
+-- A spellbook-wide 2D particle emitter to avoid hitting the emitter limit.
+function spellbook.getParticleEmitter2D()
+    if not particleEmitter2D then
+        pcall( function()
+            particleEmitter2D = particle.create( Vector(), false )
+        end )
+    end
+
+    return particleEmitter2D
+end
+
+-- A spellbook-wide 3D particle emitter to avoid hitting the emitter limit.
+function spellbook.getParticleEmitter3D()
+    if not particleEmitter3D then
+        pcall( function()
+            particleEmitter3D = particle.create( Vector(), true )
+        end )
+    end
+
+    return particleEmitter3D
+end
+
+
+----- SETUP -----
+
+-- use renderoffscreen insteaf of think to eliminate book jittering. Runs just as offten, but fixes hook order issues.
+hook.add( "renderoffscreen", "LKL_Spellbook_AnimateSpellbook", function()
+    if not spellbook.summoned then return end
+
+    local wasOpen = spellbook.open
+    local wep = owner():getActiveWeapon()
+    local open = isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS
+    local now = timer.curtime()
+
+    if open ~= wasOpen then
+        openEndTime = open and ( now + spellbook.OPEN_DURATION ) or ( now + spellbook.CLOSE_DURATION )
+        spellbook.open = open
+
+        if player() == owner() and not open then
+            local spell = spellbook.getSelectedSpell()
+
+            spell:onBookClosed()
+        end
+    end
+
+    local isFirstPerson = player() == owner() and render.getEyePos():getDistance( player():getShootPos() ) < 30
+    local bookPos, bookAng, frac = spellbook.calcBookPosAng( openEndTime, isFirstPerson )
+
+    holoSpine:setPos( bookPos )
+    holoSpine:setAngles( bookAng )
+
+    -- On the owner's client, make the sound holo be locked exactly to the eye pos so it doesn't lag behind.
+    if player() == owner() then
+        local ownerSoundHolo = spellbook.getOwnerSoundHolo()
+
+        if isValid( ownerSoundHolo ) then
+            ownerSoundHolo:setPos( player():getShootPos() )
+        end
+    end
+
+    hook.run( "LKL_Spellbook_AnimateSpellbook", bookPos, bookAng, frac )
+
+    if not openEndTime then return end
+
+    if frac == 1 then
+        openEndTime = false
+    end
+
+    if not open then
+        frac = 1 - frac
+    end
+
+    local theta = frac * spellbook.OPEN_ANGLE
+
+    holoCoverJointLeft:setLocalAngles( Angle( 0, -theta, 0 ) )
+    holoCoverJointRight:setLocalAngles( Angle( 0, theta, 0 ) )
+end )
+
+hook.add( "LKL_Spellbook_OnSetSummoned", "LKL_Spellbook_AnimateSpellbook", function( state )
+    for _, holo in ipairs( bookHolos ) do
+        holo:setNoDraw( not state )
+    end
+end )
+
+hook.add( "LKL_Spellbook_OnSpellSelected", "LKL_Spellbook_DirtyPage", function()
+    leftPageDirty = true
+end )
+
+hook.add( "LKL_Spellbook_Spell_IconLoaded", "LKL_Spellbook_DirtyPage", function( spellID )
+    if spellID ~= spellbook.selectedSpellID then return end
+
+    leftPageDirty = true
+end )
+
+hook.add( "LKL_Spellbook_Spell_NameChanged", "LKL_Spellbook_DirtyPage", function( spellID )
+    if spellID ~= spellbook.selectedSpellID then return end
+
+    leftPageDirty = true
+end )
+
+hook.add( "LKL_Spellbook_Spell_DescriptionChanged", "LKL_Spellbook_DirtyPage", function( spellID )
+    if spellID ~= spellbook.selectedSpellID then return end
+
+    leftPageDirty = true
+end )
+
+hook.add( "LKL_Spellbook_Spell_ColorChanged", "LKL_Spellbook_DirtyPage", function( spellID )
+    if spellID ~= spellbook.selectedSpellID then return end
+
+    leftPageDirty = true
+end )
+
+hook.add( "renderoffscreen", "LKL_Spellbook_DrawLeftPage", function()
+    if not leftPageDirty then return end
+
+    leftPageDirty = false
+
+    local spell = spellbook.getSelectedSpell()
+    local yOffIcon = iconAtTop and ( iconSize + 40 - 10 ) or 0
+
+    render.selectRenderTarget( rtNamePageLeft )
+
+    render.clear( spellbook.PAGE_COLOR )
+
+    -- Name
+    render.setFont( spellNameFont )
+    render.setColor( spell:getColorRGB() )
+    render.drawSimpleText( 512, 10 + yOffIcon, spell:getName(), TEXT_ALIGN.CENTER, TEXT_ALIGN.TOP )
+
+    local descLines = spell:getDescriptionLines()
+    local y = spellNameFontSize + 10 + 10 + yOffIcon
+    local yStep = spellDescFontSize + 5
+
+    -- Description
+    render.setFont( spellDescFont )
+    render.setRGBA( 0, 0, 0, 255 )
+
+    for _, line in ipairs( descLines ) do
+        render.drawSimpleText( 512, y, line, TEXT_ALIGN.CENTER, TEXT_ALIGN.TOP )
+        y = y + yStep
+    end
+
+    -- Icon
+    local iconRT = spell._iconRT
+
+    if iconRT then
+        y = iconAtTop and 40 or ( y + 20 )
+
+        render.setRenderTargetTexture( iconRT )
+        render.setColor( spell:getColorRGB() )
+        render.drawTexturedRectUV( 512 - iconSize / 2, y, iconSize, iconSize, spell._iconU0, spell._iconV0, spell._iconU1, spell._iconV1 )
+    end
+
+    render.selectRenderTarget()
+end )
+
+net.receive( "LKL_Spellbook_OwnerRespawned", function()
+    hook.run( "LKL_Spellbook_OwnerRespawned", net.readFloat() )
+end )
+
+
+if player() == owner() then
+    require( "lkl/render/circle_bar.txt" )
+    require( "lkl/render/poly_tools.txt" )
+
+    local cbMana = CircleBar:new( 512, 512 + 50, 350, 450, { rotationDeg = 90, numSegments = 128, clockwise = false } )
+    local cbGlobalCooldown = CircleBar:new( 512, 512 + 50, 200, 300, { rotationDeg = 90, numSegments = 32, clockwise = false } )
+    local cbSpellCooldown = CircleBar:new( 512, 512 + 50, 50, 150, { rotationDeg = 90, numSegments = 32, clockwise = false } )
+
+    local polyActiveCircle = polyTools.polyMakeCircleFilled( 100, 175, 50, 32 )
+
+    local chargeBarX = 50
+    local chargeBarY = 40
+    local chargeBarW = 1024 - chargeBarX * 2
+    local chargeBarH = 50
+
+
+    hook.add( "renderoffscreen", "LKL_Spellbook_DrawRightPage", function()
+        if not spellbook.open then return end
+
+        local spell = spellbook.getSelectedSpell()
+        local now = timer.curtime()
+        local globalCooldownEndTime = spellbook.globalCooldownEndTime or 0
+        local spellCooldownEndTime = spellbook.spellCooldownEndTimes[spell._spellID] or 0
+
+        render.selectRenderTarget( rtNamePageRight )
+        render.clear( spellbook.PAGE_COLOR )
+        render.setMaterial()
+
+        -- Mana
+        local mana = spellbook.mana
+        local manaMax = spellbook.MANA_MAX
+
+        if spellbook.DRAW_MANA_PREVIEW then
+            local manaAfter = mana
+            local drainColor
+            local gainColor
+
+            if spell:isActive() then
+                manaAfter = math.clamp( mana - spell:getManaCostActive() / 5, 0, manaMax )
+                drainColor = spellbook.COLOR_MANA_DRAIN_ACTIVE
+                gainColor = spellbook.COLOR_MANA_GAIN_ACTIVE
+            elseif spell:isInstanceOf( ChargedSpell ) then
+                manaAfter = math.clamp( mana - spell:getManaCost() * spell:getChargeStrength(), 0, manaMax )
+                drainColor = spellbook.COLOR_MANA_DRAIN_CHARGED
+                gainColor = spellbook.COLOR_MANA_GAIN_CHARGED
+            else
+                manaAfter = math.clamp( mana - spell:getManaCost(), 0, manaMax )
+                drainColor = spellbook.COLOR_MANA_DRAIN_INSTANT
+                gainColor = spellbook.COLOR_MANA_GAIN_INSTANT
+            end
+
+            if manaAfter < mana then
+                render.setColor( drainColor )
+                cbMana:setProgress( mana / manaMax )
+                cbMana:draw()
+
+                render.setColor( spellbook.COLOR_MANA )
+                cbMana:setProgress( manaAfter / manaMax )
+                cbMana:draw()
+            else
+                if manaAfter ~= mana then
+                    render.setColor( gainColor )
+                    cbMana:setProgress( manaAfter / manaMax )
+                    cbMana:draw()
+                end
+
+                render.setColor( spellbook.COLOR_MANA )
+                cbMana:setProgress( mana / manaMax )
+                cbMana:draw()
+            end
+        else
+            render.setRGBA( spellbook.COLOR_MANA )
+            cbMana:setProgress( mana / manaMax )
+            cbMana:draw()
+        end
+
+
+        -- Global cooldown
+        if globalCooldownEndTime > now then
+            local timeLeft = globalCooldownEndTime - now
+            local frac = math.clamp( timeLeft / spellbook.globalCooldownDuration, 0, 1 )
+
+            render.setRGBA( 100, 100, 100, 255 )
+            cbGlobalCooldown:setProgress( frac )
+            cbGlobalCooldown:draw()
+        end
+
+        -- Spell cooldown
+        if spellCooldownEndTime > now then
+            local timeLeft = spellCooldownEndTime - now
+            local frac = math.clamp( timeLeft / spellbook.spellCooldownDurations[spell._spellID], 0, 1 )
+
+            render.setColor( spell:getColorRGB() )
+            cbSpellCooldown:setProgress( frac )
+            cbSpellCooldown:draw()
+        end
+
+        -- Active indicator
+        if spell:isActive() then
+            render.setRGBA( 120, 0, 255, 255 )
+        else
+            render.setRGBA( 150, 150, 150, 255 )
+        end
+
+        render.drawPoly( polyActiveCircle )
+
+        -- Charge bar
+        if spell:isInstanceOf( ChargedSpell ) then
+            local charge = spell:getChargeStrength()
+            local chargeThreshold = spell:getChargeThreshold()
+            local manaToCast = spell:getManaCost()
+
+            if spell:isInstanceOf( ChargedSpell ) then
+                manaToCast = manaToCast * spell:getChargeStrength()
+            end
+
+            render.setRGBA( 150, 150, 150, 255 )
+            render.drawRect( chargeBarX, chargeBarY, chargeBarW, chargeBarH )
+
+            render.setRGBA( 50, 50, 75, 255 )
+            render.drawRect( chargeBarX, chargeBarY, chargeBarW * chargeThreshold, chargeBarH )
+
+            if manaToCast < spellbook.mana then
+                render.setRGBA( 0, 215, 150, 255 )
+            else
+                render.setRGBA( 215, 0, 150, 255 )
+            end
+
+            render.drawRect( chargeBarX, chargeBarY, chargeBarW * charge, chargeBarH )
+        end
+
+        render.selectRenderTarget()
+    end )
+end
+
+
+-- Make the book holos.
+timer.simple( 0, function()
+    local spineOBB = Vector( coverThickness, bookDepth, bookHeight )
+    local coverOBB = Vector( coverThickness, bookWidth, bookHeight )
+    local pageWidth = bookWidth - pageInset * 2
+    local pageHeight = bookHeight - pageInset * 2
+    local pageBlockThickness = bookDepth / 2 - coverThickness
+    local cubeModel = "models/holograms/cube.mdl"
+
+    holoSpine = hologram.create( Vector(), Angle(), cubeModel )
+    holoSpine:setSize( spineOBB )
+    table.insert( bookHolos, holoSpine )
+
+    holoCoverJointLeft = hologram.create( Vector( -coverThickness / 2, bookDepth / 2 - coverThickness, 0 ), Angle(), cubeModel, Vector( 0 ) )
+    holoCoverJointLeft:setParent( holoSpine )
+    table.insert( bookHolos, holoCoverJointLeft )
+
+    holoCoverJointRight = hologram.create( Vector( -coverThickness / 2, -bookDepth / 2 + coverThickness, 0 ), Angle(), cubeModel, Vector( 0 ) )
+    holoCoverJointRight:setParent( holoSpine )
+    table.insert( bookHolos, holoCoverJointRight )
+
+    local holoCoverLeft = hologram.create( Vector( -coverThickness / 2 - bookWidth / 2, bookDepth / 2 - coverThickness / 2, 0 ), Angle( 0, 90, 0 ), cubeModel )
+    holoCoverLeft:setSize( coverOBB )
+    holoCoverLeft:setParent( holoCoverJointLeft )
+    table.insert( bookHolos, holoCoverLeft )
+
+    local holoCoverRight = hologram.create( Vector( -coverThickness / 2 - bookWidth / 2, -bookDepth / 2 + coverThickness / 2, 0 ), Angle( 0, -90, 0 ), cubeModel )
+    holoCoverRight:setSize( coverOBB )
+    holoCoverRight:setParent( holoCoverJointRight )
+    table.insert( bookHolos, holoCoverRight )
+
+    local holoPageBlockLeft = hologram.create( holoCoverLeft:getPos() + Vector( 0, -coverThickness / 2 - pageBlockThickness / 2, 0 ), Angle( 0, -90, 0 ), cubeModel )
+    holoPageBlockLeft:setSize( Vector( pageBlockThickness, pageWidth, pageHeight ) )
+    holoPageBlockLeft:setParent( holoCoverJointLeft )
+    table.insert( bookHolos, holoPageBlockLeft )
+
+    local holoPageBlockRight = hologram.create( holoCoverRight:getPos() + Vector( 0, coverThickness / 2 + pageBlockThickness / 2, 0 ), Angle( 0, 90, 0 ), cubeModel )
+    holoPageBlockRight:setSize( Vector( pageBlockThickness, pageWidth, pageHeight ) )
+    holoPageBlockRight:setParent( holoCoverJointRight )
+    table.insert( bookHolos, holoPageBlockRight )
+
+    local holoPageLeft = hologram.create( holoPageBlockLeft:getPos() + Vector( 0, -pageBlockThickness / 2, 0 ), Angle( 0, -90, 0 ), cubeModel )
+    holoPageLeft:setSize( Vector( 0.1, pageWidth * 0.95, pageHeight * 0.95 ) )
+    holoPageLeft:setParent( holoPageBlockLeft )
+    table.insert( bookHolos, holoPageLeft )
+
+    local holoPageRight = hologram.create( holoPageBlockRight:getPos() + Vector( 0, pageBlockThickness / 2, 0 ), Angle( 0, 90, 0 ), cubeModel )
+    holoPageRight:setSize( Vector( 0.1, pageWidth * 0.95, pageHeight * 0.95 ) )
+    holoPageRight:setParent( holoPageBlockRight )
+    table.insert( bookHolos, holoPageRight )
+
+    for _, holo in ipairs( bookHolos ) do
+        holo:setMaterial( spellbook.COVER_MATERIAL )
+        holo:setColor( spellbook.COVER_COLOR )
+    end
+
+    local matPageLeft = material.create( "VertexLitGeneric" )
+    matPageLeft:setTextureRenderTarget( "$basetexture", rtNamePageLeft )
+
+    holoPageBlockLeft:setMaterial( spellbook.PAGE_MATERIAL )
+    holoPageBlockLeft:setColor( spellbook.PAGE_COLOR )
+    holoPageBlockRight:setMaterial( spellbook.PAGE_MATERIAL )
+    holoPageBlockRight:setColor( spellbook.PAGE_COLOR )
+    holoPageLeft:setMaterial( "!" .. matPageLeft:getName() )
+    holoPageLeft:setColor( Color( 255, 255, 255, 255 ) )
+
+    if player() == owner() then
+        local matPageRight = material.create( "VertexLitGeneric" )
+        matPageRight:setTextureRenderTarget( "$basetexture", rtNamePageRight )
+
+        holoPageRight:setMaterial( "!" .. matPageRight:getName() )
+        holoPageRight:setColor( Color( 255, 255, 255, 255 ) )
+    else
+        holoPageRight:setMaterial( spellbook.PAGE_MATERIAL )
+        holoPageRight:setColor( spellbook.PAGE_COLOR )
+    end
+
+    hook.run( "LKL_Spellbook_SpellbookHolosCreated", {
+        spine = holoSpine,
+        coverJointLeft = holoCoverJointLeft,
+        coverJointRight = holoCoverJointRight,
+        coverLeft = holoCoverLeft,
+        coverRight = holoCoverRight,
+        pageBlockLeft = holoPageBlockLeft,
+        pageBlockRight = holoPageBlockRight,
+        pageLeft = holoPageLeft,
+        pageRight = holoPageRight,
+
+        pageWidth = pageWidth,
+        pageHeight = pageHeight,
+        pageBlockThickness = pageBlockThickness,
+        cubeModel = cubeModel,
+        spineOBB = spineOBB,
+        coverOBB = coverOBB,
+    }, bookHolos )
+
+    for _, holo in ipairs( bookHolos ) do
+        holo:setNoDraw( spellbook.summoned )
+    end
+end )

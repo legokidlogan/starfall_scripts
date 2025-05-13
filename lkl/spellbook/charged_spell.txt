@@ -1,0 +1,219 @@
+--@name Charged Spell
+--@author legokidlogan
+--@shared
+
+if ChargedSpell then return end
+
+ChargedSpell = class( "ChargedSpell", Spell )
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    Additional parameters:
+        chargeMax: The max duration the spell can be charged for.
+        chargeThreshold: The minimum charge fraction required for the cast to be successful.
+--]]
+function ChargedSpell:initialize( params )
+    if type( params.chargeMax ) ~= "number" then error( "Expected params.chargeMax to be a number" ) end
+    if type( params.chargeThreshold ) ~= "number" then error( "Expected params.chargeThreshold to be a number" ) end
+
+    ChargedSpell.super.initialize( self, params )
+
+    self._chargeMax = params.chargeMax
+    self._chargeThreshold = params.chargeThreshold
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+function ChargedSpell:isCharging()
+    return self._charging
+end
+
+-- Sets the max charge duration. noNet causes the change to not be networked.
+function ChargedSpell:setChargeMax( chargeMax, noNet )
+    if type( chargeMax ) ~= "number" then error( "Expected chargeMax to be a number" ) end
+
+    self:_setParamVar( "chargeMax", chargeMax, noNet )
+end
+
+function ChargedSpell:getChargeMax()
+    return self._chargeMax
+end
+
+-- Sets the charge threshold. noNet causes the change to not be networked.
+function ChargedSpell:setChargeThreshold( chargeThreshold, noNet )
+    if type( chargeThreshold ) ~= "number" then error( "Expected chargeThreshold to be a number" ) end
+
+    self:_setParamVar( "chargeThreshold", chargeThreshold, noNet )
+end
+
+function ChargedSpell:getChargeThreshold()
+    return self._chargeThreshold
+end
+
+function ChargedSpell:getChargeStrength()
+    if not self._charging then return 0 end
+
+    local now = timer.curtime()
+    local chargeTime = now - self._chargeStartTime
+    local strength = math.clamp( chargeTime / self:getChargeMax(), 0, 1 )
+
+    return strength
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function ChargedSpell:onStartCharging( _startTime )
+    -- Called in all realms.
+end
+
+function ChargedSpell:onStopCharging( _stopTime )
+    -- Called in all realms, regardless of whether the cast succeeded or failed.
+end
+
+function ChargedSpell:onCast( _strength, _castTime )
+    -- Called in all relams.
+end
+
+function ChargedSpell:onFumble( _reason, _fumbleTime )
+    --[[
+        - Called in all realms.
+        - Not normally called for casts blocked by cooldowns.
+        - Built-in reasons:
+            - "Mana" - Not enough mana to cast the spell.
+            - "ChargeThreshold" - Wasn't charged for long enough.
+    --]]
+end
+
+function ChargedSpell:think()
+    -- Called in all realms.
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+if CLIENT and player() == owner() then
+    function ChargedSpell:onBookClosed()
+        if not self._charging then return end
+
+        self._charging = false
+
+        local now = timer.curtime()
+
+        self:onStopCharging( now )
+
+        net.start( "LKL_Spellbook_ChargedSpell_StopCharging" )
+        net.writeUInt( self._spellID, 16 )
+        net.writeFloat( now )
+        net.send()
+    end
+end
+
+
+function ChargedSpell:onKeyPress( key )
+    if SERVER then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    if self:checkCooldowns() then
+        local now = timer.curtime()
+
+        self._charging = true
+        self._chargeStartTime = now
+        --self._tryingToCharge = false
+
+        net.start( "LKL_Spellbook_ChargedSpell_StartCharging" )
+            net.writeUInt( self._spellID, 16 )
+            net.writeFloat( now )
+        net.send()
+
+        self:onStartCharging( now )
+    else
+        --self._tryingToCharge = true
+        self:playCooldownSound()
+    end
+end
+
+function ChargedSpell:onKeyRelease( key )
+    if SERVER then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    --self._tryingToCharge = false
+
+    if not self._charging then return end
+
+    local strength = self:getChargeStrength()
+    local threshold = self:getChargeThreshold()
+
+    self._charging = false
+
+    if strength < threshold then
+        self:fumble( "ChargeThreshold" )
+    elseif self:getManaCost() * strength > spellbook.mana then
+        self:startManaWarning( 1.5 )
+        self:fumble( "Mana", true )
+    else
+        self:cast( strength )
+    end
+
+    local now = timer.curtime()
+
+    self:onStopCharging( now )
+
+    net.start( "LKL_Spellbook_ChargedSpell_StopCharging" )
+    net.writeUInt( self._spellID, 16 )
+    net.writeFloat( now )
+    net.send()
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+net.receive( "LKL_Spellbook_ChargedSpell_StartCharging", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local spellID = net.readUInt( 16 )
+    local startTime = net.readFloat()
+
+    local spell = spellbook.spells[spellID]
+    if not spell then return end
+
+    spell._charging = true
+    spell._chargeStartTime = startTime
+
+    spell:onStartCharging( startTime )
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_ChargedSpell_StartCharging" )
+        net.writeUInt( spellID, 16 )
+        net.writeFloat( startTime )
+    net.send( spellbook.getEveryoneButOwner() )
+end )
+
+net.receive( "LKL_Spellbook_ChargedSpell_StopCharging", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local spellID = net.readUInt( 16 )
+    local stopTime = net.readFloat()
+
+    local spell = spellbook.spells[spellID]
+    if not spell then return end
+
+    spell._charging = false
+
+    spell:onStopCharging( stopTime )
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_ChargedSpell_StopCharging" )
+        net.writeUInt( spellID, 16 )
+        net.writeFloat( stopTime )
+    net.send( spellbook.getEveryoneButOwner() )
+end )

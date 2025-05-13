@@ -1,0 +1,477 @@
+--@name spellbook_cl_owner
+--@author legokidlogan and shrooblooms
+--@client
+--@owneronly
+--@include lkl/global_radial_menu.txt
+--@include lkl/render/circle_bar.txt
+--@include lkl/render/poly_tools.txt
+
+require( "lkl/global_radial_menu.txt" )
+require( "lkl/render/circle_bar.txt" )
+require( "lkl/render/poly_tools.txt" )
+
+spellbook.globalCooldownEndTime = 0
+spellbook.globalCooldownDuration = 0.001
+spellbook.spellCooldownEndTimes = {}
+spellbook.spellCooldownDurations = {}
+
+local spellCooldownEndTimes = spellbook.spellCooldownEndTimes
+local spellCooldownDurations = spellbook.spellCooldownDurations
+local lastTickTime = timer.curtime()
+local scrW, scrH = render.getGameResolution()
+local manaTextFont
+
+if spellbook.DRAW_MANA_HUD then
+    manaTextFont = render.createFont( "Verdana", scrH * 9 / 480, 1000, true, false, false, false, false, false, false )
+end
+
+local iconSizeRadial = scrW * 0.03
+local polyActiveCircle = polyTools.polyMakeCircleFilled( 0, 0, iconSizeRadial / 2, 16 )
+local ownerSoundHolo = nil
+local traceIgnoreEnts = { owner() }
+local traceIgnoreLookup = { [owner()] = true }
+
+local ACTION_PARAMS = {
+    command = true,
+    menu = true,
+    func = true,
+}
+
+local CHOICE_COLORS_NORMAL = {
+    gradientColorUnhovered = Color( 180, 0.25, 0.25, 255 ),
+    gradientColorHovered = Color( 180, 1, 1, 255 ),
+    bandColorUnhovered = Color( 180, 0.25, 0.25, 255 ),
+    bandColorHovered = Color( 180, 1, 1, 255 ),
+    nameColorUnhovered = Color( 0, 0, 1, 255 ),
+    nameColorHovered = Color( 0, 0, 1, 255 ),
+}
+
+local CHOICE_COLORS_BLANK = {
+    gradientColorUnhovered = Color( 180, 0, 0.1, 255 ),
+    gradientColorHovered = Color( 180, 0, 0.1, 255 ),
+    bandColorUnhovered = Color( 180, 0, 0.1, 255 ),
+    bandColorHovered = Color( 180, 0, 0.1, 255 ),
+    nameColorUnhovered = Color( 0, 0, 0.5, 255 ),
+    nameColorHovered = Color( 0, 0, 0.5, 255 ),
+}
+
+local CHOICE_COLORS_DISABLED = {
+    gradientColorUnhovered = Color( 180, 0, 0.1, 255 ),
+    gradientColorHovered = Color( 180, 0, 0.1, 255 ),
+    bandColorUnhovered = Color( 180, 0, 0.1, 255 ),
+    bandColorHovered = Color( 180, 0, 0.1, 255 ),
+    nameColorUnhovered = Color( 0, 0, 0.5, 255 ),
+    nameColorHovered = Color( 0, 0, 0.5, 255 ),
+}
+
+
+----- GLOBAL FUNCTIONS -----
+
+function spellbook.setSpellCooldown( spellID, duration )
+    local now = timer.curtime()
+    local endTime = now + duration
+
+    spellCooldownEndTimes[spellID] = endTime
+    spellCooldownDurations[spellID] = duration
+end
+
+function spellbook.setGlobalCooldown( duration )
+    local now = timer.curtime()
+    local endTime = now + duration
+
+    spellbook.globalCooldownEndTime = endTime
+    spellbook.globalCooldownDuration = duration
+end
+
+function spellbook.setMana( newMana )
+    spellbook.mana = math.clamp( newMana, 0, spellbook.MANA_MAX )
+end
+
+function spellbook.spendMana( amount )
+    spellbook.setMana( spellbook.mana - amount )
+end
+
+function spellbook.selectSpell( spellID )
+    if spellID == spellbook.selectedSpellID then return end
+
+    local prevSpell = spellbook.getSelectedSpell()
+
+    spellbook.selectedSpellID = spellID
+
+    hook.run( "LKL_Spellbook_OnSpellSelected", prevSpell, spellbook.getSelectedSpell() )
+
+    net.start( "LKL_Spellbook_SelectSpell" )
+        net.writeUInt( spellID, 16 )
+    net.send()
+end
+
+function spellbook.setSummoned( state )
+    if spellbook.summoned == state then return end
+
+    spellbook.summoned = state
+
+    if not state then
+        local spell = spellbook.getSelectedSpell()
+        spell:onBookClosed()
+    end
+
+    hook.run( "LKL_Spellbook_OnSetSummoned", state )
+
+    net.start( "LKL_Spellbook_SetSummoned" )
+        net.writeBool( state )
+    net.send()
+end
+
+function spellbook.getOwnerSoundHolo()
+    return ownerSoundHolo
+end
+
+-- Returns by reference, do not modify.
+function spellbook.getTraceIgnoreEnts()
+    return traceIgnoreEnts
+end
+
+-- Returns by reference, do not modify.
+function spellbook.getTraceIgnoreEntLookup()
+    return traceIgnoreLookup
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+local function applyChoiceColors( choice, colors )
+    for k, v in pairs( colors ) do
+        choice[k] = v
+    end
+end
+
+local function makeBlankChoice()
+    local choice = {}
+
+    choice.name = ""
+    applyChoiceColors( choice, CHOICE_COLORS_BLANK )
+
+    return choice
+end
+
+local function makeDisableableChoice( name, enabled, baseColor, params )
+    -- TODO: Likely won't need the enabled param at all, it's a holdover from another project.
+    -- Can probably just remove it and a bunch of related code to simplify all this.
+
+    local choice = {
+        name = name,
+    }
+
+    if baseColor then
+        local colorModifiers = enabled and CHOICE_COLORS_NORMAL or CHOICE_COLORS_DISABLED
+
+        -- Maintain hue, multiply s, v, a.
+        for k, colorModifier in pairs( colorModifiers ) do
+            choice[k] = Color( baseColor.r, baseColor.g * colorModifier.g, baseColor.b * colorModifier.b, baseColor.a * colorModifier.a / 255 )
+        end
+    else
+        -- Use default enabled/disabled colors.
+        applyChoiceColors( choice, enabled and CHOICE_COLORS_NORMAL or CHOICE_COLORS_DISABLED )
+    end
+
+    if params then
+        -- Apply any additional parameters to the choice.
+        for k, v in pairs( params ) do
+            if enabled or not ACTION_PARAMS[k] then -- Don't apply action params to disabled choices.
+                choice[k] = v
+            end
+        end
+    end
+
+    return choice
+end
+
+local function makeSpellChoice( spell, spellID )
+    local colorRGB = spell:getColorRGB()
+
+    return makeDisableableChoice( spell.name, true, spell:getColor(), {
+        name = spell:getName(),
+        nameColorUnhovered = spell:getNameColorUnhovered(),
+        nameColorHovered = spell:getNameColorHovered(),
+        func = function()
+            spellbook.selectSpell( spellID )
+        end,
+        paint = function( xDir, yDir, choiceRadius, _nameHeight, _hovered, menu, pageInd, choiceInd, hoverProgress )
+            if spell:isActive() then
+                local r = choiceRadius * 0.6 + iconSizeRadial / 2
+                local m = Matrix()
+                m:translate( Vector( xDir * r, yDir * r, 0 ) )
+
+                render.pushMatrix( m )
+                render.setRGBA( 255, 255, 255, 100 )
+                render.drawPoly( polyActiveCircle )
+                render.popMatrix()
+            end
+
+            -- Icon
+            local iconRT = spell._iconRT
+
+            if iconRT then
+                local r = choiceRadius * 0.6 + iconSizeRadial / 2
+                local x = xDir * r
+                local y = yDir * r
+
+                render.setRenderTargetTexture( iconRT )
+                render.setColor( menu:getChoiceGradientColorEff( pageInd, choiceInd, 1 - hoverProgress ) )
+                render.drawTexturedRectUV( x - iconSizeRadial / 2, y - iconSizeRadial / 2, iconSizeRadial, iconSizeRadial, spell._iconU0, spell._iconV0, spell._iconU1, spell._iconV1 )
+            end
+        end,
+        paintRadial = function( choiceRadius, nameHeight, _hovered, _menu, _pageInd, _choiceInd, _hoverProgress )
+            local now = timer.curtime()
+            local cooldownEndTime = spellCooldownEndTimes[spellID] or 0
+
+            if cooldownEndTime > now then
+                local timeLeft = cooldownEndTime - now
+                local frac = math.clamp( timeLeft / spellCooldownDurations[spellID], 0, 1 )
+                local h = nameHeight * 0.3
+                local r = choiceRadius * 0.95 - nameHeight
+                local w = 0.9 * r * math.pi * 2 / spellbook.CHOICES_PER_PAGE
+
+                render.setRGBA( 0, 0, 0, 255 )
+                render.drawRect( -w / 2, -r, w, h )
+                render.setColor( colorRGB )
+                render.drawRect( -w / 2 + w * ( 1 - frac ) / 2, -r, w * frac, h )
+            end
+        end,
+    } )
+end
+
+
+----- SETUP -----
+
+hook.add( "tick", "LKL_Spellbook_RegenMana", function()
+    local now = timer.curtime()
+    local dt = now - lastTickTime
+    if dt <= 0 then return end -- Can happen during lag spikes.
+
+    lastTickTime = now
+    spellbook.mana = math.clamp( spellbook.mana + dt * spellbook.MANA_REGEN, 0, spellbook.MANA_MAX )
+end )
+
+hook.add( "drawhud", "LKL_Spellbook_SpellPaint", function()
+    for _, spell in ipairs( spellbook.spells ) do
+        spell:paint()
+    end
+
+    if not spellbook.DRAW_MANA_HUD then return end
+
+    -- HL2-style mana HUD element
+    local scale = scrH * 1 / 480
+    local manaBarYOffset = -( 480 - 432 ) * scale
+
+    render.setRGBA( 0, 0, 0, 76 )
+    render.drawRoundedBox( 4 * scale, 16 * scale, 432 * scale + manaBarYOffset, 102 * scale, 36 * scale, COLOR_BACKGROUND )
+
+    -- Mana Bar
+    local mana = spellbook.mana
+    local manaMax = spellbook.MANA_MAX
+    local spell = spellbook.getSelectedSpell()
+    local manaToCast = spell:getManaCost()
+
+    if spell:isInstanceOf( ChargedSpell ) then
+        manaToCast = manaToCast * spell:getChargeStrength()
+    end
+
+    local manaAfterCast = math.max( 0, mana - manaToCast )
+    local thick = 1 * scale * 0
+
+    render.setFont( manaTextFont )
+
+    if manaAfterCast == 0 then
+        render.setRGBA( 255, 0, 0, 255 )
+    else
+        render.setRGBA( 255, 236, 12, 255 )
+    end
+
+    render.drawSimpleText( ( 16 + 8 ) * scale, ( 432 + 20 ) * scale + manaBarYOffset, "MANA", TEXT_ALIGN.LEFT, TEXT_ALIGN.TOP )
+
+    local barX = ( 16 + 8 ) * scale
+    local barY = ( 432 + 20 - 12 ) * scale + manaBarYOffset
+    local barW = ( 102 - 16 ) * scale
+    local barH = 8 * scale
+    local barWInner = barW - thick * 2
+    local barHInner = barH - thick * 2
+
+    render.overrideBlend( true, BLEND.SRC_ALPHA, BLEND.ONE, BLENDFUNC.ADD, BLEND.SRC_ALPHA, BLEND.ONE, BLENDFUNC.ADD ) -- Additive blending
+    render.drawRectOutline( barX, barY, barW, barH, thick )
+
+    if manaAfterCast == 0 then
+        render.setRGBA( 255, 0, 0, 150 )
+        render.drawRect( barX + thick, barY + thick, ( mana / manaMax ) * barWInner, barHInner )
+
+        render.setRGBA( 255, 0, 0, 100 )
+        render.drawRect( barX + thick + ( mana / manaMax ) * barWInner, barY + thick, ( ( manaMax - mana ) / manaMax ) * barWInner, barHInner )
+    else
+        render.setRGBA( 240, 210, 5, 100 )
+        render.drawRect( barX + thick + ( mana / manaMax ) * barWInner, barY + thick, ( ( manaMax - mana ) / manaMax ) * barWInner, barHInner )
+
+        render.setRGBA( 240, 210, 5, 255 )
+    end
+
+    render.drawRect( barX + thick, barY + thick, ( mana / manaMax ) * barWInner, barHInner )
+    render.overrideBlend( false )
+end )
+
+hook.add( "EntityRemoved", "LKL_Sellbook_RemoveFromTraceIgnore", function( ent, fullUpdate )
+    if fullUpdate then return end
+    if not traceIgnoreLookup[ent] then return end
+
+    table.removeByValue( traceIgnoreEnts, ent )
+    traceIgnoreLookup[ent] = nil
+end )
+
+hook.add( "LKL_Spellbook_OwnerRespawned", "LKL_Spellbook_ReplenishManaAndResetCooldowns", function()
+    spellbook.setMana( spellbook.MANA_MAX )
+    spellbook.setGlobalCooldown( 0 )
+
+    for _, spell in ipairs( spellbook.spells ) do
+        if spell:doesCooldownResetOnDeath() then
+            spellbook.setSpellCooldown( spell:getSpellID(), 0 )
+        end
+    end
+end )
+
+
+net.receive( "LKL_Spellbook_SpendMana", function()
+    local amount = net.readFloat()
+
+    spellbook.setMana( spellbook.mana - amount )
+end )
+
+net.receive( "LKL_Spellbook_DefineOwnerSoundHolo", function()
+    ownerSoundHolo = net.readEntity():toHologram()
+end )
+
+net.receive( "LKL_Spellbook_SetSpellCooldown", function()
+    local spellID = net.readUInt( 16 )
+    local endTime = net.readFloat()
+    local duration = endTime - timer.curtime()
+
+    spellbook.setSpellCooldown( spellID, duration )
+end )
+
+net.receive( "LKL_Spellbook_SetGlobalCooldown", function()
+    local endTime = net.readFloat()
+    local duration = endTime - timer.curtime()
+
+    spellbook.setGlobalCooldown( duration )
+end )
+
+net.receive( "LKL_Spellbook_AddTraceIgnoreEnt", function()
+    local ent = net.readEntity()
+    if not isValid( ent ) then return end
+
+    table.insert( traceIgnoreEnts, ent )
+    traceIgnoreLookup[ent] = true
+end )
+
+net.receive( "LKL_Spellbook_RemoveTraceIgnoreEnt", function()
+    local ent = net.readEntity()
+    if not isValid( ent ) then return end
+
+    table.removeByValue( traceIgnoreEnts, ent )
+    traceIgnoreLookup[ent] = nil
+end )
+
+
+do -- Make spellbook menu
+    local allChoices = {}
+    local choiceCount = 0
+    local choicesPerPage = spellbook.CHOICES_PER_PAGE
+    local choiceToSpellID = {} -- pageInd -> choiceInd -> spellID
+    local spellToChoiceID = {} -- spellID -> { pageInd, choiceInd }
+
+    -- Build the choices.
+    for spellID, spell in ipairs( spellbook.spells ) do
+        if choiceCount % choicesPerPage == 0 then
+            table.insert( allChoices, {
+                name = "MAIN MENU",
+                func = GlobalRadialMenu.MAIN_MENU_FUNC,
+            } )
+            table.insert( choiceToSpellID, {} )
+            choiceCount = choiceCount + 1
+        end
+
+        choiceCount = choiceCount + 1
+
+        local choiceInd = choiceCount % choicesPerPage
+        if choiceInd == 0 then choiceInd = choicesPerPage end
+
+        table.insert( allChoices, makeSpellChoice( spell, spellID ) )
+        choiceToSpellID[#choiceToSpellID][choiceInd] = spellID
+        spellToChoiceID[spellID] = { #choiceToSpellID, choiceInd }
+    end
+
+    local pages = {}
+    local pageChoices = {}
+    local blankChoice = makeBlankChoice()
+    choiceCount = 0
+
+    -- Build the pages.
+    for _, choice in ipairs( allChoices ) do
+        if choiceCount == choicesPerPage then
+            table.insert( pages, pageChoices )
+            pageChoices = {}
+            choiceCount = 0
+        end
+
+        table.insert( pageChoices, choice )
+        choiceCount = choiceCount + 1
+    end
+
+    -- Need to add placeholder choices to the last page if it doesn't have the minimum of 3.
+    if choiceCount < choicesPerPage and ( #pages == 0 or choiceCount ~= 0 ) then
+        for _ = choiceCount, choicesPerPage - 1 do
+            table.insert( pageChoices, blankChoice )
+        end
+
+        choiceCount = choicesPerPage
+    end
+
+    -- Add the last page if it's not empty.
+    if choiceCount ~= 0 then
+        table.insert( pages, pageChoices )
+    end
+
+    local spellMenu = GlobalRadialMenu:new( "LKL_Spellbook_SpellMenu", "Spellbook", pages, 30000 )
+    spellbook.spellMenu = spellMenu
+
+
+    hook.add( "LKL_RadialMenu_InputPressed", "LKL_Spellbook_SpellMenuKeyPress", function( menu, key )
+        if menu ~= spellMenu then return end
+
+        if key == spellbook.SUMMON_KEY then
+            spellbook.setSummoned( not spellbook.summoned )
+        elseif key == MOUSE.RIGHT then
+            -- Allow passive spells to be toggled directly from the radial menu with right click.
+            local choiceInd = RadialMenu:getHoveredInd()
+            if not choiceInd then return end
+
+            local choiceIndToSpellID = choiceToSpellID[spellMenu:getCurPageInd()]
+            local spellID = choiceIndToSpellID[choiceInd]
+            if not spellID then return end
+
+            local spell = spellbook.spells[spellID]
+            if not spell:isInstanceOf( PassiveSpell ) then return end
+
+            spell:setActive( not spell:isActive() )
+        end
+    end )
+
+    hook.add( "LKL_Spellbook_Spell_NameChanged", "LKL_Spellbook_UpdateSpellMenu", function( spellID )
+        local pageInd, choiceInd = unpack( spellToChoiceID[spellID] )
+
+        spellMenu:editChoice( pageInd, choiceInd, makeSpellChoice( spellbook.spells[spellID], spellID ) )
+    end )
+
+    hook.add( "LKL_Spellbook_Spell_ColorChanged", "LKL_Spellbook_UpdateSpellMenu", function( spellID )
+        local pageInd, choiceInd = unpack( spellToChoiceID[spellID] )
+
+        spellMenu:editChoice( pageInd, choiceInd, makeSpellChoice( spellbook.spells[spellID], spellID ) )
+    end )
+end

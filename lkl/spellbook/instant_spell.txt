@@ -1,0 +1,54 @@
+--@name Instant Spell
+--@author legokidlogan
+--@shared
+
+if InstantSpell then return end
+
+InstantSpell = class( "InstantSpell", Spell )
+
+
+----- STATIC FUNCTIONS -----
+
+function InstantSpell:initialize( params )
+    InstantSpell.super.initialize( self, params )
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+function InstantSpell:onCast( _strength, _castTime )
+    -- Called in all relams.
+end
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+
+function InstantSpell:onKeyPress( key )
+    if SERVER then return end
+    if key ~= IN_KEY.ATTACK then return end
+
+    if spellbook.mana >= self:getManaCost() then
+        if self:checkCooldowns() then
+            self:cast()
+        else
+            self:playCooldownSound()
+        end
+    else
+        self:startManaWarning( 1.5 )
+        self:fumble( "Mana", true )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+
+
+----- SETUP -----
+
+

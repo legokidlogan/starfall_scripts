@@ -1,0 +1,61 @@
+--@name Mana Dump
+--@author legokidlogan
+--@shared
+
+
+--[[
+    - Test spell used for draining mana as a charged spell.
+--]]
+
+
+local spellDesc =
+[[Test spell.
+Drains a large amount of mana when cast.]]
+
+local spell = ChargedSpell:new( {
+    name = "Mana Dump",
+    description = spellDesc,
+    manaCost = 50,
+    manaCostActive = 0,
+    spellCooldown = 3,
+    globalCooldown = 0.5,
+    cooldownResetsOnRespawn = true,
+    color = Color( 40, 0.97, 0.48 ), -- HSV.
+    nameColorUnhovered = Color( 0, 0, 1, 255 ), -- HSV, set hue to -1 to copy from color.
+    nameColorHovered = Color( 0, 0, 1, 255 ), -- HSV, set hue to -1 to copy from color.
+
+    chargeMax = 3,
+    chargeThreshold = 0.25,
+
+    iconURL = "",
+    iconUseColor = true,
+} )
+
+function spell:onStartCharging( startTime )
+end
+
+function spell:onCast( strength )
+    print( "Dumped " .. ( strength * self:getManaCost() ) .. " mana!" )
+end
+
+function spell:onFumble( fumbleTime )
+    print( "Fumbled mana dump!" )
+end
+
+function spell:think()
+    if SERVER or player() ~= owner() then return end
+    if not self:isCharging() then return end
+
+    local now = timer.curtime()
+    if ( self._nextChargeStepSound or 0 ) > now then return end
+
+    self._nextChargeStepSound = now + 0.1
+
+    local strength = self:getChargeStrength()
+
+    owner():emitSound( "buttons/combine_button2.wav", 75, math.lerp( strength, 50, 255 ), 1 )
+end
+
+
+
+return spell

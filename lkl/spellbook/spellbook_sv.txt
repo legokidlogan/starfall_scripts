@@ -1,0 +1,177 @@
+--@name spellbook_sv
+--@author legokidlogan and shrooblooms
+--@server
+
+
+local VECTOR_ZERO = Vector( 0, 0, 0 )
+local COLOR_EMPTY = Color( 0, 0, 0, 0 )
+
+local traceIgnoreEnts = { owner() }
+local traceIgnoreLookup = { [owner()] = true }
+
+-- For playing serverside sounds directly on top of the owner, since the chip doesn't have toolgun perms on players.
+local ownerSoundHolo = hologram.create( owner():getShootPos(), owner():getEyeAngles(), "models/hunter/blocks/cube025x025x025.mdl", VECTOR_ZERO )
+ownerSoundHolo:setMaterial( "engine/writez" )
+ownerSoundHolo:setColor( COLOR_EMPTY )
+ownerSoundHolo:setParent( owner(), owner():lookupAttachment( "forward" ) )
+
+
+----- GLOBAL FUNCTIONS -----
+
+function spellbook.playOwnerSound( snd, level, pitch, vol, channel )
+    ownerSoundHolo:emitSound( snd, level, pitch, vol, channel )
+end
+
+function spellbook.getOwnerSoundHolo()
+    return ownerSoundHolo
+end
+
+--[[
+    - Uses a bullet to deal damage to an entity.
+
+    target: Entity
+        - The entity to deal damage to.
+    damage: number
+        - The amount of damage to deal.
+    dir: (optional) Vector
+        - The direction of the bullet.
+        - Defaults to 0,0,1.
+    force: (optional) number
+        - The force of the bullet.
+        - Defaults to 0.
+    hitPos: (optional) Vector
+        - The position to start the bullet from.
+        - If the line to hitPos + dir * 10 doesn't intersect the target, this will silently fail!
+    hullSize: (optional) number
+        - The hull size of the bullet.
+        - Defaults to 1.
+--]]
+function spellbook.hurtEntity( target, damage, dir, force, hitPos, hullSize )
+    if not game.canFireBullets( damage, 1 ) then return end
+
+    --[[ -- Doesn't seem to work, need to figure out a good way to hurt people in vehicles.
+    if target:isPlayer() and target:inVehicle() then
+        target = target:getVehicle()
+    end
+    --]]
+
+    game.bulletDamage( hitPos or target:obbCenterW(), dir or Vector( 0, 0, 1 ), damage, 1, force or 0, 10, VECTOR_ZERO, hullSize or 1, owner() )
+
+    return true
+end
+
+function spellbook.spendMana( amount )
+    net.start( "LKL_Spellbook_SpendMana" )
+    net.writeFloat( amount )
+    net.send( owner() )
+end
+
+function spellbook.setSpellCooldown( spellID, duration )
+    net.start( "LKL_Spellbook_SetSpellCooldown" )
+    net.writeUInt( spellID, 16 )
+    net.writeFloat( timer.curtime() + duration )
+    net.send( owner() )
+end
+
+function spellbook.setGlobalCooldown( duration )
+    net.start( "LKL_Spellbook_SetGlobalCooldown" )
+    net.writeFloat( timer.curtime() + duration )
+    net.send( owner() )
+end
+
+-- For spells that create objects that various spells might need to trace through, like shields.
+-- Networked to the owner, but not the other players.
+function spellbook.addTraceIgnoreEnt( ent )
+    if not isValid( ent ) then return end
+    if traceIgnoreLookup[ent] then return end
+
+    table.insert( traceIgnoreEnts, ent )
+    traceIgnoreLookup[ent] = true
+
+    net.start( "LKL_Spellbook_AddTraceIgnoreEnt" )
+    net.writeEntity( ent )
+    net.send( owner() )
+end
+
+function spellbook.removeTraceIgnoreEnt( ent )
+    if not traceIgnoreLookup[ent] then return end
+
+    table.removeByValue( traceIgnoreEnts, ent )
+    traceIgnoreLookup[ent] = nil
+
+    if isValid( ent ) then
+        net.start( "LKL_Spellbook_RemoveTraceIgnoreEnt" )
+        net.writeEntity( ent )
+        net.send( owner() )
+    end
+end
+
+-- Returns by reference, do not modify.
+function spellbook.getTraceIgnoreEnts()
+    return traceIgnoreEnts
+end
+
+-- Returns by reference, do not modify.
+function spellbook.getTraceIgnoreEntLookup()
+    return traceIgnoreLookup
+end
+
+function spellbook.clearTraceIgnoreEnts()
+    traceIgnoreEnts = {}
+    traceIgnoreLookup = {}
+end
+
+
+----- SETUP -----
+
+hook.add( "think", "LKL_Spellbook_Think", function()
+    if spellbook.summoned then
+        local wep = owner():getActiveWeapon()
+        spellbook.open = isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS
+    end
+end )
+
+hook.add( "ClientInitialized", "LKL_Spellbook_DefineOwnerSoundHolo", function( ply )
+    if ply ~= owner() then return end
+
+    timer.simple( 0.5, function()
+        net.start( "LKL_Spellbook_DefineOwnerSoundHolo" )
+        net.writeEntity( ownerSoundHolo )
+        net.send( ply )
+    end )
+end )
+
+hook.add( "ClientInitialized", "LKL_Spellbook_ClientInit", function( ply )
+    if ply == owner() then return end
+
+    timer.simple( 1, function()
+        if not isValid( ply ) then return end
+
+        net.start( "LKL_Spellbook_SetSummoned" )
+        net.writeBool( spellbook.summoned )
+        net.send( ply )
+
+        net.start( "LKL_Spellbook_SelectSpell" )
+        net.writeUInt( spellbook.selectedSpellID, 16 )
+        net.send( ply )
+    end )
+end )
+
+hook.add( "EntityRemoved", "LKL_Sellbook_RemoveFromTraceIgnore", function( ent )
+    if not traceIgnoreLookup[ent] then return end
+
+    table.removeByValue( traceIgnoreEnts, ent )
+    traceIgnoreLookup[ent] = nil
+end )
+
+hook.add( "PlayerSpawn", "LKL_Spellbook_ReplenishMana", function( ply )
+    if ply ~= owner() then return end
+
+    local now = timer.curtime()
+
+    net.start( "LKL_Spellbook_OwnerRespawned" )
+    net.writeFloat( now )
+    net.send()
+
+    hook.run( "LKL_Spellbook_OwnerRespawned", now )
+end )
