@@ -1,0 +1,392 @@
+--@name Text Mesh
+--@author legokidlogan
+--@client
+
+--[[
+    - A library which turns strings of (multi-colored) text into meshes to use with holograms.
+    - Requires the SProps model addon.
+    - Useful for creating 3D text without a HUD, screen, or more than one holo per chunk of text.
+--]]
+
+
+textMesh = textMesh or {}
+
+local TEXT_ALIGN_LEFT = TEXT_ALIGN.LEFT
+local TEXT_ALIGN_CENTER = TEXT_ALIGN.CENTER
+local TEXT_ALIGN_RIGHT = TEXT_ALIGN.RIGHT
+local TEXT_ALIGN_TOP = TEXT_ALIGN.TOP
+local TEXT_ALIGN_BOTTOM = TEXT_ALIGN.BOTTOM
+
+local perfLimitLow = 0
+local perfLimitHigh = 0
+local coroutines = {}
+local baseSizeDivX = 1 / 12.5
+local baseSizeDivY = 1 / 3.5
+local baseSizeDivZ = 1 / 12.5
+local spacing = 1 * baseSizeDivX
+local batchSizeCreate = 50
+local batchSizeGetTris = 40
+local matVertColor = nil
+local matVertColorName = nil
+local charToTris = {
+    [" "] = {}
+}
+local charToScale = {
+    [" "] = Vector( 0.5 )
+}
+
+local charToModel = {
+    ["0"] = "0", ["1"] = "1", ["2"] = "2", ["3"] = "3", ["4"] = "4", ["5"] = "5", ["6"] = "6", ["7"] = "7", ["8"] = "8", ["9"] = "9",
+    ["A"] = "a", ["B"] = "b", ["C"] = "c", ["D"] = "d", ["E"] = "e", ["F"] = "f", ["G"] = "g", ["H"] = "h", ["I"] = "i", ["J"] = "j", ["K"] = "k", ["L"] = "l", ["M"] = "m", ["N"] = "n", ["O"] = "o", ["P"] = "p", ["Q"] = "q", ["R"] = "r", ["S"] = "s", ["T"] = "t", ["U"] = "u", ["V"] = "v", ["W"] = "w", ["X"] = "x", ["Y"] = "y", ["Z"] = "z",
+    ["a"] = "l_a", ["b"] = "l_b", ["c"] = "l_c", ["d"] = "l_d", ["e"] = "l_e", ["f"] = "l_f", ["g"] = "l_g", ["h"] = "l_h", ["i"] = "l_i", ["j"] = "l_j", ["k"] = "l_k", ["l"] = "l_l", ["m"] = "l_m", ["n"] = "l_n", ["o"] = "l_o", ["p"] = "l_p", ["q"] = "l_q", ["r"] = "l_r", ["s"] = "l_s", ["t"] = "l_t", ["u"] = "l_u", ["v"] = "l_v", ["w"] = "l_w", ["x"] = "l_x", ["y"] = "l_y", ["z"] = "l_z",
+    ["."] = "prd", [","] = "com", [":"] = "colon", [";"] = "scolon", ["?"] = "qmark", ["!"] = "xmark", ["\""] = "quote", ["~"] = "tilde", ["<"] = "lessthan", [">"] = "greaterthan", ["_"] = "underscore", ["@"] = "atsign", ["#"] = "pdsign", ["$"] = "dsign", ["%"] = "pcnt", ["^"] = "crt", ["&"] = "and", ["'"] = "apost", ["("] = "lpar", [")"] = "rpar", ["["] = "lbracket", ["]"] = "rbracket", ["{"] = "lcbracket", ["}"] = "rcbracket", ["|"] = "bar", ["+"] = "plu", ["-"] = "min", ["*"] = "ast", ["/"] = "div", ["="] = "equal",
+}
+
+local checkPerfLow
+local checkPerfHigh
+local getCharInfo
+
+
+----- GLOBAL FUNCTIONS -----
+
+--[[
+    - Creates a mesh from a string of characters.
+    - Currently does not support newlines.
+    - Be sure to :destroy() the mesh when you are completely done with it.
+
+    height: number
+        - The font height in world units.
+    depth: number
+        - The mesh depth in world units.
+    str: string or table
+        - The string to create the mesh from.
+        - If a table, must be an alternating list of colors and strings.
+        - Example: { Color( 255, 0, 0 ), "Hello", Color( 0, 255, 0 ), "World" } will create a red "Hello" and a green "World".
+    alignHoriz: number or nil
+        - The horizontal alignment of the text.
+        - Can be TEXT_ALIGN.LEFT, TEXT_ALIGN.CENTER, or TEXT_ALIGN.RIGHT.
+        - Defaults to TEXT_ALIGN_.CENTER.
+    alignVert: number or nil
+        - The vertical alignment of the text.
+        - Can be TEXT_ALIGN.TOP, TEXT_ALIGN.CENTER, or TEXT_ALIGN.BOTTOM.
+        - Defaults to TEXT_ALIGN_.CENTER.
+    callback: function
+        - The function to call when the mesh is created.
+        - Will be passed meshObj, obbMins, obbMaxs, width, height.
+        - width and height can be used similarly as in render.getTextSize().
+--]]
+function textMesh.createMesh( height, depth, str, alignHoriz, alignVert, callback )
+    alignHoriz = alignHoriz or TEXT_ALIGN_CENTER
+    alignVert = alignVert or TEXT_ALIGN_CENTER
+
+    if type( height ) ~= "number" then error( "Expected height to be a number" ) end
+    if type( depth ) ~= "number" then error( "Expected depth to be a number" ) end
+    if type( str ) ~= "string" and type( str ) ~= "table" then error( "Expected str to be a string or table" ) end
+    if type( alignHoriz ) ~= "number" then error( "Expected alignHoriz to be a number or nil" ) end
+    if type( alignVert ) ~= "number" then error( "Expected alignVert to be a number or nil" ) end
+    if type( callback ) ~= "function" then error( "Expected callback to be a function" ) end
+
+    local colors = false
+
+    -- Accumulate colors before starting the coroutine so we can type check immediately, and in case the table is modified after calling this function.
+    if type( str ) == "table" then
+        local strParts = str
+
+        colors = {}
+        str = ""
+
+        for i = 1, #strParts, 2 do
+            local partColor = strParts[i]
+            local partStr = strParts[i + 1]
+
+            if type( partColor ) ~= "Color" then error( "Expected str to be an alternating list of colors and strings" ) end
+            if type( partStr ) ~= "string" then error( "Expected str to be an alternating list of colors and strings" ) end
+
+            str = str .. partStr
+            partColor = partColor:clone() -- Make a clone in case the color is modified externally while the coroutine runs.
+
+            for _ = 1, #partStr do
+                table.insert( colors, partColor )
+            end
+        end
+    end
+
+    local cr = coroutine.wrap( function()
+        local triSets = {}
+        local scaleSets = {}
+        local trisCombined = {}
+        local numChars = #str
+        local widthUnscaled = 0
+
+        for i = 1, numChars do
+            local char = str:sub( i, i )
+            local tris, scale = getCharInfo( char )
+
+            table.insert( triSets, tris )
+            table.insert( scaleSets, scale )
+            widthUnscaled = widthUnscaled + scale[2]
+        end
+
+        local widthScaled = widthUnscaled * height
+        local offsetY = 0
+        local offsetZ = 0
+
+        if alignHoriz == TEXT_ALIGN_LEFT then
+            offsetY = 0
+        elseif alignHoriz == TEXT_ALIGN_RIGHT then
+            offsetY = -widthScaled
+        elseif alignHoriz == TEXT_ALIGN_CENTER then
+            offsetY = scaleSets[1][2] * height / 2 - widthScaled / 2
+        end
+
+        if alignVert == TEXT_ALIGN_TOP then
+            offsetZ = -height / 2
+        elseif alignVert == TEXT_ALIGN_BOTTOM then
+            offsetZ = height / 2
+        end
+
+        for i, tris in ipairs( triSets ) do
+            local scale = scaleSets[i]
+            local width = scale[2] * height
+            local color = colors and colors[i] or nil
+
+            for i2, vert in ipairs( tris ) do
+                if i2 % batchSizeCreate == 0 then
+                    checkPerfHigh()
+                end
+
+                local pos = vert.pos
+
+                table.insert( trisCombined, {
+                    pos = Vector( pos[1] * depth, pos[2] * height + offsetY, pos[3] * height + offsetZ ),
+                    normal = vert.normal,
+                    u = vert.u,
+                    v = vert.v,
+                    color = color,
+                } )
+            end
+
+            offsetY = offsetY + width
+        end
+
+        checkPerfLow()
+
+        local meshObj
+
+        while not meshObj do
+            meshObj = mesh.createFromTable( trisCombined, true )
+        end
+
+        checkPerfLow()
+
+        local obbMins = Vector( -depth / 2, -widthScaled / 2, -height / 2 )
+        local obbMaxs = Vector( -depth / 2, widthScaled / 2, -height / 2 )
+
+        if alignHoriz == TEXT_ALIGN_LEFT then
+            obbMins[2] = 0
+            obbMaxs[2] = widthScaled
+        elseif alignHoriz == TEXT_ALIGN_RIGHT then
+            obbMins[2] = -widthScaled
+            obbMaxs[2] = 0
+        end
+
+        if alignVert == TEXT_ALIGN_TOP then
+            obbMins[3] = height
+            obbMaxs[3] = 0
+        elseif alignVert == TEXT_ALIGN_BOTTOM then
+            obbMins[3] = 0
+            obbMaxs[3] = height
+        end
+
+        return meshObj, obbMins, obbMaxs, widthScaled, height
+    end )
+
+    table.insert( coroutines, {
+        cr = cr,
+        callback = callback,
+    } )
+end
+
+--[[
+    - Creates and returns a hologram with the given mesh object.
+
+    pos: Vector
+        - The position of the hologram.
+    ang: Angle
+        - The angle of the hologram.
+    meshObj: Mesh
+        - The mesh object to use for the hologram.
+        - Can be taken from the callback of textMesh.createMesh().
+    obbMins: (optional) Vector
+        - The local minimum bounds of the hologram.
+        - Can be taken from the callback of textMesh.createMesh().
+    obbMaxs: (optional) Vector
+        - The local maximum bounds of the hologram.
+        - Can be taken from the callback of textMesh.createMesh().
+    useVertexColor: (optional) boolean
+        - If your text used colors, pass this as true to make it display them.
+        - This will apply an UnlitGeneric material with vertex color enabled.
+        - Defaults to false.
+--]]
+function textMesh.createHolo( pos, ang, meshObj, obbMins, obbMaxs, useVertexColor )
+    local holo = hologram.create( pos, ang, "models/hunter/blocks/cube1x1x1.mdl" )
+    holo:setMesh( meshObj )
+
+    if obbMins and obbMaxs then
+        holo:setRenderBounds( obbMins, obbMaxs )
+    end
+
+    if useVertexColor then
+        textMesh.applyVertexColor( holo )
+    end
+
+    return holo
+end
+
+-- Applies an UnlitGeneric material with vertex color enabled to the hologram.
+function textMesh.applyVertexColor( holo )
+    matVertColor = material.create( "UnlitGeneric" )
+    matVertColor:setInt( "$flags", 16 + 2048 )
+
+    matVertColorName = "!" .. matVertColor:getName()
+
+    textMesh.applyVertexColor = function( h )
+        h:setMaterial( matVertColorName )
+    end
+
+    textMesh.applyVertexColor( holo )
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+checkPerfLow = function()
+    while cpuAverage() > perfLimitLow do
+        coroutine.yield()
+    end
+end
+
+checkPerfHigh = function()
+    while cpuAverage() > perfLimitHigh do
+        coroutine.yield()
+    end
+end
+
+getCharInfo = function( char )
+    if charToTris[char] == nil then
+        charToTris[char] = -1
+        checkPerfHigh()
+
+        if not charToModel[char] then
+            charToTris[char] = {}
+            charToScale[char] = Vector( 0 )
+
+            return charToTris[char], charToScale[char]
+        end
+
+        local model = "models/sprops/misc/alphanum/alphanum_" .. charToModel[char] .. ".mdl"
+        local holo = hologram.create( Vector(), Angle(), model )
+        local size = holo:obbSize()
+
+        size[1] = size[1] * baseSizeDivX
+        size[2] = size[2] * baseSizeDivY
+        size[3] = size[3] * baseSizeDivZ
+        size[1], size[2] = size[2], size[1] -- Swap x and y axes to fix sprops model axes.
+
+        charToScale[char] = size
+        holo:remove()
+
+        local trisCombined = {}
+        local yMin = 10000
+        local yMax = -10000
+
+        checkPerfLow()
+
+        for _, meshInfo in ipairs( mesh.getModelMeshes( model ) ) do
+            checkPerfLow()
+
+            local tris = meshInfo.triangles
+
+            for i, vert in ipairs( tris ) do
+                if i % batchSizeGetTris == 0 then
+                    checkPerfHigh()
+                end
+
+                local pos = vert.pos
+                local x = pos[1]
+                local y = pos[2]
+                local normal = vert.normal
+
+                vert.weights = nil
+                vert.userdata = nil
+
+                -- Rotate by -90 degrees to fix base model axes.
+                x, y = y * baseSizeDivY, -x * baseSizeDivX
+                normal[1], normal[2] = normal[2], -normal[1]
+
+                local z = pos[3] * baseSizeDivZ
+
+                pos[1] = x
+                pos[2] = y
+                pos[3] = z
+
+                table.insert( trisCombined, vert )
+
+                if y < yMin then
+                    yMin = y
+                end
+
+                if y > yMax then
+                    yMax = y
+                end
+            end
+        end
+
+        -- Sprops has really wide gaps in the model obb to try and force monospacing without having visually monospaced letters.
+        -- So, need to find the actual mesh bounds, give our own spacing, and change the obb to match.
+        local width = yMax - yMin + spacing * 2
+        local widthHalf = width / 2
+
+        size[2] = width
+
+        for i, vert in ipairs( trisCombined ) do
+            if i % batchSizeGetTris == 0 then
+                checkPerfHigh()
+            end
+
+            local pos = vert.pos
+            pos[2] = pos[2] + widthHalf
+        end
+
+        charToTris[char] = trisCombined
+    end
+
+    while charToTris[char] == -1 do
+        coroutine.yeild()
+    end
+
+    return charToTris[char], charToScale[char]
+end
+
+
+----- SETUP -----
+
+hook.add( "think", "LKL_TextMesh_HandleCoroutines", function()
+    if #coroutines == 0 then return end
+
+    local otherPerf = cpuTotalAverage() - cpuAverage()
+
+    perfLimitLow = cpuMax() * 0.25 - otherPerf
+    perfLimitHigh = cpuMax() * 0.75 - otherPerf
+
+    while true do
+        local crInfo = coroutines[1]
+        if not crInfo then break end
+
+        local meshObj, obbMins, obbMaxs, width, height = crInfo.cr()
+        if not obbMins then break end -- mesh.createFromTable() will yield a number when incomplete, so check a different return value.
+
+        crInfo.callback( meshObj, obbMins, obbMaxs, width, height )
+        table.remove( coroutines, 1 )
+    end
+end )
