@@ -54,23 +54,23 @@ local getCharInfo
     - Currently does not support newlines.
     - Be sure to :destroy() the mesh when you are completely done with it.
 
-    height: number
+    height: (number)
         - The font height in world units.
-    depth: number
+    depth: (number)
         - The mesh depth in world units.
-    str: string or table
+    str: (string or table)
         - The string to create the mesh from.
         - If a table, must be an alternating list of colors and strings.
         - Example: { Color( 255, 0, 0 ), "Hello", Color( 0, 255, 0 ), "World" } will create a red "Hello" and a green "World".
-    alignHoriz: number or nil
+    alignHoriz: (number or nil)
         - The horizontal alignment of the text.
         - Can be TEXT_ALIGN.LEFT, TEXT_ALIGN.CENTER, or TEXT_ALIGN.RIGHT.
         - Defaults to TEXT_ALIGN_.CENTER.
-    alignVert: number or nil
+    alignVert: (number or nil)
         - The vertical alignment of the text.
         - Can be TEXT_ALIGN.TOP, TEXT_ALIGN.CENTER, or TEXT_ALIGN.BOTTOM.
         - Defaults to TEXT_ALIGN_.CENTER.
-    callback: function
+    callback: (function)
         - The function to call when the mesh is created.
         - Will be passed meshObj, obbMins, obbMaxs, width, height.
         - width and height can be used similarly as in render.getTextSize().
@@ -210,20 +210,20 @@ end
 --[[
     - Creates and returns a hologram with the given mesh object.
 
-    pos: Vector
+    pos: (Vector)
         - The position of the hologram.
-    ang: Angle
+    ang: (Angle)
         - The angle of the hologram.
-    meshObj: Mesh
+    meshObj: (Mesh)
         - The mesh object to use for the hologram.
         - Can be taken from the callback of textMesh.createMesh().
-    obbMins: (optional) Vector
+    obbMins: (optional) (Vector)
         - The local minimum bounds of the hologram.
         - Can be taken from the callback of textMesh.createMesh().
-    obbMaxs: (optional) Vector
+    obbMaxs: (optional) (Vector)
         - The local maximum bounds of the hologram.
         - Can be taken from the callback of textMesh.createMesh().
-    useVertexColor: (optional) boolean
+    useVertexColor: (optional) (boolean)
         - If your text used colors, pass this as true to make it display them.
         - This will apply an UnlitGeneric material with vertex color enabled.
         - Defaults to false.
