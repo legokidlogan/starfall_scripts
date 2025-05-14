@@ -10,12 +10,15 @@
 
 
 textMesh = textMesh or {}
+textMesh.MESH_EMPTY = textMesh.MESH_EMPTY or {}
 
 local TEXT_ALIGN_LEFT = TEXT_ALIGN.LEFT
 local TEXT_ALIGN_CENTER = TEXT_ALIGN.CENTER
 local TEXT_ALIGN_RIGHT = TEXT_ALIGN.RIGHT
 local TEXT_ALIGN_TOP = TEXT_ALIGN.TOP
 local TEXT_ALIGN_BOTTOM = TEXT_ALIGN.BOTTOM
+
+local MESH_EMPTY = textMesh.MESH_EMPTY
 
 local perfLimitLow = 0
 local perfLimitHigh = 0
@@ -53,6 +56,9 @@ local getCharInfo
     - Creates a mesh from a string of characters.
     - Currently does not support newlines.
     - Be sure to :destroy() the mesh when you are completely done with it.
+    - If the string is empty, textMesh.MESH_EMPTY will be provided instead of an actual mesh object.
+        - This is not a real mesh object, and shouldn't be used directly.
+        - When passed to textMesh.createHolo(), it will result in an invisible hologram.
 
     height: (number)
         - The font height in world units.
@@ -112,6 +118,8 @@ function textMesh.createMesh( height, depth, str, alignHoriz, alignVert, callbac
     end
 
     local cr = coroutine.wrap( function()
+        if #str == 0 then return MESH_EMPTY, Vector(), Vector(), 0, height end
+
         local triSets = {}
         local scaleSets = {}
         local trisCombined = {}
@@ -229,6 +237,8 @@ end
         - Defaults to false.
 --]]
 function textMesh.createHolo( pos, ang, meshObj, obbMins, obbMaxs, useVertexColor )
+    if meshObj == MESH_EMPTY then return hologram.create( pos, ang, "models/sprops/misc/empty.mdl" ) end
+
     local holo = hologram.create( pos, ang, "models/hunter/blocks/cube1x1x1.mdl" )
     holo:setMesh( meshObj )
 
