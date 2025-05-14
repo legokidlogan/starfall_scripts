@@ -1,0 +1,824 @@
+--@name Zone Marker
+--@author legokidlogan
+--@shared
+--@include lkl/destroyable.txt
+--@include lkl/math/vector_math.txt
+--@include lkl/box_selector.txt
+
+if ZoneMarker then return end
+
+require( "lkl/destroyable.txt" )
+require( "lkl/math/vector_math.txt" )
+
+if SERVER then
+    require( "lkl/box_selector.txt" )
+end
+
+
+ZoneMarker = class( "ZoneMarker", Destroyable )
+
+-- These values can be changed only during the first tick of including this library, and cannot be changed by subclasses.
+ZoneMarker.static.DISC_SEGMENTS = 32
+ZoneMarker.static.DISC_INNER_ALPHA = 100
+
+-- These values can be changed per-instance at any time, from eithe realm.
+ZoneMarker.static.DISC_COLOR = Color( 255, 255, 255, 255 )
+ZoneMarker.static.DISC_RADIUS = 300
+ZoneMarker.static.DIST_MIN = 200
+ZoneMarker.static.DIST_MAX = 1000
+
+
+local VECTOR_ZERO = Vector( 0 )
+local VECTOR_PX = Vector( 1, 0, 0 )
+local VECTOR_NX = Vector( -1, 0, 0 )
+local VECTOR_PY = Vector( 0, 1, 0 )
+local VECTOR_NY = Vector( 0, -1, 0 )
+local VECTOR_PZ = Vector( 0, 0, 1 )
+local VECTOR_NZ = Vector( 0, 0, -1 )
+
+local ANGLE_ZERO = Angle( 0 )
+local ANGLE_PX = Angle( 0, 0, 0 )
+local ANGLE_NX = Angle( 0, 180, 0 )
+local ANGLE_PY = Angle( 0, 90, 0 )
+local ANGLE_NY = Angle( 0, -90, 0 )
+local ANGLE_PZ = Angle( -90, 180, 180 )
+local ANGLE_NZ = Angle( 90, 180, 180 )
+
+local allZones = {}
+local allZonesByID = {}
+
+local zoneIncr = 0
+local initializedPlys = {}
+local initializedPlyLookup = {}
+
+local discMesh = nil
+local discMatName = nil
+local discRenderBoundsMin = nil
+local discRenderBoundsMax = nil
+local tempVec = Vector() -- For reducing memory waste on rapidly-changing vectors.
+
+local validateInitializedPlayers
+
+local makeDiscHolos
+local applyClips
+local applyClipsAll
+
+
+----- STATIC FUNCTIONS -----
+
+--[[
+    - Creates a new ZoneMarker.
+    - Do NOT call this manually on the client.
+    - Subclasses should not add or remove any of the parameters in this function.
+        - If a subclass needs to network extra info on init, see :handleNetInit().
+        - Note that, on client, the corners will be defaulted until shortly after :handleNetInit() is called.
+    - Subclasses should not modify this function in the client realm, but server is fine.
+
+    corner1: (optional) (Vector)
+        - The first corner of the zone.
+        - Defaults to Vector( 0, 0, 0 ).
+    corner2: (optional) (Vector)
+        - The second corner of the zone.
+        - Defaults to Vector( 0, 0, 0 ).
+--]]
+function ZoneMarker:initialize( corner1, corner2 )
+    corner1 = corner1 or VECTOR_ZERO
+    corner2 = corner2 or VECTOR_ZERO
+
+    if type( corner1 ) ~= "Vector" then error( "Expected corner1 to be a Vector or nil" ) end
+    if type( corner2 ) ~= "Vector" then error( "Expected corner2 to be a Vector or nil" ) end
+
+    self._discColor = self.class.DISC_COLOR:clone()
+    self._discRadius = self.class.DISC_RADIUS
+    self._distMin = self.class.DIST_MIN
+    self._distMax = self.class.DIST_MAX
+
+    self._corner1 = corner1:clone()
+    self._corner2 = corner2:clone()
+
+    self._sideVisibility = {
+        [1] = true,
+        [2] = true,
+        [3] = true,
+        [4] = true,
+        [5] = true,
+        [6] = true,
+    }
+
+    if CLIENT then
+        self._discColorCopy = self._discColor:clone()
+        self._discAlpha = self._discColor.a
+
+        makeDiscHolos( self )
+
+        return
+    end
+
+    table.insert( allZones, self )
+    zoneIncr = zoneIncr + 1
+    self._id = zoneIncr
+    allZonesByID[zoneIncr] = self
+
+    self:_netInit( initializedPlys )
+end
+
+function ZoneMarker.static:getByID( id )
+    return allZonesByID[id]
+end
+
+-- Returns by reference. Do not modify.
+function ZoneMarker.static:getAll()
+    return allZones
+end
+
+
+----- INSTANCE FUNCTIONS -----
+
+if SERVER then
+    --[[
+        - Uses boxSelector to select the corners of the zone.
+        - Runs c1, c2 = cbAdjust( minBounds, maxBounds ) to allow you to adjust the corners before setting them.
+            - Return nil to not adjust one of the corners.
+        - Runs cbFinished( success ) when finished selecting and setting the corners.
+    --]]
+    function ZoneMarker:setCornersWithBoxSelector( cbAdjust, cbFinished )
+        cbAdjust = cbAdjust or function() end
+        cbFinished = cbFinished or function() end
+
+        boxSelector.startSelecting( function( success, _, _, minBounds, maxBounds )
+            if not success then
+                cbFinished( false )
+
+                return
+            end
+
+            local corner1, corner2 = cbAdjust( minBounds, maxBounds )
+
+            if corner1 then
+                minBounds = corner1
+            end
+
+            if corner2 then
+                maxBounds = corner2
+            end
+
+            self:setCorners( minBounds, maxBounds )
+            cbFinished( true )
+        end )
+    end
+else
+    --[[
+        - Attaches a hologram to one of the six discs of the zone.
+        - The hologram cannot have children of its own.
+        - The hologram's alpha will automatically be adjusted based on the player's camera position.
+        - Holograms attached to discs will be destroyed when the zone is destroyed.
+        - Clip indices 1-6 of the hologram will be overridden.
+        - discInd 1-6 corresponds with +x, -x, +y, -y, +z, -z respectively.
+    --]]
+    function ZoneMarker:addDiscChild( discInd, holo, localPos, localAng )
+        if type( discInd ) ~= "number" then error( "Expected discInd to be a number" ) end
+        if math.floor( discInd ) ~= discInd then error( "Expected discInd to be an integer" ) end
+        if discInd < 1 or discInd > 6 then error( "discInd must be between 1 and 6" ) end
+        if type( holo ) ~= "Hologram" then error( "Expected holo to be a Hologram" ) end
+        if type( localPos ) ~= "Vector" then error( "Expected localPos to be a Vector" ) end
+        if type( localAng ) ~= "Angle" then error( "Expected localAng to be an Angle" ) end
+
+        if holo._zoneMarker_DiscInd then
+            local zone = holo._zoneMarker_ParentZone
+
+            if isValid( zone ) then
+                zone:removeDiscChild( holo )
+            end
+        end
+
+        local discHolo = self._discHolos[discInd]
+        local pos, ang = localToWorld( localPos, localAng, discHolo:getPos(), discHolo:getAngles() )
+
+        holo._zoneMarker_Alpha = holo:getColor().a
+        holo._zoneMarker_DiscInd = discInd
+        holo._zoneMarker_ParentZone = self
+
+        holo:setPos( pos )
+        holo:setAngles( ang )
+        holo:setParent( discHolo )
+
+        applyClips( holo, discInd, self:getCenter(), self:getSize() / 2 )
+
+        if discHolo._zoneMarker_IsFar ~= false then
+            holo:setNoDraw( true )
+        end
+
+        table.insert( self._discChildren[discInd], holo )
+    end
+
+    --[[
+        - Detaches a hologram from one of the six discs of the zone.
+        - The hologram will have an unknown :setNoDraw() value after this.
+    --]]
+    function ZoneMarker:removeDiscChild( holo )
+        local discInd = holo._zoneMarker_DiscInd
+        local zone = holo._zoneMarker_ParentZone
+        if zone ~= self then return end
+
+        holo:setParent()
+        holo._zoneMarker_DiscInd = nil
+        holo._zoneMarker_ParentZone = nil
+        holo._zoneMarker_Alpha = nil
+
+        for i = 1, 6 do
+            holo:setClip( i, false )
+        end
+
+        table.removeByValue( self._discChildren[discInd], holo )
+    end
+end
+
+
+function ZoneMarker:getID()
+    return self._id
+end
+
+function ZoneMarker:setCorners( corner1, corner2 )
+    if type( corner1 ) ~= "Vector" then error( "Expected corner1 to be a Vector" ) end
+    if type( corner2 ) ~= "Vector" then error( "Expected corner2 to be a Vector" ) end
+
+    corner1, corner2 = vectorMath.getMinMaxPiecewise( { corner1, corner2 } )
+
+    self._corner1 = corner1
+    self._corner2 = corner2
+
+    if SERVER then
+        net.start( "LKL_ZoneMarker_SetCorners" )
+        net.writeUInt( self._id, 16 )
+        net.writeVector( corner1 )
+        net.writeVector( corner2 )
+        validateInitializedPlayers()
+        net.send( initializedPlys )
+
+        return
+    end
+
+    applyClipsAll( self )
+
+    local center = ( corner1 + corner2 ) / 2
+    local size = corner2 - corner1
+    local sizeHalf = size / 2
+    local discHolos = self._discHolos
+
+    discHolos[1]._zoneMarker_PlaneCenter = center + VECTOR_PX * sizeHalf[1]
+    discHolos[1]._zoneMarker_PlaneNormal = VECTOR_PX
+
+    discHolos[2]._zoneMarker_PlaneCenter = center + VECTOR_NX * sizeHalf[1]
+    discHolos[2]._zoneMarker_PlaneNormal = VECTOR_NX
+
+    discHolos[3]._zoneMarker_PlaneCenter = center + VECTOR_PY * sizeHalf[2]
+    discHolos[3]._zoneMarker_PlaneNormal = VECTOR_PY
+
+    discHolos[4]._zoneMarker_PlaneCenter = center + VECTOR_NY * sizeHalf[2]
+    discHolos[4]._zoneMarker_PlaneNormal = VECTOR_NY
+
+    discHolos[5]._zoneMarker_PlaneCenter = center + VECTOR_PZ * sizeHalf[3]
+    discHolos[5]._zoneMarker_PlaneNormal = VECTOR_PZ
+
+    discHolos[6]._zoneMarker_PlaneCenter = center + VECTOR_NZ * sizeHalf[3]
+    discHolos[6]._zoneMarker_PlaneNormal = VECTOR_NZ
+end
+
+function ZoneMarker:getCorners()
+    return self._corner1:clone(), self._corner2:clone()
+end
+
+function ZoneMarker:getCenter()
+    return ( self._corner1 + self._corner2 ) / 2
+end
+
+function ZoneMarker:getSize()
+    return self._corner2 - self._corner1
+end
+
+function ZoneMarker:isPointInside( pos )
+    return pos:withinAABox( self._corner1, self._corner2 )
+end
+
+function ZoneMarker:setDiscColor( color )
+    if type( color ) ~= "Color" then error( "Expected color to be a Color" ) end
+
+    self._discColor = color:clone()
+
+    if SERVER then
+        net.start( "LKL_ZoneMarker_SetDiscColor" )
+        net.writeUInt( self._id, 16 )
+        net.writeColor( color )
+        validateInitializedPlayers()
+        net.send( initializedPlys )
+
+        return
+    end
+
+    self._discColorCopy = color:clone()
+    self._discAlpha = color.a
+end
+
+function ZoneMarker:getDiscColor()
+    return self._discColor:clone()
+end
+
+function ZoneMarker:setDiscRadius( radius )
+    if type( radius ) ~= "number" then error( "Expected radius to be a number" ) end
+
+    self._discRadius = math.max( 0, radius )
+
+    if SERVER then
+        net.start( "LKL_ZoneMarker_SetDiscRadius" )
+        net.writeUInt( self._id, 16 )
+        net.writeFloat( radius )
+        validateInitializedPlayers()
+        net.send( initializedPlys )
+
+        return
+    end
+end
+
+function ZoneMarker:getDiscRadius()
+    return self._discRadius
+end
+
+function ZoneMarker:setDistMin( distMin )
+    if type( distMin ) ~= "number" then error( "Expected distMin to be a number" ) end
+
+    self._distMin = math.max( 1, distMin )
+
+    if SERVER then
+        net.start( "LKL_ZoneMarker_SetDistMin" )
+        net.writeUInt( self._id, 16 )
+        net.writeFloat( distMin )
+        validateInitializedPlayers()
+        net.send( initializedPlys )
+
+        return
+    end
+end
+
+function ZoneMarker:getDistMin()
+    return self._distMin
+end
+
+function ZoneMarker:setDistMax( distMax )
+    if type( distMax ) ~= "number" then error( "Expected distMax to be a number" ) end
+
+    self._distMax = math.max( 1, distMax )
+
+    if SERVER then
+        net.start( "LKL_ZoneMarker_SetDistMax" )
+        net.writeUInt( self._id, 16 )
+        net.writeFloat( distMax )
+        validateInitializedPlayers()
+        net.send( initializedPlys )
+
+        return
+    end
+
+    for _, holo in ipairs( self._discHolos ) do
+        holo._zoneMarker_IsFar = nil
+    end
+end
+
+function ZoneMarker:getDistMax()
+    return self._distMax
+end
+
+-- Sets whether a side of the zone should have special rendering or not.
+-- Sides 1-6 correspond to +x, -x, +y, -y, +z, -z respectively.
+function ZoneMarker:setSideVisible( side, visible )
+    if type( side ) ~= "number" then error( "Expected side to be a number" ) end
+    if math.floor( side ) ~= side then error( "Expected side to be an integer" ) end
+    if side < 1 or side > 6 then error( "side must be between 1 and 6" ) end
+    if type( visible ) ~= "boolean" then error( "Expected visible to be a boolean" ) end
+
+    self._sideVisibility[side] = visible
+
+    if SERVER then
+        net.start( "LKL_ZoneMarker_SetSideVisible" )
+        net.writeUInt( self._id, 16 )
+        net.writeUInt( side, 3 )
+        net.writeBool( visible )
+        validateInitializedPlayers()
+        net.send( initializedPlys )
+
+        return
+    end
+
+    self._discHolos[side]._zoneMarker_IsFar = nil
+end
+
+function ZoneMarker:getSideVisible( side )
+    if type( side ) ~= "number" then error( "Expected side to be a number" ) end
+    if math.floor( side ) ~= side then error( "Expected side to be an integer" ) end
+    if side < 1 or side > 6 then error( "side must be between 1 and 6" ) end
+
+    return self._sideVisibility[side]
+end
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+--[[
+    - Allows you to handle additional net read/write for initialization of subclasses.
+    - Server should write data, while client should read data and handle ALL subclass-specific initialization here.
+    - Clients will have the corners as (0,0,0) at first, with :setCorners() being called after this function.
+--]]
+function ZoneMarker:handleNetInit()
+end
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function ZoneMarker:onDestroyed()
+    table.removeByValue( allZones, self )
+    allZonesByID[self._id] = nil
+
+    if CLIENT then
+        for _, holo in ipairs( self._discHolos ) do
+            holo:remove()
+        end
+    else
+        net.start( "LKL_ZoneMarker_Destroy" )
+        net.writeUInt( self._id, 16 )
+        validateInitializedPlayers()
+        net.send( initializedPlys )
+    end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+if SERVER then
+    validateInitializedPlayers = function()
+        for i = #initializedPlys, 1, -1 do
+            local ply = initializedPlys[i]
+
+            if not isValid( ply ) then
+                table.remove( initializedPlys, i )
+                initializedPlyLookup[ply] = nil
+            end
+        end
+    end
+else
+    makeDiscHolos = function( zone )
+        local discHolos = {}
+        local discChildren = {}
+        zone._discHolos = discHolos
+        zone._discChildren = discChildren
+
+        for i = 1, 6 do
+            local holo = hologram.create( VECTOR_ZERO, ANGLE_ZERO, "models/hunter/blocks/cube1x1x1.mdl" )
+            holo:setNoDraw( true )
+            holo:setMesh( discMesh )
+            holo:setMaterial( discMatName )
+            holo:setRenderBounds( discRenderBoundsMin, discRenderBoundsMax )
+
+            discHolos[i] = holo
+            discChildren[i] = {}
+        end
+
+        discHolos[1]._zoneMarker_AngAbove = ANGLE_PX
+        discHolos[1]._zoneMarker_AngBelow = ANGLE_NX
+
+        discHolos[2]._zoneMarker_AngAbove = ANGLE_NX
+        discHolos[2]._zoneMarker_AngBelow = ANGLE_PX
+
+        discHolos[3]._zoneMarker_AngAbove = ANGLE_PY
+        discHolos[3]._zoneMarker_AngBelow = ANGLE_NY
+
+        discHolos[4]._zoneMarker_AngAbove = ANGLE_NY
+        discHolos[4]._zoneMarker_AngBelow = ANGLE_PY
+
+        discHolos[5]._zoneMarker_AngAbove = ANGLE_PZ
+        discHolos[5]._zoneMarker_AngBelow = ANGLE_NZ
+
+        discHolos[6]._zoneMarker_AngAbove = ANGLE_NZ
+        discHolos[6]._zoneMarker_AngBelow = ANGLE_PZ
+    end
+
+    applyClips = function( holo, i, center, sizeHalf )
+        if i ~= 1 and i ~= 2 then
+            holo:setClip( 1, true, center + VECTOR_PX * sizeHalf[1], VECTOR_NX )
+            holo:setClip( 2, true, center + VECTOR_NX * sizeHalf[1], VECTOR_PX )
+        end
+
+        if i ~= 3 and i ~= 4 then
+            holo:setClip( 3, true, center + VECTOR_PY * sizeHalf[2], VECTOR_NY )
+            holo:setClip( 4, true, center + VECTOR_NY * sizeHalf[2], VECTOR_PY )
+        end
+
+        if i ~= 5 and i ~= 6 then
+            holo:setClip( 5, true, center + VECTOR_PZ * sizeHalf[3], VECTOR_NZ )
+            holo:setClip( 6, true, center + VECTOR_NZ * sizeHalf[3], VECTOR_PZ )
+        end
+    end
+
+    applyClipsAll = function( zone )
+        local corner1 = zone._corner1
+        local corner2 = zone._corner2
+        local center = ( corner1 + corner2 ) / 2
+        local size = corner2 - corner1
+        local sizeHalf = size / 2
+        local discHolos = zone._discHolos
+
+        for i, discHolo in ipairs( discHolos ) do
+            applyClips( discHolo, i, center, sizeHalf )
+
+            discHolo._zoneMarker_IsFar = nil
+            discHolo._zoneMarker_IsAbove = nil
+
+            for _, child in ipairs( zone._discChildren[i] ) do
+                if isValid( child ) then
+                    applyClips( child, i, center, sizeHalf )
+                end
+            end
+        end
+    end
+end
+
+
+function ZoneMarker:_netInit( plys )
+    if SERVER then
+        net.start( "LKL_ZoneMarker_Init" )
+        net.writeUInt( self._id, 16 )
+        net.writeString( self.class.name )
+        net.writeVector( self._corner1 )
+        net.writeVector( self._corner2 )
+        net.writeColor( self._discColor )
+        net.writeUInt( self._discRadius, 16 )
+        net.writeUInt( self._distMin, 16 )
+        net.writeUInt( self._distMax, 16 )
+
+        for i = 1, 6 do
+            net.writeBool( self._sideVisibility[i] )
+        end
+
+        self:handleNetInit()
+
+        net.send( plys )
+    else
+        local corner1 = net.readVector()
+        local corner2 = net.readVector()
+        local discColor = net.readColor()
+        local discRadius = net.readUInt( 16 )
+        local distMin = net.readUInt( 16 )
+        local distMax = net.readUInt( 16 )
+        local sideVisibility = self._sideVisibility
+
+        for i = 1, 6 do
+            sideVisibility[i] = net.readBool()
+        end
+
+        self._discColor = discColor
+        self._discColorCopy = discColor:clone()
+        self._discRadius = discRadius
+        self._distMin = distMin
+        self._distMax = distMax
+
+        self:handleNetInit()
+        self:setCorners( corner1, corner2 )
+    end
+end
+
+
+----- SETUP -----
+
+if SERVER then
+    hook.add( "ClientInitialized", "LKL_ZoneMarker_ClientInit", function( ply )
+        timer.simple( 1, function()
+            if not isValid( ply ) then return end
+
+            if not initializedPlyLookup[ply] then
+                initializedPlyLookup[ply] = true
+                table.insert( initializedPlys, ply )
+            end
+
+            for _, zone in ipairs( allZones ) do
+                zone:_netInit( { ply } )
+            end
+        end )
+    end )
+else
+    hook.add( "renderoffscreen", "LKL_ZoneMarker_UpdateDiscs", function()
+        local eyePos = render.getEyePos()
+
+        for _, zone in ipairs( allZones ) do
+            local discColor = zone._discColorCopy
+            local discAlpha = zone._discAlpha
+            local discRadius = zone._discRadius
+            local distMin = zone._distMin
+            local distMax = zone._distMax
+            local discChildren = zone._discChildren
+            local sideVisibility = zone._sideVisibility
+
+            for i, holo in ipairs( zone._discHolos ) do
+                local planeCenter = holo._zoneMarker_PlaneCenter
+                local pos = vectorMath.closestPointOnPlane( eyePos, planeCenter, holo._zoneMarker_AngAbove )
+                local children = discChildren[i]
+                local isFarOld = holo._zoneMarker_IsFar
+                local isFar
+                local dist
+
+                if sideVisibility[i] then
+                    dist = pos:getDistance( eyePos )
+                    isFar = dist > distMax
+                else
+                    isFar = true
+                end
+
+                if isFar ~= isFarOld then
+                    holo._zoneMarker_IsFar = isFar
+                    holo:setNoDraw( isFar )
+
+                    for i2 = #children, 1, -1 do
+                        local child = children[i2]
+
+                        if isValid( child ) then
+                            child:setNoDraw( isFar )
+                        else
+                            table.remove( children, i2 )
+                        end
+                    end
+                end
+
+                if not isFar then
+                    local isAboveOld = holo._zoneMarker_IsAbove
+                    local isAbove = vectorMath.isPointAbovePlane( eyePos, planeCenter, holo._zoneMarker_PlaneNormal )
+
+                    holo:setPos( pos )
+
+                    if isAbove ~= isAboveOld then
+                        holo._zoneMarker_IsAbove = isAbove
+
+                        if isAbove then
+                            holo:setAngles( holo._zoneMarker_AngAbove )
+                        else
+                            holo:setAngles( holo._zoneMarker_AngBelow )
+                        end
+                    end
+
+                    if dist <= distMin then
+                        tempVec[1] = discRadius
+                        tempVec[2] = discRadius
+                        tempVec[3] = discRadius
+                    else
+                        local scale = discRadius * ( 1 + ( dist - distMin ) / distMin )
+
+                        tempVec[1] = scale
+                        tempVec[2] = scale
+                        tempVec[3] = scale
+                    end
+
+                    holo:setScale( tempVec )
+
+                    local alphaScale = 1 - ( dist / distMax )
+
+                    discColor.a = discAlpha * alphaScale
+                    holo:setColor( discColor )
+
+                    for i2, child in ipairs( children ) do
+                        if isValid( child ) then
+                            local color = child:getColor()
+                            color.a = child._zoneMarker_Alpha * alphaScale
+                            child:setColor( color )
+                        else
+                            table.remove( children, i2 )
+                        end
+                    end
+                end
+            end
+        end
+    end )
+
+
+    net.receive( "LKL_ZoneMarker_Init", function()
+        local id = net.readUInt( 16 )
+        local className = net.readString()
+
+        local oldZone = ZoneMarker:getByID( id )
+
+        if isValid( oldZone ) then
+            oldZone:destroy()
+        end
+
+        local classObj = _G[className]
+        local zone = classObj:new()
+
+        table.insert( allZones, zone )
+        zone._id = id
+        allZonesByID[id] = zone
+
+        zone:_netInit()
+    end )
+
+    net.receive( "LKL_ZoneMarker_Destroy", function()
+        local id = net.readUInt( 16 )
+        local zone = ZoneMarker:getByID( id )
+
+        if isValid( zone ) then
+            zone:destroy()
+        end
+    end )
+
+    net.receive( "LKL_ZoneMarker_SetCorners", function()
+        local id = net.readUInt( 16 )
+        local zone = ZoneMarker:getByID( id )
+        if not isValid( zone ) then return end
+
+        local corner1 = net.readVector()
+        local corner2 = net.readVector()
+
+        zone:setCorners( corner1, corner2 )
+    end )
+
+    net.receive( "LKL_ZoneMarker_SetDiscColor", function()
+        local id = net.readUInt( 16 )
+        local zone = ZoneMarker:getByID( id )
+        if not isValid( zone ) then return end
+
+        zone:setDiscColor( net.readColor() )
+    end )
+
+    net.receive( "LKL_ZoneMarker_SetDiscRadius", function()
+        local id = net.readUInt( 16 )
+        local zone = ZoneMarker:getByID( id )
+        if not isValid( zone ) then return end
+
+        zone:setDiscRadius( net.readFloat() )
+    end )
+
+    net.receive( "LKL_ZoneMarker_SetDistMin", function()
+        local id = net.readUInt( 16 )
+        local zone = ZoneMarker:getByID( id )
+        if not isValid( zone ) then return end
+
+        zone:setDistMin( net.readFloat() )
+    end )
+
+    net.receive( "LKL_ZoneMarker_SetDistMax", function()
+        local id = net.readUInt( 16 )
+        local zone = ZoneMarker:getByID( id )
+        if not isValid( zone ) then return end
+
+        zone:setDistMax( net.readFloat() )
+    end )
+
+    net.receive( "LKL_ZoneMarker_SetSideVisible", function()
+        local id = net.readUInt( 16 )
+        local zone = ZoneMarker:getByID( id )
+        if not isValid( zone ) then return end
+
+        local side = net.readUInt( 3 )
+        local visible = net.readBool()
+
+        zone:setSideVisible( side, visible )
+    end )
+
+
+    -- Create the disc mesh and material.
+    timer.simple( 0, function()
+        local verts = {}
+        local discColorInner = Color( 255, 255, 255, ZoneMarker.DISC_INNER_ALPHA )
+        local discColorOuter = Color( 255, 255, 255, 0 )
+        local segments = ZoneMarker.DISC_SEGMENTS
+        local thetaMult = -math.pi * 2 / segments
+
+        local vertCenter = {
+            pos = Vector(),
+            color = discColorInner,
+        }
+
+        local vertPrev = {
+            pos = Vector( 0, 1, 0 ),
+            color = discColorOuter,
+        }
+
+        for i = 1, segments do
+            local theta = i * thetaMult
+            local vert = {
+                pos = Vector( 0, math.cos( theta ), math.sin( theta ) ),
+                color = discColorOuter,
+            }
+
+            table.insert( verts, vertCenter )
+            table.insert( verts, vertPrev )
+            table.insert( verts, vert )
+
+            vertPrev = vert
+        end
+
+        discMesh = mesh.createFromTable( verts )
+
+        local mat = material.create( "UnlitGeneric" )
+        mat:setInt( "$flags", 2048 + 32 )
+        discMatName = "!" .. mat:getName()
+
+        discRenderBoundsMin = Vector( -100000 )
+        discRenderBoundsMax = Vector( 100000 )
+    end )
+end
