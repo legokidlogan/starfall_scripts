@@ -674,13 +674,13 @@ else
                     holo._zoneMarker_IsAbove = nil
                     holo:setNoDraw( isFar )
 
-                    for i2 = #childrenInside, 1, -1 do
-                        local child = childrenInside[i2]
+                    for i2 = #childrenBoth, 1, -1 do
+                        local child = childrenBoth[i2]
 
                         if isValid( child ) then
                             child:setNoDraw( isFar )
                         else
-                            table.remove( childrenInside, i2 )
+                            table.remove( childrenBoth, i2 )
                         end
                     end
                 end
