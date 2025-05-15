@@ -1345,6 +1345,7 @@ end
 ----- SETUP -----
 
 local memVec = Vector() -- Intermediate vector for calculations to create less garbage memory.
+local memVecScale = Vector( 1 )
 local memAng = Angle()
 
 hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
@@ -1427,6 +1428,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
     local choiceGradientPolys = polySetsByFrame.gradientPolys
     local choiceBandPolys = polySetsByFrame.bandPolys
     local choiceNameRadii = polySetsByFrame.nameRadii
+    local arcWidthMult = math.pi * 2 / #curPage
 
     local menuFont = curMenu._fontObj
     local menuFontVecScale = curMenu._fontVecScale
@@ -1487,8 +1489,21 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
 
         matrText:scale( menuFontVecScale )
 
+        local name = choice.name
+        local textWidth = render.getTextSize( name ) * menuFontVecScale[1]
+        local textWidthLimit = nameRadius * arcWidthMult * 0.85
+
+        -- Resize text that's a bit too big to fit.
+        if textWidth > textWidthLimit then
+            local textScale = textWidthLimit / textWidth
+
+            memVecScale[1] = textScale
+            memVecScale[2] = textScale
+            matrText:scale( memVecScale )
+        end
+
         render.pushMatrix( matrText )
-        render.drawSimpleText( 0, 0, choice.name, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+        render.drawSimpleText( 0, 0, name, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
         render.popMatrix()
 
         local paintRadial = choice.paintRadial
