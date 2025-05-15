@@ -163,14 +163,42 @@ if SERVER then
     table.insert( inputNames, "ReplicatedEnts" )
     table.insert( inputTypes, "ARRAY" )
 
+    outputNames = outputNames or {}
+    outputTypes = outputTypes or {}
+
+    table.insert( outputNames, "LastPingPly" )
+    table.insert( outputTypes, "ENTITY" )
+
+    table.insert( outputNames, "LastPingPos" )
+    table.insert( outputTypes, "VECTOR" )
+
+    table.insert( outputNames, "LastPingNormal" )
+    table.insert( outputTypes, "VECTOR" )
+
+    table.insert( outputNames, "LastOwnerPingPos" )
+    table.insert( outputTypes, "VECTOR" )
+
+    table.insert( outputNames, "LastOwnerPingNormal" )
+    table.insert( outputTypes, "VECTOR" )
+
     timer.simple( 0, function()
         wire.adjustInputs( inputNames, inputTypes )
+        wire.adjustOutputs( outputNames, outputTypes )
     end )
 
 
     local function doHoloMapPing( ply )
         local worldHitPos, worldHitNormal, holoMapHitPos, holoMapHitNormal = libI3DMap.holoMapTraceAlt( ply )
         if not worldHitPos then return end
+
+        wire.ports.LastPingPly = ply
+        wire.ports.LastPingNormal = worldHitNormal
+        wire.ports.LastPingPos = worldHitPos
+
+        if ply == owner() then
+            wire.ports.LastOwnerPingNormal = worldHitNormal
+            wire.ports.LastOwnerPingPos = worldHitPos
+        end
 
         local pingHolo = playerPingHolos[ply]
 
