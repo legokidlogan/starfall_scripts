@@ -21,48 +21,77 @@ if SERVER then return end
 require( "lkl/gcolors.txt" )
 
 
+local bigTextSize = 50
+local normalTextSize = 20
+
 WizardZone.static.TEXT_RAISE = 130
 WizardZone.static.TEXT_DEPTH = 3
 WizardZone.static.TEXT_SPACING = 5
-WizardZone.static.TEXT_HEIGHT_DEFAULT = 20
+WizardZone.static.TEXT_HEIGHT_DEFAULT = normalTextSize
 WizardZone.static.TEXTS = {
-    {
-        height = 50,
-        str = {
-            c_magenta, "WIZARD ZONE",
-        }
+    INSIDE = {
+        {
+            height = bigTextSize * 3 + normalTextSize * ( 5 + 1 ),
+            str = "",
+        },
+        {
+            height = normalTextSize,
+            str = {
+                c_white, "You are ",
+                c_pale_green, "inside",
+            }
+        },
     },
-    {
-        height = 20,
-        str = "",
+    OUTSIDE = {
+        {
+            height = bigTextSize * 3 + normalTextSize * ( 5 + 1 ),
+            str = "",
+        },
+        {
+            height = normalTextSize,
+            str = {
+                c_white, "You are ",
+                c_pale_red, "outside",
+            }
+        },
     },
-    {
-        str = {
-            c_white, "Wizards may cast their spells on players who are:",
-        }
-    },
-    {
-        str = {
-            c_info_blue, "- ",
-            c_pale_yellow, "Inside ",
-            c_white, "the zone, or",
-        }
-    },
-    {
-        str = {
-            c_info_blue, "- ",
-            c_pale_yellow, "Outside and attacking ",
-            c_white, "people inside the zone.",
-        }
-    },
-    {
-        height = 20,
-        str = "",
-    },
-    {
-        height = 50,
-        str = {
-            c_magenta, "WIZARD ZONE",
-        }
+    BOTH = {
+        {
+            height = bigTextSize,
+            str = {
+                c_magenta, "WIZARD ZONE",
+            }
+        },
+        {
+            str = "",
+        },
+        {
+            str = {
+                c_white, "Wizards may cast their spells on players who are:",
+            }
+        },
+        {
+            str = {
+                c_info_blue, "- ",
+                c_pale_yellow, "Inside ",
+                c_white, "the zone, or",
+            }
+        },
+        {
+            str = {
+                c_info_blue, "- ",
+                c_pale_yellow, "Outside and attacking ",
+                c_white, "people inside the zone.",
+            }
+        },
+        {
+            str = "",
+        },
+        {
+            height = bigTextSize,
+            str = {
+                c_magenta, "WIZARD ZONE",
+            }
+        },
     },
 }
