@@ -62,6 +62,8 @@ local validateInitializedPlayers
 local makeDiscHolos
 local applyClips
 local applyClipsAll
+local addDiscChild
+local removeDiscChild
 
 
 ----- STATIC FUNCTIONS -----
@@ -176,39 +178,17 @@ else
         - discInd 1-6 corresponds with +x, -x, +y, -y, +z, -z respectively.
     --]]
     function ZoneMarker:addDiscChild( discInd, holo, localPos, localAng )
-        if type( discInd ) ~= "number" then error( "Expected discInd to be a number" ) end
-        if math.floor( discInd ) ~= discInd then error( "Expected discInd to be an integer" ) end
-        if discInd < 1 or discInd > 6 then error( "discInd must be between 1 and 6" ) end
-        if type( holo ) ~= "Hologram" then error( "Expected holo to be a Hologram" ) end
-        if type( localPos ) ~= "Vector" then error( "Expected localPos to be a Vector" ) end
-        if type( localAng ) ~= "Angle" then error( "Expected localAng to be an Angle" ) end
+        addDiscChild( self, discInd, "both", holo, localPos, localAng )
+    end
 
-        if holo._zoneMarker_DiscInd then
-            local zone = holo._zoneMarker_ParentZone
+    -- Similar to :addDiscChild(), but only visible on the inside of the zone.
+    function ZoneMarker:addDiscChildInside( discInd, holo, localPos, localAng )
+        addDiscChild( self, discInd, "inside", holo, localPos, localAng )
+    end
 
-            if isValid( zone ) then
-                zone:removeDiscChild( holo )
-            end
-        end
-
-        local discHolo = self._discHolos[discInd]
-        local pos, ang = localToWorld( localPos, localAng, discHolo:getPos(), discHolo:getAngles() )
-
-        holo._zoneMarker_Alpha = holo:getColor().a
-        holo._zoneMarker_DiscInd = discInd
-        holo._zoneMarker_ParentZone = self
-
-        holo:setPos( pos )
-        holo:setAngles( ang )
-        holo:setParent( discHolo )
-
-        applyClips( holo, discInd, self:getCenter(), self:getSize() / 2 )
-
-        if discHolo._zoneMarker_IsFar ~= false then
-            holo:setNoDraw( true )
-        end
-
-        table.insert( self._discChildren[discInd], holo )
+    -- Similar to :addDiscChild(), but only visible on the outside of the zone.
+    function ZoneMarker:addDiscChildOutside( discInd, holo, localPos, localAng )
+        addDiscChild( self, discInd, "outside", holo, localPos, localAng )
     end
 
     --[[
@@ -217,8 +197,10 @@ else
     --]]
     function ZoneMarker:removeDiscChild( holo )
         local discInd = holo._zoneMarker_DiscInd
-        local zone = holo._zoneMarker_ParentZone
-        if zone ~= self then return end
+        local parentZone = holo._zoneMarker_ParentZone
+        if parentZone ~= self then return end
+
+        local childType = holo._zoneMarker_ChildType
 
         holo:setParent()
         holo._zoneMarker_DiscInd = nil
@@ -229,7 +211,7 @@ else
             holo:setClip( i, false )
         end
 
-        table.removeByValue( self._discChildren[discInd], holo )
+        table.removeByValue( self._discChildren[childType][discInd], holo )
     end
 end
 
@@ -467,7 +449,12 @@ if SERVER then
 else
     makeDiscHolos = function( zone )
         local discHolos = {}
-        local discChildren = {}
+        local discChildren = {
+            inside = {},
+            outside = {},
+            both = {},
+        }
+
         zone._discHolos = discHolos
         zone._discChildren = discChildren
 
@@ -479,7 +466,10 @@ else
             holo:setRenderBounds( discRenderBoundsMin, discRenderBoundsMax )
 
             discHolos[i] = holo
-            discChildren[i] = {}
+
+            for _, childSets in pairs( discChildren ) do
+                childSets[i] = {}
+            end
         end
 
         discHolos[1]._zoneMarker_AngAbove = ANGLE_PX
@@ -532,13 +522,81 @@ else
             discHolo._zoneMarker_IsFar = nil
             discHolo._zoneMarker_IsAbove = nil
 
-            for _, child in ipairs( zone._discChildren[i] ) do
-                if isValid( child ) then
-                    applyClips( child, i, center, sizeHalf )
+            for _, childSets in pairs( zone._discChildren ) do
+                for _, child in ipairs( childSets[i] ) do
+                    if isValid( child ) then
+                        applyClips( child, i, center, sizeHalf )
+                    end
                 end
             end
         end
     end
+
+    addDiscChild = function( zone, discInd, childType, holo, localPos, localAng )
+        if type( discInd ) ~= "number" then error( "Expected discInd to be a number" ) end
+        if math.floor( discInd ) ~= discInd then error( "Expected discInd to be an integer" ) end
+        if discInd < 1 or discInd > 6 then error( "discInd must be between 1 and 6" ) end
+        if type( holo ) ~= "Hologram" then error( "Expected holo to be a Hologram" ) end
+        if type( localPos ) ~= "Vector" then error( "Expected localPos to be a Vector" ) end
+        if type( localAng ) ~= "Angle" then error( "Expected localAng to be an Angle" ) end
+
+        if holo._zoneMarker_DiscInd then
+            local parentZone = holo._zoneMarker_ParentZone
+
+            if isValid( parentZone ) then
+                parentZone:removeDiscChild( holo )
+            end
+        end
+
+        local discHolo = zone._discHolos[discInd]
+        local pos, ang = localToWorld( localPos, localAng, discHolo:getPos(), discHolo:getAngles() )
+
+        holo._zoneMarker_Alpha = holo:getColor().a
+        holo._zoneMarker_DiscInd = discInd
+        holo._zoneMarker_ParentZone = zone
+        holo._zoneMarker_ChildType = childType
+
+        holo:setPos( pos )
+        holo:setAngles( ang )
+        holo:setParent( discHolo )
+
+        applyClips( holo, discInd, zone:getCenter(), zone:getSize() / 2 )
+
+        if discHolo._zoneMarker_IsFar ~= false then
+            holo:setNoDraw( true )
+        end
+
+        if childType == "inside" and discHolo._zoneMarker_IsAbove == true then
+            holo:setNoDraw( true )
+        end
+
+        if childType == "outside" and discHolo._zoneMarker_IsAbove == false then
+            holo:setNoDraw( true )
+        end
+
+        table.insert( zone._discChildren[childType][discInd], holo )
+    end
+
+    --[[
+    removeDiscChild = function( zone, holo )
+        local discInd = holo._zoneMarker_DiscInd
+        local parentZone = holo._zoneMarker_ParentZone
+        if parentZone ~= zone then return end
+
+        local childType = holo._zoneMarker_ChildType
+
+        holo:setParent()
+        holo._zoneMarker_DiscInd = nil
+        holo._zoneMarker_ParentZone = nil
+        holo._zoneMarker_Alpha = nil
+
+        for i = 1, 6 do
+            holo:setClip( i, false )
+        end
+
+        table.removeByValue( zone._discChildren[childType][discInd], holo )
+    end
+    --]]
 end
 
 
@@ -619,7 +677,9 @@ else
             for i, holo in ipairs( zone._discHolos ) do
                 local planeCenter = holo._zoneMarker_PlaneCenter
                 local pos = vectorMath.closestPointOnPlane( eyePos, planeCenter, holo._zoneMarker_AngAbove )
-                local children = discChildren[i]
+                local childrenInside = discChildren.inside[i]
+                local childrenOutside = discChildren.outside[i]
+                local childrenBoth = discChildren.both[i]
                 local isFarOld = holo._zoneMarker_IsFar
                 local isFar
                 local dist
@@ -635,13 +695,33 @@ else
                     holo._zoneMarker_IsFar = isFar
                     holo:setNoDraw( isFar )
 
-                    for i2 = #children, 1, -1 do
-                        local child = children[i2]
+                    for i2 = #childrenInside, 1, -1 do
+                        local child = childrenInside[i2]
 
                         if isValid( child ) then
                             child:setNoDraw( isFar )
                         else
-                            table.remove( children, i2 )
+                            table.remove( childrenInside, i2 )
+                        end
+                    end
+
+                    for i2 = #childrenOutside, 1, -1 do
+                        local child = childrenOutside[i2]
+
+                        if isValid( child ) then
+                            child:setNoDraw( isFar )
+                        else
+                            table.remove( childrenOutside, i2 )
+                        end
+                    end
+
+                    for i2 = #childrenBoth, 1, -1 do
+                        local child = childrenBoth[i2]
+
+                        if isValid( child ) then
+                            child:setNoDraw( isFar )
+                        else
+                            table.remove( childrenBoth, i2 )
                         end
                     end
                 end
@@ -659,6 +739,22 @@ else
                             holo:setAngles( holo._zoneMarker_AngAbove )
                         else
                             holo:setAngles( holo._zoneMarker_AngBelow )
+                        end
+
+                        for i2, child in ipairs( childrenInside ) do
+                            if isValid( child ) then
+                                child:setNoDraw( isAbove )
+                            else
+                                table.remove( childrenInside, i2 )
+                            end
+                        end
+
+                        for i2, child in ipairs( childrenOutside ) do
+                            if isValid( child ) then
+                                child:setNoDraw( not isAbove )
+                            else
+                                table.remove( childrenOutside, i2 )
+                            end
                         end
                     end
 
@@ -681,13 +777,33 @@ else
                     discColor.a = discAlpha * alphaScale
                     holo:setColor( discColor )
 
-                    for i2, child in ipairs( children ) do
+                    for i2, child in ipairs( childrenInside ) do
                         if isValid( child ) then
                             local color = child:getColor()
                             color.a = child._zoneMarker_Alpha * alphaScale
                             child:setColor( color )
                         else
-                            table.remove( children, i2 )
+                            table.remove( childrenInside, i2 )
+                        end
+                    end
+
+                    for i2, child in ipairs( childrenOutside ) do
+                        if isValid( child ) then
+                            local color = child:getColor()
+                            color.a = child._zoneMarker_Alpha * alphaScale
+                            child:setColor( color )
+                        else
+                            table.remove( childrenOutside, i2 )
+                        end
+                    end
+
+                    for i2, child in ipairs( childrenBoth ) do
+                        if isValid( child ) then
+                            local color = child:getColor()
+                            color.a = child._zoneMarker_Alpha * alphaScale
+                            child:setColor( color )
+                        else
+                            table.remove( childrenBoth, i2 )
                         end
                     end
                 end
