@@ -1,0 +1,157 @@
+--@name Labeled Zone
+--@author legokidlogan
+--@shared
+--@include lkl/zone_marker.txt
+--@include lkl/text_mesh.txt
+
+if LabeledZone then return end
+
+require( "lkl/zone_marker.txt" )
+
+LabeledZone = class( "LabeledZone", ZoneMarker )
+
+LabeledZone.static.DISC_COLOR = Color( 255, 255, 255, 255 )
+LabeledZone.static.DISC_RADIUS = 300
+LabeledZone.static.DIST_MIN = 200
+LabeledZone.static.DIST_MAX = 1000
+
+
+if SERVER then return end
+
+require( "lkl/text_mesh.txt" )
+
+
+--[[
+    - A variant of ZoneMarker which displays static text on each side of the zone, using textMesh.
+    - Modify the following static variables in your subclass, and it will automatically apply them.
+    - The values must be set on creation of the subclass, and cannot be changed later.
+--]]
+
+LabeledZone.static.TEXT_RAISE = 0
+LabeledZone.static.TEXT_DEPTH = 3
+LabeledZone.static.TEXT_SPACING = 5
+LabeledZone.static.TEXT_HEIGHT_DEFAULT = 20
+LabeledZone.static.TEXTS = {
+    {
+        height = 20,
+        str = {
+            Color( 255, 255, 255, 255 ), "Labeled Zone ",
+            Color( 255, 255, 0, 255 ), "example",
+        },
+    },
+    {
+        height = 50,
+        str = "Foo bar",
+    },
+    {
+        str = "test",
+    },
+}
+
+local infoPerClass = {}
+
+local loadTextMeshes
+
+
+----- STATIC FUNCTIONS -----
+
+
+
+----- INSTANCE FUNCTIONS -----
+
+
+
+----- OVERRIDABLE FUNCTIONS -----
+
+
+
+----- IMPLEMENTED FUNCTIONS -----
+
+function LabeledZone:handleNetInit()
+    self:_applyTextMeshes()
+end
+
+function LabeledZone:subclassed( classObj )
+    timer.simple( 0, function()
+        loadTextMeshes( classObj )
+    end )
+end
+
+
+
+----- PRIVATE FUNCTIONS -----
+
+function LabeledZone:_applyTextMeshes()
+    local info = infoPerClass[self.class]
+    if not info then return end
+
+    local textMeshes = info.textMeshes or {}
+    if not textMeshes[#self.class.TEXTS] then return end
+
+    local textMeshObbMins = info.textMeshObbMins
+    local textMeshObbMaxs = info.textMeshObbMaxs
+    local textHeightOffsets = info.textHeightOffsets
+
+    for i, meshObj in ipairs( textMeshes ) do
+        local obbMins = textMeshObbMins[i]
+        local obbMaxs = textMeshObbMaxs[i]
+        local heightOffset = textHeightOffsets[i]
+
+        for i2 = 1, 6 do
+            local holo = textMesh.createHolo( Vector(), Angle(), meshObj, obbMins, obbMaxs, true )
+
+            self:addDiscChild( i2, holo, Vector( 0, 0, heightOffset ), Angle() )
+        end
+    end
+end
+
+
+----- SETUP -----
+
+loadTextMeshes = function( classObj )
+    local info = {}
+    local textMeshes = {}
+    local textMeshObbMins = {}
+    local textMeshObbMaxs = {}
+    local textHeightOffsets = {}
+    local textHeightTotal = 0
+
+    infoPerClass[classObj] = info
+    info.textMeshes = textMeshes
+    info.textMeshObbMins = textMeshObbMins
+    info.textMeshObbMaxs = textMeshObbMaxs
+    info.textHeightOffsets = textHeightOffsets
+
+    for i in ipairs( classObj.TEXTS ) do
+        textHeightOffsets[i] = classObj.TEXT_RAISE
+    end
+
+    for i, text in ipairs( classObj.TEXTS ) do
+        textMesh.createMesh( text.height or classObj.TEXT_HEIGHT_DEFAULT, classObj.TEXT_DEPTH, text.str, TEXT_ALIGN.CENTER, TEXT_ALIGN.TOP, function( meshObj, obbMins, obbMaxs, _width, height )
+            height = height + classObj.TEXT_SPACING
+
+            textMeshes[i] = meshObj
+            textMeshObbMins[i] = obbMins
+            textMeshObbMaxs[i] = obbMaxs
+
+            for i2 = 1, i do
+                textHeightOffsets[i2] = textHeightOffsets[i2] + height
+            end
+
+            textHeightTotal = textHeightTotal + height
+
+            -- All meshes loaded, center the lines and apply the meshes.
+            if i ~= #classObj.TEXTS then return end
+
+            for i2 = 1, i do
+                textHeightOffsets[i2] = textHeightOffsets[i2] - textHeightTotal / 2
+            end
+
+            for _, zone in ipairs( ZoneMarker:getAll() ) do
+                if zone.class == classObj then
+                    zone:_applyTextMeshes()
+                end
+            end
+        end )
+    end
+end
