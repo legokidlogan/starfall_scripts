@@ -1,0 +1,14 @@
+--@name Wizard Zone Example
+--@author legokidlogan
+--@shared
+--@include lkl/spellbook/wizard_zone.txt
+
+require( "lkl/spellbook/wizard_zone.txt" )
+
+if CLIENT then return end
+
+
+local zone = WizardZone:new()
+
+zone:setCornersWithBoxSelector( cbAdjust, cbFinished )
+zone:setSideVisible( 6, false )

@@ -1,0 +1,68 @@
+--@name Wizard Zone
+--@author legokidlogan
+--@shared
+--@include lkl/labeled_zone.txt
+--@include lkl/gcolors.txt
+
+if WizardZone then return end
+
+require( "lkl/labeled_zone.txt" )
+
+WizardZone = class( "WizardZone", LabeledZone )
+
+WizardZone.static.DISC_COLOR = Color( 80, 0, 205, 255 )
+WizardZone.static.DISC_RADIUS = 300
+WizardZone.static.DIST_MIN = 200
+WizardZone.static.DIST_MAX = 1000
+
+
+if SERVER then return end
+
+require( "lkl/gcolors.txt" )
+
+
+WizardZone.static.TEXT_RAISE = 130
+WizardZone.static.TEXT_DEPTH = 3
+WizardZone.static.TEXT_SPACING = 5
+WizardZone.static.TEXT_HEIGHT_DEFAULT = 20
+WizardZone.static.TEXTS = {
+    {
+        height = 50,
+        str = {
+            c_magenta, "WIZARD ZONE",
+        }
+    },
+    {
+        height = 20,
+        str = "",
+    },
+    {
+        str = {
+            c_white, "Wizards may cast their spells on players who are:",
+        }
+    },
+    {
+        str = {
+            c_info_blue, "- ",
+            c_pale_yellow, "Inside ",
+            c_white, "the zone, or",
+        }
+    },
+    {
+        str = {
+            c_info_blue, "- ",
+            c_pale_yellow, "Outside and attacking ",
+            c_white, "people inside the zone.",
+        }
+    },
+    {
+        height = 20,
+        str = "",
+    },
+    {
+        height = 50,
+        str = {
+            c_magenta, "WIZARD ZONE",
+        }
+    },
+}
