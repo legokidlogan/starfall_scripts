@@ -693,6 +693,7 @@ else
 
                 if isFar ~= isFarOld then
                     holo._zoneMarker_IsFar = isFar
+                    holo._zoneMarker_IsAbove = nil
                     holo:setNoDraw( isFar )
 
                     for i2 = #childrenInside, 1, -1 do
@@ -702,26 +703,6 @@ else
                             child:setNoDraw( isFar )
                         else
                             table.remove( childrenInside, i2 )
-                        end
-                    end
-
-                    for i2 = #childrenOutside, 1, -1 do
-                        local child = childrenOutside[i2]
-
-                        if isValid( child ) then
-                            child:setNoDraw( isFar )
-                        else
-                            table.remove( childrenOutside, i2 )
-                        end
-                    end
-
-                    for i2 = #childrenBoth, 1, -1 do
-                        local child = childrenBoth[i2]
-
-                        if isValid( child ) then
-                            child:setNoDraw( isFar )
-                        else
-                            table.remove( childrenBoth, i2 )
                         end
                     end
                 end
