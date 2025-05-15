@@ -188,7 +188,7 @@ function textMesh.createMesh( height, depth, str, alignHoriz, alignVert, callbac
         checkPerfLow()
 
         local obbMins = Vector( -depth / 2, -widthScaled / 2, -height / 2 )
-        local obbMaxs = Vector( -depth / 2, widthScaled / 2, -height / 2 )
+        local obbMaxs = Vector( -depth / 2, widthScaled / 2, height / 2 )
 
         if alignHoriz == TEXT_ALIGN_LEFT then
             obbMins[2] = 0
@@ -199,7 +199,7 @@ function textMesh.createMesh( height, depth, str, alignHoriz, alignVert, callbac
         end
 
         if alignVert == TEXT_ALIGN_TOP then
-            obbMins[3] = height
+            obbMins[3] = -height
             obbMaxs[3] = 0
         elseif alignVert == TEXT_ALIGN_BOTTOM then
             obbMins[3] = 0
