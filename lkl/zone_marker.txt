@@ -63,7 +63,6 @@ local makeDiscHolos
 local applyClips
 local applyClipsAll
 local addDiscChild
-local removeDiscChild
 
 
 ----- STATIC FUNCTIONS -----
@@ -576,27 +575,6 @@ else
 
         table.insert( zone._discChildren[childType][discInd], holo )
     end
-
-    --[[
-    removeDiscChild = function( zone, holo )
-        local discInd = holo._zoneMarker_DiscInd
-        local parentZone = holo._zoneMarker_ParentZone
-        if parentZone ~= zone then return end
-
-        local childType = holo._zoneMarker_ChildType
-
-        holo:setParent()
-        holo._zoneMarker_DiscInd = nil
-        holo._zoneMarker_ParentZone = nil
-        holo._zoneMarker_Alpha = nil
-
-        for i = 1, 6 do
-            holo:setClip( i, false )
-        end
-
-        table.removeByValue( zone._discChildren[childType][discInd], holo )
-    end
-    --]]
 end
 
 
