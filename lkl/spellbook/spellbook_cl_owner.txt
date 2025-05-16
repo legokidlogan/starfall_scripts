@@ -264,7 +264,7 @@ local function makeSpellChoice( spell, spellID )
         func = function()
             spellbook.selectSpell( spellID )
         end,
-        paint = function( xDir, yDir, choiceRadius, bandHeight, _hovered, menu, pageInd, choiceInd, hoverProgress )
+        paint = function( xDir, yDir, choiceRadius, bandHeight, _hovered, menu, pageInd, choiceInd, hoverProgress, _choiceWidth )
             if spell:isActive() then
                 local r = choiceRadius * 0.6 + iconSizeRadial / 2
                 local m = Matrix()
@@ -289,7 +289,7 @@ local function makeSpellChoice( spell, spellID )
                 render.drawTexturedRectUV( x - iconSizeRadial / 2, y - iconSizeRadial / 2, iconSizeRadial, iconSizeRadial, spell._iconU0, spell._iconV0, spell._iconU1, spell._iconV1 )
             end
         end,
-        paintRadial = function( choiceRadius, bandHeight, _hovered, _menu, _pageInd, _choiceInd, _hoverProgress )
+        paintRadial = function( choiceRadius, bandHeight, _hovered, _menu, _pageInd, _choiceInd, _hoverProgress, choiceWidth )
             local now = timer.curtime()
             local cooldownEndTime = spellCooldownEndTimes[spellID] or 0
 
@@ -298,7 +298,7 @@ local function makeSpellChoice( spell, spellID )
                 local frac = math.clamp( timeLeft / spellCooldownDurations[spellID], 0, 1 )
                 local h = bandHeight * 0.2
                 local r = choiceRadius * 0.98 - bandHeight
-                local w = 0.9 * r * math.pi * 2 / spellbook.CHOICES_PER_PAGE
+                local w = choiceWidth * ( ( r - h ) / choiceRadius )
 
                 render.setRGBA( 0, 0, 0, 255 )
                 render.drawRect( -w / 2, -r, w, h )
