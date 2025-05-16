@@ -206,7 +206,7 @@ local getColorEff
                 name = STRING (optional), -- The name of the page.
 
                 [1] = { -- (choice 1 of page 1)
-                    name = STRING, -- The name of the choice. Text automatically shrinks to fit.
+                    name = STRING, -- The name of the choice. Supports newlines. Text automatically shrinks to fit.
 
                     -- These are mutually exclusive with each other. At least one must be set.
                     command = STRING, -- The concmd to run when the choice is selected. Only works on the owner, otherwise tries the other options.
@@ -956,7 +956,7 @@ calcFontAndRadius = function( menu )
     local radiusUnhovered = radiusHovered * ( 1 - hoverExpand )
     local radiusInnerUnhovered = radiusHovered * deadzoneRadius
     local radiusInnerHovered = radiusInnerUnhovered + ( radiusHovered - radiusInnerUnhovered ) * hoverContract
-    local bandHeight = fontHeight + fontSizeEff / 2
+    local bandHeight = fontHeight * 1.5
 
     menu._radius = menuRadius
     menu._deadzoneRadius = deadzoneRadius
