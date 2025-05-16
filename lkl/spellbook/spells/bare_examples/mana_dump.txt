@@ -14,6 +14,7 @@ Drains a large amount of mana when cast.]]
 
 local spell = ChargedSpell:new( {
     name = "Mana Dump",
+    radialName = nil,
     description = spellDesc,
     manaCost = 50,
     manaCostActive = 0,

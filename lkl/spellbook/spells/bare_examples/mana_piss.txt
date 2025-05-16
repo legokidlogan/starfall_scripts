@@ -14,6 +14,7 @@ Drains mana quickly while channeled.]]
 
 local spell = ChanneledSpell:new( {
     name = "Mana Piss",
+    radialName = nil,
     description = spellDesc,
     manaCost = 1,
     manaCostActive = 40,

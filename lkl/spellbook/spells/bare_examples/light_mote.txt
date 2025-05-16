@@ -23,6 +23,7 @@ Spawns a ball of light at your aimpos.]]
 
 local spell = InstantSpell:new( {
     name = "Light Mote",
+    radialName = nil,
     description = spellDesc,
     manaCost = 1,
     manaCostActive = 0,

@@ -14,6 +14,7 @@ Replenishes mana quickly while active.]]
 
 local spell = PassiveSpell:new( {
     name = "Mana Surge",
+    radialName = nil,
     description = spellDesc,
     manaCost = 1,
     manaCostActive = -40,
