@@ -296,7 +296,7 @@ local function makeSpellChoice( spell, spellID )
             if cooldownEndTime > now then
                 local timeLeft = cooldownEndTime - now
                 local frac = math.clamp( timeLeft / spellCooldownDurations[spellID], 0, 1 )
-                local h = bandHeight * 0.2
+                local h = bandHeight * 0.15
                 local r = choiceRadius * 0.98 - bandHeight
                 local w = choiceWidth * ( ( r - h ) / choiceRadius )
 
