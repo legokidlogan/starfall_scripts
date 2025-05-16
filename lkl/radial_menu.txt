@@ -956,7 +956,7 @@ calcFontAndRadius = function( menu )
     local radiusUnhovered = radiusHovered * ( 1 - hoverExpand )
     local radiusInnerUnhovered = radiusHovered * deadzoneRadius
     local radiusInnerHovered = radiusInnerUnhovered + ( radiusHovered - radiusInnerUnhovered ) * hoverContract
-    local bandHeight = fontHeight * 1.5
+    local bandHeight = fontHeight * 2.25
 
     menu._radius = menuRadius
     menu._deadzoneRadius = deadzoneRadius
@@ -1234,7 +1234,9 @@ editChoice = function(
         bandEnabled = choiceBandEnabled
     end
 
-    realChoice.name = choice.name
+    local name = choice.name
+
+    realChoice.name = name
     realChoice.command = choice.command
     realChoice.menu = choice.menu
     realChoice.menuPageInd = choice.menuPageInd
@@ -1243,6 +1245,12 @@ editChoice = function(
     realChoice.paintRadial = choice.paintRadial
     realChoice.gradientEnabled = gradientEnabled
     realChoice.bandEnabled = bandEnabled
+
+    if string.find( name, "\n" ) then
+        realChoice.nameLines = string.split( name, "\n" )
+    else
+        realChoice.nameLines = nil
+    end
 
     local gradientColorStrOld = realChoice.gradientColorStr
     local bandColorStrOld = realChoice.bandColorStr
@@ -1433,7 +1441,9 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
     local menuFont = curMenu._fontObj
     local menuFontVecScale = curMenu._fontVecScale
     local menuFontHeight = curMenu._fontSizeEff
+    local menuFontScale = menuFontVecScale[1]
     local bandHeight = curMenu._bandHeight
+    local nameLineSpacing = 10 * scrH / 1080
 
     local matrChoice = Matrix()
     memAng[2] = degStep
@@ -1490,22 +1500,61 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
 
         matrText:scale( menuFontVecScale )
 
-        local name = choice.name
-        local textWidth = render.getTextSize( name ) * menuFontVecScale[1]
+        local nameLines = choice.nameLines
         local textWidthLimit = nameRadius * arcWidthMult * 0.85
 
-        -- Resize text that's a bit too big to fit.
-        if textWidth > textWidthLimit then
-            local textScale = textWidthLimit / textWidth
+        if nameLines then -- Multiline name
+            local textWidthMax = 0
+            local lineCount = #nameLines
 
-            memVecScale[1] = textScale
-            memVecScale[2] = textScale
-            matrText:scale( memVecScale )
+            for _, line in ipairs( nameLines ) do
+                local textWidth = render.getTextSize( line ) * menuFontScale
+
+                if textWidth > textWidthMax then
+                    textWidthMax = textWidth
+                end
+            end
+
+            local textHeight = menuFontHeight * lineCount + ( lineCount - 1 ) * nameLineSpacing
+            local textHeightLimit = bandHeight * 0.95
+            local textMultMax = math.max( textWidthMax / textWidthLimit, textHeight / textHeightLimit )
+
+            if textMultMax > 1 then
+                local textScale = 1 / textMultMax
+
+                memVecScale[1] = textScale
+                memVecScale[2] = textScale
+                matrText:scale( memVecScale )
+            end
+
+            local y = -textHeight * ( ( lineCount - 1 ) / 2 ) / lineCount
+            local yStep = menuFontHeight + nameLineSpacing
+
+            render.pushMatrix( matrText )
+
+            for _, line in ipairs( nameLines ) do
+                render.drawSimpleText( 0, y, line, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+                y = y + yStep
+            end
+
+            render.popMatrix()
+        else -- One-line name
+            local name = choice.name
+            local textWidth = render.getTextSize( name ) * menuFontScale
+
+            -- Resize text that's a bit too big to fit.
+            if textWidth > textWidthLimit then
+                local textScale = textWidthLimit / textWidth
+
+                memVecScale[1] = textScale
+                memVecScale[2] = textScale
+                matrText:scale( memVecScale )
+            end
+
+            render.pushMatrix( matrText )
+            render.drawSimpleText( 0, 0, name, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+            render.popMatrix()
         end
-
-        render.pushMatrix( matrText )
-        render.drawSimpleText( 0, 0, name, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
-        render.popMatrix()
 
         local paintRadial = choice.paintRadial
 
