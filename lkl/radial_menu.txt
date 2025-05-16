@@ -1443,6 +1443,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
     local menuFontHeight = curMenu._fontSizeEff
     local menuFontScale = menuFontVecScale[1]
     local bandHeight = curMenu._bandHeight
+    local choiceGap = curMenu._choiceGap
     local nameLineSpacing = 10 * scrH / 1080
 
     local matrChoice = Matrix()
@@ -1501,7 +1502,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
         matrText:scale( menuFontVecScale )
 
         local nameLines = choice.nameLines
-        local textWidthLimit = nameRadius * arcWidthMult * 0.85
+        local textWidthLimit = nameRadius * ( 1 - choiceGap ) * arcWidthMult * 0.875
 
         if nameLines then -- Multiline name
             local textWidthMax = 0
