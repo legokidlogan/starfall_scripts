@@ -258,7 +258,7 @@ local function makeSpellChoice( spell, spellID )
     local colorRGB = spell:getColorRGB()
 
     return makeDisableableChoice( spell.name, true, spell:getColor(), {
-        name = spell:getName(),
+        name = spell:getRadialName(),
         nameColorUnhovered = spell:getNameColorUnhovered(),
         nameColorHovered = spell:getNameColorHovered(),
         func = function()
@@ -545,7 +545,7 @@ do -- Make spellbook menu
         end
     end )
 
-    hook.add( "LKL_Spellbook_Spell_NameChanged", "LKL_Spellbook_UpdateSpellMenu", function( spellID )
+    hook.add( "LKL_Spellbook_Spell_RadialNameChanged", "LKL_Spellbook_UpdateSpellMenu", function( spellID )
         local pageInd, choiceInd = unpack( spellToChoiceID[spellID] )
 
         spellMenu:editChoice( pageInd, choiceInd, makeSpellChoice( spellbook.spells[spellID], spellID ) )

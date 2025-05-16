@@ -53,7 +53,8 @@ end
 
 --[[
     params: {
-        name = string, -- Spell name.
+        name = string, -- Spell name. Used to sort the spell order with spellbook.MANUAL_SPELL_ORDER.
+        radialName = (optional) string, -- Name to use in the radial menu. Defaults to name, though will not auto-update if it changes.
         description = string, -- Spell description. Can have newlines.
         manaCost = number, -- Mana cost.
         manaCostActive = number, -- Mana cost while active.
@@ -70,6 +71,7 @@ end
 function Spell:initialize( params )
     if type( params ) ~= "table" then error( "Expected params to be a table" ) end
     if type( params.name ) ~= "string" then error( "Expected params.name to be a string" ) end
+    if params.radialName ~= nil and type( params.radialName ) ~= "string" then error( "Expected params.radialName to be a string or nil" ) end
     if type( params.description ) ~= "string" then error( "Expected params.description to be a string" ) end
     if type( params.manaCost ) ~= "number" then error( "Expected params.manaCost to be a number" ) end
     if type( params.manaCostActive ) ~= "number" then error( "Expected params.manaCostActive to be a number" ) end
@@ -91,6 +93,7 @@ function Spell:initialize( params )
     description = "(" .. classNameNice .. ")\n" .. description
 
     self._name = params.name
+    self._radialName = params.radialName or params.name
     self._description = description
     self._descriptionLines = string.split( description, "\n" )
     self._manaCost = params.manaCost
@@ -454,7 +457,7 @@ function Spell:getAssociatedModelCount( niceName )
     return count
 end
 
--- Sets the spell's name. Will NOT change its order in the radial menu. noNet causes the change to not be networked.
+-- Sets the spell's name. Will NOT change its order or name in the radial menu. noNet causes the change to not be networked.
 function Spell:setName( name, noNet )
     if type( name ) ~= "string" then error( "Expected name to be a string" ) end
     if self._name == name then return end
@@ -472,6 +475,20 @@ end
 
 function Spell:getName()
     return self._name
+end
+
+
+-- Sets the radial menu name; doesn't affect order. noNet causes the change to not be networked. Only has an effect if received by the owner's client.
+function Spell:setRadialName( radialName, noNet )
+    if type( radialName ) ~= "string" then error( "Expected radialName to be a string" ) end
+
+    if not self:_setParamVar( "radialName", radialName, noNet ) then return end
+
+    hook.run( "LKL_Spellbook_Spell_RadialNameChanged", self:getSpellID(), radialName )
+end
+
+function Spell:getRadialName()
+    return self._radialName
 end
 
 -- Sets the description. noNet causes the change to not be networked.
