@@ -1445,7 +1445,6 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
     local menuFontScale = menuFontVecScale[1]
     local bandHeight = curMenu._bandHeight
     local choiceGap = curMenu._choiceGap
-    local nameLineSpacing = 10 * scrH / 1080
 
     local matrChoice = Matrix()
     memAng[2] = degStep
@@ -1518,8 +1517,8 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
                 end
             end
 
-            local textHeight = menuFontHeight * lineCount + ( lineCount - 1 ) * nameLineSpacing
-            local textHeightLimit = bandHeight * 0.95
+            local textHeight = menuFontHeight * lineCount
+            local textHeightLimit = bandHeight
             local textMultMax = math.max( textWidthMax / textWidthLimit, textHeight / textHeightLimit )
 
             if textMultMax > 1 then
@@ -1530,8 +1529,8 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
                 matrText:scale( memVecScale )
             end
 
-            local y = -textHeight * ( ( lineCount - 1 ) / 2 ) / lineCount
-            local yStep = menuFontHeight + nameLineSpacing
+            local y = -menuFontHeight * ( ( lineCount - 1 ) / 2 ) / menuFontScale
+            local yStep = menuFontHeight / menuFontScale
 
             render.pushMatrix( matrText )
 
