@@ -228,12 +228,12 @@ local getColorEff
                     -- Drawing at 0,0 will result in drawing at the center of the menu/screen.
                     -- Drawing at xDir * choiceRadius, yDir * choiceRadius will result in drawing at the outermost edge of the choice.
                     -- The render will be facing upright.
-                    paint = function( xDir, yDir, choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd, hoverProgress ) return end (optional),
+                    paint = function( xDir, yDir, choiceRadius, bandHeight, hovered, menu, pageInd, choiceInd, hoverProgress ) return end (optional),
 
                     -- This function is like paint, but inherits the choice's radial orientation.
                     -- Drawing at 0, -choiceRadius will result in drawing at the outermost edge of the choice.
                     -- Note that choices below the center have their rotation flipped for ease of readability.
-                    paintRadial = function( choiceRadius, nameHeight, hovered, menu, pageInd, choiceInd, hoverProgress ) return end (optional),
+                    paintRadial = function( choiceRadius, bandHeight, hovered, menu, pageInd, choiceInd, hoverProgress ) return end (optional),
                 },
                 ...
             },
@@ -1433,6 +1433,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
     local menuFont = curMenu._fontObj
     local menuFontVecScale = curMenu._fontVecScale
     local menuFontHeight = curMenu._fontSizeEff
+    local bandHeight = curMenu._bandHeight
 
     local matrChoice = Matrix()
     memAng[2] = degStep
@@ -1509,7 +1510,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
         local paintRadial = choice.paintRadial
 
         if paintRadial then
-            paintRadial( nameRadius + menuFontHeight / 2, menuFontHeight, i == hoveredInd, curMenu, curPageInd, i, hoverProgress )
+            paintRadial( nameRadius + bandHeight / 2, bandHeight, i == hoveredInd, curMenu, curPageInd, i, hoverProgress )
         end
 
         render.popMatrix() -- matrChoice
@@ -1523,7 +1524,7 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
             local xDir = -math.cos( rad )
             local yDir = -math.sin( rad )
 
-            paint( xDir, yDir, nameRadius + menuFontHeight / 2, menuFontHeight, i == hoveredInd, curMenu, curPageInd, i, hoverProgress )
+            paint( xDir, yDir, nameRadius + bandHeight / 2, bandHeight, i == hoveredInd, curMenu, curPageInd, i, hoverProgress )
         end
     end
 
