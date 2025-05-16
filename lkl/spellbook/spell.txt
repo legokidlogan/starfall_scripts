@@ -729,18 +729,15 @@ if CLIENT then
 
             local rtName = iconRTs[#iconRTs]
             local iconPageInd = iconCount % iconsPerRT
-            --local x = ( iconCount - 1 ) % iconsPerRow * ICON_SIZE
-            --local y = math.floor( ( iconCount - 1 ) / iconsPerRow ) * ICON_SIZE
             local x = ( ( iconPageInd - 1 ) % iconsPerRow ) * ICON_SIZE
-            local y = math.floor( ( iconPageInd - 1 ) / iconsPerRow ) * ICON_SIZE
+            local y = math.floor( ( ( iconPageInd == 0 and iconsPerRT or iconPageInd ) - 1 ) / iconsPerRow ) * ICON_SIZE
 
             render.selectRenderTarget( rtName )
 
-            if iconCount == 1 then
+            if iconPageInd == 1 then
                 render.clearRGBA( 0, 0, 0, 0 )
             end
 
-            --render.setColor( spell._iconUseColor and spell:getColorRGB() or Color( 255, 255, 255, 255 ) )
             render.setRGBA( 255, 255, 255, 255 )
             render.setMaterial( iconMat )
             render.drawTexturedRectUV( x, y, ICON_SIZE, ICON_SIZE, 0, 0, wh / 1024, wh / 1024 )
