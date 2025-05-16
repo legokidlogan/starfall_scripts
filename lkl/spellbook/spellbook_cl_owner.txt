@@ -264,7 +264,7 @@ local function makeSpellChoice( spell, spellID )
         func = function()
             spellbook.selectSpell( spellID )
         end,
-        paint = function( xDir, yDir, choiceRadius, _bandHeight, _hovered, menu, pageInd, choiceInd, hoverProgress )
+        paint = function( xDir, yDir, choiceRadius, bandHeight, _hovered, menu, pageInd, choiceInd, hoverProgress )
             if spell:isActive() then
                 local r = choiceRadius * 0.6 + iconSizeRadial / 2
                 local m = Matrix()
@@ -280,7 +280,7 @@ local function makeSpellChoice( spell, spellID )
             local iconRT = spell._iconRT
 
             if iconRT then
-                local r = choiceRadius * 0.6 + iconSizeRadial / 2
+                local r = choiceRadius * 0.95 - bandHeight - iconSizeRadial / 2
                 local x = xDir * r
                 local y = yDir * r
 
