@@ -206,7 +206,7 @@ local getColorEff
                 name = STRING (optional), -- The name of the page.
 
                 [1] = { -- (choice 1 of page 1)
-                    name = STRING, -- The name of the choice.
+                    name = STRING, -- The name of the choice. Text automatically shrinks to fit.
 
                     -- These are mutually exclusive with each other. At least one must be set.
                     command = STRING, -- The concmd to run when the choice is selected. Only works on the owner, otherwise tries the other options.
