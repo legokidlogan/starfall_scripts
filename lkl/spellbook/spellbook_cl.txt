@@ -13,6 +13,9 @@ local iconSize = spellbook.ICON_SIZE
 local iconAtTop = spellbook.ICON_AT_TOP
 
 local bookHolos = {}
+local clothingHolos = {}
+local clothingHoloBases = {}
+local clothingHolosHidden = true
 local openEndTime = false
 local leftPageDirty = true
 local spellNameFontSize = 100
@@ -58,6 +61,46 @@ function spellbook.getParticleEmitter3D()
     return particleEmitter3D
 end
 
+-- Creates a holo which will follow the owner while the spellbook is summoned and viewed from third-person.
+-- parent can either be a holo, or the string name of a bone.
+-- If provides, size will override scale.
+function spellbook.createClothingHolo( parent, localPos, localAng, model, scale, size )
+    if type( parent ) == "string" then
+        local boneID = owner():lookupBone( parent )
+        if not boneID then
+            print( "Spellbook: couldn't find a bone with the name '" .. parent .. "' on the owner." )
+
+            return spellbook.createClothingHolo( game.getWorld(), localPos, localAng, model, scale, size )
+        end
+
+        local baseHolo = clothingHoloBases[boneID]
+
+        if not baseHolo then
+            baseHolo = hologram.create( Vector(), Angle(), "models/hunter/plates/plate.mdl", Vector() )
+            baseHolo:setMaterial( "engine/writez" )
+            baseHolo:setColor( Color( 0, 0, 0, 0 ) )
+            baseHolo:setNoDraw( clothingHolosHidden )
+
+            clothingHoloBases[boneID] = baseHolo
+            table.insert( clothingHolos, baseHolo )
+        end
+
+        parent = baseHolo
+    end
+
+    local pos, ang = localToWorld( localPos, localAng, parent:getPos(), parent:getAngles() )
+    local holo = hologram.create( pos, ang, model, scale )
+    holo:setParent( parent )
+    holo:setNoDraw( clothingHolosHidden )
+
+    if size then
+        holo:setSize( size )
+    end
+
+    table.insert( clothingHolos, holo )
+
+    return holo
+end
 
 -- Approximates whether the book should be rendered in first-person mode or not. Most reliable in the renderoffscreen hook.
 if player() == owner() then
@@ -124,6 +167,25 @@ hook.add( "renderoffscreen", "LKL_Spellbook_AnimateSpellbook", function()
 
     holoCoverJointLeft:setLocalAngles( Angle( 0, -theta, 0 ) )
     holoCoverJointRight:setLocalAngles( Angle( 0, theta, 0 ) )
+end )
+
+hook.add( "renderoffscreen", "LKL_Spellbook_AnimateClothing", function()
+    local wasHidden = clothingHolosHidden
+    clothingHolosHidden = not spellbook.summoned or not owner():isAlive() or spellbook.isInFirstPerson()
+
+    if clothingHolosHidden ~= wasHidden then
+        for _, holo in ipairs( clothingHolos ) do
+            holo:setNoDraw( clothingHolosHidden )
+        end
+    end
+
+    if clothingHolosHidden then return end
+
+    for boneID, baseHolo in pairs( clothingHoloBases ) do
+        local pos, ang = owner():getBonePosition( boneID )
+        baseHolo:setPos( pos )
+        baseHolo:setAngles( ang )
+    end
 end )
 
 hook.add( "LKL_Spellbook_OnSetSummoned", "LKL_Spellbook_AnimateSpellbook", function( state )
