@@ -1281,7 +1281,7 @@ end
     precision: (optional) (number >= 0)
         - The maximum distance between the line segment and the plane for them to be considered intersecting.
         - Smaller values are more precise.
-        - Default is 0.
+        - Default is 10^-5.
 
     RETURNS: intersectionPoint
         intersectionPoint: (Vector or nil)
@@ -1415,7 +1415,7 @@ end
     precision: (optional) (number >= 0)
         - The maximum distance between the vectors for them to be considered equal.
         - Smaller values are more precise.
-        - Default is 0.
+        - Default is 0, unlike most vectorMath functions with precision.
 --]]
 function vectorMath.isPointOnPoint( point1, point2, precision )
     if precision then
@@ -1437,10 +1437,10 @@ end
     precision: (optional) (number >= 0)
         - The maximum distance between the point and the line for it to be considered on the line.
         - Smaller values are more precise.
-        - Default is 0.
+        - Default is 10^-5.
 --]]
 function vectorMath.isPointOnLine( point, lineOrigin, lineDir, precision )
-    return vectorMath.pointDistanceFromLine( point, lineOrigin, lineDir ) <= ( precision or 0 )
+    return vectorMath.pointDistanceFromLine( point, lineOrigin, lineDir ) <= ( precision or PRECISION_TINY )
 end
 
 --[[
@@ -1455,10 +1455,10 @@ end
     precision: (optional) (number >= 0)
         - The maximum distance between the point and the line segment for it to be considered on the line segment.
         - Smaller values are more precise.
-        - Default is 0.
+        - Default is 10^-5.
 --]]
 function vectorMath.isPointOnLineSegment( point, segmentStart, segmentEnd, precision )
-    return vectorMath.pointDistanceFromLineSegment( point, segmentStart, segmentEnd ) <= ( precision or 0 )
+    return vectorMath.pointDistanceFromLineSegment( point, segmentStart, segmentEnd ) <= ( precision or PRECISION_TINY )
 end
 
 --[[
@@ -1559,9 +1559,11 @@ end
     precision: (optional) (number >= 0)
         - The maximum distance between the line segments for them to be considered intersecting.
         - Smaller values are more precise.
-        - Default is 0.
+        - Default is 10^-5.
 --]]
 function vectorMath.doesLineSegmentIntersectWithLineSegment( segmentStart1, segmentEnd1, segmentStart2, segmentEnd2, precision )
+    precision = precision or PRECISION_TINY
+
     local segmentDir1, segmentLength1 = vectorMath.getDirectionAndLength( segmentEnd1 - segmentStart1 )
     if segmentLength1 == 0 then return vectorMath.isPointOnLineSegment( segmentStart1, segmentStart2, segmentEnd2, precision ) end
 
@@ -1599,7 +1601,7 @@ end
     precision: (optional) (number >= 0)
         - The maximum distance between the line and the plane for them to be considered intersecting.
         - Smaller values are more precise.
-        - Default is 0.
+        - Default is 10^-5.
 --]]
 function vectorMath.doesLineIntersectWithPlane( lineOrigin, lineDir, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision )
     return vectorMath.lineIntersectionWithPlane( lineOrigin, lineDir, planeOrigin, planeNormalAng, planeWidth, planeHeight, precision ) ~= nil
@@ -1659,7 +1661,7 @@ end
     precision: (optional) (number >= 0)
         - The maximum distance between the planes for them to be considered intersecting.
         - Smaller values are more precise.
-        - Default is 0.
+        - Default is 10^-5.
 --]]
 function vectorMath.doesPlaneIntersectWithPlane( planeOrigin1, planeNormal1, planeOrigin2, planeNormal2, precision )
     if planeNormal1 ~= planeNormal2 and planeNormal1 ~= -planeNormal2 then return true end
