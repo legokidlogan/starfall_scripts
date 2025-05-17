@@ -59,6 +59,18 @@ function spellbook.getParticleEmitter3D()
 end
 
 
+-- Approximates whether the book should be rendered in first-person mode or not. Most reliable in the renderoffscreen hook.
+if player() == owner() then
+    function spellbook.isInFirstPerson()
+        return render.getEyePos():getDistance( player():getShootPos() ) < 30
+    end
+else
+    function spellbook.isInFirstPerson()
+        return false
+    end
+end
+
+
 ----- SETUP -----
 
 -- use renderoffscreen insteaf of think to eliminate book jittering. Runs just as offten, but fixes hook order issues.
@@ -81,7 +93,7 @@ hook.add( "renderoffscreen", "LKL_Spellbook_AnimateSpellbook", function()
         end
     end
 
-    local isFirstPerson = player() == owner() and render.getEyePos():getDistance( player():getShootPos() ) < 30
+    local isFirstPerson = spellbook.isInFirstPerson()
     local bookPos, bookAng, frac = spellbook.calcBookPosAng( openEndTime, isFirstPerson )
 
     holoSpine:setPos( bookPos )
