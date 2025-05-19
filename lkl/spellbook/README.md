@@ -51,6 +51,13 @@ How to read your spellbook:
     - Charged spells will show the charge status at the top of the page.
         - If the spell has a minimum charge requirement, it will be shown with a darker gray color.
 
+The [wizard_zone_example.txt](/lkl/spellbook/wizard_zone_example.txt) script can be used to define a wizard zone.
+- A wizard zone is an easy way to mark an area for wizard combat.
+- Place the chip. It will automatically use [boxSelector](/lkl/box_selector.txt) to let you determine the bounds.
+- Aim at the first corner and press E to lock it in.
+- Aim up and doin to choose the first corner's height, then press E.
+- Repeat for the second corner.
+
 ## Customization
 
 Many aspects of the spellbook and its spells can be adjusted to your liking.
@@ -101,7 +108,7 @@ Hooks:
 - `LKL_Spellbook_SpellbookHolosCreated( info, bookHolos )`
     - CLIENT realm.
     - Called when the spellbook's holos have been created.
-    - `info` contains the base holos by name, and some additional variables. See the bottom of [spellbook_cl.txt](/lkl/spellbook/spellbook_cl.txt) for more details.
+    - `info` contains the base holos by name, and some additional variables. See `spellbook.getSpellbookHoloInfo()` for more details.
     - `bookHolos` is a list of all book holos. Insert into this if you are adding more holos to the book.
 - `newPos, newAng, newFrac = LKL_Spellbook_OverrideBookPosAng( pos, eyeAng, frac, openCloseEndTime, isFirstPerson )`
     - All realms.

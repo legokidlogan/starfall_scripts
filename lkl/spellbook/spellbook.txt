@@ -90,7 +90,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.4.1"
+spellbook.VERSION = "1.4.2"
 
 require( "lkl/spellbook/spell.txt" )
 require( "lkl/spellbook/instant_spell.txt" )

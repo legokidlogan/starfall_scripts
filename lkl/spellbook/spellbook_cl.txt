@@ -29,6 +29,7 @@ local holoCoverJointLeft = nil
 local holoCoverJointRight = nil
 local particleEmitter2D = nil
 local particleEmitter3D = nil
+local bookHolosReady = false
 
 render.createRenderTarget( rtNamePageLeft )
 
@@ -59,6 +60,37 @@ function spellbook.getParticleEmitter3D()
     end
 
     return particleEmitter3D
+end
+
+-- Whether or not the spellbook holos have been spawned.
+function spellbook.areBookHolosReady()
+    return bookHolosReady
+end
+
+--[[
+    - Once the spellbook holos are ready, will return a table of the following format:
+    {
+        spine = Hologram,
+        coverJointLeft = Hologram,
+        coverJointRight = Hologram,
+        coverLeft = Hologram,
+        coverRight = Hologram,
+        pageBlockLeft = Hologram,
+        pageBlockRight = Hologram,
+        pageLeft = Hologram,
+        pageRight = Hologram,
+
+        bookHolos = list of holos (including custom-added ones),
+        pageWidth = number,
+        pageHeight = number,
+        pageBlockThickness = number,
+        cubeModel = string,
+        spineOBB = Vector,
+        coverOBB = Vector,
+    }
+--]]
+function spellbook.getSpellbookHoloInfo()
+    return false
 end
 
 -- Creates a holo which will follow the owner while the spellbook is summoned and viewed from third-person.
@@ -530,24 +562,32 @@ timer.simple( 0, function()
         holoPageRight:setColor( spellbook.PAGE_COLOR )
     end
 
-    hook.run( "LKL_Spellbook_SpellbookHolosCreated", {
-        spine = holoSpine,
-        coverJointLeft = holoCoverJointLeft,
-        coverJointRight = holoCoverJointRight,
-        coverLeft = holoCoverLeft,
-        coverRight = holoCoverRight,
-        pageBlockLeft = holoPageBlockLeft,
-        pageBlockRight = holoPageBlockRight,
-        pageLeft = holoPageLeft,
-        pageRight = holoPageRight,
+    spellbook.getSpellbookHoloInfo = function()
+        return {
+            spine = holoSpine,
+            coverJointLeft = holoCoverJointLeft,
+            coverJointRight = holoCoverJointRight,
+            coverLeft = holoCoverLeft,
+            coverRight = holoCoverRight,
+            pageBlockLeft = holoPageBlockLeft,
+            pageBlockRight = holoPageBlockRight,
+            pageLeft = holoPageLeft,
+            pageRight = holoPageRight,
 
-        pageWidth = pageWidth,
-        pageHeight = pageHeight,
-        pageBlockThickness = pageBlockThickness,
-        cubeModel = cubeModel,
-        spineOBB = spineOBB,
-        coverOBB = coverOBB,
-    }, bookHolos )
+            bookHolos = bookHolos,
+            pageWidth = pageWidth,
+            pageHeight = pageHeight,
+            pageBlockThickness = pageBlockThickness,
+            cubeModel = cubeModel,
+            spineOBB = spineOBB,
+            coverOBB = coverOBB,
+        }
+    end
+
+    bookHolosReady = true
+
+    local info = spellbook.getSpellbookHoloInfo()
+    hook.run( "LKL_Spellbook_SpellbookHolosCreated", info, bookHolos )
 
     for _, holo in ipairs( bookHolos ) do
         holo:setNoDraw( spellbook.summoned )
