@@ -1,8 +1,6 @@
 --@name spellbook_cl
 --@author legokidlogan and shrooblooms
 --@client
---@include lkl/render/circle_bar.txt
---@include lkl/render/poly_tools.txt
 
 local bookWidth = spellbook.BOOK_WIDTH
 local bookHeight = spellbook.BOOK_HEIGHT
