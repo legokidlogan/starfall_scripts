@@ -1,0 +1,153 @@
+--@name spellbook_right_page
+--@author legokidlogan and shrooblooms
+--@client
+--@owneronly
+--@include lkl/render/circle_bar.txt
+--@include lkl/render/poly_tools.txt
+
+require( "lkl/render/circle_bar.txt" )
+require( "lkl/render/poly_tools.txt" )
+
+
+local rtNamePageRight = "LKL_Spellbook_PageRight"
+local cbMana = CircleBar:new( 512, 512 + 50, 350, 450, { rotationDeg = 90, numSegments = 128, clockwise = false } )
+local cbGlobalCooldown = CircleBar:new( 512, 512 + 50, 200, 300, { rotationDeg = 90, numSegments = 32, clockwise = false } )
+local cbSpellCooldown = CircleBar:new( 512, 512 + 50, 50, 150, { rotationDeg = 90, numSegments = 32, clockwise = false } )
+
+local polyActiveCircle = polyTools.polyMakeCircleFilled( 100, 175, 50, 32 )
+
+local chargeBarX = 50
+local chargeBarY = 40
+local chargeBarW = 1024 - chargeBarX * 2
+local chargeBarH = 50
+
+render.createRenderTarget( rtNamePageRight )
+
+
+hook.add( "LKL_Spellbook_SpellbookHolosCreated", "LKL_Spellbook_AttachRightPageMaterial", function( info )
+    local pageRight = info.pageRight
+
+    local matPageRight = material.create( "VertexLitGeneric" )
+    matPageRight:setTextureRenderTarget( "$basetexture", rtNamePageRight )
+
+    pageRight:setMaterial( "!" .. matPageRight:getName() )
+    pageRight:setColor( Color( 255, 255, 255, 255 ) )
+end )
+
+hook.add( "renderoffscreen", "LKL_Spellbook_DrawRightPage", function()
+    if not spellbook.open then return end
+
+    local spell = spellbook.getSelectedSpell()
+    local now = timer.curtime()
+    local globalCooldownEndTime = spellbook.globalCooldownEndTime or 0
+    local spellCooldownEndTime = spellbook.spellCooldownEndTimes[spell._spellID] or 0
+
+    render.selectRenderTarget( rtNamePageRight )
+    render.clear( spellbook.PAGE_COLOR )
+    render.setMaterial()
+
+    -- Mana
+    local mana = spellbook.mana
+    local manaMax = spellbook.MANA_MAX
+
+    if spellbook.DRAW_MANA_PREVIEW then
+        local manaAfter = mana
+        local drainColor
+        local gainColor
+
+        if spell:isActive() then
+            manaAfter = math.clamp( mana - spell:getManaCostActive() / 5, 0, manaMax )
+            drainColor = spellbook.COLOR_MANA_DRAIN_ACTIVE
+            gainColor = spellbook.COLOR_MANA_GAIN_ACTIVE
+        elseif spell:isInstanceOf( ChargedSpell ) then
+            manaAfter = math.clamp( mana - spell:getManaCost() * spell:getChargeStrength(), 0, manaMax )
+            drainColor = spellbook.COLOR_MANA_DRAIN_CHARGED
+            gainColor = spellbook.COLOR_MANA_GAIN_CHARGED
+        else
+            manaAfter = math.clamp( mana - spell:getManaCost(), 0, manaMax )
+            drainColor = spellbook.COLOR_MANA_DRAIN_INSTANT
+            gainColor = spellbook.COLOR_MANA_GAIN_INSTANT
+        end
+
+        if manaAfter < mana then
+            render.setColor( drainColor )
+            cbMana:setProgress( mana / manaMax )
+            cbMana:draw()
+
+            render.setColor( spellbook.COLOR_MANA )
+            cbMana:setProgress( manaAfter / manaMax )
+            cbMana:draw()
+        else
+            if manaAfter ~= mana then
+                render.setColor( gainColor )
+                cbMana:setProgress( manaAfter / manaMax )
+                cbMana:draw()
+            end
+
+            render.setColor( spellbook.COLOR_MANA )
+            cbMana:setProgress( mana / manaMax )
+            cbMana:draw()
+        end
+    else
+        render.setRGBA( spellbook.COLOR_MANA )
+        cbMana:setProgress( mana / manaMax )
+        cbMana:draw()
+    end
+
+
+    -- Global cooldown
+    if globalCooldownEndTime > now then
+        local timeLeft = globalCooldownEndTime - now
+        local frac = math.clamp( timeLeft / spellbook.globalCooldownDuration, 0, 1 )
+
+        render.setRGBA( 100, 100, 100, 255 )
+        cbGlobalCooldown:setProgress( frac )
+        cbGlobalCooldown:draw()
+    end
+
+    -- Spell cooldown
+    if spellCooldownEndTime > now then
+        local timeLeft = spellCooldownEndTime - now
+        local frac = math.clamp( timeLeft / spellbook.spellCooldownDurations[spell._spellID], 0, 1 )
+
+        render.setColor( spell:getColorRGB() )
+        cbSpellCooldown:setProgress( frac )
+        cbSpellCooldown:draw()
+    end
+
+    -- Active indicator
+    if spell:isActive() then
+        render.setRGBA( 120, 0, 255, 255 )
+    else
+        render.setRGBA( 150, 150, 150, 255 )
+    end
+
+    render.drawPoly( polyActiveCircle )
+
+    -- Charge bar
+    if spell:isInstanceOf( ChargedSpell ) then
+        local charge = spell:getChargeStrength()
+        local chargeThreshold = spell:getChargeThreshold()
+        local manaToCast = spell:getManaCost()
+
+        if spell:isInstanceOf( ChargedSpell ) then
+            manaToCast = manaToCast * spell:getChargeStrength()
+        end
+
+        render.setRGBA( 150, 150, 150, 255 )
+        render.drawRect( chargeBarX, chargeBarY, chargeBarW, chargeBarH )
+
+        render.setRGBA( 50, 50, 75, 255 )
+        render.drawRect( chargeBarX, chargeBarY, chargeBarW * chargeThreshold, chargeBarH )
+
+        if manaToCast < spellbook.mana then
+            render.setRGBA( 0, 215, 150, 255 )
+        else
+            render.setRGBA( 215, 0, 150, 255 )
+        end
+
+        render.drawRect( chargeBarX, chargeBarY, chargeBarW * charge, chargeBarH )
+    end
+
+    render.selectRenderTarget()
+end )
