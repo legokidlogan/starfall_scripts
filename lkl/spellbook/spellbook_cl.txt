@@ -150,6 +150,7 @@ end
 
 -- use renderoffscreen instead of think to eliminate book jittering. Runs just as often, but fixes hook order issues.
 hook.add( "renderoffscreen", "LKL_Spellbook_AnimateSpellbook", function()
+    if not bookHolosReady then return end
     if not spellbook.summoned then return end
 
     local wasOpen = spellbook.open
@@ -486,7 +487,7 @@ end
 
 
 -- Make the book holos.
-timer.simple( 0, function()
+timer.simple( 0.1, function()
     local spineOBB = Vector( coverThickness, bookDepth, bookHeight )
     local coverOBB = Vector( coverThickness, bookWidth, bookHeight )
     local pageWidth = bookWidth - pageInset * 2
