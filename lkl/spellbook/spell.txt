@@ -42,6 +42,7 @@ local netTypes = {
 local loadNextIcon
 local netGenericWrite
 local netGenericRead
+local processDescription
 
 if CLIENT then
     spellHUDFont = render.createFont( "Default", 48, 400, true, false, false, false, false, false, false )
@@ -88,9 +89,7 @@ function Spell:initialize( params )
 
     spellsByName[params.name] = self
 
-    local description = string.trim( params.description )
-    local classNameNice = string.gsub( self.class.name, "([a-z])([A-Z])", "%1 %2" ) -- Add spaces between pascale case words.
-    description = "(" .. classNameNice .. ")\n" .. description
+    local description = processDescription( self, params.description )
 
     self._name = params.name
     self._radialName = params.radialName or params.name
@@ -497,6 +496,7 @@ function Spell:setDescription( description, noNet )
 
     if not self:_setParamVar( "description", description, noNet ) then return end
 
+    description = processDescription( self, description )
     local descriptionLines = string.split( description, "\n" )
     self._descriptionLines = descriptionLines
 
@@ -833,6 +833,14 @@ netGenericRead = function( typeStr )
     end
 
     return net["read" .. netTypes[typeStr]]( 16 )
+end
+
+processDescription = function( spell, description )
+    description = string.trim( description )
+    local classNameNice = string.gsub( spell.class.name, "([a-z])([A-Z])", "%1 %2" ) -- Add spaces between PascalCase words.
+    description = "(" .. classNameNice .. ")\n" .. description
+
+    return description
 end
 
 
