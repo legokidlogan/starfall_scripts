@@ -77,12 +77,12 @@ end
 --
 
 
-permissions = {
+require( "lkl/cl_check_permissions.txt" )
+
+addPermissions( {
     "render.hud",
     "render.calcview"
-}
-
-require( "lkl/cl_check_permissions.txt" )
+} )
 
 setupPermissionRequestSafe( permissions, "See yourself in first person", true )
 checkPermissions()
