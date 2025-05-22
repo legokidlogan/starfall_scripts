@@ -44,6 +44,11 @@ function StandardPrintable:__tostring()
     return out
 end
 
+function StandardPrintable:__concat( other )
+    return tostring( self ) .. tostring( other )
+end
+
+
 
 ----- OVERRIDABLE FUNCTIONS -----
 
