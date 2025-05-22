@@ -127,10 +127,10 @@ function spellbook.createClothingHolo( parent, localPos, localAng, model, scale,
     return holo
 end
 
--- Approximates whether the book should be rendered in first-person mode or not. Most reliable in the renderoffscreen hook.
+-- Approximates whether the book should be rendered in first-person mode or not.
 if player() == owner() then
     function spellbook.isInFirstPerson()
-        return render.getEyePos():getDistance( player():getShootPos() ) < 30
+        return not player():shouldDrawLocalPlayer()
     end
 else
     function spellbook.isInFirstPerson()
