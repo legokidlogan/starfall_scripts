@@ -27,6 +27,25 @@ end
 
 ----- INSTANCE FUNCTIONS -----
 
+if CLIENT and player() == owner() then
+    -- Stops a charge without casting it.
+    function ChargedSpell:cancelCharge()
+        if not self._charging then return end
+
+        self._charging = false
+
+        local now = timer.curtime()
+
+        self:onStopCharging( now )
+
+        net.start( "LKL_Spellbook_ChargedSpell_StopCharging" )
+        net.writeUInt( self._spellID, 16 )
+        net.writeFloat( now )
+        net.send()
+    end
+end
+
+
 function ChargedSpell:isCharging()
     return self._charging
 end
@@ -97,18 +116,7 @@ end
 
 if CLIENT and player() == owner() then
     function ChargedSpell:onBookClosed()
-        if not self._charging then return end
-
-        self._charging = false
-
-        local now = timer.curtime()
-
-        self:onStopCharging( now )
-
-        net.start( "LKL_Spellbook_ChargedSpell_StopCharging" )
-        net.writeUInt( self._spellID, 16 )
-        net.writeFloat( now )
-        net.send()
+        self:cancelCharge()
     end
 end
 
@@ -174,6 +182,15 @@ end
 
 
 ----- SETUP -----
+
+if CLIENT and player() == owner() then
+    hook.add( "LKL_Spellbook_OnSpellSelected", "LKL_Spellbook_ChargedSpell_StopSharging", function( oldSpell )
+        if oldSpell:isInstanceOf( ChargedSpell ) then
+            oldSpell:cancelCharge()
+        end
+    end )
+end
+
 
 net.receive( "LKL_Spellbook_ChargedSpell_StartCharging", function( _, ply )
     if SERVER and ply ~= owner() then return end
