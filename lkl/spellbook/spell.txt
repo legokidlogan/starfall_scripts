@@ -227,27 +227,6 @@ end
 
 
 if CLIENT and player() == owner() then
-    function Spell:setActive( state )
-        if self._active == state then return end
-
-        local now = timer.curtime()
-
-        self._active = state
-
-        net.start( "LKL_Spellbook_Spell_SetActive" )
-        net.writeUInt( self:getSpellID(), 16 )
-        net.writeBool( state )
-
-        if state then
-            self._activeStartTime = now
-            net.writeFloat( now )
-        end
-
-        net.send()
-
-        self:onSetActive( state, now ) -- Most systems (mana usage, radial menu, etc) shouldn't rely on this, this is for start/stop sounds, etc.
-    end
-
     function Spell:checkCooldowns()
         local now = timer.curtime()
 
@@ -333,6 +312,30 @@ if CLIENT and player() == owner() then
         end
 
         self._showManaWarningEndTime = timer.curtime() + duration
+    end
+end
+
+
+if SERVER or player() == owner() then
+    function Spell:setActive( state )
+        if self._active == state then return end
+
+        local now = timer.curtime()
+
+        self._active = state
+
+        net.start( "LKL_Spellbook_Spell_SetActive" )
+        net.writeUInt( self:getSpellID(), 16 )
+        net.writeBool( state )
+
+        if state then
+            self._activeStartTime = now
+            net.writeFloat( now )
+        end
+
+        net.send()
+
+        self:onSetActive( state, now ) -- Most systems (mana usage, radial menu, etc) shouldn't rely on this, this is for start/stop sounds, etc.
     end
 end
 
