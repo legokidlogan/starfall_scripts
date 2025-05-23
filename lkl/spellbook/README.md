@@ -137,7 +137,7 @@ Hooks:
 - `LKL_Spellbook_OwnerRespawned( respawnTime )`
     - All realms.
     - Called when the owner respawns.
-- `LKL_Spellbook_OwnerDeath( respawnTime )`
+- `LKL_Spellbook_OwnerDeath( deathTime )`
     - All realms.
     - Called when the owner dies.
 - `LKL_Spellbook_Spell_AssociateModel( spellID, niceName, model, provider )`
