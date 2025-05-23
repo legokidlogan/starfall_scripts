@@ -7,6 +7,9 @@ if ChargedSpell then return end
 ChargedSpell = class( "ChargedSpell", Spell )
 
 
+local forceCancelCharge
+
+
 ----- STATIC FUNCTIONS -----
 
 --[[
@@ -29,7 +32,7 @@ end
 
 if SERVER or player() == owner() then
     -- Stops a charge without casting it.
-    function ChargedSpell:cancelCharge()
+    function ChargedSpell:cancelCharge( reason )
         if not self._charging then return end
 
         self._charging = false
@@ -41,6 +44,7 @@ if SERVER or player() == owner() then
         net.start( "LKL_Spellbook_ChargedSpell_StopCharging" )
         net.writeUInt( self._spellID, 16 )
         net.writeFloat( now )
+        net.writeString( reason or "Unknown" )
         net.send()
     end
 end
@@ -89,7 +93,8 @@ function ChargedSpell:onStartCharging( _startTime )
     -- Called in all realms.
 end
 
-function ChargedSpell:onStopCharging( _stopTime )
+-- Common values for reason: Casted, Fumbled, BookClosed, Deselected, Unknown.
+function ChargedSpell:onStopCharging( _stopTime, _reason )
     -- Called in all realms, regardless of whether the cast succeeded or failed.
 end
 
@@ -116,7 +121,7 @@ end
 
 if CLIENT and player() == owner() then
     function ChargedSpell:onBookClosed()
-        self:cancelCharge()
+        self:cancelCharge( "BookClosed" )
     end
 end
 
@@ -155,29 +160,28 @@ function ChargedSpell:onKeyRelease( key )
     local strength = self:getChargeStrength()
     local threshold = self:getChargeThreshold()
 
-    self._charging = false
+    self._charging = false -- Set charging to false ahead of time for :onFumble(), :onCast(), etc.
 
     if strength < threshold then
         self:fumble( "ChargeThreshold" )
+        forceCancelCharge( self, "Fumbled" )
     elseif self:getManaCost() * strength > spellbook.mana then
         self:startManaWarning( 1.5 )
         self:fumble( "Mana", true )
+        forceCancelCharge( self, "Fumbled" )
     else
         self:cast( strength )
+        forceCancelCharge( self, "Casted" )
     end
-
-    local now = timer.curtime()
-
-    self:onStopCharging( now )
-
-    net.start( "LKL_Spellbook_ChargedSpell_StopCharging" )
-    net.writeUInt( self._spellID, 16 )
-    net.writeFloat( now )
-    net.send()
 end
 
 
 ----- PRIVATE FUNCTIONS -----
+
+forceCancelCharge = function( spell, reason )
+    spell._charging = true -- Bypass the charge check
+    spell:cancelCharge( reason )
+end
 
 
 
@@ -186,7 +190,7 @@ end
 if CLIENT and player() == owner() then
     hook.add( "LKL_Spellbook_OnSpellSelected", "LKL_Spellbook_ChargedSpell_StopSharging", function( oldSpell )
         if oldSpell:isInstanceOf( ChargedSpell ) then
-            oldSpell:cancelCharge()
+            oldSpell:cancelCharge( "Deselected" )
         end
     end )
 end
@@ -223,14 +227,17 @@ net.receive( "LKL_Spellbook_ChargedSpell_StopCharging", function( _, ply )
     local spell = spellbook.spells[spellID]
     if not spell then return end
 
+    local reason = net.readString()
+
     spell._charging = false
 
-    spell:onStopCharging( stopTime )
+    spell:onStopCharging( stopTime, reason )
 
     if CLIENT then return end
 
     net.start( "LKL_Spellbook_ChargedSpell_StopCharging" )
         net.writeUInt( spellID, 16 )
         net.writeFloat( stopTime )
+        net.writeString( reason )
     net.send( spellbook.getEveryoneButOwner() )
 end )
