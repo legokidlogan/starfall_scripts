@@ -175,3 +175,15 @@ hook.add( "PlayerSpawn", "LKL_Spellbook_ReplenishMana", function( ply )
 
     hook.run( "LKL_Spellbook_OwnerRespawned", now )
 end )
+
+hook.add( "PlayerDeath", "LKL_Spellbook_OwnerDeath", function( ply )
+    if ply ~= owner() then return end
+
+    local now = timer.curtime()
+
+    net.start( "LKL_Spellbook_OwnerDeath" )
+    net.writeFloat( now )
+    net.send()
+
+    hook.run( "LKL_Spellbook_OwnerDeath", now )
+end )

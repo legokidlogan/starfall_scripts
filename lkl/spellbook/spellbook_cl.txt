@@ -342,6 +342,10 @@ net.receive( "LKL_Spellbook_OwnerRespawned", function()
     hook.run( "LKL_Spellbook_OwnerRespawned", net.readFloat() )
 end )
 
+net.receive( "LKL_Spellbook_OwnerDeath", function()
+    hook.run( "LKL_Spellbook_OwnerDeath", net.readFloat() )
+end )
+
 
 -- Make the book holos.
 timer.simple( 0.1, function()
