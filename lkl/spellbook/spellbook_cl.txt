@@ -267,12 +267,17 @@ hook.add( "renderoffscreen", "LKL_Spellbook_DrawLeftPage", function()
     render.clear( spellbook.PAGE_COLOR )
 
     -- Name
+    local nameLines = string.split( spell:getName(), "\n" )
+
     render.setFont( spellNameFont )
     render.setColor( spell:getColorRGB() )
-    render.drawSimpleText( 512, 10 + yOffIcon, spell:getName(), TEXT_ALIGN.CENTER, TEXT_ALIGN.TOP )
+
+    for i, line in ipairs( nameLines ) do
+        render.drawSimpleText( 512, 10 + yOffIcon + ( i - 1 ) * spellNameFontSize, line, TEXT_ALIGN.CENTER, TEXT_ALIGN.TOP )
+    end
 
     local descLines = spell:getDescriptionLines()
-    local y = spellNameFontSize + 10 + 10 + yOffIcon
+    local y = spellNameFontSize * #nameLines + 10 + 10 + yOffIcon
     local yStep = spellDescFontSize + 5
 
     -- Description
