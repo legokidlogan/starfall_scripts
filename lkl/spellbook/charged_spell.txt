@@ -27,7 +27,7 @@ end
 
 ----- INSTANCE FUNCTIONS -----
 
-if CLIENT and player() == owner() then
+if SERVER or player() == owner() then
     -- Stops a charge without casting it.
     function ChargedSpell:cancelCharge()
         if not self._charging then return end
