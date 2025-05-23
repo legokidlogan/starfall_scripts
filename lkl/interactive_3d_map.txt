@@ -6,7 +6,6 @@
 --@include lkl/math/holo_trace.txt
 --@include lkl/anims/screen_holo_animation.txt
 --@include lkl/render/screen_mat.txt
---@include lkl/jiggle_fixer.txt
 --@include lkl/prop_to_holo_direct.txt
 --@include lkl/prop_to_holo_spawner.txt
 
@@ -18,7 +17,7 @@ if libMapMesh.ADD_FLOOR == nil then libMapMesh.ADD_FLOOR = true end
 -- END DEFAULT OVERRIDES
 
 require( "lkl/map_mesh.txt" )
-require( "lkl/jiggle_fixer.txt" )
+-- require( "lkl/jiggle_fixer.txt" )
 
 
 libI3DMap = libI3DMap or {}
@@ -328,7 +327,8 @@ if SERVER then
                     if not holo then return end
 
                     holo:setPlayerColor( ply:getPlayerColor() )
-                    jiggleFixer.setHoloScale( holo, Vector( libMapMesh.getMeshScale() * holoMapPlayerScale ) )
+                    --jiggleFixer.setHoloScale( holo, Vector( libMapMesh.getMeshScale() * holoMapPlayerScale ) )
+                    holo:setScale( Vector( libMapMesh.getMeshScale() * holoMapPlayerScale ) )
 
                     playerHolos[i] = holo
                     playerHoloPlys[i] = ply
@@ -362,7 +362,8 @@ if SERVER then
             local holo = playerHolos[i]
 
             if playerHoloPlys[i] ~= ply then
-                jiggleFixer.setHoloModel( holo, "models/player/kleiner.mdl" )
+                --jiggleFixer.setHoloModel( holo, "models/player/kleiner.mdl" )
+                holo:setModel( "models/player/kleiner.mdl" )
                 holo:setPlayerColor( ply:getPlayerColor() )
 
                 net.start( "LKL_I3DMap_ChangePlayerHoloPlayer" )
@@ -568,7 +569,8 @@ timer.create( "LKL_I3DMap_MatchPlayermodels", 5, 0, function()
             local model = ply:getModel()
 
             if holo._i3dmap_PlayerHoloNeedsUpdate or model ~= holo:getModel() then
-                jiggleFixer.setHoloModel( holo, model )
+                --jiggleFixer.setHoloModel( holo, model )
+                holo:setModel( model )
                 holo:setAnimation( getIdleAnim( ply ) )
                 holo._i3dmap_PlayerHoloNeedsUpdate = false
             end

@@ -4,6 +4,7 @@
 
 --[[
     - Auto-fixes jiggle bones on rescaled holograms.
+    - Now defunct, as rubat recently made GMod auto-account for jiggle scaling.
 --]]
 
 
