@@ -298,7 +298,6 @@ hook.add( "renderoffscreen", "LKL_Spellbook_DrawLeftPage", function()
     -- Model associations
     local modelAssByNiceName = spell:getAssociatedModelCounts()
     local modelAssNames = spell._modelAssociationOrder
-    --local modelAssCount = table.count( modelAssByNiceName )
     local wAccum = 0
     local textAccum = ""
     local lines = {}
@@ -308,14 +307,12 @@ hook.add( "renderoffscreen", "LKL_Spellbook_DrawLeftPage", function()
     render.setMaterial()
     render.setRGBA( 0, 0, 0, 255 )
 
-    --for niceName, count in pairs( modelAssByNiceName ) do
     for _, niceName in ipairs( modelAssNames ) do
         local count = modelAssByNiceName[niceName]
         local str = niceName .. ": " .. count .. " "
         local w = render.getTextSize( str )
 
         if wAccum + w > 1024 - 20 then
-            --render.drawSimpleText( 512, y, textAccum, TEXT_ALIGN.CENTER, TEXT_ALIGN.BOTTOM )
             table.insert( lines, string.sub( textAccum, 1, -2 ) )
             textAccum = ""
             wAccum = 0
@@ -327,7 +324,6 @@ hook.add( "renderoffscreen", "LKL_Spellbook_DrawLeftPage", function()
     end
 
     if #textAccum > 0 then
-        --render.drawSimpleText( 512, y, textAccum, TEXT_ALIGN.CENTER, TEXT_ALIGN.BOTTOM )
         table.insert( lines, string.sub( textAccum, 1, -2 ) )
     end
 
