@@ -41,10 +41,23 @@ hook.add( "renderoffscreen", "LKL_Spellbook_DrawRightPage", function()
     local now = timer.curtime()
     local globalCooldownEndTime = spellbook.globalCooldownEndTime or 0
     local spellCooldownEndTime = spellbook.spellCooldownEndTimes[spell._spellID] or 0
+    local pageDetailColor = spellbook.PAGE_DETAIL_COLOR
 
     render.selectRenderTarget( rtNamePageRight )
     render.clear( spellbook.PAGE_COLOR )
     render.setMaterial()
+
+    -- Background for mana and cooldowns
+    render.setColor( pageDetailColor )
+
+    cbMana:setProgress( 1 )
+    cbMana:draw()
+
+    cbGlobalCooldown:setProgress( 1 )
+    cbGlobalCooldown:draw()
+
+    cbSpellCooldown:setProgress( 1 )
+    cbSpellCooldown:draw()
 
     -- Mana
     local mana = spellbook.mana
@@ -147,6 +160,9 @@ hook.add( "renderoffscreen", "LKL_Spellbook_DrawRightPage", function()
         end
 
         render.drawRect( chargeBarX, chargeBarY, chargeBarW * charge, chargeBarH )
+    else
+        render.setColor( pageDetailColor )
+        render.drawRect( chargeBarX, chargeBarY, chargeBarW, chargeBarH )
     end
 
     render.selectRenderTarget()
