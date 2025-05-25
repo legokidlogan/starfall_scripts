@@ -154,7 +154,7 @@ end
     - Draws the CircleBar.
 --]]
 function CircleBar:draw()
-    render.pushMatrix( self._matrix )
+    render.pushMatrix( self._matrix, false )
 
     local polyGroup = polyCache[self._polyStr]
     local progress = self:getProgress()
