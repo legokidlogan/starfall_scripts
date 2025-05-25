@@ -14,6 +14,7 @@
         - "classic" (default)
         - "classic_smaller" (smaller circle bars, shifted downwards, gives room to fit a custom bar above them)
         - "empty" (no circle bars or charge bar, just a blank page)
+        - "compact" (uses regular bars instead of circle bars, giving a ton of room at the bottom of the page for custom content)
     - spellbook.RIGHT_PAGE_STYLE determines the global default right page style, but spells can override this with :setRightPageStyle( styleName ).
     - Regardless of the style, when the right page is drawn, the selected sepll will be called with :paintRightPage( rightPageInfo )
         - rightPageInfo is meant to be read-only, containing information which may be useful for drawing to the right page.
@@ -36,6 +37,10 @@ local cbSpellCooldownRadiusInner = 50
 local cbCenterX = 512
 local cbCenterY = 512 + 50
 
+local activeCircleRadius = 50
+local activeCircleOffsetX = 100 - cbCenterX
+local activeCircleOffsetY = 175 - cbCenterY
+
 local chargeBarX = 50
 local chargeBarY = 40
 local chargeBarW = 1024 - chargeBarX * 2
@@ -46,7 +51,7 @@ local cbMana = CircleBar:new( 0, 0, cbManaRadiusInner, cbManaRadiusOuter, { rota
 local cbGlobalCooldown = CircleBar:new( 0, 0, cbGlobalCooldownRadiusInner, cbGlobalCooldownRadiusOuter, { rotationDeg = 90, numSegments = 32, clockwise = false } )
 local cbSpellCooldown = CircleBar:new( 0, 0, cbSpellCooldownRadiusInner, cbSpellCooldownRadiusOuter, { rotationDeg = 90, numSegments = 32, clockwise = false } )
 
-local polyActiveCircle = polyTools.polyMakeCircleFilled( 100 - cbCenterX, 175 - cbCenterY, 50, 32 )
+local polyActiveCircle = polyTools.polyMakeCircleFilled( 0, 0, activeCircleRadius, 32 )
 
 local memVec = Vector( 0, 0, 0 )
 local rightPageInfo = {
@@ -63,6 +68,10 @@ local rightPageInfo = {
 
     cbCenterX = cbCenterX,
     cbCenterY = cbCenterY,
+
+    activeCircleRadius = activeCircleRadius,
+    activeCircleOffsetX = activeCircleOffsetX,
+    activeCircleOffsetY = activeCircleOffsetY,
 
     chargeBarX = chargeBarX,
     chargeBarY = chargeBarY,
@@ -221,6 +230,13 @@ function rightPage.drawCircleBars( x, y, radius, doActiveIndicator )
 
     -- Active indicator
     if doActiveIndicator then
+        local m2 = Matrix()
+        memVec[1] = activeCircleOffsetX
+        memVec[2] = activeCircleOffsetY
+        m2:translate( memVec )
+
+        render.pushMatrix( m2, false )
+
         if spell:isActive() then
             render.setRGBA( 120, 0, 255, 255 )
         else
@@ -228,6 +244,8 @@ function rightPage.drawCircleBars( x, y, radius, doActiveIndicator )
         end
 
         render.drawPoly( polyActiveCircle )
+
+        render.popMatrix()
     end
 
     render.popMatrix()
@@ -297,6 +315,106 @@ end
 
 spellbook.RIGHT_PAGE_STYLES.empty = function()
     -- Do nothing.
+end
+
+spellbook.RIGHT_PAGE_STYLES.compact = function()
+    rightPage.drawChargeBar()
+
+    local gap = 20
+    local barH = activeCircleRadius - gap / 2
+    local barManaH = 100
+
+    local x = chargeBarX
+    local y = chargeBarY + chargeBarH + gap
+    local w = chargeBarW
+    local pageDetailColor = spellbook.PAGE_DETAIL_COLOR
+    local spell = rightPageInfo.spell
+
+
+    -- Mana bar
+    render.setColor( pageDetailColor )
+    render.drawRect( x, y, w, barManaH )
+
+    local mana = rightPageInfo.mana
+    local manaMax = rightPageInfo.manaMax
+    local manaAfter = rightPageInfo.manaAfter
+
+    if manaAfter then
+        if manaAfter < mana then
+            render.setColor( rightPageInfo.drainColor )
+            render.drawRect( x, y, w * mana / manaMax, barManaH )
+
+            render.setColor( spellbook.COLOR_MANA )
+            render.drawRect( x, y, w * manaAfter / manaMax, barManaH )
+        else
+            if manaAfter ~= mana then
+                render.setColor( rightPageInfo.gainColor )
+                render.drawRect( x, y, w * manaAfter / manaMax, barManaH )
+            end
+
+            render.setColor( spellbook.COLOR_MANA )
+            render.drawRect( x, y, w * mana / manaMax, barManaH )
+        end
+    else
+        render.setRGBA( spellbook.COLOR_MANA )
+        render.drawRect( x, y, w * mana / manaMax, barManaH )
+    end
+
+    y = y + barManaH + gap
+    x = x + activeCircleRadius * 2 + gap
+    w = w - activeCircleRadius * 2 - gap
+
+
+    -- Active indicator
+    local m = Matrix()
+    memVec[1] = x - gap - activeCircleRadius
+    memVec[2] = y + activeCircleRadius
+    m:translate( memVec )
+
+    render.pushMatrix( m, false )
+
+    if spell:isActive() then
+        render.setRGBA( 120, 0, 255, 255 )
+    else
+        render.setRGBA( 150, 150, 150, 255 )
+    end
+
+    render.drawPoly( polyActiveCircle )
+
+    render.popMatrix()
+
+
+    -- Global cooldown
+    local now = rightPageInfo.now
+    local globalCooldownEndTime = rightPageInfo.globalCooldownEndTime or 0
+
+    render.setColor( pageDetailColor )
+    render.drawRect( x, y, w, barH )
+
+    if globalCooldownEndTime > now then
+        local timeLeft = globalCooldownEndTime - now
+        local frac = math.clamp( timeLeft / spellbook.globalCooldownDuration, 0, 1 )
+
+        render.setRGBA( 100, 100, 100, 255 )
+        render.drawRect( x, y, w * frac, barH )
+    end
+
+    y = y + barH + gap
+
+
+    -- Spell cooldown
+    local spellCooldownEndTime = rightPageInfo.spellCooldownEndTime or 0
+
+    render.setColor( pageDetailColor )
+    render.drawRect( x, y, w, barH )
+
+    if spellCooldownEndTime > now then
+        local timeLeft = spellCooldownEndTime - now
+        local frac = math.clamp( timeLeft / spellbook.spellCooldownDurations[spell._spellID], 0, 1 )
+
+        render.setColor( spell:getColorRGB() )
+        render.drawRect( x, y, w * frac, barH )
+    end
 end
 
 
