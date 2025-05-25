@@ -20,10 +20,10 @@ If, however, you are well-versed in writing starfall code, and you would like to
 
 Simply place the [custom_spellbook.txt](/lkl/spellbook/custom_spellbook.txt) script and use its Global Radial Menu (GRM) to navigate through spells.
 - The script is a template, intended for you to make a copy elsewhere and edit it to your liking.
-- By default, GRM's are opened by holding the COMMA key.
+- By default, GRM's are opened by holding the COMMA key. However, [custom_spellbook.txt](/lkl/spellbook/custom_spellbook.txt) changes it to R for your convencience.
 - Spells are displayed in the spellbook's radial menu, click on one to select it.
     - Cooldowns and active statuses are also displayed here, and in the book itself.
-- Press `spellbook.SUMMON_KEY` (R by default) while the radial menu is open to (de)summon the spellbook.
+- Press `spellbook.SUMMON_KEY` (middle mouse by default) while the radial menu is open to (de)summon the spellbook.
 - While summoned, the spellbook will only open while holding the `spellbook.WEAPON_CLASS` swep.
     - By default, this is `none`, from the [Empty Hands Swep](https://steamcommunity.com/sharedfiles/filedetails/?id=245482078) addon.
 
