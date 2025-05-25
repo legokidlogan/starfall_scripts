@@ -165,5 +165,7 @@ hook.add( "renderoffscreen", "LKL_Spellbook_DrawRightPage", function()
         render.drawRect( chargeBarX, chargeBarY, chargeBarW, chargeBarH )
     end
 
+    spell:paintRightPage()
+
     render.selectRenderTarget()
 end )

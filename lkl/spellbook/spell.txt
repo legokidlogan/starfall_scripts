@@ -661,12 +661,17 @@ end
 ----- OVERRIDABLE FUNCTIONS -----
 
 if CLIENT and player() == owner() then
+    -- Draws on the owner's HUD unconditionally.
     function Spell:paint()
         local showManaWarningEndTime = self._showManaWarningEndTime or 0
 
         if showManaWarningEndTime > timer.curtime() then
             self:drawManaWarning()
         end
+    end
+
+    function Spell:paintRightPage()
+        -- Draws on the right page if this spell is selected and the spellbook is open.
     end
 
     function Spell:onBookClosed()
