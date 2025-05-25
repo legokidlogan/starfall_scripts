@@ -162,6 +162,8 @@ function screenMatLib.unstretchScratchWork()
 
         render.selectRenderTarget()
     end
+
+    screenMatLib.unstretchScratchWork()
 end
 
 
