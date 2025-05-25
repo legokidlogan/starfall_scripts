@@ -67,6 +67,7 @@ end
         nameColorHovered = Color, -- HSVA color for the radial menu spell name when hovered. Set hue to -1 to copy from color.
         iconURL = (optional) string, -- URL or base64 string for the spell icon. Can be left as an empty string. If non-empty, must match ICON_SIZE x ICON_SIZE.
         iconUseColor = (optional) boolean, -- If true, the icon will be tinted with the spell's color. Default is false.
+        rightPageStyle = (optional) string, -- The right page style to use for this spell. Applies only to the owner client.
     }
 --]]
 function Spell:initialize( params )
@@ -84,6 +85,7 @@ function Spell:initialize( params )
     if type( params.nameColorHovered ) ~= "Color" then error( "Expected params.nameColorHovered to be a Color" ) end
     if params.iconURL ~= nil and type( params.iconURL ) ~= "string" then error( "Expected params.iconURL to be a string or nil" ) end
     if params.iconUseColor ~= nil and type( params.iconUseColor ) ~= "boolean" then error( "Expected params.iconUseColor to be a boolean or nil" ) end
+    if params.rightPageStyle ~= nil and type( params.rightPageStyle ) ~= "string" then error( "Expected params.rightPageStyle to be a string or nil" ) end
 
     if spellsByName[params.name] then error( "Spell with name '" .. params.name .. "' already exists" ) end
 
@@ -131,6 +133,7 @@ function Spell:initialize( params )
     self._active = false
     self._modelAssociations = {}
     self._modelAssociationOrder = {}
+    self._rightPageStyle = params.rightPageStyle
 
     if hasIcon and CLIENT then
         table.insert( iconQueue, {
@@ -312,6 +315,18 @@ if CLIENT and player() == owner() then
         end
 
         self._showManaWarningEndTime = timer.curtime() + duration
+    end
+
+    function Spell:setRightPageStyle( style )
+        if style ~= nil and type( style ) ~= "string" then
+            error( "Expected style to be a string or nil" )
+        end
+
+        self._rightPageStyle = style
+    end
+
+    function Spell:getRightPageStyle()
+        return self._rightPageStyle or spellbook.RIGHT_PAGE_STYLE
     end
 end
 
@@ -670,8 +685,9 @@ if CLIENT and player() == owner() then
         end
     end
 
-    function Spell:paintRightPage()
+    function Spell:paintRightPage( _rightPageInfo )
         -- Draws on the right page if this spell is selected and the spellbook is open.
+        -- rightPageInfo is a read-only table with useful info for drawing on the right page. See spellbook_right_page_info.txt for details.
     end
 
     function Spell:onBookClosed()
