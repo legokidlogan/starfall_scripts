@@ -9,6 +9,10 @@
 spellbook = spellbook or {}
 spellbook.RIGHT_PAGE_STYLES = spellbook.RIGHT_PAGE_STYLES or {}
 
+if CLIENT and player() == owner() then
+    spellbook.rightPage = spellbook.rightPage or {}
+end
+
 
 -- EXTRA CONFIG
 local OVERRIDE_RADIAL_MENU_KEY = KEY.R -- If not false, will override the default GRM key while the spellbook is spawned.
