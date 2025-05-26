@@ -510,6 +510,8 @@ do
     allRemoteGroups[""] = {}
 
     for _, chipEnt in ipairs( find.byClass( "starfall_processor" ) ) do
+        if not isValid( chipEnt ) or not chipEnt:hasInstance() then continue end
+
         local chipOwner = chipEnt:getOwner()
         local groupByOwner = allRemoteGroups[""][chipOwner]
 
