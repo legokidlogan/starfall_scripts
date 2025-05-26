@@ -513,11 +513,12 @@ do
         if not isValid( chipEnt ) or not chipEnt:hasInstance() then continue end
 
         local chipOwner = chipEnt:getOwner()
-        local groupByOwner = allRemoteGroups[""][chipOwner]
 
         if chipOwner == nil then
             error( "Got nil owner on " .. tostring( chipEnt ) )
         end
+
+        local groupByOwner = allRemoteGroups[""][chipOwner]
 
         if not groupByOwner then
             groupByOwner = {}
