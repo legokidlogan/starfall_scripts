@@ -2153,6 +2153,36 @@ function vectorMath.isPointWithinCylinder( point, cylinderPos, radius, length, d
 end
 
 --[[
+    - A much faster cylinder check for vertical-only cylinders.
+    - Returns whether or not a point is inside a vertical cylinder.
+
+    point: (Vector)
+        - The position of the point.
+    cylinderPos: (Vector)
+        - The position of the cylinder.
+        - This is either the center (false) or the bottom (true) of the cylinder, depending on the value of originIsBottom.
+    radius: (number)
+        - The radius of the cylinder.
+    length: (number)
+        - The height of the cylinder.
+    originIsBottom: (optional) (boolean)
+        - Whether cylinderPos is considered to be the bottom of the cylinder, rather than its center.
+        - Default is false.
+--]]
+function vectorMath.isPointWithinVerticalCylinder( point, cylinderPos, radius, length, originIsBottom )
+    local bottom = cylinderPos[3]
+
+    if not originIsBottom then
+        bottom = bottom - length / 2
+    end
+
+    local z = point[3]
+    if z < bottom or z > bottom + length then return false end
+
+    return vectorMath.isXYWithinCircle( point[1], point[2], cylinderPos[1], cylinderPos[2], radius )
+end
+
+--[[
     - Returns a random point along the surface area of a cone, excluding its base.
 
     tip: (Vector)
