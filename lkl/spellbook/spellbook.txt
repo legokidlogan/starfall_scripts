@@ -93,7 +93,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.5.7"
+spellbook.VERSION = "1.5.8"
 
 
 require( "lkl/spellbook/spell.txt" )
@@ -400,7 +400,7 @@ if CLIENT and player() == owner() then
     hook.add( "inputReleased", "LKL_Spellbook_ReSprint", function( key )
         if not isFirstTimePredicted() then return end
         if not sprintForced then return end
-        if not string.find( input.lookupKeyBinding( key ), "+speed" ) then return end
+        if not string.find( input.lookupKeyBinding( key ) or "", "+speed" ) then return end
 
         pcall( function()
             concmd( "-speed" )
