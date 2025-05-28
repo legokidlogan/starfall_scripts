@@ -93,7 +93,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.5.2"
+spellbook.VERSION = "1.5.3"
 
 
 require( "lkl/spellbook/spell.txt" )
@@ -104,6 +104,7 @@ require( "lkl/spellbook/passive_spell.txt" )
 
 
 local spells = {}
+local sprintBlockerNoNet = false
 spellbook.spells = spells
 
 do
@@ -280,6 +281,63 @@ function spellbook.getSpellbookUsers()
 end
 
 
+if SERVER or player() == owner() then
+    local sprintBlockers = {}
+
+
+    -- Adds a sprint blocker. If at least one sprint blocker is active, sprinting will be blocked.
+    function spellbook.addSprintBlocker( blockerName )
+        sprintBlockers[blockerName] = true
+
+        if not sprintBlockerNoNet then
+            net.start( "LKL_Spellbook_SprintBlocker" )
+            net.writeString( blockerName )
+            net.writeBool( true )
+            net.send( owner() )
+        end
+
+        if CLIENT then
+            pcall( function()
+                concmd( "-speed" )
+            end )
+        end
+    end
+
+    function spellbook.removeSprintBlocker( blockerName )
+        if not sprintBlockers[blockerName] then return end
+
+        sprintBlockers[blockerName] = nil
+
+        if not sprintBlockerNoNet then
+            net.start( "LKL_Spellbook_SprintBlocker" )
+            net.writeString( blockerName )
+            net.writeBool( false )
+            net.send( owner() )
+        end
+
+        if CLIENT and not spellbook.isSprintBlocked() and input.isKeyDown( input.lookupBinding( "+speed" ) ) then
+            pcall( function()
+                concmd( "+speed" )
+            end )
+        end
+    end
+
+    -- Returns the sprint blockers lookup table. Do not modify it.
+    function spellbook.getSprintBlockers()
+        return sprintBlockers
+    end
+
+    function spellbook.isSprintBlocker( blockerName )
+        return sprintBlockers[blockerName] or false
+    end
+
+    function spellbook.isSprintBlocked()
+        return next( sprintBlockers ) ~= nil
+    end
+end
+
+
+
 if SERVER then
     require( "lkl/spellbook/spellbook_sv.txt" )
 else
@@ -324,12 +382,43 @@ if SERVER or player() == owner() then
 end
 
 
+if CLIENT and player() == owner() then
+    hook.add( "KeyPress", "LKL_Spellbook_BlockSprint", function( _, key )
+        if isFirstTimePredicted() then return end
+        if key ~= IN_KEY.SPEED then return end
+        if not spellbook.isSprintBlocked() then return end
+
+        concmd( "-speed" )
+    end )
+end
+
+
 hook.add( "remote", "LKL_Spellbook_IdentifyAsSpellbook", function( _, _, hookName )
     if hookName ~= "LKL_Spellbook_FindSpellbooks" then return end
 
     --return { "HelloYesIAmASpellbook", spellbook.VERSION }
     return "HelloYesIAmASpellbook", spellbook.VERSION
 end )
+
+
+if SERVER or player() == owner() then
+    net.receive( "LKL_Spellbook_SprintBlocker", function( _, ply )
+        if SERVER and ply ~= owner() then return end
+
+        local blockerName = net.readString()
+        local state = net.readBool()
+
+        sprintBlockerNoNet = true
+
+        if state then
+            spellbook.addSprintBlocker( blockerName )
+        else
+            spellbook.removeSprintBlocker( blockerName )
+        end
+
+        sprintBlockerNoNet = false
+    end )
+end
 
 
 net.receive( "LKL_Spellbook_SelectSpell", function( _, ply )
