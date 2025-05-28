@@ -55,7 +55,13 @@ function spellbook.hurtEntity( target, damage, dir, force, hitPos, hullSize )
     end
     --]]
 
-    game.bulletDamage( hitPos or target:obbCenterW(), dir or Vector( 0, 0, 1 ), damage, 1, force or 0, 10, VECTOR_ZERO, hullSize or 1, owner() )
+    local filter = nil
+
+    if target ~= owner() then
+        filter = owner
+    end
+
+    game.bulletDamage( hitPos or target:obbCenterW(), dir or Vector( 0, 0, 1 ), damage, 1, force or 0, 10, VECTOR_ZERO, hullSize or 1, filter )
 
     return true
 end
