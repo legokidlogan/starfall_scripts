@@ -149,3 +149,7 @@ Hooks:
 - `LKL_Spellbook_Spell_AssociatedModelCountChanged( spellID, niceName, oldCount, count )`
     - All realms.
     - Called when the available count for a niceName changes for a spell.
+- `LKL_Spellbook_OnSetVisibility( oldVis, newVis )`
+    - All realms.
+    - Called when spellbook visibility changes.
+    - See `spellbook.setVisibility()` for details.

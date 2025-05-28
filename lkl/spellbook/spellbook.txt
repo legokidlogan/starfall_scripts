@@ -93,7 +93,14 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.5.8"
+spellbook.VERSION = "1.6.0"
+
+
+SPELLVIS_ALL = 1
+SPELLVIS_NONE = 2
+SPELLVIS_OWNER = 3
+SPELLVIS_OWNER_FP = 4
+SPELLVIS_COUNT = 4
 
 
 require( "lkl/spellbook/spell.txt" )
@@ -106,6 +113,7 @@ require( "lkl/spellbook/passive_spell.txt" )
 local spells = {}
 local sprintBlockerNoNet = false
 local sprintForced = false
+local spellVis = SPELLVIS_ALL
 spellbook.spells = spells
 
 do
@@ -279,6 +287,49 @@ function spellbook.getSpellbookUsers()
     end
 
     return plys, plyLookup
+end
+
+--[[
+    - Sets visibility of the spellbook and clothing holos.
+    - Intended to be called from the server or client owner, but can be called directly on other clients as well.
+
+    vis: (number)
+        - SPELLVIS_ALL: All players can see the spellbook.
+        - SPELLVIS_NONE: No one can see the spellbook.
+        - SPELLVIS_OWNER: Only the owner can see the spellbook.
+        - SPELLVIS_OWNER_FP: Only the owner, in first person mode, can see the spellbook.
+--]]
+function spellbook.setVisibility( vis )
+    if spellVis == vis then return end
+
+    if type( vis ) ~= "number" then error( "Expected vis to be a number" ) end
+    if math.floor( vis ) ~= vis then error( "Expected vis to be an integer" ) end
+    if vis < 1 or vis > SPELLVIS_COUNT then error( "Expected vis to be between 1 and " .. SPELLVIS_COUNT ) end
+
+    local oldVis = spellVis
+
+    spellVis = vis
+    hook.run( "LKL_Spellbook_OnSetVisibility", oldVis, spellVis )
+
+    if CLIENT and player() ~= owner() then return end
+
+    net.start( "LKL_Spellbook_SetVisibility" )
+    net.writeUInt( vis, 3 )
+    net.send()
+end
+
+function spellbook.getVisibility()
+    return spellVis
+end
+
+-- Returns whether or not the spellbook should be visible, given current conditions and visibility settings. Ignores the spellbook's summoned state.
+function spellbook.isVisible()
+    if spellVis == SPELLVIS_ALL then return true end
+    if spellVis == SPELLVIS_NONE then return false end
+    if spellVis == SPELLVIS_OWNER and CLIENT and player() == owner() then return true end
+    if spellVis == SPELLVIS_OWNER_FP and CLIENT and player() == owner() and spellbook.isInFirstPerson() then return true end
+
+    return false
 end
 
 
@@ -469,6 +520,22 @@ net.receive( "LKL_Spellbook_SetSummoned", function( _, ply )
 
     net.start( "LKL_Spellbook_SetSummoned" )
     net.writeBool( state )
+    net.send( spellbook.getEveryoneButOwner() )
+end )
+
+net.receive( "LKL_Spellbook_SetVisibility", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    local vis = net.readUInt( 3 )
+    local oldVis = spellVis
+
+    spellVis = vis
+    hook.run( "LKL_Spellbook_OnSetVisibility", oldVis, spellVis )
+
+    if CLIENT then return end
+
+    net.start( "LKL_Spellbook_SetVisibility" )
+    net.writeUInt( vis, 3 )
     net.send( spellbook.getEveryoneButOwner() )
 end )
 

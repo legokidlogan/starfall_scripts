@@ -160,6 +160,10 @@ hook.add( "ClientInitialized", "LKL_Spellbook_ClientInit", function( ply )
         net.start( "LKL_Spellbook_SelectSpell" )
         net.writeUInt( spellbook.selectedSpellID, 16 )
         net.send( ply )
+
+        net.start( "LKL_Spellbook_SetVisibility" )
+        net.writeUInt( spellbook.getVisibility(), 3 )
+        net.send( ply )
     end )
 end )
 

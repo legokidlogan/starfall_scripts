@@ -11,6 +11,7 @@ local iconSize = spellbook.ICON_SIZE
 local iconAtTop = spellbook.ICON_AT_TOP
 
 local bookHolos = {}
+local bookHolosHidden = true
 local clothingHolos = {}
 local clothingHoloBases = {}
 local clothingHolosHidden = true
@@ -171,9 +172,18 @@ hook.add( "renderoffscreen", "LKL_Spellbook_AnimateSpellbook", function()
     -- On the owner's client, make the sound holo be locked exactly to the eye pos so it doesn't lag behind.
     if player() == owner() then
         local ownerSoundHolo = spellbook.getOwnerSoundHolo()
+        local wasHidden = bookHolosHidden
 
         if isValid( ownerSoundHolo ) then
             ownerSoundHolo:setPos( player():getShootPos() )
+        end
+
+        bookHolosHidden = not spellbook.isVisible()
+
+        if bookHolosHidden ~= wasHidden then
+            for _, holo in ipairs( bookHolos ) do
+                holo:setNoDraw( bookHolosHidden )
+            end
         end
     end
 
@@ -197,7 +207,7 @@ end )
 
 hook.add( "renderoffscreen", "LKL_Spellbook_AnimateClothing", function()
     local wasHidden = clothingHolosHidden
-    clothingHolosHidden = not spellbook.summoned or not owner():isAlive() or spellbook.isInFirstPerson()
+    clothingHolosHidden = not spellbook.summoned or not owner():isAlive() or spellbook.isInFirstPerson() or not spellbook.isVisible()
 
     if clothingHolosHidden ~= wasHidden then
         for _, holo in ipairs( clothingHolos ) do
@@ -214,9 +224,20 @@ hook.add( "renderoffscreen", "LKL_Spellbook_AnimateClothing", function()
     end
 end )
 
-hook.add( "LKL_Spellbook_OnSetSummoned", "LKL_Spellbook_AnimateSpellbook", function( state )
+hook.add( "LKL_Spellbook_OnSetSummoned", "LKL_Spellbook_AnimateSpellbook", function( summoned )
+    local hide = not ( summoned and spellbook.isVisible() )
+
     for _, holo in ipairs( bookHolos ) do
-        holo:setNoDraw( not state )
+        holo:setNoDraw( hide )
+    end
+end )
+
+hook.add( "LKL_Spellbook_OnSetVisibility", "LKL_Spellbook_AnimateSpellbook", function()
+    local hide = not ( spellbook.summoned and spellbook.isVisible() )
+    bookHolosHidden = hide
+
+    for _, holo in ipairs( bookHolos ) do
+        holo:setNoDraw( hide )
     end
 end )
 
