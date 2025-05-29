@@ -102,6 +102,10 @@ Hooks:
 - `LKL_Spellbook_OnSetSummoned( state )`
     - All realms.
     - Called when the spellbook is (de)summoned.
+- `LKL_Spellbook_OnOpenChanged( open )`
+    - All realms.
+    - Called when the spellbook is opened/closed.
+    - Desummoning the book also closes it.
 - `LKL_Spellbook_AnimateSpellbook( bookPos, bookAng, frac )`
     - CLIENT realm.
     - Called from within `renderoffscreen`, for if you need to attach something to the spellbook clientside.

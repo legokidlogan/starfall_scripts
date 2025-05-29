@@ -133,7 +133,13 @@ end
 hook.add( "think", "LKL_Spellbook_Think", function()
     if spellbook.summoned then
         local wep = owner():getActiveWeapon()
-        spellbook.open = isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS
+        local wasOpen = spellbook.open
+        local open = isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS
+
+        if open ~= wasOpen then
+            spellbook.open = open
+            hook.run( "LKL_Spellbook_OnOpenChanged", open )
+        end
     end
 end )
 

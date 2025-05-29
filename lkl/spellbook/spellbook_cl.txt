@@ -161,6 +161,8 @@ hook.add( "renderoffscreen", "LKL_Spellbook_AnimateSpellbook", function()
 
             spell:onBookClosed()
         end
+
+        hook.run( "LKL_Spellbook_OnOpenChanged", open )
     end
 
     local isFirstPerson = spellbook.isInFirstPerson()

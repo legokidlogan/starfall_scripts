@@ -93,7 +93,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.6.2"
+spellbook.VERSION = "1.6.3"
 
 
 SPELLVIS_ALL = 1
@@ -510,11 +510,16 @@ net.receive( "LKL_Spellbook_SetSummoned", function( _, ply )
     if SERVER and ply ~= owner() then return end
 
     local state = net.readBool()
+    local wasOpen = spellbook.open
 
     spellbook.summoned = state
     spellbook.open = false
 
     hook.run( "LKL_Spellbook_OnSetSummoned", state )
+
+    if wasOpen then
+        hook.run( "LKL_Spellbook_OnOpenChanged", false )
+    end
 
     if CLIENT then return end
 
