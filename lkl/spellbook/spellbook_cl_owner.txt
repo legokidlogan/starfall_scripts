@@ -111,7 +111,10 @@ end
 function spellbook.setSummoned( state )
     if spellbook.summoned == state then return end
 
+    local wasOpen = spellbook.open
+
     spellbook.summoned = state
+    spellbook.open = false
 
     if not state then
         local spell = spellbook.getSelectedSpell()
@@ -119,6 +122,10 @@ function spellbook.setSummoned( state )
     end
 
     hook.run( "LKL_Spellbook_OnSetSummoned", state )
+
+    if wasOpen then
+        hook.run( "LKL_Spellbook_OnOpenChanged", false )
+    end
 
     net.start( "LKL_Spellbook_SetSummoned" )
         net.writeBool( state )
