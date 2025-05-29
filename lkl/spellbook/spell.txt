@@ -1143,6 +1143,8 @@ net.receive( "LKL_Spellbook_Spell_SetActive", function( _, ply )
 
     local spellID = net.readUInt( 16 )
     local spell = Spell:getByID( spellID )
+    if not spell then return end -- Occurs if the server sends a message while the client is still loading spells.
+
     local state = net.readBool()
     local toggleTime = net.readFloat()
 
@@ -1169,6 +1171,8 @@ net.receive( "LKL_Spellbook_CastSpell", function( _, ply )
 
     local spellID = net.readUInt( 16 )
     local spell = Spell:getByID( spellID )
+    if not spell then return end -- Occurs if the server sends a message while the client is still loading spells.
+
     local strength = net.readFloat()
     local castTime = net.readFloat()
 
@@ -1189,6 +1193,8 @@ net.receive( "LKL_Spellbook_FumbleSpell", function( _, ply )
 
     local spellID = net.readUInt( 16 )
     local spell = Spell:getByID( spellID )
+    if not spell then return end -- Occurs if the server sends a message while the client is still loading spells.
+
     local reason = net.readString()
     local fumbleTime = net.readFloat()
 
@@ -1209,6 +1215,8 @@ net.receive( "LKL_Spellbook_Spell_OnManaEmpty", function( _, ply )
 
     local spellID = net.readUInt( 16 )
     local spell = Spell:getByID( spellID )
+    if not spell then return end -- Occurs if the server sends a message while the client is still loading spells.
+
     local castTime = net.readFloat()
 
     spell:onManaEmpty()
@@ -1226,6 +1234,8 @@ net.receive( "LKL_Spellbook_Spell_SetParam", function( _, ply )
 
     local spellID = net.readUInt( 16 )
     local spell = Spell:getByID( spellID )
+    if not spell then return end -- Occurs if the server sends a message while the client is still loading spells.
+
     local name = net.readString()
     local privateName = "_" .. name
     local upperName = string.upper( string.sub( name, 1, 1 ) ) .. string.sub( name, 2 )
