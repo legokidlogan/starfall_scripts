@@ -74,14 +74,7 @@ spellbook.POS_CLOSED_FIRST_PERSON = spellbook.POS_CLOSED_FIRST_PERSON or Vector(
 
  -- Provide a list of (case-sensitive) spell names to force their order, and any remaining spells will go in arbitrary order after them.
 spellbook.MANUAL_SPELL_ORDER = spellbook.MANUAL_SPELL_ORDER or {
-    "Chain Bolt",
-    "Saw Blast",
-    "Arcane Blast",
-    "Fireball",
-    "Mana Potion",
-    "Wall",
-    "Wind Gust",
-    "Teleport",
+    "",
 }
 -- END CONFIG DEFAULTS
 
