@@ -153,3 +153,12 @@ Hooks:
     - All realms.
     - Called when spellbook visibility changes.
     - See `spellbook.setVisibility()` for details.
+- `LKL_Spellbook_Spell_OnCast( spell, strength, castTime )`
+    - All realms.
+    - Called when a spell is casted.
+- `LKL_Spellbook_Spell_OnSetActive( spell, state, toggleTime )`
+    - All realms.
+    - Called when a spell's active state is changed.
+- `LKL_Spellbook_Spell_OnFumble( spell, reason, fumbleTime )`
+    - All realms.
+    - Called when a spell is fumbled.

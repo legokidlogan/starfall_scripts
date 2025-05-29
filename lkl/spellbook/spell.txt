@@ -269,6 +269,7 @@ if CLIENT and player() == owner() then
         net.send()
 
         self:onCast( strength, now )
+        hook.run( "LKL_Spellbook_Spell_OnCast", self, strength, now )
     end
 
     function Spell:fumble( reason, noCooldowns )
@@ -288,6 +289,7 @@ if CLIENT and player() == owner() then
         net.send()
 
         self:onFumble( reason, now )
+        hook.run( "LKL_Spellbook_Spell_OnFumble", self, reason, now )
     end
 
     function Spell:drawManaWarning()
@@ -342,15 +344,16 @@ if SERVER or player() == owner() then
         net.start( "LKL_Spellbook_Spell_SetActive" )
         net.writeUInt( self:getSpellID(), 16 )
         net.writeBool( state )
+        net.writeFloat( now )
 
         if state then
             self._activeStartTime = now
-            net.writeFloat( now )
         end
 
         net.send()
 
         self:onSetActive( state, now ) -- Most systems (mana usage, radial menu, etc) shouldn't rely on this, this is for start/stop sounds, etc.
+        hook.run( "LKL_Spellbook_Spell_OnSetActive", self, state, now )
     end
 end
 
@@ -719,7 +722,7 @@ function Spell:onFumble( _reason, _fumbleTime )
     --]]
 end
 
-function Spell:onSetActive( _state, _startTime )
+function Spell:onSetActive( _state, _toggleTime )
     -- Called in all realms.
 end
 
@@ -1138,26 +1141,23 @@ net.receive( "LKL_Spellbook_Spell_SetActive", function( _, ply )
     local spellID = net.readUInt( 16 )
     local spell = Spell:getByID( spellID )
     local state = net.readBool()
-    local startTime
-
-    if state then
-        startTime = net.readFloat()
-    end
+    local toggleTime = net.readFloat()
 
     spell._active = state
-    spell._activeStartTime = startTime
 
-    spell:onSetActive( state, startTime )
+    if state then
+        spell._activeStartTime = toggleTime
+    end
+
+    spell:onSetActive( state, toggleTime )
+    hook.run( "LKL_Spellbook_Spell_OnSetActive", spell, state, toggleTime )
 
     if CLIENT then return end
 
     net.start( "LKL_Spellbook_Spell_SetActive" )
         net.writeUInt( spellID, 16 )
         net.writeBool( state )
-
-        if state then
-            net.writeFloat( startTime )
-        end
+        net.writeFloat( toggleTime )
     net.send( spellbook.getEveryoneButOwner() )
 end )
 
@@ -1170,6 +1170,7 @@ net.receive( "LKL_Spellbook_CastSpell", function( _, ply )
     local castTime = net.readFloat()
 
     spell:onCast( strength, castTime )
+    hook.run( "LKL_Spellbook_Spell_OnCast", spell, strength, castTime )
 
     if CLIENT then return end
 
@@ -1189,6 +1190,7 @@ net.receive( "LKL_Spellbook_FumbleSpell", function( _, ply )
     local fumbleTime = net.readFloat()
 
     spell:onFumble( reason, fumbleTime )
+    hook.run( "LKL_Spellbook_Spell_OnFumble", spell, reason, fumbleTime )
 
     if CLIENT then return end
 
