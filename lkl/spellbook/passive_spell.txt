@@ -62,7 +62,7 @@ function PassiveSpell:onKeyPress( key )
 
     if manaAfterUse >= 0 then
         if self:checkCooldowns() then
-            spellbook.setMana( manaAfterUse )
+            self:cast()
             self:setActive( true )
         else
             self:playCooldownSound()
