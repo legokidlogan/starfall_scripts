@@ -279,6 +279,7 @@ end )
 
 hook.add( "renderoffscreen", "LKL_Spellbook_DrawLeftPage", function()
     if not leftPageDirty then return end
+    if not bookHolosReady then return end
 
     leftPageDirty = false
 
@@ -372,7 +373,9 @@ end )
 
 
 -- Make the book holos.
-timer.simple( 0.1, function()
+hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_Client_MakeBookHolos", function()
+    hook.remove( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_Client_MakeBookHolos" )
+
     local spineOBB = Vector( coverThickness, bookDepth, bookHeight )
     local coverOBB = Vector( coverThickness, bookWidth, bookHeight )
     local pageWidth = bookWidth - pageInset * 2

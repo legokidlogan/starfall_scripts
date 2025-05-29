@@ -1,0 +1,221 @@
+--@name spellbook_file_loader
+--@author legokidlogan
+--@shared
+
+
+local spells = spellbook.spells
+local fileInterval = spellbook.FILE_LOAD_INTERVAL
+
+
+local function loadRealmLibraries()
+    if SERVER then
+        require( "lkl/spellbook/spellbook_sv.txt" )
+    else
+        require( "lkl/spellbook/spellbook_cl.txt" )
+
+        if player() == owner() then
+            require( "lkl/spellbook/spellbook_cl_owner.txt" )
+        end
+    end
+
+    hook.run( "LKL_Spellbook_LibraryLoaded" )
+end
+
+local function finalizeSpells( spellResults )
+    if next( spellResults ) == nil then
+        error( "No spells found!" )
+    end
+
+    local spellNameToPath = {}
+
+    for path, spell in pairs( spellResults ) do
+        spellNameToPath[spell:getName()] = path
+    end
+
+    -- Collect manually-ordered spells.
+    for _, spellName in ipairs( spellbook.MANUAL_SPELL_ORDER ) do
+        local path = spellNameToPath[spellName]
+
+        if path then
+            table.insert( spells, spellResults[path] )
+            spellResults[path] = nil
+        end
+    end
+
+    -- Append the remaining spells in arbitrary order.
+    for _, spell in pairs( spellResults ) do
+        table.insert( spells, spell )
+    end
+
+    for spellID, spell in ipairs( spells ) do
+        spell._spellID = spellID
+    end
+
+    hook.run( "LKL_Spellbook_AllSpellsLoaded" )
+
+    timer.simple( 0.5, function()
+        spellbook.isLoaded = function() return true end
+        hook.run( "LKL_Spellbook_LoadingComplete" )
+
+        if SERVER then return end
+
+        net.start( "LKL_Spellbook_LoadingComplete" )
+        net.send()
+    end )
+end
+
+
+-- Instant file load, legacy system.
+if fileInterval == 0 then
+    local spellResults = dodir( spellbook.SPELL_FOLDER )
+
+    if spellbook.SPELL_FOLDER_EXTRA ~= "" then
+        for path, spell in pairs( dodir( spellbook.SPELL_FOLDER_EXTRA ) ) do
+            spellResults[path] = spell
+        end
+    end
+
+    loadRealmLibraries()
+    finalizeSpells( spellResults )
+
+    return
+end
+
+
+-- Delayed file loading.
+local spellFilePaths = {}
+local spellResultsAccum = {}
+local nextFileGroupInd = 1
+local nextFileInd = 1
+local spellFolders = {
+    spellbook.SPELL_FOLDER,
+    spellbook.SPELL_FOLDER_EXTRA,
+}
+local extensions = { "lua", "txt" }
+
+local earlyInitPlys = {}
+local spellFilesKnown = false
+
+
+local function netSendSpellFiles( plys )
+    net.start( "LKL_Spellbook_DefineSpellFiles" )
+
+    for _, group in ipairs( spellFilePaths ) do
+        net.writeUInt( #group, 16 )
+
+        for _, filePath in ipairs( group ) do
+            net.writeString( filePath )
+        end
+    end
+
+    net.send( plys )
+end
+
+local function loadNextSpell()
+    if cpuTotalAverage() > cpuMax() * 0.5 then
+        timer.simple( fileInterval, loadNextSpell )
+
+        return
+    end
+
+    local group = spellFilePaths[nextFileGroupInd]
+    local filePath = group and group[nextFileInd]
+
+    while group and not filePath do
+        nextFileGroupInd = nextFileGroupInd + 1
+        nextFileInd = 1
+        group = spellFilePaths[nextFileGroupInd]
+        filePath = group and group[nextFileInd]
+    end
+
+    if not filePath then
+        timer.simple( 0.25, function()
+            finalizeSpells( spellResultsAccum )
+        end )
+
+        return
+    end
+
+    filePath = spellFolders[nextFileGroupInd] .. "/" .. filePath
+    nextFileInd = nextFileInd + 1
+
+    if nextFileInd > #group then
+        nextFileGroupInd = nextFileGroupInd + 1
+        nextFileInd = 1
+    end
+
+    spellResultsAccum[filePath] = require( filePath )
+
+    timer.simple( fileInterval, loadNextSpell )
+end
+
+
+loadRealmLibraries()
+
+if CLIENT and player() == owner() then
+    for i, folder in ipairs( spellFolders ) do
+        local group = {}
+        spellFilePaths[i] = group
+
+        for _, ext in ipairs( extensions ) do
+            table.add( group, file.findInGame( "data/starfall/" .. folder .. "/*." .. ext ) )
+        end
+    end
+
+    netSendSpellFiles()
+
+    timer.simple( fileInterval * 2, loadNextSpell )
+end
+
+
+hook.add( "ClientInitialized", "LKL_Spellbook_HandleSpellFiles", function( ply )
+    if ply == owner() then return end
+
+    if not spellFilesKnown and not table.hasValue( earlyInitPlys, ply ) then
+        table.insert( earlyInitPlys, ply )
+
+        return
+    end
+
+    timer.simple( 0.5, function()
+        if not isValid( ply ) then return end
+
+        netSendSpellFiles( ply )
+    end )
+end )
+
+
+net.receive( "LKL_Spellbook_DefineSpellFiles", function( _, ply )
+    if SERVER and ply ~= owner() then return end
+
+    for i = 1, #spellFolders do
+        local group = {}
+        spellFilePaths[i] = group
+
+        for i2 = 1, net.readUInt( 16 ) do
+            local filePath = net.readString()
+            group[i2] = filePath
+        end
+    end
+
+    loadNextSpell()
+
+    if CLIENT then return end
+
+    spellFilesKnown = true
+
+    net.receive( "LKL_Spellbook_DefineSpellFiles", function() end )
+
+    -- Validate early init players.
+    for i = #earlyInitPlys, 1, -1 do
+        if not isValid( earlyInitPlys[i] ) then
+            table.remove( earlyInitPlys, i )
+        end
+    end
+
+    -- Send the spell files to players who initialized before the owner could define the files.
+    if #earlyInitPlys > 0 then
+        netSendSpellFiles( earlyInitPlys )
+        earlyInitPlys = nil
+    end
+end )

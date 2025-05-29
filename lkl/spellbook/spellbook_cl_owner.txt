@@ -34,6 +34,8 @@ local ownerSoundHolo = nil
 local traceIgnoreEnts = { owner() }
 local traceIgnoreLookup = { [owner()] = true }
 
+local createSpellMenu
+
 local ACTION_PARAMS = {
     command = true,
     menu = true,
@@ -321,79 +323,6 @@ end
 
 ----- SETUP -----
 
-hook.add( "tick", "LKL_Spellbook_RegenMana", function()
-    local now = timer.curtime()
-    local dt = now - lastTickTime
-    if dt <= 0 then return end -- Can happen during lag spikes.
-
-    lastTickTime = now
-    spellbook.mana = math.clamp( spellbook.mana + dt * spellbook.MANA_REGEN, 0, spellbook.MANA_MAX )
-end )
-
-hook.add( "drawhud", "LKL_Spellbook_SpellPaint", function()
-    for _, spell in ipairs( spellbook.spells ) do
-        spell:paint()
-    end
-
-    if not spellbook.DRAW_MANA_HUD then return end
-
-    -- HL2-style mana HUD element
-    local scale = scrH * 1 / 480
-    local manaBarYOffset = -( 480 - 432 ) * scale
-
-    render.setRGBA( 0, 0, 0, 76 )
-    render.drawRoundedBox( 4 * scale, 16 * scale, 432 * scale + manaBarYOffset, 102 * scale, 36 * scale, COLOR_BACKGROUND )
-
-    -- Mana Bar
-    local mana = spellbook.mana
-    local manaMax = spellbook.MANA_MAX
-    local spell = spellbook.getSelectedSpell()
-    local manaToCast = spell:getManaCost()
-
-    if spell:isInstanceOf( ChargedSpell ) then
-        manaToCast = manaToCast * spell:getChargeStrength()
-    end
-
-    local manaAfterCast = math.max( 0, mana - manaToCast )
-    local thick = 1 * scale * 0
-
-    render.setFont( manaTextFont )
-
-    if manaAfterCast == 0 then
-        render.setRGBA( 255, 0, 0, 255 )
-    else
-        render.setRGBA( 255, 236, 12, 255 )
-    end
-
-    render.drawSimpleText( ( 16 + 8 ) * scale, ( 432 + 20 ) * scale + manaBarYOffset, "MANA", TEXT_ALIGN.LEFT, TEXT_ALIGN.TOP )
-
-    local barX = ( 16 + 8 ) * scale
-    local barY = ( 432 + 20 - 12 ) * scale + manaBarYOffset
-    local barW = ( 102 - 16 ) * scale
-    local barH = 8 * scale
-    local barWInner = barW - thick * 2
-    local barHInner = barH - thick * 2
-
-    render.overrideBlend( true, BLEND.SRC_ALPHA, BLEND.ONE, BLENDFUNC.ADD, BLEND.SRC_ALPHA, BLEND.ONE, BLENDFUNC.ADD ) -- Additive blending
-    render.drawRectOutline( barX, barY, barW, barH, thick )
-
-    if manaAfterCast == 0 then
-        render.setRGBA( 255, 0, 0, 150 )
-        render.drawRect( barX + thick, barY + thick, ( mana / manaMax ) * barWInner, barHInner )
-
-        render.setRGBA( 255, 0, 0, 100 )
-        render.drawRect( barX + thick + ( mana / manaMax ) * barWInner, barY + thick, ( ( manaMax - mana ) / manaMax ) * barWInner, barHInner )
-    else
-        render.setRGBA( 240, 210, 5, 100 )
-        render.drawRect( barX + thick + ( mana / manaMax ) * barWInner, barY + thick, ( ( manaMax - mana ) / manaMax ) * barWInner, barHInner )
-
-        render.setRGBA( 240, 210, 5, 255 )
-    end
-
-    render.drawRect( barX + thick, barY + thick, ( mana / manaMax ) * barWInner, barHInner )
-    render.overrideBlend( false )
-end )
-
 hook.add( "EntityRemoved", "LKL_Sellbook_RemoveFromTraceIgnore", function( ent, fullUpdate )
     if fullUpdate then return end
     if not traceIgnoreLookup[ent] then return end
@@ -402,15 +331,95 @@ hook.add( "EntityRemoved", "LKL_Sellbook_RemoveFromTraceIgnore", function( ent, 
     traceIgnoreLookup[ent] = nil
 end )
 
-hook.add( "LKL_Spellbook_OwnerRespawned", "LKL_Spellbook_ReplenishManaAndResetCooldowns", function()
-    spellbook.setMana( spellbook.MANA_MAX )
-    spellbook.setGlobalCooldown( 0 )
 
-    for _, spell in ipairs( spellbook.spells ) do
-        if spell:doesCooldownResetOnDeath() then
-            spellbook.setSpellCooldown( spell:getSpellID(), 0 )
+hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_ClientOwner_FinalSetup", function()
+    hook.remove( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_ClientOwner_FinalSetup" )
+
+    hook.add( "tick", "LKL_Spellbook_RegenMana", function()
+        local now = timer.curtime()
+        local dt = now - lastTickTime
+        if dt <= 0 then return end -- Can happen during lag spikes.
+
+        lastTickTime = now
+        spellbook.mana = math.clamp( spellbook.mana + dt * spellbook.MANA_REGEN, 0, spellbook.MANA_MAX )
+    end )
+
+    hook.add( "drawhud", "LKL_Spellbook_SpellPaint", function()
+        for _, spell in ipairs( spellbook.spells ) do
+            spell:paint()
         end
-    end
+
+        if not spellbook.DRAW_MANA_HUD then return end
+
+        -- HL2-style mana HUD element
+        local scale = scrH * 1 / 480
+        local manaBarYOffset = -( 480 - 432 ) * scale
+
+        render.setRGBA( 0, 0, 0, 76 )
+        render.drawRoundedBox( 4 * scale, 16 * scale, 432 * scale + manaBarYOffset, 102 * scale, 36 * scale, COLOR_BACKGROUND )
+
+        -- Mana Bar
+        local mana = spellbook.mana
+        local manaMax = spellbook.MANA_MAX
+        local spell = spellbook.getSelectedSpell()
+        local manaToCast = spell:getManaCost()
+
+        if spell:isInstanceOf( ChargedSpell ) then
+            manaToCast = manaToCast * spell:getChargeStrength()
+        end
+
+        local manaAfterCast = math.max( 0, mana - manaToCast )
+        local thick = 1 * scale * 0
+
+        render.setFont( manaTextFont )
+
+        if manaAfterCast == 0 then
+            render.setRGBA( 255, 0, 0, 255 )
+        else
+            render.setRGBA( 255, 236, 12, 255 )
+        end
+
+        render.drawSimpleText( ( 16 + 8 ) * scale, ( 432 + 20 ) * scale + manaBarYOffset, "MANA", TEXT_ALIGN.LEFT, TEXT_ALIGN.TOP )
+
+        local barX = ( 16 + 8 ) * scale
+        local barY = ( 432 + 20 - 12 ) * scale + manaBarYOffset
+        local barW = ( 102 - 16 ) * scale
+        local barH = 8 * scale
+        local barWInner = barW - thick * 2
+        local barHInner = barH - thick * 2
+
+        render.overrideBlend( true, BLEND.SRC_ALPHA, BLEND.ONE, BLENDFUNC.ADD, BLEND.SRC_ALPHA, BLEND.ONE, BLENDFUNC.ADD ) -- Additive blending
+        render.drawRectOutline( barX, barY, barW, barH, thick )
+
+        if manaAfterCast == 0 then
+            render.setRGBA( 255, 0, 0, 150 )
+            render.drawRect( barX + thick, barY + thick, ( mana / manaMax ) * barWInner, barHInner )
+
+            render.setRGBA( 255, 0, 0, 100 )
+            render.drawRect( barX + thick + ( mana / manaMax ) * barWInner, barY + thick, ( ( manaMax - mana ) / manaMax ) * barWInner, barHInner )
+        else
+            render.setRGBA( 240, 210, 5, 100 )
+            render.drawRect( barX + thick + ( mana / manaMax ) * barWInner, barY + thick, ( ( manaMax - mana ) / manaMax ) * barWInner, barHInner )
+
+            render.setRGBA( 240, 210, 5, 255 )
+        end
+
+        render.drawRect( barX + thick, barY + thick, ( mana / manaMax ) * barWInner, barHInner )
+        render.overrideBlend( false )
+    end )
+
+    hook.add( "LKL_Spellbook_OwnerRespawned", "LKL_Spellbook_ReplenishManaAndResetCooldowns", function()
+        spellbook.setMana( spellbook.MANA_MAX )
+        spellbook.setGlobalCooldown( 0 )
+
+        for _, spell in ipairs( spellbook.spells ) do
+            if spell:doesCooldownResetOnDeath() then
+                spellbook.setSpellCooldown( spell:getSpellID(), 0 )
+            end
+        end
+    end )
+
+    createSpellMenu()
 end )
 
 
@@ -470,7 +479,7 @@ net.receive( "LKL_Spellbook_RemoveTraceIgnoreEnt", function()
 end )
 
 
-do -- Make spellbook menu
+createSpellMenu = function()
     local allChoices = {}
     local choiceCount = 0
     local choicesPerPage = spellbook.CHOICES_PER_PAGE

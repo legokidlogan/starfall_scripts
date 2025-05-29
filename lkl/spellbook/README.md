@@ -85,14 +85,21 @@ Further details about the four amin spell classes can be found in their respecti
 
 Hooks:
 
+- `LKL_Spellbook_LibraryLoaded()`
+    - All realms.
+    - Called when the base spellbook library has finished loading.
+    - After this, global spellbook functions exist.
+    - Spells are not yet loaded.
 - `LKL_Spellbook_AllSpellsLoaded()`
     - All realms.
     - Called when all spells have been loaded.
     - After this, spells have their IDs.
-- `LKL_Spellbook_LibraryLoaded()`
+- `LKL_Spellbook_LoadingComplete()`
     - All realms.
-    - Called when the spellbook library has finished loading.
-    - After this, global spellbook functions exist.
+    - Called when everything is fully loaded and ready to go.
+- `LKL_Spellbook_PlayerLoaded( ply )`
+    - Server realm.
+    - Called when a player finishes loading the spellbook.
 - `LKL_Spellbook_Spell_IconLoaded( spellID )`
     - CLIENT realm.
     - Called when the icon of a spell has finished loading.

@@ -428,22 +428,27 @@ hook.add( "LKL_Spellbook_SpellbookHolosCreated", "LKL_Spellbook_AttachRightPageM
     pageRight:setColor( Color( 255, 255, 255, 255 ) )
 end )
 
-hook.add( "renderoffscreen", "LKL_Spellbook_DrawRightPage", function()
-    if not spellbook.open then return end
 
-    local spell = spellbook.getSelectedSpell()
+hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_RightPage_FinalSetup", function()
+    hook.remove( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_RightPage_FinalSetup" )
 
-    render.selectRenderTarget( rtNamePageRight )
-    render.clear( spellbook.PAGE_COLOR )
-    render.setMaterial()
+    hook.add( "renderoffscreen", "LKL_Spellbook_DrawRightPage", function()
+        if not spellbook.open then return end
 
-    rightPage.updateInfo( spell )
+        local spell = spellbook.getSelectedSpell()
 
-    local styleName = spell:getRightPageStyle()
-    local styleFunc = spellbook.RIGHT_PAGE_STYLES[styleName]
+        render.selectRenderTarget( rtNamePageRight )
+        render.clear( spellbook.PAGE_COLOR )
+        render.setMaterial()
 
-    styleFunc( rightPageInfo )
-    spell:paintRightPage( rightPageInfo )
+        rightPage.updateInfo( spell )
 
-    render.selectRenderTarget()
+        local styleName = spell:getRightPageStyle()
+        local styleFunc = spellbook.RIGHT_PAGE_STYLES[styleName]
+
+        styleFunc( rightPageInfo )
+        spell:paintRightPage( rightPageInfo )
+
+        render.selectRenderTarget()
+    end )
 end )

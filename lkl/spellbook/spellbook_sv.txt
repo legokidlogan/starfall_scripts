@@ -130,45 +130,12 @@ end
 
 ----- SETUP -----
 
-hook.add( "think", "LKL_Spellbook_Think", function()
-    if spellbook.summoned then
-        local wep = owner():getActiveWeapon()
-        local wasOpen = spellbook.open
-        local open = isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS
-
-        if open ~= wasOpen then
-            spellbook.open = open
-            hook.run( "LKL_Spellbook_OnOpenChanged", open )
-        end
-    end
-end )
-
 hook.add( "ClientInitialized", "LKL_Spellbook_DefineOwnerSoundHolo", function( ply )
     if ply ~= owner() then return end
 
     timer.simple( 0.5, function()
         net.start( "LKL_Spellbook_DefineOwnerSoundHolo" )
         net.writeEntity( ownerSoundHolo )
-        net.send( ply )
-    end )
-end )
-
-hook.add( "ClientInitialized", "LKL_Spellbook_ClientInit", function( ply )
-    if ply == owner() then return end
-
-    timer.simple( 1, function()
-        if not isValid( ply ) then return end
-
-        net.start( "LKL_Spellbook_SetSummoned" )
-        net.writeBool( spellbook.summoned )
-        net.send( ply )
-
-        net.start( "LKL_Spellbook_SelectSpell" )
-        net.writeUInt( spellbook.selectedSpellID, 16 )
-        net.send( ply )
-
-        net.start( "LKL_Spellbook_SetVisibility" )
-        net.writeUInt( spellbook.getVisibility(), 3 )
         net.send( ply )
     end )
 end )
@@ -180,26 +147,65 @@ hook.add( "EntityRemoved", "LKL_Sellbook_RemoveFromTraceIgnore", function( ent )
     traceIgnoreLookup[ent] = nil
 end )
 
-hook.add( "PlayerSpawn", "LKL_Spellbook_ReplenishMana", function( ply )
-    if ply ~= owner() then return end
 
-    local now = timer.curtime()
+hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_Server_FinalSetup", function()
+    hook.remove( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_Server_FinalSetup" )
 
-    net.start( "LKL_Spellbook_OwnerRespawned" )
-    net.writeFloat( now )
-    net.send()
+    hook.add( "think", "LKL_Spellbook_Think", function()
+        if spellbook.summoned then
+            local wep = owner():getActiveWeapon()
+            local wasOpen = spellbook.open
+            local open = isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS
 
-    hook.run( "LKL_Spellbook_OwnerRespawned", now )
+            if open ~= wasOpen then
+                spellbook.open = open
+                hook.run( "LKL_Spellbook_OnOpenChanged", open )
+            end
+        end
+    end )
+
+    hook.add( "PlayerSpawn", "LKL_Spellbook_ReplenishMana", function( ply )
+        if ply ~= owner() then return end
+
+        local now = timer.curtime()
+
+        net.start( "LKL_Spellbook_OwnerRespawned" )
+        net.writeFloat( now )
+        net.send()
+
+        hook.run( "LKL_Spellbook_OwnerRespawned", now )
+    end )
+
+    hook.add( "PlayerDeath", "LKL_Spellbook_OwnerDeath", function( ply )
+        if ply ~= owner() then return end
+
+        local now = timer.curtime()
+
+        net.start( "LKL_Spellbook_OwnerDeath" )
+        net.writeFloat( now )
+        net.send()
+
+        hook.run( "LKL_Spellbook_OwnerDeath", now )
+    end )
 end )
 
-hook.add( "PlayerDeath", "LKL_Spellbook_OwnerDeath", function( ply )
-    if ply ~= owner() then return end
 
-    local now = timer.curtime()
+net.receive( "LKL_Spellbook_LoadingComplete", function( _, ply )
+    if not isValid( ply ) then return end
 
-    net.start( "LKL_Spellbook_OwnerDeath" )
-    net.writeFloat( now )
-    net.send()
+    if ply ~= owner() then
+        net.start( "LKL_Spellbook_SetSummoned" )
+        net.writeBool( spellbook.summoned )
+        net.send( ply )
 
-    hook.run( "LKL_Spellbook_OwnerDeath", now )
+        net.start( "LKL_Spellbook_SelectSpell" )
+        net.writeUInt( spellbook.selectedSpellID, 16 )
+        net.send( ply )
+
+        net.start( "LKL_Spellbook_SetVisibility" )
+        net.writeUInt( spellbook.getVisibility(), 3 )
+        net.send( ply )
+    end
+
+    hook.run( "LKL_Spellbook_PlayerLoaded", ply )
 end )

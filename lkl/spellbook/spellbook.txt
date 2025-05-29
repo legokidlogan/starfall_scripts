@@ -5,6 +5,7 @@
 --@include lkl/hook_remote_fix.txt
 --@include lkl/version_compare.txt
 
+--@include lkl/spellbook/spellbook_file_loader.txt
 --@include lkl/spellbook/spellbook_sv.txt
 --@include lkl/spellbook/spellbook_cl.txt
 --@include lkl/spellbook/spellbook_cl_owner.txt
@@ -35,6 +36,7 @@ spellbook.CHOICES_PER_PAGE = spellbook.CHOICES_PER_PAGE or 12
 spellbook.SUMMON_KEY = spellbook.SUMMON_KEY or KEY.R -- Press while the radial menu is open.
 spellbook.WEAPON_CLASS = spellbook.WEAPON_CLASS or "none" -- This swep has to be held for the book to open. The default is "none", the hands swep from https://steamcommunity.com/sharedfiles/filedetails/?id=245482078
 spellbook.RIGHT_PAGE_STYLE = spellbook.RIGHT_PAGE_STYLE or "classic" -- The style of the right page. See spellbook_right_page.txt for builtin styles. Spells can use different styles as well!
+spellbook.FILE_LOAD_INTERVAL = spellbook.FILE_LOAD_INTERVAL or 0.05 -- Introduces a delay (and perf check) between each spell file being loaded, to avoid CPU exceeding on initialization. 0 to disable.
 if spellbook.DISABLE_COOLDOWN_SOUND == nil then spellbook.DISABLE_COOLDOWN_SOUND = false end
 if spellbook.DRAW_MANA_PREVIEW == nil then spellbook.DRAW_MANA_PREVIEW = true end -- Draws a preview of mana consumption on the spellbook.
 if spellbook.DRAW_MANA_HUD == nil then spellbook.DRAW_MANA_HUD = true end -- Draws a HL2-style mana bar on the screen.
@@ -93,7 +95,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.6.3"
+spellbook.VERSION = "1.7.0"
 
 
 SPELLVIS_ALL = 1
@@ -114,51 +116,22 @@ local spells = {}
 local sprintBlockerNoNet = false
 local sprintForced = false
 local spellVis = SPELLVIS_ALL
+
 spellbook.spells = spells
-
-do
-    local spellResults = dodir( spellbook.SPELL_FOLDER )
-    local spellNameToPath = {}
-
-    if spellbook.SPELL_FOLDER_EXTRA ~= "" then
-        for path, spell in pairs( dodir( spellbook.SPELL_FOLDER_EXTRA ) ) do
-            spellResults[path] = spell
-        end
-    end
-
-    for path, spell in pairs( spellResults ) do
-        spellNameToPath[spell:getName()] = path
-    end
-
-    -- Collect manually-ordered spells.
-    for _, spellName in ipairs( spellbook.MANUAL_SPELL_ORDER ) do
-        local path = spellNameToPath[spellName]
-
-        if path then
-            table.insert( spells, spellResults[path] )
-            spellResults[path] = nil
-        end
-    end
-
-    -- Append the remaining spells in arbitrary order.
-    for _, spell in pairs( spellResults ) do
-        table.insert( spells, spell )
-    end
-end
-
 spellbook.mana = spellbook.MANA_MAX
 spellbook.selectedSpellID = 1
 spellbook.summoned = false
 spellbook.open = false
 
-for spellID, spell in ipairs( spells ) do
-    spell._spellID = spellID
-end
-
-hook.run( "LKL_Spellbook_AllSpellsLoaded" )
+require( "lkl/spellbook/spellbook_file_loader.txt" )
 
 
 ----- GLOBAL FUNCTIONS -----
+
+-- Returns true once the entire library (including spells) is loaded.
+function spellbook.isLoaded()
+    return false
+end
 
 function spellbook.getSelectedSpell()
     return spells[spellbook.selectedSpellID]
@@ -392,17 +365,7 @@ if SERVER or player() == owner() then
 end
 
 
-
-if SERVER then
-    require( "lkl/spellbook/spellbook_sv.txt" )
-else
-    require( "lkl/spellbook/spellbook_cl.txt" )
-
-    if player() == owner() then
-        require( "lkl/spellbook/spellbook_cl_owner.txt" )
-    end
-end
-
+----- SETUP -----
 
 if SERVER or player() == owner() then
     hook.add( "KeyPress", "LKL_Spellbook_KeyPress", function( ply, key )
@@ -543,6 +506,3 @@ net.receive( "LKL_Spellbook_SetVisibility", function( _, ply )
     net.writeUInt( vis, 3 )
     net.send( spellbook.getEveryoneButOwner() )
 end )
-
-
-hook.run( "LKL_Spellbook_LibraryLoaded" )

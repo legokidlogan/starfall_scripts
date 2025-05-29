@@ -1097,6 +1097,8 @@ if CLIENT then
         local count = net.readInt( 16 )
 
         local spell = Spell:getByID( spellID )
+        if not spell then return end -- Occurs if the server sends a message while the client is still loading spells.
+
         local byModel = spell._modelAssociations[niceName]
         if not byModel then return end
 
@@ -1115,6 +1117,7 @@ if CLIENT then
             local spellID = net.readUInt( 16 )
             local niceNameCount = net.readUInt( 16 )
             local spell = Spell:getByID( spellID )
+
             local byNiceName = spell._modelAssociations
 
             for _ = 1, niceNameCount do
