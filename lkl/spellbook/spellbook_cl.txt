@@ -25,35 +25,37 @@ local rtNamePageLeft = "LKL_Spellbook_PageLeft"
 local holoSpine = nil
 local holoCoverJointLeft = nil
 local holoCoverJointRight = nil
-local particleEmitter2D = nil
-local particleEmitter3D = nil
+local matLoadBank = {}
+local particleEmitters2D = {}
+local particleEmitters3D = {}
 local bookHolosReady = false
+
+local getMatObj
+local useParticleEmitter
 
 render.createRenderTarget( rtNamePageLeft )
 
 
 ----- GLOBAL FUNCTIONS -----
 
--- A spellbook-wide 2D particle emitter to avoid hitting the emitter limit.
-function spellbook.getParticleEmitter2D()
-    if not particleEmitter2D then
-        pcall( function()
-            particleEmitter2D = particle.create( Vector(), false )
-        end )
-    end
-
-    return particleEmitter2D
+--[[
+    - Creates a 2D particle from an dynamic bank of emitters.
+    - mat can be a Material object or the string name of a loadable material.
+    - The remaining arguments are the same as in ParticleEmitter:add().
+    - Returns a Particle, or nil if the emitter limit has been reached.
+--]]
+function spellbook.create2DParticle( mat, ... )
+    return useParticleEmitter( false, mat, ... )
 end
 
--- A spellbook-wide 3D particle emitter to avoid hitting the emitter limit.
-function spellbook.getParticleEmitter3D()
-    if not particleEmitter3D then
-        pcall( function()
-            particleEmitter3D = particle.create( Vector(), true )
-        end )
-    end
-
-    return particleEmitter3D
+--[[
+    - Creates a 3D particle from an dynamic bank of emitters.
+    - mat can be a Material object or the string name of a loadable material.
+    - The remaining arguments are the same as in ParticleEmitter:add().
+    - Returns a Particle, or nil if the emitter limit has been reached.
+--]]
+function spellbook.create3DParticle( mat, ... )
+    return useParticleEmitter( true, mat, ... )
 end
 
 -- Whether or not the spellbook holos have been spawned.
@@ -137,6 +139,53 @@ else
     function spellbook.isInFirstPerson()
         return false
     end
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+getMatObj = function( name )
+    if type( name ) == "string" then
+        local mat = matLoadBank[name]
+        if mat then return mat end
+
+        mat = material.load( name )
+        matLoadBank[name] = mat
+
+        return mat
+    end
+
+    return name
+end
+
+useParticleEmitter = function( is3D, mat, ... )
+    local bank = is3D and particleEmitters3D or particleEmitters2D
+    mat = getMatObj( mat )
+
+    -- Look for an emitter that has particles left.
+    for i, emitter in ipairs( bank ) do
+        if emitter:getParticlesLeft() > 0 then
+            -- Before using the emitter, check to see if any of the other emitters are empty and can be removed.
+            for i2 = #bank, i + 1, -1 do
+                local emitter2 = bank[i2]
+
+                if emitter2:getNumActiveParticles() <= 0 then
+                    emitter2:destroy()
+                    table.remove( bank, i2 )
+                end
+            end
+
+            return emitter:add( mat, ... ) -- Use the emitter.
+        end
+    end
+
+    -- All emitters are full, need to make a new one.
+    if particle.particleEmittersLeft() <= 0 then return end -- Unable to make another emitter.
+
+    local emitter = particle.create( Vector(), is3D )
+    table.insert( bank, emitter )
+
+    return emitter:add( mat, ... )
 end
 
 
