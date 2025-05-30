@@ -281,6 +281,12 @@ hook.add( "LKL_Spellbook_OnSetSummoned", "LKL_Spellbook_AnimateSpellbook", funct
     for _, holo in ipairs( bookHolos ) do
         holo:setNoDraw( hide )
     end
+
+    if not bookHolosReady then return end
+
+    -- Make sure the book is visually closed, as changing the summon state forces the book to close without being animated.
+    holoCoverJointLeft:setLocalAngles( Angle( 0, 0, 0 ) )
+    holoCoverJointRight:setLocalAngles( Angle( 0, 0, 0 ) )
 end )
 
 hook.add( "LKL_Spellbook_OnSetVisibility", "LKL_Spellbook_AnimateSpellbook", function()
