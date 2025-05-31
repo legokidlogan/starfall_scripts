@@ -730,6 +730,14 @@ function Spell:onManaEmpty()
     -- Called when an active wpell is forcefully stopped due to running out of mana.
 end
 
+function Spell:onSelected( _prevSpell )
+    -- Called in all realms.
+end
+
+function Spell:onDeselected( _nextSpell )
+    -- Called in all realms.
+end
+
 function Spell:think( _dt )
     -- Called in all realms.
 end

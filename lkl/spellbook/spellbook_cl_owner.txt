@@ -100,10 +100,12 @@ function spellbook.selectSpell( spellID )
     if spellID == spellbook.selectedSpellID then return end
 
     local prevSpell = spellbook.getSelectedSpell()
-
     spellbook.selectedSpellID = spellID
+    local nextSpell = spellbook.getSelectedSpell()
 
-    hook.run( "LKL_Spellbook_OnSpellSelected", prevSpell, spellbook.getSelectedSpell() )
+    prevSpell:onDeseclected( nextSpell )
+    nextSpell:onSelected( prevSpell )
+    hook.run( "LKL_Spellbook_OnSpellSelected", prevSpell, nextSpell )
 
     net.start( "LKL_Spellbook_SelectSpell" )
         net.writeUInt( spellID, 16 )
