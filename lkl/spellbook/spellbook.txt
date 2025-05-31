@@ -88,7 +88,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.7.6"
+spellbook.VERSION = "1.7.7"
 
 
 SPELLVIS_ALL = 1
@@ -453,9 +453,11 @@ net.receive( "LKL_Spellbook_SelectSpell", function( _, ply )
     spellbook.selectedSpellID = spellID
     local nextSpell = spellbook.getSelectedSpell()
 
-    prevSpell:onDeselected( nextSpell )
-    nextSpell:onSelected( prevSpell )
-    hook.run( "LKL_Spellbook_OnSpellSelected", prevSpell, spellbook.getSelectedSpell() )
+    if spellbook.isLoaded() then
+        prevSpell:onDeselected( nextSpell )
+        nextSpell:onSelected( prevSpell )
+        hook.run( "LKL_Spellbook_OnSpellSelected", prevSpell, nextSpell )
+    end
 
     if CLIENT then return end
 
