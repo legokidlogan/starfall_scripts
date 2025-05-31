@@ -154,10 +154,10 @@ loadRealmLibraries()
 
 if CLIENT and player() == owner() then
     for i, folder in ipairs( spellFolders ) do
-        if folder == "" then continue end
-
         local group = {}
         spellFilePaths[i] = group
+
+        if folder == "" then continue end
 
         for _, ext in ipairs( extensions ) do
             table.add( group, file.findInGame( "data/starfall/" .. folder .. "/*." .. ext ) )
