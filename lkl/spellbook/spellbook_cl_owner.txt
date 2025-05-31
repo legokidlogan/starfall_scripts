@@ -103,7 +103,7 @@ function spellbook.selectSpell( spellID )
     spellbook.selectedSpellID = spellID
     local nextSpell = spellbook.getSelectedSpell()
 
-    prevSpell:onDeseclected( nextSpell )
+    prevSpell:onDeselected( nextSpell )
     nextSpell:onSelected( prevSpell )
     hook.run( "LKL_Spellbook_OnSpellSelected", prevSpell, nextSpell )
 
