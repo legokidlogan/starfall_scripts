@@ -353,6 +353,8 @@ hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_ClientOwner_FinalSetup
             spell:paint()
         end
 
+        hook.run( "LKL_Spellbook_PostSpellPaint" )
+
         if not spellbook.DRAW_MANA_HUD then
             hook.run( "LKL_Spellbook_PostHUDDraw" )
 

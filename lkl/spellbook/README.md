@@ -176,6 +176,9 @@ Hooks:
 - `LKL_Spellbook_PreHUDDraw`
     - Owner client realm.
     - Called before the spellbook HUD draws.
+- `LKL_Spellbook_PostSpellPaint`
+    - Owner client realm.
+    - Called after all spells call their paint function, and before the mana HUD draws.
 - `LKL_Spellbook_PostHUDDraw`
     - Owner client realm.
     - Called after the spellbook HUD draws.
