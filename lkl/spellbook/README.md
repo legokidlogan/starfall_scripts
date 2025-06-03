@@ -173,3 +173,9 @@ Hooks:
 - `LKL_Spellbook_Spell_OnFumble( spell, reason, fumbleTime )`
     - All realms.
     - Called when a spell is fumbled.
+- `LKL_Spellbook_PreHUDDraw`
+    - Owner client realm.
+    - Called before the spellbook HUD draws.
+- `LKL_Spellbook_PostHUDDraw`
+    - Owner client realm.
+    - Called after the spellbook HUD draws.

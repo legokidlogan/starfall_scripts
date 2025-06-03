@@ -347,11 +347,17 @@ hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_ClientOwner_FinalSetup
     end )
 
     hook.add( "drawhud", "LKL_Spellbook_SpellPaint", function()
+        hook.run( "LKL_Spellbook_PreHUDDraw" )
+
         for _, spell in ipairs( spellbook.spells ) do
             spell:paint()
         end
 
-        if not spellbook.DRAW_MANA_HUD then return end
+        if not spellbook.DRAW_MANA_HUD then
+            hook.run( "LKL_Spellbook_PostHUDDraw" )
+
+            return
+        end
 
         -- HL2-style mana HUD element
         local scale = scrH * 1 / 480
@@ -408,6 +414,8 @@ hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_ClientOwner_FinalSetup
 
         render.drawRect( barX + thick, barY + thick, ( mana / manaMax ) * barWInner, barHInner )
         render.overrideBlend( false )
+
+        hook.run( "LKL_Spellbook_PostHUDDraw" )
     end )
 
     hook.add( "LKL_Spellbook_OwnerRespawned", "LKL_Spellbook_ReplenishManaAndResetCooldowns", function()
