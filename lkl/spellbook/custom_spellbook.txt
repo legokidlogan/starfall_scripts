@@ -31,7 +31,7 @@ spellbook.DISABLE_COOLDOWN_SOUND = false
 spellbook.DRAW_MANA_PREVIEW = true -- Draws a preview of mana consumption on the spellbook.
 spellbook.DRAW_MANA_HUD = true -- Draws a HL2-style mana bar on the screen.
 spellbook.RIGHT_PAGE_STYLE = "classic" -- The style of the right page. See spellbook_right_page.txt for builtin styles. Spells can use different styles as well!
-spellbook.FILE_LOAD_INTERVAL = 0 -- Introduces a delay (and perf check) between each spell file being loaded, to avoid CPU exceeding on initialization.
+spellbook.FILE_LOAD_INTERVAL = 0.05 -- Introduces a delay (and perf check) between each spell file being loaded, to avoid CPU exceeding on initialization.
 
 spellbook.DRAW_SPELL_CROSSHAIR = true -- Replaces the normal crosshair with a custom one while the spellbook is open.
 spellbook.SPELL_CROSSHAIR_SMALL_USES_SPELL_COLOR = true -- Makes the small dots use the selected spell's color.
