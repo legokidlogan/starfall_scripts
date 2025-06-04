@@ -24,7 +24,7 @@ Simply place the [custom_spellbook.txt](/lkl/spellbook/custom_spellbook.txt) scr
 - Spells are displayed in the spellbook's radial menu, click on one to select it.
     - Cooldowns and active statuses are also displayed here, and in the book itself.
 - Press `spellbook.SUMMON_KEY` (middle mouse by default) while the radial menu is open to (de)summon the spellbook.
-- While summoned, the spellbook will only open while holding the `spellbook.WEAPON_CLASS` swep.
+- While summoned, the spellbook will only open while holding the `spellbook.WEAPON_CLASS` swep, or while in a vehicle.
     - By default, this is `none`, from the [Empty Hands Swep](https://steamcommunity.com/sharedfiles/filedetails/?id=245482078) addon.
 
 Spells, and how to cast them:
