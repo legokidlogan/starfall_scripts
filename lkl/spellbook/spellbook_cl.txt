@@ -197,8 +197,7 @@ hook.add( "renderoffscreen", "LKL_Spellbook_AnimateSpellbook", function()
     if not spellbook.summoned then return end
 
     local wasOpen = spellbook.open
-    local wep = owner():getActiveWeapon()
-    local open = owner():inVehcicle() or ( isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS )
+    local open = spellbook.shouldBookBeOpen()
     local now = timer.curtime()
 
     if open ~= wasOpen then

@@ -298,6 +298,15 @@ function spellbook.isVisible()
     return false
 end
 
+-- An internal helper function to consolidate the open check. Does not care about the summoned state.
+function spellbook.shouldBookBeOpen()
+    if owner():inVehcicle() then return true end
+
+    local wep = owner():getActiveWeapon()
+
+    return isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS
+end
+
 
 if SERVER or player() == owner() then
     local sprintBlockers = {}

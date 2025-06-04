@@ -153,9 +153,8 @@ hook.add( "LKL_Spellbook_AllSpellsLoaded", "LKL_Spellbook_Server_FinalSetup", fu
 
     hook.add( "think", "LKL_Spellbook_Think", function()
         if spellbook.summoned then
-            local wep = owner():getActiveWeapon()
             local wasOpen = spellbook.open
-            local open = owner():inVehcicle() or ( isValid( wep ) and wep:getClass() == spellbook.WEAPON_CLASS )
+            local open = spellbook.shouldBookBeOpen()
 
             if open ~= wasOpen then
                 spellbook.open = open
