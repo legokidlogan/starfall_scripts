@@ -640,7 +640,7 @@ if SERVER then
         end )
     end )
 else
-    hook.add( "renderoffscreen", "LKL_ZoneMarker_UpdateDiscs", function()
+    hook.add( "think", "LKL_ZoneMarker_UpdateDiscs", function()
         local eyePos = render.getEyePos()
 
         for _, zone in ipairs( allZones ) do
