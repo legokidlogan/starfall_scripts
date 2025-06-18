@@ -3,11 +3,13 @@
 --@shared
 --@include lkl/queue.txt
 --@include lkl/submaterial.txt
+--@include lkl/json_extensions.txt
 
 if pthSpawner and pthSpawner.spawn then return end
 
 require( "lkl/queue.txt" )
 require( "lkl/submaterial.txt" )
+require( "lkl/json_extensions.txt" )
 
 
 pthSpawner = pthSpawner or {}
@@ -38,8 +40,11 @@ local spawnQueue
             local myHoloData = require( "myHoloData.txt" )
             pthSpawner.spawn( Vector( 0, 0, 0 ), myHoloData )
     callback: (optional) (function)
-        - A function of the form  function( holograms ) end
-        - Called when the holograms are done being created.
+        - A function of the form  function( holosOrCancelReason ) end
+        - Called when the holograms are done being created, or if the group was cancelled.
+        - If the group was cancelled, holosOrCancelReason will be "cancelled".
+        - If the group had too many holos to spawn, holosOrCancelReason will be "hololimit".
+        - If the group was spawned successfully, holosOrCancelReason will be a list of holograms.
     scale: (optional) (Vector)
         - An overall scale to apply to all of the holograms.
 
@@ -48,7 +53,6 @@ local spawnQueue
         groupID (number):
             - The ID of the group of holograms.
             - Used to cancel the group from spawning, if needed.
-            - Will be nil if the group cannot be spawned, such as if the request is too large for the current hologram limit.
 --]]
 function pthSpawner.spawn( pos, ang, dataStr, callback, scale )
     if type( pos ) ~= "Vector" then error( "Expected pos to be a Vector" ) end
@@ -62,38 +66,42 @@ function pthSpawner.spawn( pos, ang, dataStr, callback, scale )
     if type( callback ) ~= "function" then error( "Expected callback to be a function or nil" ) end
     if scale ~= nil and type( scale ) ~= "Vector" then error( "Expected scale to be a Vector or nil" ) end
 
-    local data = json.decode( dataStr )
-    local dataCount = #data
+    local groupID = holoGroupIncrement + 1
+    holoGroupIncrement = groupID
 
-    if dataCount + spawnQueue:getLength() > hologram.hologramsLeft() then
-        print( "PtH cannot spawn any more holograms!" )
+    json.decodeSafe( dataStr, function( data )
+        local dataCount = #data
 
-        return
-    end
+        if dataCount + spawnQueue:getLength() > hologram.hologramsLeft() then
+            print( "PtH cannot spawn any more holograms!" )
+            callback( "hololimit" )
 
-    holoGroupIncrement = holoGroupIncrement + 1
-    holoGroups[holoGroupIncrement] = {}
-    holoGroupCallbacks[holoGroupIncrement] = callback
-    holoGroupOrigins[holoGroupIncrement] = pos
-    holoGroupOriginAngles[holoGroupIncrement] = ang
-    holoGroupScales[holoGroupIncrement] = scale
-
-    if dataCount == 0 then
-        spawnQueue:addEntryAndStart( {
-            GroupID = holoGroupIncrement,
-            IsLast = true,
-            NoHolo = true,
-        } )
-    else
-        for _, entry in ipairs( data ) do
-            entry.GroupID = holoGroupIncrement
+            return
         end
 
-        data[dataCount].IsLast = true
-        spawnQueue:addEntriesAndStart( data )
-    end
+        holoGroups[groupID] = {}
+        holoGroupCallbacks[groupID] = callback
+        holoGroupOrigins[groupID] = pos
+        holoGroupOriginAngles[groupID] = ang
+        holoGroupScales[groupID] = scale
 
-    return holoGroupIncrement
+        if dataCount == 0 then
+            spawnQueue:addEntryAndStart( {
+                GroupID = groupID,
+                IsLast = true,
+                NoHolo = true,
+            } )
+        else
+            for _, entry in ipairs( data ) do
+                entry.GroupID = groupID
+            end
+
+            data[dataCount].IsLast = true
+            spawnQueue:addEntriesAndStart( data )
+        end
+    end, { "Color" } )
+
+    return groupID
 end
 
 --[[
@@ -110,6 +118,7 @@ function pthSpawner.cancel( groupID )
     if not holoGroups[groupID] then return end
 
     local holoGroup = holoGroups[groupID]
+    local callback = holoGroupCallbacks[groupID]
     local entries = spawnQueue:getEntries()
 
     for _, holo in ipairs( holoGroup ) do
@@ -128,6 +137,8 @@ function pthSpawner.cancel( groupID )
     holoGroupCallbacks[groupID] = nil
     holoGroupOrigins[groupID] = nil
     holoGroupScales[groupID] = nil
+
+    callback( "cancelled" )
 end
 
 
