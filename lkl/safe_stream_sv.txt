@@ -62,6 +62,11 @@ local validateGlobalData
             - Note that stream IDs are not unique across chips, players, nor server vs client.
 --]]
 function safeStream.write( dataStr, compress, cbByPly, cbAllDone )
+    if type( dataStr ) ~= "string" then error( "Expected dataStr to be a string" ) end
+    if compress ~= nil and type( compress ) ~= "boolean" then error( "Expected compress to be a boolean or nil" ) end
+    if cbByPly ~= nil and type( cbByPly ) ~= "function" then error( "Expected cbByPly to be a function or nil" ) end
+    if cbAllDone ~= nil and type( cbAllDone ) ~= "function" then error( "Expected cbAllDone to be a function or nil" ) end
+
     writeIncr = writeIncr + 1
     net.writeUInt( writeIncr, 16 )
 
@@ -93,6 +98,8 @@ end
             - Note that stream IDs are not unique across chips, players, nor server vs client.
 --]]
 function safeStream.read( cb )
+    if type( cb ) ~= "function" then error( "Expected cb to be a function" ) end
+
     local streamID = net.readUInt( 16 )
     local ply = net.readEntity() -- This should be handled by the ply arg of net.receive(), but it would make this lib not a direct drop-in replacement.
     local plyID = ply:getSteamID()

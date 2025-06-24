@@ -47,6 +47,10 @@ local tableInsert = table.insert
             - Note that stream IDs are not unique across chips, players, nor server vs client.
 --]]
 function safeStream.write( dataStr, compress, cb )
+    if type( dataStr ) ~= "string" then error( "Expected dataStr to be a string" ) end
+    if compress ~= nil and type( compress ) ~= "boolean" then error( "Expected compress to be a boolean or nil" ) end
+    if cb ~= nil and type( cb ) ~= "function" then error( "Expected cb to be a function or nil" ) end
+
     writeIncr = writeIncr + 1
     net.writeUInt( writeIncr, 16 )
     net.writeEntity( player() )
