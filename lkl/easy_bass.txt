@@ -41,6 +41,7 @@ local loadBass
             Loop = false, -- Whether or not to loop the sound.
             DestroyWhenDone = true, -- Whether or not to destroy the sound when it finishes playing. Disabled if Duration is provided.
             StaleThreshold = 30, -- How many ticks of silence must occur in a row for a sound to be considered done, for use with DestroyWhenDone.
+            NoPlay = false, -- If true, the sound won't automatically start playing.
         }
 --]]
 function easyBass.loadFile( path, settings, callback, failCallback )
@@ -135,7 +136,7 @@ loadBass = function( loadFunc, path, settings, callback, failCallback, soundID )
     end
 
     settings = settings or {}
-    local flags = settings.Flags or "3d stereo noblock noplay"
+    local flags = settings.Flags or "3d stereo noblock"
     local volume = settings.Volume or 1
     local pitch = settings.Pitch or 1
     local fadeStart = settings.FadeStart or 700
@@ -148,7 +149,9 @@ loadBass = function( loadFunc, path, settings, callback, failCallback, soundID )
     local loop = settings.Loop or false
     local destroyWhenDone = false
     local staleThreshold = settings.StaleThreshold or 30
+    local noPlay = settings.NoPlay or false
 
+    flags = flags .. " noplay"
     duration = math.max( duration, 0 )
 
     if duration == 0 then
@@ -242,7 +245,10 @@ loadBass = function( loadFunc, path, settings, callback, failCallback, soundID )
             bassObj:setPitch( pitch )
             bassObj:setLooping( loop )
             bassObj:setFade( fadeStart, fadeEnd, useSimpleFading )
-            bassObj:play()
+
+            if not noPlay then
+                bassObj:play()
+            end
 
             if duration then
                 bassObj._endTime = now + duration

@@ -27,6 +27,7 @@ easyBass.loadFile(
         Loop = false,
         DestroyWhenDone = true,
         StaleThreshold = 30,
+        NoPlay = false,
     },
     function( x )
         bassObj = x
@@ -54,6 +55,7 @@ easyBass.loadFile(
         Loop = false,
         DestroyWhenDone = true,
         StaleThreshold = 30,
+        NoPlay = false,
     },
     function( x )
         bassObj = x
