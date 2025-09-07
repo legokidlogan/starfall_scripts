@@ -26,6 +26,7 @@ roStone._alreadyLoaded = true
 
 
 -- CONFIG DEFAULTS
+roStone.COMMAND_PREFIX = roStone.COMMAND_PREFIX or "/rs" -- Prefix for all rosetta stone commands.
 roStone.PLY_HSV_MULT = roStone.PLY_HSV_MULT or Color( 1, 0.75, 1, 1 ) -- Multiplier for hue, saturation, value, alpha applied to player names when printing auto-translated messages.
 roStone.INPUT_COLOR = roStone.INPUT_COLOR or Color( 255, 200, 200 ) -- Color of the snippet of input text shown for translated messages.
 roStone.OUTPUT_COLOR = roStone.OUTPUT_COLOR or Color( 200, 255, 200 ) -- Color of the translated text shown for translated messages.
@@ -79,7 +80,7 @@ roStone.AUTO_LANGUAGE_WHITELIST = roStone.AUTO_LANGUAGE_WHITELIST or {
 -- END CONFIG DEFAULTS
 
 
-local ccmdPrefix = ccmdPrefix or "/rs"
+local ccmdPrefix = nil
 local ccmdName = "RoStone"
 projectNameID = projectNameID or ccmdName
 
@@ -299,10 +300,6 @@ netCancelQueue = Queue:new(
 
 
 if SERVER then
-    ccmdMulti.registerProject( ccmdPrefix, ccmdName, nil )
-    ccmdMulti.setTargets( ccmdPrefix, owner(), false )
-
-
     local autoChatEnabled = roStone.AUTO_CHAT_DEFAULT
     local quickEchoEnabled = roStone.ECHO_QUICK_DEFAULT
     local translateEchoEnabled = roStone.ECHO_TRANSLATE_DEFAULT
@@ -474,6 +471,11 @@ if SERVER then
 
     -- Delay in case config is modified immediately after loading the library.
     timer.simple( 0.1, function()
+        ccmdPrefix = roStone.COMMAND_PREFIX or "/rs"
+
+        ccmdMulti.registerProject( ccmdPrefix, ccmdName, nil )
+        ccmdMulti.setTargets( ccmdPrefix, owner(), false )
+
         ccmdMulti.createToggleCommand(
             ccmdPrefix,
             "chat",
