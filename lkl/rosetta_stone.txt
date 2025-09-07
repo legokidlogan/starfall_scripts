@@ -1,0 +1,752 @@
+--@name Rosetta Stone
+--@author legokidlogan
+--@shared
+--@owneronly
+--@include lkl/rosetta_stone_predictor.txt
+--@include lkl/chat_cmds_multi.txt
+--@include lkl/queue.txt
+
+roStone = roStone or {}
+if roStone._alreadyLoaded then return end
+roStone._alreadyLoaded = true
+
+--[[
+    - IMPORTANT: translate.googleapis.com must be whitelisted in your http settings for this library to work.
+
+    - A tool for auto-translating other players' chat messages and allowing you to translate messages back to them.
+    - Messages detected as not being in your language will (after a short delay) be re-printed with a snippet of the original message followed by the translation.
+    - Chat commands can be used to translate from your language to another. The result (and a re-translation to double check) will be printed for you to copy.
+        - e.g. "/rs es This is a sentence" will print the Spanish translation, and a re-translation to your main language to see if the translation was decent.
+    - The "translate" command can also be used to specify an input and output language to force-translate a message.
+        - e.g. "/rs translate es ru ???" Will print a translation from Spanish to Russian, and a re-translation from Russian to your main language.
+        - e.g. "/rs translate auto ru ???" Will auto-detect the language, print a Russian translation, and then a re-translation in your main language.
+    - The "quickecho" and "translateecho" toggle commands can be used to turn off re-translation for the above two commands.
+    - The "chat" toggle command can be used to turn off auto-translation of chat messages.
+--]]
+
+
+-- CONFIG DEFAULTS
+roStone.PLY_HSV_MULT = roStone.PLY_HSV_MULT or Color( 1, 0.75, 1, 1 ) -- Multiplier for hue, saturation, value, alpha applied to player names when printing auto-translated messages.
+roStone.INPUT_COLOR = roStone.INPUT_COLOR or Color( 255, 200, 200 ) -- Color of the snippet of input text shown for translated messages.
+roStone.OUTPUT_COLOR = roStone.OUTPUT_COLOR or Color( 200, 255, 200 ) -- Color of the translated text shown for translated messages.
+roStone.ECHO_COLOR = roStone.ECHO_COLOR or Color( 255, 255, 200 ) -- Color of the echo-translated text shown for translated messages.
+roStone.AUTO_INPUT_LENGTH = roStone.AUTO_INPUT_LENGTH or 20 -- Max length of the snippet of input text shown for auto-translated messages.
+roStone.AUTO_TRANSLATE_SELF = roStone.AUTO_TRANSLATE_SELF or false -- Set to true for easy testing of auto translation.
+
+if roStone.AUTO_CHAT_DEFAULT == nil then roStone.AUTO_CHAT_DEFAULT = true end -- Default state of auto-translation for chat messages.
+if roStone.ECHO_QUICK_DEFAULT == nil then roStone.ECHO_QUICK_DEFAULT = true end -- Default state of quickecho for the quick translate command.
+if roStone.ECHO_TRANSLATE_DEFAULT == nil then roStone.ECHO_TRANSLATE_DEFAULT = true end -- Default state of quickecho for the full translate command.
+
+roStone.HTTP_TIMEOUT = roStone.HTTP_TIMEOUT or 5 -- How long to wait on an http response before giving up on it. Occurs twice for messages with echo enabled.
+roStone.HTTP_GAP = roStone.HTTP_GAP or 0.1 -- How long to wait between http requests, to reduce odds of hitting the rate limit.
+roStone.MAIN_LANGUAGE = roStone.MAIN_LANGUAGE or "en" -- Your language, which other player messages will be translated into.
+
+-- These languages will have auto-generated commands for quickly translating out. e.g. "/rs ru Some words" will print out the russian translation.
+-- https://gist.github.com/JT5D/a2fdfefa80124a06f5a9 -- Google Translate supported languages
+roStone.QUICK_LANGUAGES = roStone.QUICK_LANGUAGES or {
+    en = { "english", },
+    es = { "spanish", "espanol", },
+    ru = { "russian", },
+    uk = { "ukranian", },
+    fr = { "french", },
+    de = { "german" },
+    nl = { "dutch", },
+    ko = { "korean", },
+    ja = { "japanese", },
+    jv = { "javanese", },
+    fi = { "finnish" },
+    ["zh-CN"] = { "chinese-simple", },
+    ["zh-TW"] = { "chinese-traditional", },
+}
+
+-- Ignores auto-chat translations that don't detect one of these languages, to reduce noise from google trying to translate non-words.
+-- Set to false instead of a table to disable this feature.
+roStone.AUTO_LANGUAGE_WHITELIST = roStone.AUTO_LANGUAGE_WHITELIST or {
+    en = true,
+    es = true,
+    ru = true,
+    uk = true,
+    fr = true,
+    de = true,
+    nl = true,
+    ko = true,
+    ja = true,
+    jv = true,
+    fi = true,
+    ["zh-CN"] = true,
+    ["zh-TW"] = true,
+}
+-- END CONFIG DEFAULTS
+
+
+local ccmdPrefix = ccmdPrefix or "/rs"
+local ccmdName = "RoStone"
+projectNameID = projectNameID or ccmdName
+
+require( "lkl/rosetta_stone_predictor.txt" )
+require( "lkl/chat_cmds_multi.txt" )
+require( "lkl/queue.txt" )
+
+
+local netQueue = nil -- Queue instance holding { uid = uid, jsonStr = jsonStr } (jsonStr is nil at first, gets encoded in the queue for more cpu quota safety)
+local netCancelQueue = nil -- Queue instance holding uid strings for cancelling requests that have already been 
+local entryBank = {} -- uid -> info (storing callbacks and etc)
+local queueIncr = 0
+
+-- Shared private functions
+local addToTranslationQueue
+
+-- Client-only private functions
+local cancelTranslation
+local processNextEntry
+
+
+----- GLOBAL FUNCTIONS -----
+
+--[[
+    - Translates a message from one language to another.
+
+    langFrom: (string)
+        - The language to translate from.
+        - Use "auto" to auto-detect the language.
+    langTo: (string)
+        - The language to translate to.
+        - Cannot be "auto".
+    langEcho: (string or boolean)
+        - If a string, the language to translate the result back into.
+        - If true, uses roStone.MAIN_LANGUAGE.
+        - If false, no echo translation is done.
+        - Echo translations will be skipped if langTo and langEcho are the same.
+    msg: (string)
+        - The message to translate.
+    callback: (function( entry, err, errInfo ) end)
+        - The function to call when the translation finishes or fails.
+
+        entry: (table)
+            - Contains all the data passed to this function, plus the results if successful.
+            - Has the following format: {
+                langFrom = (string) The language the message was translated from.
+                langTo = (string) The language the message was translated to.
+                langEcho = (string or false) The language the message was echoed to, if applicable.
+                msg = (string) The original message.
+                callback = (function) The callback function, for reference.
+                uid = (string) The unique ID of this translation request. Requests from the server are prefixed with "sv".
+
+                result = (string or nil) The translated message, if successful.
+                resultEcho = (string or nil) The echoed translation, if applicable and successful.
+                langFromDetected = (string or nil) The detected source language, if langFrom was "auto".
+            }
+        err: (string or nil)
+            - nil if the translation was successful.
+            - "cancelled" if the translation was cancelled. errInfo will be empty.
+            - "timeout" if the http request timed out. errInfo will be empty.
+            - "http_fail" if the http request went through, but had an unsuccessful response. errInfo will be { code = number, headers = table }.
+            - "http_error" if the http request errored outright. errInfo will be { reason = reason }.
+        errInfo: (table)
+            - Additional information about the error, if applicable.
+            - See the err descriptions above for what this contains.
+
+    RETURNS: uid
+        uid: (string)
+            - The unique ID of this translation request.
+            - Requests made by the server are prefixed with "sv".
+            - Can be used to cancel the translation with roStone.cancelTranslation( uid ).
+--]]
+function roStone.translate( langFrom, langTo, langEcho, msg, callback )
+    if type( langFrom ) ~= "string" then error( "Expected langFrom to be a string" ) end
+    if type( langTo ) ~= "string" then error( "Expected langTo to be a string" ) end
+    if type( langEcho ) ~= "string" and type( langEcho ) ~= "boolean" then error( "Expected langEcho to be a string or boolean" ) end
+    if type( msg ) ~= "string" then error( "Expected msg to be a string" ) end
+    if type( callback ) ~= "function" then error( "Expected callback to be a function" ) end
+    if langTo == "auto" then error( "langTo cannot be 'auto'" ) end
+
+    if langEcho == true then
+        langEcho = roStone.MAIN_LANGUAGE
+    end
+
+    queueIncr = queueIncr + 1
+
+    local uid = ( SERVER and "sv" or "" ) .. queueIncr
+    local entry = {
+        langFrom = langFrom,
+        langTo = langTo,
+        langEcho = langEcho ~= langTo and langEcho,
+        msg = msg,
+        callback = callback,
+        uid = uid,
+
+        -- result
+        -- resultEcho
+        -- langFromDetected
+    }
+
+    addToTranslationQueue( entry )
+
+    if CLIENT then
+        processNextEntry()
+    end
+
+    return uid
+end
+
+-- Cancels a translation request.
+function roStone.cancelTranslation( uid )
+    local entry = entryBank[uid]
+    if not entry then return end
+
+    entryBank[uid] = nil
+
+    if uid:sub( 1, 2 ) == "sv" then
+        for i, netEntry in netQueue:getEntries() do
+            if netEntry.uid == uid then
+                netQueue:removeEntry( i )
+
+                if SERVER then
+                    -- Only in server's net queue, hasn't been made aware of to the client yet.
+                    entry.callback( entry, "cancelled", {} )
+                else
+                    -- The server made the request, need to tell it to run the cancellation callback.
+                    netCancelQueue:addEntryAndStart( uid )
+                end
+
+                return
+            end
+        end
+    end
+
+    if SERVER then
+        netCancelQueue:addEntryAndStart( uid )
+        entry.callback( entry, "cancelled", {} )
+
+        return
+    end
+
+    cancelTranslation( entry, uid )
+end
+
+
+----- SETUP -----
+
+netQueue = Queue:new(
+    function( _, netEntry )
+        local jsonStr = netEntry.jsonStr
+        local uid = netEntry.uid
+
+        -- Only encode the json in the net queue, as it is perf-protected.
+        if not jsonStr then
+            local entry = entryBank[uid]
+            if not entry then return print( "RoStone found no entry for uid: " .. uid .. ", this shouldn't happen!" ) end
+
+            if SERVER then
+                -- Encode all data except the callback.
+                local callback = entry.callback
+
+                entry.callback = nil
+                jsonStr = json.encode( entry )
+                entry.callback = callback
+            else
+                -- Only include relevant data when sending the translated results.
+                -- Really this should be done as individual strings to use less bandwidth, but this is easier to maintain.
+                jsonStr = json.encode( {
+                    result = entry.result,
+                    resultEcho = entry.resultEcho,
+                    langFromDetected = entry.langFromDetected,
+                } )
+            end
+
+            netEntry.jsonStr = jsonStr
+            netEntry.bytesNeeded = #jsonStr + #uid + 100 -- +100 as a safety buffer
+        end
+
+        if net.getBytesLeft() <= netEntry.bytesNeeded then return 0.5 end
+
+        net.start( "LKL_RoStone_Translate" ) -- Translation request from server, translation result from client
+        net.writeString( uid )
+        net.writeString( jsonStr )
+        net.send( owner() )
+
+        if CLIENT then
+            entryBank[uid] = nil
+        end
+    end,
+    function()
+    end,
+    {},
+    0.1,
+    5,
+    0.7,
+    "LKL_RoStone_NetQueue"
+)
+
+netCancelQueue = Queue:new(
+    function( _, uid )
+        if net.getBytesLeft() <= #uid + 100 then return 0.5 end
+
+        net.start( "LKL_RoStone_CancelTranslation" )
+        net.writeString( uid )
+        net.send( owner() )
+    end,
+    function()
+    end,
+    {},
+    0.1,
+    5,
+    0.7,
+    "LKL_RoStone_NetCancelQueue"
+)
+
+
+
+
+if SERVER then
+    ccmdMulti.registerProject( ccmdPrefix, ccmdName, nil )
+    ccmdMulti.setTargets( ccmdPrefix, owner(), false )
+
+
+    local autoChatEnabled = roStone.AUTO_CHAT_DEFAULT
+    local quickEchoEnabled = roStone.ECHO_QUICK_DEFAULT
+    local translateEchoEnabled = roStone.ECHO_TRANSLATE_DEFAULT
+
+
+    addToTranslationQueue = function( entry )
+        entryBank[entry.uid] = entry
+        netQueue:addEntryAndStart( { uid = entry.uid } )
+    end
+
+
+    hook.add( "PlayerSay", "LKL_RoStone_AutoTranslate", function( ply, msg )
+        if not autoChatEnabled then return end
+        if ply == owner() and not roStone.AUTO_TRANSLATE_SELF then return end
+
+        local firstChar = msg:sub( 1, 1 )
+        if firstChar == "!" or firstChar == "/" or firstChar == "." then return end
+        if msg:sub( 1, 3 ) == "rtv" then return end
+        if msg:sub( 1, 5 ) == "unrtv" then return end
+
+        local langFrom = roStone.predictLanguage( msg )
+        if langFrom == roStone.MAIN_LANGUAGE then return end
+
+        local plyColor = team.getColor( ply:getTeam() )
+        local plyName = ply:getName()
+
+        plyColor = ( plyColor:rgbToHSV() * roStone.PLY_HSV_MULT ):hsvToRGB()
+        plyColor.a = 255 * roStone.PLY_HSV_MULT.a
+
+        roStone.translate( langFrom, roStone.MAIN_LANGUAGE, false, msg, function( entry, err, _errInfo )
+            if err then print( err ) return end
+
+            langFrom = entry.langFromDetected or langFrom
+            if langFrom == roStone.MAIN_LANGUAGE then return end
+
+            local langWhitelist = roStone.AUTO_LANGUAGE_WHITELIST
+            if langWhitelist and not langWhitelist[langFrom] then return end
+
+            local inputLength = roStone.AUTO_INPUT_LENGTH
+            local inputPreview = msg
+
+            if #msg > inputLength then
+                local firstHalfLength = math.floor( inputLength / 2 )
+
+                inputPreview = msg:sub( 1, firstHalfLength ) .. "..." .. msg:sub( -firstHalfLength )
+            end
+
+            print(
+                c_white, "[RoStone] ",
+                plyColor, plyName,
+                c_white, " (",
+                c_yellow, langFrom,
+                c_white, "): ",
+                roStone.INPUT_COLOR, inputPreview,
+                c_white, "\n  => ",
+                roStone.OUTPUT_COLOR, entry.result
+            )
+        end )
+    end )
+
+
+    net.receive( "LKL_RoStone_Translate", function( _, ply )
+        if ply ~= owner() then return end
+
+        local uid = net.readString()
+        local jsonStr = net.readString()
+        local entry = entryBank[uid]
+        if not entry then return end
+
+        local jsonTbl = json.decode( jsonStr )
+
+        for key, val in pairs( jsonTbl ) do
+            entry[key] = val
+        end
+
+        entryBank[uid] = nil
+        entry.callback( entry )
+    end )
+
+    net.receive( "LKL_RoStone_CancelTranslation", function( _, ply )
+        if ply ~= owner() then return end
+
+        local uid = net.readString()
+        local entry = entryBank[uid]
+        if not entry then return end
+
+        entryBank[uid] = nil
+        entry.callback( entry, "cancelled", {} )
+    end )
+
+    net.receive( "LKL_RoStone_Translate_Error", function( _, ply )
+        if ply ~= owner() then return end
+
+        local uid = net.readString()
+        local err = net.readString()
+        local jsonStr = net.readString()
+
+        local entry = entryBank[uid]
+        if not entry then return end
+
+        local errInfo = json.decode( jsonStr )
+
+        entryBank[uid] = nil
+        entry.callback( entry, err, errInfo )
+    end )
+
+
+    local function translateFromCommand( msg, langFrom, langTo, doEcho )
+        roStone.translate( langFrom, langTo, doEcho, msg, function( entry, err, _errInfo )
+            if err then
+                print( "[RoStone] Translation error: " .. err )
+                return
+            end
+
+            local printTbl = {
+                c_white, "[RoStone] ",
+                c_white, " (",
+                roStone.INPUT_COLOR, langFrom,
+                c_white, " -> ",
+                roStone.OUTPUT_COLOR, langTo,
+                c_white, "): ",
+                roStone.INPUT_COLOR, msg,
+                c_white, "\n  => ",
+                roStone.OUTPUT_COLOR, entry.result
+            }
+
+            if entry.resultEcho then
+                table.insert( printTbl, c_white )
+                table.insert( printTbl, "\n  => " )
+                table.insert( printTbl, roStone.ECHO_COLOR )
+                table.insert( printTbl, entry.resultEcho )
+            end
+
+            print( unpack( printTbl ) )
+        end )
+    end
+
+    local function makeQuickTranslateCommand( lang, langNames )
+        local cmdNames = table.copy( langNames )
+        table.insert( cmdNames, 1, lang:lower() )
+
+        ccmdMulti.createCommand(
+            ccmdPrefix,
+            cmdNames,
+            function( _, _, _, argsAsString )
+                translateFromCommand( argsAsString, roStone.MAIN_LANGUAGE, lang, quickEchoEnabled )
+
+                return {
+                    ccmdScheme:getColor( "Pending" ), "Translating...",
+                }
+            end,
+            function( _, _, _, argsAsString )
+                if argsAsString == "" then return "You must provide text to translate!" end
+            end,
+            {
+                ReqCount = 0,
+                OptCount = 0,
+            },
+            {
+                ccmdScheme:getColor( "Text" ), "Translates a message from your language to ",
+                ccmdScheme:getColor( "Highlight" ), langNames[1] or lang,
+                ccmdScheme:getColor( "Text" ), "Translates a message from your language to ",
+            },
+            nil,
+            nil
+        )
+    end
+
+
+    -- Delay in case config is modified immediately after loading the library.
+    timer.simple( 0.1, function()
+        ccmdMulti.createToggleCommand(
+            ccmdPrefix,
+            "chat",
+            function( oldState, newState )
+                if oldState == newState then return end
+
+                autoChatEnabled = newState
+            end,
+            "Chat auto-translation",
+            "automatic translation of chat messages",
+            autoChatEnabled,
+            nil,
+            nil
+        )
+
+        ccmdMulti.createToggleCommand(
+            ccmdPrefix,
+            { "quickecho", "qecho" },
+            function( oldState, newState )
+                if oldState == newState then return end
+
+                quickEchoEnabled = newState
+            end,
+            "Quick echo",
+            "Echo translations for quick translation commands",
+            quickEchoEnabled,
+            nil,
+            nil
+        )
+
+        ccmdMulti.createToggleCommand(
+            ccmdPrefix,
+            { "translateecho", "techo" },
+            function( oldState, newState )
+                if oldState == newState then return end
+
+                translateEchoEnabled = newState
+            end,
+            "Translate echo",
+            "Echo translations for the translate command",
+            translateEchoEnabled,
+            nil,
+            nil
+        )
+
+        for lang, langNames in pairs( roStone.QUICK_LANGUAGES ) do
+            makeQuickTranslateCommand( lang, langNames )
+        end
+
+        ccmdMulti.createCommand(
+            ccmdPrefix,
+            { "translate", "t" },
+            function( _, _, _, _, langFrom, langTo )
+                local msg = ccmdMulti.getPreprocessedResults()
+
+                translateFromCommand( msg, langFrom, langTo, translateEchoEnabled )
+
+                return {
+                    ccmdScheme:getColor( "Pending" ), "Translating...",
+                }
+            end,
+            function( _, _, _, argsAsString )
+                local words = argsAsString:split( " " )
+                table.remove( words, 1 )
+                table.remove( words, 1 )
+                if #words == 0 then return "You must provide text to translate!" end
+
+                local msg = table.concat( words, " " )
+
+                return nil, msg
+            end,
+            {
+                ReqCount = 2,
+                OptCount = 0,
+                {
+                    Name = "langFrom",
+                    Description = "The language to translate from",
+                },
+                {
+                    Name = "langTo",
+                    Description = "The language to translate to",
+                },
+            },
+            {
+                "Translates a message from one language to another.",
+            },
+            nil,
+            nil
+        )
+    end )
+
+
+    return
+end
+
+
+----- CLIENT -----
+
+local netErrorQueue = nil -- Queue instance holding { uid = uid, err = err, errInfo = errInfo } for sending back errored translations
+local translationQueue = {} -- list of uids
+local awaitingEntryUID = nil -- uid of entry (canceled or not) that an http response is being waited on for, to allow it to make the next request. Becomes nil on timeout or complete, changes when a request is made.
+local requestOnDemand = true -- True if an http request can be made immediately, false if the next one will be handled by the current request or timeout callback.
+
+
+addToTranslationQueue = function( entry )
+    table.insert( translationQueue, entry.uid )
+    entryBank[entry.uid] = entry
+    processNextEntry()
+end
+
+cancelTranslation = function( entry, uid )
+    table.removeByValue( translationQueue, uid )
+    entry.result = nil
+    entry.langFromDetected = nil
+    entry.callback( entry, "cancelled", {} )
+
+    -- Intentionally leave awaitingEntryUID unchanged so it readies up the next request only once the current once finishes (or times out), to avoid request spam.
+end
+
+processNextEntry = function()
+    if not requestOnDemand then return end
+
+    local uid = table.remove( translationQueue, 1 )
+    if not uid then return end
+
+    local entry = entryBank[uid]
+    if not entry then return end
+
+    requestOnDemand = false
+    awaitingEntryUID = uid
+
+    local langFrom = entry.langFrom
+    local langTo = entry.langTo
+    local langEcho = entry.langEcho
+    local msg = entry.msg
+
+    local doingEcho = false
+    local langFromEff = langFrom
+    local langToEff = langTo
+
+    if langEcho and entry.result then
+        doingEcho = true
+        langFromEff = langTo
+        langToEff = langEcho
+        msg = entry.result
+    end
+
+    http.get(
+        "https://translate.googleapis.com/translate_a/single?client=gtx&sl=" .. langFromEff .. "&tl=" .. langToEff .. "&dt=t&q=" .. http.urlEncode( msg ),
+        function( body, _length, headers, code )
+            if code ~= 200 then
+                print( "[RoStone] HTTP Failure: " .. code )
+                --printTable( headers )
+
+                entry.callback( entry, "http_fail", { code = code, headers = headers } )
+
+                return
+            end
+
+            local tbl = json.decode( body )
+
+            --printTable( tbl )
+
+            local curResult = tbl[1][1][1]
+
+            if not entry.result then
+                entry.result = curResult
+            else
+                entry.resultEcho = curResult
+            end
+
+            if langFromEff == "auto" then
+                entry.langFromDetected = tbl[3]
+            end
+
+            if awaitingEntryUID == uid then
+                awaitingEntryUID = nil
+                timer.remove( "LKL_RoStone_HTTPTimeout" )
+
+                timer.create( "LKL_RoStone_HTTPGap", roStone.HTTP_GAP, 1, function()
+                    requestOnDemand = true
+                    processNextEntry()
+                end )
+            end
+
+            if langEcho and not doingEcho then
+                table.insert( translationQueue, 1, uid ) -- Re-insert at the front of the queue to do the echo next.
+            else
+                -- Send back to server or run callback, depending on the source realm.
+                if uid:sub( 1, 2 ) == "sv" then
+                    netQueue:addEntryAndStart( { uid = uid } )
+                else
+                    entryBank[uid] = nil
+                    entry.callback( entry )
+                end
+            end
+        end,
+        function( reason )
+            print( "[RoStone] HTTP Error: " .. reason )
+
+            entry.callback( entry, "http_error", { reason = reason } )
+        end,
+        nil
+    )
+
+    timer.create( "LKL_RoStone_HTTPTimeout", roStone.HTTP_TIMEOUT, 1, function()
+        awaitingEntryUID = nil
+
+        timer.create( "LKL_RoStone_HTTPGap", roStone.HTTP_GAP, 1, function()
+            requestOnDemand = true
+            processNextEntry()
+        end )
+
+        if entryBank[uid] then
+            entryBank[uid] = nil
+            entry.callback( entry, "timeout", {} )
+        end
+    end )
+end
+
+
+netErrorQueue = Queue:new(
+    function( _, netEntry )
+        local jsonStr = netEntry.jsonStr
+
+        -- Only encode the json in the net queue, as it is perf-protected.
+        if not jsonStr then
+            jsonStr = json.encode( netEntry.errInfo )
+
+            netEntry.jsonStr = jsonStr
+            netEntry.bytesNeeded = #jsonStr + #netEntry.err + #netEntry.uid + 100 -- +100 as a safety buffer
+        end
+
+        if net.getBytesLeft() <= netEntry.bytesNeeded then return 0.5 end
+
+        net.start( "LKL_RoStone_Translate_Error" )
+        net.writeString( netEntry.uid )
+        net.writeString( netEntry.err )
+        net.writeString( jsonStr )
+        net.send()
+    end,
+    function()
+    end,
+    {},
+    0.1,
+    5,
+    0.7,
+    "LKL_RoStone_NetQueue"
+)
+
+
+net.receive( "LKL_RoStone_CancelTranslation", function()
+    local uid = net.readString()
+    if not entryBank[uid] then return end
+
+    roStone.cancelTranslation( uid )
+    netCancelQueue:removeEntryByValue( uid ) -- Avoid telling the server to double cancel if the entry happened to be in net queue.
+end )
+
+net.receive( "LKL_RoStone_Translate", function()
+    local uid = net.readString()
+    local jsonStr = net.readString()
+    local entry = json.decode( jsonStr )
+
+    -- Bypass the global function so the original uid is preserved.
+    entry.callback = function( _, err, errInfo )
+        -- Handle error callbacks here. Successful callbacks get handled directly by the http handler.
+        if not err then return end
+        if err == "cancelled" then return end
+
+        netErrorQueue:addEntryAndStart( { uid = uid, err = err, errInfo = errInfo } )
+    end
+
+    addToTranslationQueue( entry )
+    processNextEntry()
+end )

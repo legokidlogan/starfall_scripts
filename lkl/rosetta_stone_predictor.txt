@@ -1,0 +1,399 @@
+--@name Rosetta Stone Predictor
+--@author legokidlogan
+--@shared
+
+roStone = roStone or {}
+if roStone._alreadyLoaded_predictor then return end
+roStone._alreadyLoaded_predictor = true
+
+
+roStone.PREDICTION_THRESHOLDS = roStone.PREDICTION_THRESHOLDS or {
+    default = 0.3,
+    en = 0.1,
+}
+
+-- Note that this table will be auto-reformatted for faster lookup and better memory management. See roStone.initPredictionWords() for details.
+roStone.PREDICTION_WORDS = roStone.PREDICTION_WORDS or {
+    en = {
+        "the",
+        "be",
+        "to",
+        "of",
+        "and",
+        "a",
+        "in",
+        "that",
+        "have",
+        "i",
+        "it",
+        "for",
+        "not",
+        "on",
+        "with",
+        "he",
+        "as",
+        "you",
+        "do",
+        "at",
+        "this",
+        "but",
+        "his",
+        "by",
+        "from",
+        "they",
+        "we",
+        "say",
+        "her",
+        "she",
+        "or",
+        "an",
+        "will",
+        "my",
+        "one",
+        "all",
+        "would",
+        "there",
+        "their",
+        "what",
+        "so",
+        "up",
+        "out",
+        "if",
+        "about",
+        "who",
+        "get",
+        "which",
+        "go",
+        "me",
+        "when",
+        "make",
+        "can",
+        "like",
+        "time",
+        "no",
+        "just",
+        "him",
+        "know",
+        "take",
+        "people",
+        "into",
+        "year",
+        "your",
+        "good",
+        "some",
+        "could",
+        "them",
+        "see",
+        "other",
+        "than",
+        "then",
+        "now",
+        "look",
+        "only",
+        "come",
+        "its",
+        "over",
+        "think",
+        "also",
+        "back",
+        "after",
+        "use",
+        "two",
+        "how",
+        "our",
+        "work",
+        "first",
+        "well",
+        "way",
+        "even",
+        "new",
+        "want",
+        "because",
+        "any",
+        "these",
+        "give",
+        "day",
+        "most",
+        "us",
+
+        "person",
+        "thing",
+        "man",
+        "world",
+        "life",
+        "hand",
+        "part",
+        "child",
+        "eye",
+        "woman",
+        "place",
+        "week",
+        "case",
+        "point",
+        "government",
+        "company",
+        "number",
+        "group",
+        "problem",
+        "fact",
+        "find",
+        "tell",
+        "ask",
+        "seem",
+        "feel",
+        "try",
+        "leave",
+        "call",
+        "last",
+        "long",
+        "great",
+        "little",
+        "own",
+        "old",
+        "right",
+        "big",
+        "high",
+        "different",
+        "small",
+        "large",
+        "next",
+        "early",
+        "young",
+        "important",
+        "few",
+        "public",
+        "bad",
+        "same",
+        "able",
+
+        "kill",
+        "build",
+        "pvp",
+        "map",
+        "game",
+        "gmod",
+        "off",
+        "skill",
+        "f" .. "uck",
+        "s" .. "hit",
+        "b" .. "itch",
+        "ass",
+        "gun",
+        "sound",
+        "god",
+        "damn",
+        "tank",
+        "rpg",
+        "crossbow",
+        "crate",
+        "car",
+        "took",
+        "heli",
+        "helicopter",
+        "bonk",
+        "anime",
+        "youre",
+        "thats",
+        "cant",
+        "furry",
+        "finish",
+        "finished",
+        "yup",
+        "tell",
+        "yes",
+        "yeah",
+        "ok",
+        "okay",
+        "lol",
+        "jfc",
+        "omg",
+        "idk",
+        "idc",
+        "idr",
+        "iirc",
+        "nvm",
+        "knows",
+        "nuh",
+        "uh",
+        "real",
+        "issue",
+        "clean",
+        "hehe",
+        "heh",
+        "bruh",
+        "wrong",
+        "left",
+        "down",
+        "chip",
+        "wait",
+        "oh",
+        "color",
+        "colors",
+        "model",
+        "much",
+        "many",
+        "bro",
+        "angry",
+        "mad",
+        "very",
+        "idea",
+        "base",
+        "dog",
+        "cat",
+        "vro",
+        "live",
+        "here",
+        "ball",
+        "balls",
+        "eye",
+        "eyes",
+        "maybe",
+        "possibly",
+        "dear",
+        "self",
+        "hey",
+        "sorry",
+        "btw",
+        "ty",
+        "name",
+        "lag",
+    }
+}
+
+
+--[[
+-- TODO: Find a way to allow non-ascii letters to be examined individually, for easy identification of non-latin languages.
+-- Current problem is that each word would need to be iterated via string.utf8codes(), which can error IN THE ITERATOR if an invalid codepoint is found, and some gmod-printable characters are erroneously marked invalid.
+
+roStone.PREDICTION_LETTER_CODEPOINTS = roStone.PREDICTION_LETTER_CODEPOINTS or {
+    ru = {
+        1040, 1072, 1041, 1073, 1042, 1074, 1043, 1075, 1044, 1076, 1045, 1077, 1025, 1105, 1046, 1078, 1047, 1079, 1048, 1080, 1049, 1081, 1050, 1082, 1051, 1083, 1052, 1084, 1053, 1085, 1054, 1086, 1087, 1056, 1088, 1057, 1089, 1058, 1090, 1059, 1091, 1060, 1092, 1061, 1093, 1062, 1094, 1063, 1095, 1096, 1097, 1066, 1098, 1067, 1099, 1068, 1100, 1069, 1101, 1070, 1102, 1071, 1103,
+    },
+    uk = {
+        1040, 1072, 1041, 1073, 1042, 1074, 1043, 1075, 1168, 1169, 1044, 1076, 1045, 1077, 1028, 1108, 1046, 1078, 1047, 1079, 1048, 1080, 1030, 1110, 1031, 1111, 1049, 1081, 1050, 1082, 1051, 1083, 1052, 1084, 1053, 1085, 1054, 1086, 1087, 1056, 1088, 1057, 1089, 1058, 1090, 1059, 1091, 1060, 1092, 1061, 1093, 1062, 1094, 1063, 1095, 1096, 1097, 1068, 1100, 1070, 1102, 1071, 1103,
+    },
+}
+
+roStone.PREDICTION_WORD_CODEPOINTS = roStone.PREDICTION_WORD_CODEPOINTS or {
+}
+--]]
+
+
+local langTblToLangStr = {} -- Any time language codes ("en", "ru", etc) are stored, this lib uses an empty table instead of a string so only one memory allocation needs to be made per each language.
+local predictionWordsInitialized = false
+
+
+
+----- GLOBAL FUNCTIONS -----
+
+-- If you change roStone.PREDICTION_WORDS several seconds after loading this script, you must run this function to update it.
+function roStone.initPredictionWords()
+    predictionWordsInitialized = true
+
+    local langStrToWords = roStone.PREDICTION_WORDS
+    local wordsToLangTbls = {}
+
+    for langStr, words in pairs( langStrToWords ) do
+        local langTbl = langTblToLangStr[langStr]
+
+        if not langTbl then
+            --langTbl = { langStr }
+            langTbl = {}
+            langTblToLangStr[langTbl] = langStr
+        end
+
+        for _, word in ipairs( words ) do
+            if word == "" then continue end
+
+            local langs = wordsToLangTbls[word]
+
+            if langs then
+                if langs[1] then
+                    -- Already a list, just add to it.
+                    table.insert( langs, langTbl )
+                else
+                    -- Only assigned to one langTbl currently, convert to a list.
+                    wordsToLangTbls[word] = { langs, langTbl }
+                end
+            else
+                -- First time this word has been seen, assign to only one language.
+                -- Uses langTbl directly without making a new table to save memory, as most words in the config will only be in one language.
+                wordsToLangTbls[word] = langTbl
+            end
+        end
+    end
+
+    roStone.PREDICTION_WORDS = wordsToLangTbls
+end
+
+function roStone.predictLanguage( text )
+    if not predictionWordsInitialized then return "auto" end
+
+    text = text:gsub( "[%p]", "" ):lower():trim() -- Remove punctuation and make lowercase.
+
+    local words = text:split( " " )
+
+    for i = #words, 1, -1 do
+        if words[i] == "" then
+            table.remove( words, i )
+        end
+    end
+
+    local wordCount = #words
+
+    if wordCount == 0 then return roStone.MAIN_LANGUAGE end
+
+    local langScores = {}
+    local wordsToLangTbls = roStone.PREDICTION_WORDS
+
+    for _, word in ipairs( words ) do
+        local langs = wordsToLangTbls[word]
+
+        if langs then
+            if langs[1] then
+                -- List of languages.
+                for _, langTbl in ipairs( langs ) do
+                    langScores[langTbl] = ( langScores[langTbl] or 0 ) + 1
+                end
+            else
+                -- Only one language.
+                langScores[langs] = ( langScores[langs] or 0 ) + 1
+            end
+        end
+    end
+
+    local bestScore = 0
+    local bestLangStr = "auto"
+
+    for langTbl, score in pairs( langScores ) do
+        if score > bestScore then
+            local langStr = langTblToLangStr[langTbl]
+            local threshold = roStone.PREDICTION_THRESHOLDS[langStr] or roStone.PREDICTION_THRESHOLDS.default
+
+            if score > threshold * wordCount then
+                bestScore = score
+                bestLangStr = langStr
+            end
+        end
+    end
+
+    return bestLangStr
+end
+
+
+----- SETUP -----
+
+
+timer.simple( 2, function()
+    timer.create( "LKL_RosettaStone_Predictor_Init", 0.1, 0, function()
+        if predictionWordsInitialized then
+            timer.remove( "LKL_RosettaStone_Predictor_Init" )
+            return
+        end
+
+        if cpuTotalAverage() > cpuMax() * 0.5 then return end
+
+        timer.remove( "LKL_RosettaStone_Predictor_Init" )
+        roStone.initPredictionWords()
+    end )
+end )
