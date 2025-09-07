@@ -7,6 +7,9 @@ if roStone._alreadyLoaded_predictor then return end
 roStone._alreadyLoaded_predictor = true
 
 
+roStone.PREDICTION_TIE_THRESHOLD = roStone.PREDICTION_TIE_THRESHOLD or 0.2 -- If scores (as a fraction of word count) are this close, they tie and the result is "auto". 0 to disable.
+
+-- Fractional requirement for how many words must be recognized in order to predict a language.
 roStone.PREDICTION_THRESHOLDS = roStone.PREDICTION_THRESHOLDS or {
     default = 0.3,
     en = 0.1,
@@ -363,18 +366,26 @@ function roStone.predictLanguage( text )
     end
 
     local bestScore = 0
+    local secondBestScore = 0
     local bestLangStr = "auto"
 
     for langTbl, score in pairs( langScores ) do
+        score = score / wordCount
+
         if score > bestScore then
             local langStr = langTblToLangStr[langTbl]
             local threshold = roStone.PREDICTION_THRESHOLDS[langStr] or roStone.PREDICTION_THRESHOLDS.default
 
-            if score > threshold * wordCount then
+            if score > threshold then
+                secondBestScore = bestScore
                 bestScore = score
                 bestLangStr = langStr
             end
         end
+    end
+
+    if secondBestScore > 0 and math.abs( bestScore - secondBestScore ) < roStone.PREDICTION_TIE_THRESHOLD then
+        bestLangStr = "auto"
     end
 
     return bestLangStr
