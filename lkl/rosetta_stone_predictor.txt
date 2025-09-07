@@ -6,6 +6,8 @@ roStone = roStone or {}
 if roStone._alreadyLoaded_predictor then return end
 roStone._alreadyLoaded_predictor = true
 
+local uc = string.utf8char
+
 
 roStone.PREDICTION_TIE_THRESHOLD = roStone.PREDICTION_TIE_THRESHOLD or 0.2 -- If scores (as a fraction of word count) are this close, they tie and the result is "auto". 0 to disable.
 
@@ -13,6 +15,7 @@ roStone.PREDICTION_TIE_THRESHOLD = roStone.PREDICTION_TIE_THRESHOLD or 0.2 -- If
 roStone.PREDICTION_THRESHOLDS = roStone.PREDICTION_THRESHOLDS or {
     default = 0.3,
     en = 0.1,
+    fr = 0.1,
 }
 
 -- Note that this table will be auto-reformatted for faster lookup and better memory management. See roStone.initPredictionWords() for details.
@@ -260,7 +263,70 @@ roStone.PREDICTION_WORDS = roStone.PREDICTION_WORDS or {
         "ty",
         "name",
         "lag",
-    }
+    },
+    fr = {
+        "bonjour",
+        "merci",
+        "oui",
+        "non",
+        "vous",
+        "moi",
+        "pourquoi",
+        "o" .. uc( 249 ),
+        "quand",
+        "qui",
+        "combien",
+        "je",
+        "tu",
+        "il",
+        "elle",
+        "nous",
+        "vous",
+        "ils",
+        "elles",
+        "suis",
+        "vais",
+        "parle",
+        "mange",
+        "bois",
+        "dors",
+        "veux",
+        "peux",
+        "cherche",
+        "prends",
+        "comprends",
+        "compris",
+        "pris",
+        "prendrai",
+        "demande",
+        "visite",
+        "petit",
+        "beau",
+        "nouveau",
+        "vieux",
+        "chaud",
+        "froid",
+        "cher",
+        "propre",
+        "plein",
+        "ouvert",
+        "malade",
+        "facile",
+        "difficile",
+        "donc",
+        "mais",
+        "puis",
+        "parce",
+        "que",
+        "alors",
+        "ensuite",
+        "enfin",
+        "aussi",
+        "cependant",
+        "fait",
+        "par",
+        "contre",
+    },
 }
 
 
