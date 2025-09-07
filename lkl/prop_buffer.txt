@@ -69,6 +69,11 @@ prop.setPropUndo( false )
 prop.setPropClean( true )
 
 
+local COLLISION_GROUP_NONE = COLLISION_GROUP.NONE
+local COLLISION_GROUP_IN_VEHICLE = COLLISION_GROUP.IN_VEHICLE
+local COLOR_WHITE = Color( 255, 255, 255, 255 )
+local COLOR_INVIS = Color( 255, 255, 255, 0 )
+
 local bufferSizesByModel = {}
 local propsByModel = {}
 local readyPropsByModel = {}
@@ -185,8 +190,8 @@ end
     - Do not call this manually.
 --]]
 function propBuffer.onTakeProp( ent )
-    ent:setNocollideAll( false )
-    ent:setColor( Color( 255, 255, 255, 255 ) )
+    ent:setCollisionGroup( COLLISION_GROUP_NONE )
+    ent:setColor( COLOR_WHITE )
 end
 
 --[[
@@ -196,8 +201,8 @@ end
 --]]
 function propBuffer.onStoreProp( ent )
     ent:enableMotion( false )
-    ent:setNocollideAll( true )
-    ent:setColor( Color( 255, 255, 255, 0 ) )
+    ent:setCollisionGroup( COLLISION_GROUP_IN_VEHICLE )
+    ent:setColor( COLOR_INVIS )
     ent:setPos( propBuffer.storePos )
 end
 
