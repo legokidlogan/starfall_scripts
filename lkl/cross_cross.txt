@@ -1,0 +1,617 @@
+--@name Cross Cross
+--@author legokidlogan
+--@client
+--@include lkl/global_data_manager.txt
+
+crossCross = crossCross or {}
+if crossCross._alreadyLoaded then return end
+crossCross._alreadyLoaded = true
+
+require( "lkl/global_data_manager.txt" )
+
+
+--[[
+    - A cross-chip custom crosshair system.
+    - Allows multiple chips to dynamically determine the position and appearance of your crosshair.
+    - Each chip can register multiple 'controllers' and 'drawers,' each given a distinct name and priority.
+        - Controllers determine the x/y position of the crosshair.
+            - They can optionally override some other info, such as the aimed-at entity.
+        - Drawers draw the crosshair itself.
+        - Each controller and drawer can be enabled/disabled individually.
+        - Depending on priority and active status, one controller and one drawer will be active at a time.
+        - If no controllers or drawers are active, default gmod behavior is used instead.
+    - The end result is different chips applying different crosshairs depending on context, without needing to directly integrate them together.
+        - For example, a chip that gives you an over-the-shoulder perspective with a dynamic crosshair, while another chip overrides the
+          crosshair appearance (but not position) when wielding a custom, starfall-made weapon.
+
+    - IMPORANT: For ideal hook order, controllers should do their calculations in the PreDrawHUD hook, and drawers should draw in the DrawHUD hook.
+
+
+    - Example usage:
+        --- Chip 1 ---
+        crossCross.registerController( "OverShoulder", true )
+        crossCross.registerDrawer( "OverShoulder", true )
+
+        hook.add( "PreDrawHUD", "OverShoulder_PreDrawHUD", function()
+            if not crossCross.isControllerActive( "OverShoulder" ) then return end
+
+            -- Calculate x/y position of crosshair.
+            -- If you need to do some aim assist trickery, be sure to use crossCross.getAimAngles() instead of player():getEyeAngles()!
+            local x, y = ...
+
+            crossCross.pushCrosshairInfo( "OverShoulder", x, y ) -- You can also provide info for the hit entity, if needed.
+        end )
+
+        hook.add( "DrawHUD", "OverShoulder_DrawHUD", function()
+            if not crossCross.isDrawerActive( "OverShoulder" ) then return end
+
+            -- Draw your custom crosshair here.
+            -- Use crossCross.getCrosshairInfo() to get the current position and other info.
+        end )
+
+
+        --- Chip 2 ---
+        crossCross.registerDrawer( "CustomWeapon", false )
+
+        hook.add( "SomeSpecialHook", "CustomWeapon_Equipped", function( isEquipped )
+            crossCross.setDrawerActive( "CustomWeapon", isEquipped )
+        end )
+
+        hook.add( "DrawHUD", "CustomWeapon_DrawHUD", function()
+            if not crossCross.isDrawerActive( "CustomWeapon" ) then return end
+
+            -- Draw your custom crosshair here.
+            -- Use crossCross.getCrosshairInfo() to get the current position and other info.
+            -- If you're using another library which draws a crosshair fixed at the center of the screen, use crossCross.getCrosshairOffsetMatrix() to offset it.
+        end )
+--]]
+
+
+local MASK_SHOT = MASK.SHOT
+local PLAYER = player()
+
+local activeControllerID = nil
+local activeControllerName = nil
+local activeDrawerID = nil
+local activeDrawerName = nil
+
+local myChipID = chip():entIndex()
+local myControllerNameLookup = {}
+local myDrawerNameLookup = {}
+local involvedChips = {}
+local drawerChips = {}
+local memVec = Vector()
+local scrWH, scrHH = render.getGameResolution()
+scrWH, scrHH = scrWH / 2, scrHH / 2
+
+local matrCross = Matrix()
+local matrCrossX = nil
+local matrCrossY = nil
+
+local matrCrossOffset = Matrix()
+local matrCrossOffsetX = nil
+local matrCrossOffsetY = nil
+
+local latestCrossInfo = {
+    x = scrWH,
+    y = scrHH,
+    aimDir = Vector( 0, 0, 1 ),
+    hitEnt = game.getWorld(),
+    hitPos = Vector( 0, 0, 0 ),
+    hitNormal = Vector( 0, 0, 0 ),
+}
+
+local cfc9kExists = false -- M9K only uses viewpunch for aiming if using CFC's m9k_monorepo
+pcall( function() cfc9kExists = convar.exists( "M9K_CFC" ) end )
+
+local registerItem
+local removeItem
+local setItemActive
+local determineActiveController
+local determineActiveDrawer
+local determineInvolvedChips
+local applyDrawerConcmds
+
+
+
+
+----- GLOBAL FUNCTIONS -----
+
+--[[
+    - Registers a controller, which calculates the position of the crosshair.
+    - Be sure to use crossCross.pushCrosshairInfo() in the PreDrawHUD hook to provide the position.
+
+    name: (string)
+        - The unique name of this controller on this chip.
+        - Must be unique per each chip, but can be the same as names in other chips.
+    priority: (number)
+        - The priority of this controller.
+        - Higher priority controllers will take precedence over lower priority ones.
+        - Must be a finite number, and not NaN.
+    enabled: (boolean)
+        - Whether this controller is enabled by default.
+        - You can change this later with crossCross.setControllerActive().
+--]]
+function crossCross.registerController( name, priority, enabled )
+    registerItem( myControllerNameLookup, "controller", name, priority, enabled )
+    local changed = determineActiveController()
+    determineInvolvedChips()
+    hookRunRemoteFixed( involvedChips, "LKL_CrossCross_ControllerChanged", changed, activeControllerID, activeControllerName )
+end
+
+--[[
+    - Registers a drawer, which draws the crosshair.
+    - Be sure to use crossCross.getCrosshairInfo() in the DrawHUD hook to get the position and other info.
+
+    name: (string)
+        - The unique name of this drawer on this chip.
+        - Must be unique per each chip, but can be the same as names in other chips.
+    priority: (number)
+        - The priority of this drawer.
+        - Higher priority drawers will take precedence over lower priority ones.
+        - Must be a finite number, and not NaN.
+    enabled: (boolean)
+        - Whether this drawer is enabled by default.
+        - You can change this later with crossCross.setDrawerActive().
+--]]
+function crossCross.registerDrawer( name, priority, enabled )
+    registerItem( myDrawerNameLookup, "drawer", name, priority, enabled )
+    local changed = determineActiveDrawer()
+    determineInvolvedChips()
+    hookRunRemoteFixed( involvedChips, "LKL_CrossCross_DrawerChanged", changed, activeDrawerID, activeDrawerName )
+    applyDrawerConcmds( changed )
+end
+
+-- Removes a controller which was registered from this chip.
+function crossCross.removeController( name )
+    removeItem( myControllerNameLookup, "controller", name )
+    local changed = determineActiveController()
+    hookRunRemoteFixed( involvedChips, "LKL_CrossCross_ControllerChanged", changed, activeControllerID, activeControllerName )
+    determineInvolvedChips()
+end
+
+-- Removes a drawer which was registered from this chip.
+function crossCross.removeDrawer( name )
+    removeItem( myDrawerNameLookup, "drawer", name )
+    local changed = determineActiveDrawer()
+    hookRunRemoteFixed( involvedChips, "LKL_CrossCross_DrawerChanged", changed, activeDrawerID, activeDrawerName )
+    determineInvolvedChips()
+    applyDrawerConcmds( changed )
+end
+
+-- Returns whether the given controller from this chip is currently active.
+function crossCross.isControllerActive( name )
+    return activeControllerID == myChipID and activeControllerName == name
+end
+
+-- Returns whether the given drawer from this chip is currently active.
+function crossCross.isDrawerActive( name )
+    return activeDrawerID == myChipID and activeDrawerName == name
+end
+
+-- Sets whether the given controller from this chip is enabled.
+function crossCross.setControllerActive( name, enabled )
+    setItemActive( myControllerNameLookup, "controller", name, enabled )
+
+    if determineActiveController() then
+        hookRunRemoteFixed( involvedChips, "LKL_CrossCross_ControllerChanged", true, activeControllerID, activeControllerName )
+    end
+end
+
+-- Sets whether the given drawer from this chip is enabled.
+function crossCross.setDrawerActive( name, enabled )
+    setItemActive( myDrawerNameLookup, "drawer", name, enabled )
+
+    if determineActiveDrawer() then
+        hookRunRemoteFixed( involvedChips, "LKL_CrossCross_DrawerChanged", true, activeDrawerID, activeDrawerName )
+        applyDrawerConcmds( true )
+    end
+end
+
+-- Accounts for view punch when holding weapons that add viewpunch to the firing angle.
+function crossCross.getAimAngles()
+    local eyeAng = PLAYER:getEyeAngles()
+    local wep = PLAYER:getActiveWeapon()
+
+    if isValid( wep ) then
+        local class = wep:getClass()
+
+        if class:startsWith( "cw_" ) or ( cfc9kExists and class:startsWith( "m9k_" ) ) then
+            return eyeAng + PLAYER:getViewPunchAngles()
+        end
+    end
+
+    return eyeAng
+end
+
+--[[
+    - Updates a controller's information about the crosshair.
+
+    name: (string)
+        - The name of the controller pushing this info.
+        - Must match the name used in crossCross.registerController().
+    x: (number)
+        - The x position of the crosshair, in screen coordinates.
+    y: (number)
+        - The y position of the crosshair, in screen coordinates.
+    aimDir: (optional) (vector)
+        - The direction the player is aiming.
+        - If not provided, crossCross.getAimAngles():getForward() will be used instead.
+    hitEnt: (optional) (entity)
+        - The entity the player is aiming at, if any.
+        - If not provided, a trace will be done to determine this, using shootPos and aimDir.
+    hitPos: (optional) (vector)
+        - The position the player is aiming at, if any.
+        - Defaults to (0,0,0), or to the trace result if applicable.
+    hitNormal: (optional) (vector)
+        - The normal of the surface the player is aiming at, if any.
+        - Defaults to (0,0,0), or to the trace result if applicable.
+--]]
+function crossCross.pushCrosshairInfo( name, x, y, aimDir, hitEnt, hitPos, hitNormal )
+    if activeControllerID ~= myChipID or activeControllerName ~= name then return end
+
+    aimDir = aimDir or crossCross.getAimAngles():getForward()
+
+    if hitEnt ~= nil then
+        hitPos = hitPos or Vector( 0, 0, 0 )
+        hitNormal = hitNormal or Vector( 0, 0, 0 )
+    else
+        local shootPos = PLAYER:getShootPos()
+        local tr = trace.line( shootPos, shootPos + aimDir * 32768, PLAYER, MASK_SHOT )
+
+        hitEnt = tr.Entity
+        hitPos = tr.HitPos
+        hitNormal = tr.HitNormal
+    end
+
+    hookRunRemoteFixed( drawerChips, "LKL_CrossCross_CrossInfoUpdated", x, y, aimDir, hitEnt, hitPos, hitNormal )
+end
+
+-- Returns by reference. DO NOT MODIFY!
+-- All keys match the names of the arguments (except 'name') to crossCross.pushCrosshairInfo().
+function crossCross.getCrosshairInfo()
+    return latestCrossInfo
+end
+
+--[[
+    - Returns a render matrix which translates from 0,0 to the current crosshair position.
+    - Example usage:
+        render.pushMatrix( crossCross.getCrosshairMatrix(), false )
+        -- (Draw your crosshair centered at 0,0 here.)
+        render.popMatrix()
+--]]
+function crossCross.getCrosshairMatrix()
+    local x = latestCrossInfo.x
+    local y = latestCrossInfo.y
+
+    if x == matrCrossX and y == matrCrossY then
+        return matrCross
+    end
+
+    matrCrossX = x
+    matrCrossY = y
+    memVec[1] = x
+    memVec[2] = y
+    matrCross:setTranslation( memVec )
+
+    return matrCross
+end
+
+--[[
+    - Returns a render matrix which translates from the center of the screen to the current crosshair position.
+    - Useful for libraries which draw a crosshair fixed at the center of the screen, such as some weapon base crosshairs.
+    - Example usage:
+        render.pushMatrix( crossCross.getCrosshairOffsetMatrix(), false )
+        -- (Draw your crosshair centered at the center of the screen here.)
+        render.popMatrix()
+--]]
+function crossCross.getCrosshairOffsetMatrix()
+    local x = latestCrossInfo.x
+    local y = latestCrossInfo.y
+
+    if x == matrCrossOffsetX and y == matrCrossOffsetY then
+        return matrCrossOffset
+    end
+
+    matrCrossOffsetX = x
+    matrCrossOffsetY = y
+    memVec[1] = x - scrWH
+    memVec[2] = y - scrHH
+    matrCrossOffset:setTranslation( memVec )
+
+    return matrCrossOffset
+end
+
+
+----- PRIVATE FUNCTIONS -----
+
+local function scrubInvalidEntries( itemsByChipID )
+    local hasChanged = false
+
+    for chipID, info in pairs( itemsByChipID ) do
+        local chipEnt = entity( chipID )
+
+        if chipID == myChipID or not isValid( chipEnt ) or not chipEnt:hasInstance() or chipEnt:getCreationTime() ~= info.creationTime then
+            itemsByChipID[chipID] = nil
+            hasChanged = true
+        end
+    end
+
+    return hasChanged
+end
+
+local function scrubAllInvalidEntries()
+    local globalData = GDM.OwnerData.CrossCross
+
+    local hasChanged = scrubInvalidEntries( globalData.controllersByChipID ) or
+        scrubInvalidEntries( globalData.drawersByChipID )
+
+    if hasChanged then
+        GDM.pushOwnerData()
+    end
+end
+
+local function getActiveItem( itemsByChipID )
+    local activeID = nil
+    local activeName = nil
+    local activePriority = -math.huge
+
+    for chipID, info in pairs( itemsByChipID ) do
+        for name, itemInfo in pairs( info.items ) do
+            if itemInfo.enabled then
+                local priority = itemInfo.priority
+
+                if priority > activePriority then
+                    activeID = chipID
+                    activeName = name
+                    activePriority = priority
+                end
+            end
+        end
+    end
+
+    return activeID, activeName
+end
+
+
+registerItem = function( nameLookup, typeStr, name, priority, enabled )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+    if type( priority ) ~= "number" then error( "Expected priority to be a number" ) end
+    if priority ~= priority then error( "Expected priority to not be NaN" ) end
+    if priority == math.huge or priority == -math.huge then error( "Expected priority to be finite" ) end
+    if type( enabled ) ~= "boolean" then error( "Expected enabled to be a boolean" ) end
+    if nameLookup[name] then error( "A " .. typeStr .. " is already registered on this chip with the name '" .. name .. "'" ) end
+
+    local globalData = GDM.OwnerData.CrossCross
+    local itemsByChipID = globalData[typeStr .. "sByChipID"]
+    local info = itemsByChipID[myChipID]
+
+    if not info then
+        info = {
+            creationTime = chip():getCreationTime(),
+            items = {},
+        }
+
+        itemsByChipID[myChipID] = info
+    end
+
+    nameLookup[name] = true
+    info.items[name] = {
+        priority = priority,
+        enabled = enabled,
+    }
+
+    GDM.pushOwnerData()
+end
+
+removeItem = function( nameLookup, typeStr, name )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+    if not nameLookup[name] then return end
+
+    local globalData = GDM.OwnerData.CrossCross
+    local itemsByChipID = globalData[typeStr .. "sByChipID"]
+    local info = itemsByChipID[myChipID]
+
+    if not info then return end
+
+    info.items[name] = nil
+    nameLookup[name] = nil
+
+    local hasItems = next( info.items ) ~= nil
+
+    if not hasItems then
+        itemsByChipID[myChipID] = nil
+    end
+
+    GDM.pushOwnerData()
+end
+
+setItemActive = function( nameLookup, typeStr, name, enabled )
+    if type( name ) ~= "string" then error( "Expected name to be a string" ) end
+    if type( enabled ) ~= "boolean" then error( "Expected enabled to be a boolean" ) end
+    if not nameLookup[name] then error( "No " .. typeStr .. " is registered on this chip with the name '" .. name .. "'" ) end
+
+    local globalData = GDM.OwnerData.CrossCross
+    local itemsByChipID = globalData[typeStr .. "sByChipID"]
+    local info = itemsByChipID[myChipID]
+    if not info then error( "[CrossCross] GDM missing info for registered " .. typeStr .. " '" .. name .. "', this shouldn't happen!" ) end
+
+    local itemInfo = info.items[name]
+    if not itemInfo then error( "[CrossCross] GDM missing info for registered " .. typeStr .. " '" .. name .. "', this shouldn't happen!" ) end
+    if itemInfo.enabled == enabled then return end
+
+    itemInfo.enabled = enabled
+    GDM.pushOwnerData()
+end
+
+determineActiveController = function()
+    local oldID, oldName = activeControllerID, activeControllerName
+    activeControllerID, activeControllerName = getActiveItem( GDM.OwnerData.CrossCross.controllersByChipID )
+
+    return oldID ~= activeControllerID or oldName ~= activeControllerName
+end
+
+determineActiveDrawer = function()
+    local oldID, oldName = activeDrawerID, activeDrawerName
+    activeDrawerID, activeDrawerName = getActiveItem( GDM.OwnerData.CrossCross.drawersByChipID )
+
+    return oldID ~= activeDrawerID or oldName ~= activeDrawerName
+end
+
+determineInvolvedChips = function()
+    involvedChips = {}
+    drawerChips = {}
+
+    local involvedChipsLookup = {}
+    local globalData = GDM.OwnerData.CrossCross
+
+    for chipID in pairs( globalData.controllersByChipID ) do
+        local chipEnt = entity( chipID )
+
+        if isValid( chipEnt ) and chipEnt:hasInstance() then
+            table.insert( involvedChips, chipEnt )
+            involvedChipsLookup[chipID] = true
+        end
+    end
+
+    for chipID in pairs( globalData.drawersByChipID ) do
+        local chipEnt = entity( chipID )
+
+        if isValid( chipEnt ) and chipEnt:hasInstance() then
+            table.insert( drawerChips, chipEnt )
+
+            if not involvedChipsLookup[chipID] then
+                table.insert( involvedChips, chipEnt )
+            end
+        end
+    end
+end
+
+applyDrawerConcmds = function( changed )
+    if not changed then return end
+    if not OWNER then return end
+
+    hook.run( "LKL_CrossCross_ApplyDrawerConCommands", activeDrawerID ~= nil )
+end
+
+
+----- SETUP -----
+
+hook.add( "Removed", "LKL_CrossCross_DropMyItems", function()
+    if GDM.OwnerData.CrossCross.controllersByChipID[myChipID] then
+        GDM.OwnerData.CrossCross.controllersByChipID[myChipID] = nil
+        GDM.pushOwnerData()
+        local changed = determineActiveController()
+        hookRunRemoteFixed( involvedChips, "LKL_CrossCross_ControllerChanged", changed, activeControllerID, activeControllerName )
+    end
+
+    if GDM.OwnerData.CrossCross.drawersByChipID[myChipID] then
+        GDM.OwnerData.CrossCross.drawersByChipID[myChipID] = nil
+        GDM.pushOwnerData()
+        local changed = determineActiveDrawer()
+        hookRunRemoteFixed( involvedChips, "LKL_CrossCross_DrawerChanged", changed, activeDrawerID, activeDrawerName )
+    end
+end )
+
+hook.add( "StarfallError", "LKL_CrossCross_DropItems", function( chipEnt, ply )
+    if ply ~= PLAYER then return end
+
+    local chipID = chipEnt:entIndex()
+
+    if GDM.OwnerData.CrossCross.controllersByChipID[chipID] then
+        GDM.OwnerData.CrossCross.controllersByChipID[chipID] = nil
+        GDM.pushOwnerData()
+        local changed = determineActiveController()
+        hookRunRemoteFixed( involvedChips, "LKL_CrossCross_ControllerChanged", changed, activeControllerID, activeControllerName )
+        determineInvolvedChips()
+    end
+
+    if GDM.OwnerData.CrossCross.drawersByChipID[chipID] then
+        GDM.OwnerData.CrossCross.drawersByChipID[chipID] = nil
+        GDM.pushOwnerData()
+        local changed = determineActiveDrawer()
+        hookRunRemoteFixed( involvedChips, "LKL_CrossCross_DrawerChanged", changed, activeDrawerID, activeDrawerName )
+        determineInvolvedChips()
+    end
+end )
+
+hook.add( "LKL_CrossCross_ApplyDrawerConCommands", "LKL_CrossCross_CWCrosshair", function( drawerActive )
+    if drawerActive then
+        concmd( "cw_crosshair 0" )
+        concmd( "cw_customhud 0" )
+    else
+        concmd( "cw_crosshair 1" )
+        concmd( "cw_customhud 1" )
+    end
+end )
+
+hook.add( "LKL_CrossCross_DrawerChanged", "LKL_CrossCross_CHudCrosshair", function( drawerActive )
+    if drawerActive then
+        hook.add( "HUDShouldDraw", "LKL_CrossCross_CHudCrosshair", function( name )
+            if name == "CHudCrosshair" then
+                return false
+            end
+        end )
+    else
+        hook.remove( "HUDShouldDraw", "LKL_CrossCross_CHudCrosshair" )
+    end
+end )
+
+hook.add( "Remote", "LKL_CrossCross_AssortedRemote", function( _, callingPly, hookName, arg1, arg2, arg3, arg4, arg5, arg6 )
+    if callingPly ~= owner() then return end
+
+    if hookName == "LKL_CrossCross_CrossInfoUpdated" then
+        latestCrossInfo.x = arg1
+        latestCrossInfo.y = arg2
+        latestCrossInfo.aimDir = arg3
+        latestCrossInfo.hitEnt = arg4
+        latestCrossInfo.hitPos = arg5
+        latestCrossInfo.hitNormal = arg6
+    elseif hookName == "LKL_CrossCross_ControllerChanged" then
+        determineInvolvedChips()
+
+        if arg1 then
+            activeControllerID = arg2
+            activeControllerName = arg3
+
+            hook.run( "LKL_CrossCross_ControllerChanged", arg2 ~= nil )
+        end
+    elseif hookName == "LKL_CrossCross_DrawerChanged" then
+        determineInvolvedChips()
+
+        if arg1 then
+            activeDrawerID = arg2
+            activeDrawerName = arg3
+
+            hook.run( "LKL_CrossCross_DrawerChanged", arg2 ~= nil )
+        end
+    end
+end )
+
+hook.add( "PreDrawHUD", "LKL_CrossCross_DefaultCrosshairPosition", function()
+    if activeControllerID then return end
+
+    local tr = PLAYER:getEyeTrace()
+
+    latestCrossInfo.x = scrWH
+    latestCrossInfo.y = scrHH
+    latestCrossInfo.aimDir = crossCross.getAimAngles():getForward()
+    latestCrossInfo.hitEnt = tr.Entity
+    latestCrossInfo.hitPos = tr.HitPos
+    latestCrossInfo.hitNormal = tr.HitNormal
+end )
+
+
+if not GDM.OwnerData.CrossCross then
+    GDM.OwnerData.CrossCross = {
+        controllersByChipID = {},
+        drawersByChipID = {},
+    }
+
+    GDM.pushOwnerData()
+else
+    scrubAllInvalidEntries()
+end
+
+determineActiveController()
+determineActiveDrawer()
