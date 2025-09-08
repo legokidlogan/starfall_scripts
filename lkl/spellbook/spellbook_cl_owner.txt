@@ -6,6 +6,7 @@
 --@include lkl/global_radial_menu.txt
 --@include lkl/render/circle_bar.txt
 --@include lkl/render/poly_tools.txt
+--@Include lkl/cross_cross.txt
 
 require( "lkl/spellbook/spellbook_right_page.txt" )
 require( "lkl/global_radial_menu.txt" )
@@ -436,16 +437,36 @@ end )
 
 
 if spellbook.DRAW_SPELL_CROSSHAIR then
-    hook.add( "HUDShouldDraw", "LKL_Spellbook_BlockCrosshair", function( name )
-        if name ~= "CHudCrosshair" then return end
-        if spellbook.summoned and spellbook.open then return false end
-    end )
+    if spellbook.SPELL_CROSSHAIR_USE_CROSSCROSS then
+        -- CrossCross integration
+        require( "lkl/cross_cross.txt" )
 
-    hook.add( "DrawHUD", "LKL_Spellbook_DrawCrosshair", function()
-        if spellbook.summoned and spellbook.open then
+        crossCross.registerDrawer( "LKL_Spellbook", 15000, false )
+
+        hook.add( "DrawHUD", "LKL_Spellbook_DrawCrosshair", function()
+            if not crossCross.isDrawerActive( "LKL_Spellbook" ) then return end
+
+            render.pushMatrix( crossCross.getCrosshairOffsetMatrix(), false )
             spellbook.drawSpellCrosshair()
-        end
-    end )
+            render.popMatrix()
+        end )
+
+        hook.add( "LKL_Spellbook_OnOpenChanged", "LKL_Spellbook_CrossCrossIntegration", function( open )
+            crossCross.setDrawerActive( "LKL_Spellbook", open )
+        end )
+    else
+        -- Regular spellbook crosshair
+        hook.add( "HUDShouldDraw", "LKL_Spellbook_BlockCrosshair", function( name )
+            if name ~= "CHudCrosshair" then return end
+            if spellbook.summoned and spellbook.open then return false end
+        end )
+
+        hook.add( "DrawHUD", "LKL_Spellbook_DrawCrosshair", function()
+            if spellbook.summoned and spellbook.open then
+                spellbook.drawSpellCrosshair()
+            end
+        end )
+    end
 end
 
 

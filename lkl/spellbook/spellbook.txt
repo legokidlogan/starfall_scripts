@@ -46,6 +46,7 @@ if spellbook.SPELL_CROSSHAIR_SMALL_USES_SPELL_COLOR == nil then spellbook.SPELL_
 spellbook.SPELL_CROSSHAIR_BIG_COLOR = spellbook.SPELL_CROSSHAIR_BIG_COLOR or Color( 255, 255, 255, 255 )
 spellbook.SPELL_CROSSHAIR_SMALL_COLOR = spellbook.SPELL_CROSSHAIR_SMALL_COLOR or Color( 255, 255, 255, 255 )
 spellbook.SPELL_CROSSHAIR_CANT_CAST_COLOR = spellbook.SPELL_CROSSHAIR_CANT_CAST_COLOR or Color( 255, 0, 0, 150 )
+spellbook.SPELL_CROSSHAIR_USE_CROSSCROSS = spellbook.SPELL_CROSSHAIR_USE_CROSSCROSS or false -- If true, uses the Cross Cross library for crosshair positioning. Draws with priority 15000.
 
 spellbook.HOLO_BUFFER_START_SIZE = spellbook.HOLO_BUFFER_START_SIZE or 30 -- For serverside holos.
 spellbook.HOLO_BUFFER_MAX_SIZE = spellbook.HOLO_BUFFER_MAX_SIZE or 100
@@ -88,7 +89,7 @@ spellbook.COLOR_MANA_GAIN_CHARGED = Color( 127, 255, 218 )
 spellbook.COLOR_MANA_DRAIN_INSTANT = Color( 38, 38, 153 )
 spellbook.COLOR_MANA_GAIN_INSTANT = Color( 127, 127, 255 )
 
-spellbook.VERSION = "1.7.11"
+spellbook.VERSION = "1.7.12"
 
 
 SPELLVIS_ALL = 1
