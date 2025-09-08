@@ -6,7 +6,7 @@
 --@include lkl/global_radial_menu.txt
 --@include lkl/render/circle_bar.txt
 --@include lkl/render/poly_tools.txt
---@Include lkl/cross_cross.txt
+--@include lkl/cross_cross.txt
 
 require( "lkl/spellbook/spellbook_right_page.txt" )
 require( "lkl/global_radial_menu.txt" )
