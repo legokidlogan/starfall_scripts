@@ -495,13 +495,23 @@ hook.add( "EntityRemoved", "!!!LKL_HookRemoteFix_TrackRemovedChips", function( e
 end )
 
 
-if CLIENT then
+if SERVER then
+    hook.add( "ClientInitialized", "LKL_HookRemoteFix_NotifyRemoteGroupName", function( ply )
+        timer.simple( 0.5, function()
+            if not isValid( ply ) then return end
+            if myGroupName == "" then return end
+
+            net.start( "LKL_HookRemoteFix_SetRemoteGroupName" )
+            net.writeString( myGroupName )
+            net.send( ply )
+        end )
+    end )
+else
     net.receive( "LKL_HookRemoteFix_SetRemoteGroupName", function()
         myGroupName = net.readString()
 
         notifyRemoteGroups()
     end )
-
 end
 
 
