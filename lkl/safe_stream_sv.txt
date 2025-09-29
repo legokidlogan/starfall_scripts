@@ -176,7 +176,7 @@ function safeStream.cancelWrite( streamID, plys )
         local firstEntry = queue[1]
         if not firstEntry then continue end
 
-        -- If the stream is the one being actively sent, don't remove it until the player acnkowledges the cancellation.
+        -- If the stream is the one being actively sent, don't remove it until the player acknowledges the cancellation.
         if queue.Busy and firstEntry.streamID == streamID and isMyQueueEntry( firstEntry ) then
             plyLookup[plyID] = false -- Mark as not active, but not fully cancelled.
         else
