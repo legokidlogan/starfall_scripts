@@ -538,10 +538,8 @@ end )
 hook.add( "LKL_CrossCross_ApplyDrawerConCommands", "LKL_CrossCross_CWCrosshair", function( drawerActive )
     if drawerActive then
         concmd( "cw_crosshair 0" )
-        concmd( "cw_customhud 0" )
     else
         concmd( "cw_crosshair 1" )
-        concmd( "cw_customhud 1" )
     end
 end )
 
