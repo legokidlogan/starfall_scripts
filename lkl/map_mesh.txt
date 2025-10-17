@@ -36,6 +36,7 @@ libMapMesh.FLOOR_COLOR = libMapMesh.FLOOR_COLOR or Color( 0, 0, 0, 255 )
 libMapMesh.ALPHA = libMapMesh.ALPHA or 255
 
 libMapMesh.COLOR_MODE = libMapMesh.COLOR_MODE or 2 -- 0 = no vertex coloring, 1 = map color, 2 = map color from material, 3 = solid color (uses fallback color), 4 = color by surface ID, 5 = random per surface
+libMapMesh.COLOR_MODE_0_COLOR = libMapMesh.COLOR_MODE_0_COLOR or Color( 255, 255, 255, 255 ) -- Used by color mode 0.
 libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE = libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE or 1 / 8 -- When using color mode 2, downscales the texture before sampling it. Helps with noisy textures like grass.
 libMapMesh.COLOR_MODE_2_NUM_SAMPLES = libMapMesh.COLOR_MODE_2_NUM_SAMPLES or 50 -- When using color mode 2, how many pixels to sample per material.
 libMapMesh.COLOR_MODE_2_FULLBRIGHT = libMapMesh.COLOR_MODE_2_FULLBRIGHT or false -- When using color mode 2, whether or not to ignore lighting.
@@ -70,6 +71,7 @@ local meshMapFloorColor = libMapMesh.FLOOR_COLOR
 local meshMapAlpha = libMapMesh.ALPHA
 
 local meshMapColorMode = libMapMesh.COLOR_MODE
+local meshMapColorMode0Color = libMapMesh.COLOR_MODE_0_COLOR
 local meshMapColorMode2CompressionScale = libMapMesh.COLOR_MODE_2_COMPRESSION_SCALE
 local meshMapColorMode2NumSamples = libMapMesh.COLOR_MODE_2_NUM_SAMPLES
 local meshMapColorMode2Fullbright = libMapMesh.COLOR_MODE_2_FULLBRIGHT
@@ -508,6 +510,13 @@ recordVertsQueue = Queue:new(
         recordVerts_surfaceInd = recordVerts_surfaceInd + 1
         updateProgress()
 
+        local totalTris = 0
+        for _, vertGroup in ipairs( vertGroups ) do
+            totalTris = totalTris + #vertGroup / 3
+        end
+
+        if mesh.trianglesLeft() - totalTris <= 10 then return end
+
         if meshMapHideNoDraw and surface:isNoDraw() then return end
         if meshMapHideSky and surface:isSky() then return end
 
@@ -900,7 +909,7 @@ end
 
 if meshMapColorMode == 0 then
     getMapColor = function()
-        -- Do nothing.
+        return meshMapColorMode0Color
     end
 elseif meshMapColorMode == 1 then
     getMapColor = function( pos, surfaceCenter, surfaceNormal, _surfaceInd, _surfaceMat )
