@@ -914,18 +914,13 @@ local function isOtherChipGenerating( otherChip )
     local generatingChipInfo = GDM.OwnerData.MapData.GeneratingChipInfo
     if not generatingChipInfo then return false end
 
+    if not isValid( otherChip ) then return false end
+    if not otherChip.hasInstance or not otherChip:hasInstance() then return false end
     if generatingChipInfo.EntIndex == otherChip:entIndex() then return true end
     if generatingChipInfo.CreationID == otherChip:getCreationID() then return true end
     if generatingChipInfo.CreationTime == math.floor( otherChip:getCreationTime() ) then return true end
 
     return false
-end
-
-local function canGenerateData()
-    local generatingChipInfo = GDM.OwnerData.MapData.GeneratingChipInfo
-    if not generatingChipInfo then return true end
-
-    return isOtherChipGenerating( chip() )
 end
 
 local function markAsGeneratingChip( otherChip )
@@ -936,6 +931,23 @@ local function markAsGeneratingChip( otherChip )
     }
 
     GDM.pushOwnerData()
+end
+
+local function canGenerateData()
+    if isOtherChipGenerating( chip() ) then return true end
+
+    local generatingChipInfo = GDM.OwnerData.MapData.GeneratingChipInfo
+    if not generatingChipInfo then return true end
+
+    if not isOtherChipGenerating( entity( generatingChipInfo.EntIndex or 0 ) ) then -- This is clunky, isOtherChipGenerating() is due a refactor.
+        -- Other chip errored, flush it out.
+        GDM.OwnerData.MapData.GeneratingChipInfo = nil
+        GDM.pushOwnerData()
+
+        return true
+    end
+
+    return false
 end
 
 local function unmarkGeneratingChip()
