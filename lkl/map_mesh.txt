@@ -24,6 +24,8 @@ if libMapMesh.HIDE_SKYBOX == nil then libMapMesh.HIDE_SKYBOX = true end -- Hide 
 if libMapMesh.SKYBOX_BRUSHES_INTO_WORLD == nil then libMapMesh.SKYBOX_BRUSHES_INTO_WORLD = false end -- Brushes in the skybox that correspond to parts of the world in the void will get scaled up and replicated. e.g. the dividing land in gm_excess_construct_13.
 libMapMesh.MESH_SCALE_OVERRIDE = libMapMesh.MESH_SCALE_OVERRIDE or nil -- Set to a number to override the mesh scale, instead of using map bounds and mesh width.
 libMapMesh.MESH_OFFSET_OVERRIDE = libMapMesh.MESH_OFFSET_OVERRIDE or nil -- Set to a vector to override the mesh offset, instead of using map bounds.
+libMapMesh.MESH_UV_SCALE = libMapMesh.MESH_UV_SCALE or 0 -- Scale factor for UV coordinates. 0 to disable UVs. Larger numbers mean more tiles copies of the texture across the mesh.
+libMapMesh.MESH_UV_USE_Z = libMapMesh.MESH_UV_USE_Z or false -- Whether or not to also use the Z axis in V coordinates when generating UVs.
 
 if libMapMesh.HIDE_NO_DRAW == nil then libMapMesh.ADD_FLOOR = true end -- Hide surfaces with nodraw.
 libMapMesh.NO_DRAW_COLOR = libMapMesh.NO_DRAW_COLOR or Color( 255, 255, 0, 255 ) -- Color to use for nodraw surfaces if they aren't hidden.
@@ -59,6 +61,8 @@ local meshMapAddFloor = libMapMesh.ADD_FLOOR
 local meshMapShowDisplacements = libMapMesh.SHOW_DISPLACEMENTS
 local meshMapHideSkybox = libMapMesh.HIDE_SKYBOX
 local meshMapSkyboxBrushesIntoWorld = libMapMesh.SKYBOX_BRUSHES_INTO_WORLD
+local meshMapUVScale = libMapMesh.MESH_UV_SCALE
+local meshMapUVUseZ = libMapMesh.MESH_UV_USE_Z
 
 local meshMapHideNoDraw = libMapMesh.HIDE_NO_DRAW
 local meshMapNoDrawColor = libMapMesh.NO_DRAW_COLOR
@@ -231,6 +235,8 @@ local mapMatSurfaces = world:getBrushSurfaces()
 local mapMatSurfacesCompleted = 0
 local mapMatSurfacesTotal = #mapMatSurfaces
 
+local getMapUV
+
 
 hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
     local mapData = libMapData.getData()
@@ -270,6 +276,28 @@ hook.add( "LKL_MapData_DataReady", "LKL_MapMesh_TranscribeMapData", function()
         hook.run( "LKL_MapMesh_AddExtraData" ) -- Used serverside to signify when map_mesh has processed info from map_data.
 
         return
+    else
+        if meshMapUVScale == 0 then
+            getMapUV = function() return end
+        else
+            local minX, minY, minZ = MAP_MIN_BOUNDS[1], MAP_MIN_BOUNDS[2], MAP_MIN_BOUNDS[3]
+            local maxX, maxY, maxZ = MAP_MAX_BOUNDS[1], MAP_MAX_BOUNDS[2], MAP_MAX_BOUNDS[3]
+            local sizeX, sizeY, sizeZ = maxX - minX, maxY - minY, maxZ - minZ
+            local scaleU = meshMapUVScale / sizeX
+            local scaleV = meshMapUVScale / sizeY
+            local scaleVZ = meshMapUVScale / sizeZ
+
+            if meshMapUVUseZ then
+                getMapUV = function( pos )
+                    return ( ( pos[1] - minX ) * scaleU ) % 1, ( ( pos[2] - minY ) * scaleV + ( pos[3] - minZ ) * scaleVZ ) % 1
+                end
+            else
+                getMapUV = function( pos )
+                    return ( ( pos[1] - minX ) * scaleU ) % 1, ( ( pos[2] - minY ) * scaleV ) % 1
+                end
+            end
+
+        end
     end
 
     timer.simple( 1, function() -- Delay To reduce odds of cpu exceeding for low-end users between getting map data and decompressing displacements.
@@ -567,11 +595,14 @@ recordVertsQueue = Queue:new(
         if surfaceVertCount == 3 then
             for i = 1, surfaceVertCount do
                 local pos = surfaceVerts[i]
+                local u, v = getMapUV( pos )
 
                 curVertGroupSize = curVertGroupSize + 1
                 curVertGroup[curVertGroupSize] = {
                     pos = pos * MESH_SCALE + MESH_OFFSET,
                     color = overrideColor or getMapColor( pos, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat ),
+                    u = u,
+                    v = v,
                 }
             end
         else
@@ -581,6 +612,9 @@ recordVertsQueue = Queue:new(
             local firstColor = overrideColor or getMapColor( firstVert, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat )
             local prevColor = overrideColor or getMapColor( prevVert, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat )
 
+            local firstU, firstV = getMapUV( firstVert )
+            local prevU, prevV = getMapUV( prevVert )
+
             firstVert = firstVert * MESH_SCALE + MESH_OFFSET
             prevVert = prevVert * MESH_SCALE + MESH_OFFSET
 
@@ -588,49 +622,65 @@ recordVertsQueue = Queue:new(
             curVertGroup[curVertGroupSize] = {
                 pos = firstVert,
                 color = firstColor,
+                u = firstU,
+                v = firstV,
             }
 
             local vert2 = surfaceVerts[2]
             local color2 = overrideColor or getMapColor( vert2, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat )
+            local u2, v2 = getMapUV( vert2 )
             vert2 = vert2 * MESH_SCALE + MESH_OFFSET
 
             curVertGroupSize = curVertGroupSize + 1
             curVertGroup[curVertGroupSize] = {
                 pos = vert2,
                 color = color2,
+                u = u2,
+                v = v2,
             }
 
             curVertGroupSize = curVertGroupSize + 1
             curVertGroup[curVertGroupSize] = {
                 pos = prevVert,
                 color = prevColor,
+                u = prevU,
+                v = prevV,
             }
 
             for i = 4, surfaceVertCount do
                 local vert = surfaceVerts[i]
                 local color = overrideColor or getMapColor( vert, surfaceCenter, surfaceNormal, surfaceInd, surfaceMat )
+                local u, v = getMapUV( vert )
                 vert = vert * MESH_SCALE + MESH_OFFSET
 
                 curVertGroupSize = curVertGroupSize + 1
                 curVertGroup[curVertGroupSize] = {
                     pos = firstVert,
                     color = firstColor,
+                    u = firstU,
+                    v = firstV,
                 }
 
                 curVertGroupSize = curVertGroupSize + 1
                 curVertGroup[curVertGroupSize] = {
                     pos = prevVert,
                     color = prevColor,
+                    u = prevU,
+                    v = prevV,
                 }
 
                 curVertGroupSize = curVertGroupSize + 1
                 curVertGroup[curVertGroupSize] = {
                     pos = vert,
                     color = color,
+                    u = u,
+                    v = v,
                 }
 
                 prevVert = vert
                 prevColor = color
+                prevU = u
+                prevV = v
             end
         end
     end,
