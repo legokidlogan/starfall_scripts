@@ -27,6 +27,7 @@ if libI3DMap.DO_RECURSION == nil then libI3DMap.DO_RECURSION = true end
 libI3DMap.OFFSET_POS = libI3DMap.OFFSET_POS or Vector( 0, 0, 0 )
 libI3DMap.OFFSET_ANG = libI3DMap.OFFSET_ANG or Angle( 0, 0, 0 )
 libI3DMap.START_LOADING_DIST = libI3DMap.START_LOADING_DIST or libMapMesh.MESH_WIDTH * 2
+libI3DMap.MESH_MATERIAL = libI3DMap.MESH_MATERIAL or false -- false to use the custom material from map_mesh, or a string path to a material to override with.
 
 if libI3DMap.SHOW_PLAYERS == nil then libI3DMap.SHOW_PLAYERS = true end
 libI3DMap.PLAYER_INTERVAL = libI3DMap.PLAYER_INTERVAL or 0.1
@@ -39,7 +40,7 @@ libI3DMap.PING_SIZE = libI3DMap.PING_SIZE or Vector( 2, 2, 0.5 )
 libI3DMap.PING_LINGER = libI3DMap.PING_LINGER or 3
 
 if libI3DMap.SHOW_PROP_STATIC == nil then libI3DMap.SHOW_PROP_STATIC = true end -- Only works for some maps. See https://github.com/legokidlogan/starfall_data/tree/main/map_data/prop_static
-if libI3DMap.PROP_STATIC_USE_FULL_MATERIAL == nil then libI3DMap.PROP_STATIC_USE_FULL_MATERIAL = false end -- false to use the map mesh' coloring, true to use the prop's full material
+if libI3DMap.PROP_STATIC_MATERIAL == nil then libI3DMap.PROP_STATIC_MATERIAL = false end -- false to use the map mesh' coloring, true to use the prop's full material, string for a material path.
 libI3DMap.PROP_STATIC_BUFFER_SIZE = libI3DMap.PROP_STATIC_BUFFER_SIZE or 20 -- Ensures there's at least this many open slots for clientside holos when replicating static props.
 
 libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL = libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL or 1
@@ -50,6 +51,7 @@ local holoMapOffsetPos = libI3DMap.OFFSET_POS:clone()
 local holoMapOffsetAng = libI3DMap.OFFSET_ANG:clone()
 local holoMapDoRecursion = libI3DMap.DO_RECURSION
 local holoMapStartLoadingDist = libI3DMap.START_LOADING_DIST
+local holoMapMeshMaterial = libI3DMap.MESH_MATERIAL
 
 local holoMapShowPlayers = libI3DMap.SHOW_PLAYERS
 local holoMapPlayerInterval = libI3DMap.PLAYER_INTERVAL
@@ -61,7 +63,8 @@ local holoMapPingSize = libI3DMap.PING_SIZE:clone()
 local holoMapPingLinger = libI3DMap.PING_LINGER
 
 local holoMapShowPropStatic = libI3DMap.SHOW_PROP_STATIC
-local holoMapPropStaticUseFullMaterial = libI3DMap.PROP_STATIC_USE_FULL_MATERIAL
+local holoMapPropStaticMaterial = libI3DMap.PROP_STATIC_MATERIAL
+if holoMapPropStaticMaterial == nil then holoMapPropStaticMaterial = libI3DMap.PROP_STATIC_USE_FULL_MATERIAL end -- legacy support
 local holoMapPropStaticBufferSize = libI3DMap.PROP_STATIC_BUFFER_SIZE
 
 local holoMapReplicatedEntUpdateInterval = libI3DMap.REPLICATED_ENT_UPDATE_INTERVAL
@@ -486,6 +489,12 @@ hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
         mapHoloBase, mapHolos = libMapMesh.createMeshHolos( mapPos, mapAng, nil )
         if not mapHoloBase then return end
 
+        if holoMapMeshMaterial then
+            for _, holo in ipairs( mapHolos ) do
+                holo:setMaterial( holoMapMeshMaterial )
+            end
+        end
+
         timer.remove( "LKL_I3DMap_SpawnMapHolos" )
 
         mapHoloBase:setParent( chip() )
@@ -499,6 +508,12 @@ hook.add( "LKL_MapMesh_MeshesReady", "LKL_I3DMap_MeshesReady", function()
     timer.create( "LKL_I3DMap_SpawnRecursiveMapHolos", 0.5, 0, function()
         recursiveHoloBase, recursiveHolos = libMapMesh.createMeshHolos( Vector(), Angle(), Vector( libMapMesh.getMeshScale() ) )
         if not recursiveHoloBase then return end
+
+        if holoMapMeshMaterial then
+            for _, holo in ipairs( recursiveHolos ) do
+                holo:setMaterial( holoMapMeshMaterial )
+            end
+        end
 
         timer.remove( "LKL_I3DMap_SpawnRecursiveMapHolos" )
     end )
@@ -833,8 +848,10 @@ if holoMapShowPropStatic then
             holo:setSkin( skin )
             holo:setParent( mapHoloBase )
 
-            if holoMapPropStaticUseFullMaterial then
+            if holoMapPropStaticMaterial == true then
                 holo:setMaterial( mat:getName() )
+            elseif holoMapPropStaticMaterial then
+                holo:setMaterial( holoMapPropStaticMaterial )
             else
                 local obbCenterW = entry.obbCenterW
                 local posToCenter = obbCenterW - pos
