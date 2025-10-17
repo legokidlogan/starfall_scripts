@@ -27,7 +27,7 @@ libMapMesh.MESH_OFFSET_OVERRIDE = libMapMesh.MESH_OFFSET_OVERRIDE or nil -- Set 
 libMapMesh.MESH_UV_SCALE = libMapMesh.MESH_UV_SCALE or 0 -- Scale factor for UV coordinates. 0 to disable UVs. Larger numbers mean more tiles copies of the texture across the mesh.
 libMapMesh.MESH_UV_USE_Z = libMapMesh.MESH_UV_USE_Z or false -- Whether or not to also use the Z axis in V coordinates when generating UVs.
 
-if libMapMesh.HIDE_NO_DRAW == nil then libMapMesh.ADD_FLOOR = true end -- Hide surfaces with nodraw.
+if libMapMesh.HIDE_NO_DRAW == nil then libMapMesh.HIDE_NO_DRAW = true end -- Hide surfaces with nodraw.
 libMapMesh.NO_DRAW_COLOR = libMapMesh.NO_DRAW_COLOR or Color( 255, 255, 0, 255 ) -- Color to use for nodraw surfaces if they aren't hidden.
 if libMapMesh.HIDE_SKY == nil then libMapMesh.HIDE_SKY = true end -- Hide surfaces with sky.
 libMapMesh.SKY_COLOR = libMapMesh.SKY_COLOR or Color( 0, 255, 255, 255 ) -- Color to use for sky surfaces if they aren't hidden.
