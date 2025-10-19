@@ -90,11 +90,14 @@ local finalizeSelection
         5. Define the position of the clipping plane. Then go back to step 4.
     - Useful for quickly defining spherical regions that don't need to be perfectly precise.
 
-    callback: function( success, center, radius, clippingPlanes )
+    callback: function( success, center, radius, clippingPlanes, misc )
         success = boolean
         center = nil or Vector
         radius = nil or number
         clippingPlanes = nil or { { origin = Vector, normal = Vector }, ... }  (world coords)
+        misc = {
+            jobID = number, -- The unique identifier for this selection job.
+        }
     end
 
     params: (optional) (table)
@@ -159,7 +162,7 @@ function sphereSelector.stopSelecting()
     planeHolo:setColor( COLOR_EMPTY )
 
     if finishCallback then
-        finishCallback( false )
+        finishCallback( false, nil, nil, nil, { jobID = jobIncr } )
         hook.run( "LKL_SphereSelector_Stopped", jobIncr, false )
     end
 end
@@ -374,7 +377,7 @@ finalizeSelection = function()
 
     finishCallback = nil
     sphereSelector.stopSelecting()
-    _finishCallback( true, _center, _chosenRadius, _clippingPlanes )
+    _finishCallback( true, _center, _chosenRadius, _clippingPlanes, { jobID = _jobIncr } )
     hook.run( "LKL_SphereSelector_Stopped", _jobIncr, true )
 end
 
