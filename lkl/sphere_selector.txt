@@ -162,8 +162,10 @@ function sphereSelector.stopSelecting()
     planeHolo:setColor( COLOR_EMPTY )
 
     if finishCallback then
-        finishCallback( false, nil, nil, nil, { jobID = jobIncr } )
-        hook.run( "LKL_SphereSelector_Stopped", jobIncr, false )
+        local jobID = jobIncr
+
+        finishCallback( false, nil, nil, nil, { jobID = jobID } )
+        hook.run( "LKL_SphereSelector_Stopped", jobID, false )
     end
 end
 
