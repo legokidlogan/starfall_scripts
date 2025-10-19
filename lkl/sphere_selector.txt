@@ -39,6 +39,7 @@ local chosenRadius = nil
 local clippingPlanes = nil
 local clippingPlaneNormal = nil
 local clippingPlaneNil = true
+local storedParams = {}
 
 local sphereDotSize = Vector( sphereSelector.lineWidth * 2 )
 local sphereHolo1 = nil
@@ -49,6 +50,8 @@ local lineHoloY = nil
 local lineHoloZ = nil
 local planeHolo = nil
 local nextClipTime = 0
+
+local storeParams
 local makeHolo
 local getOpaqueColor
 local updateClip
@@ -77,10 +80,17 @@ local moveHolos
         radius = nil or number
         clippingPlanes = nil or { { origin = Vector, normal = Vector }, ... }  (world coords)
     end
+
+    params: (optional) (table)
+        - Optional parameters to modify behavior: {
+            NoClippingPlanes = boolean, -- If true, skips steps 4 and 5.
+        }
 --]]
-function sphereSelector.startSelecting( callback )
+function sphereSelector.startSelecting( callback, params )
     if selecting then error( "Already selecting" ) end
     if type( callback ) ~= "function" then error( "Expected callback to be a function" ) end
+
+    storeParams( params )
 
     selecting = true
     finishCallback = callback
@@ -128,6 +138,20 @@ function sphereSelector.isSelecting()
     return selecting
 end
 
+
+storeParams = function( params )
+    table.empty( storedParams )
+
+    if type( params ) == "table" then
+        for k, v in pairs( params ) do
+            if type( v ) == "Vector" then
+                v = v:clone()
+            end
+
+            storedParams[k] = v
+        end
+    end
+end
 
 makeHolo = function( model )
     local holo = hologram.create( Vector(), Angle(), model or "models/hunter/blocks/cube4x4x4.mdl" )
@@ -370,6 +394,15 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
         lineHoloZ:setColor( COLOR_EMPTY )
 
         clippingPlaneNil = true
+
+        if storedParams.NoClippingPlanes then
+            finishCallback( true, center, chosenRadius, clippingPlanes )
+            finishCallback = nil
+
+            sphereSelector.stopSelecting()
+
+            return
+        end
     elseif clippingPlaneNormal == nil then
         local ang = ( curPoint - center ):getAngle()
         local planeSize = chosenRadius * 2.25
