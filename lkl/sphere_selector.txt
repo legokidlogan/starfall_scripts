@@ -590,7 +590,10 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
                 centerDir:div( length )
             end
 
+            sphereHolo1:setColor( COLOR_EMPTY )
+            sphereHolo2:setColor( COLOR_EMPTY )
             sphereHolo3:setColor( sphereSelector.noduleColor )
+
             sphereHolo3:setSize( sphereDotSize )
 
             curPointInvalid = true
