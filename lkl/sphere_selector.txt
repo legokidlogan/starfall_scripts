@@ -16,6 +16,8 @@ sphereSelector.sphereColor = sphereSelector.sphereColor or Color( 180, 180, 255,
 sphereSelector.lineColor = sphereSelector.lineColor or Color( 255, 255, 255, 100 )
 sphereSelector.noduleColor = sphereSelector.noduleColor or Color( 50, 50, 255, 200 )
 sphereSelector.planeColor = sphereSelector.planeColor or Color( 180, 100, 255, 100 )
+sphereSelector.minColor = sphereSelector.minColor or Color( 0, 180, 150, 50 )
+sphereSelector.maxColor = sphereSelector.maxColor or Color( 0, 255, 150, 50 )
 sphereSelector.advanceSelectionKey = sphereSelector.advanceSelectionKey or IN_KEY.ATTACK2
 sphereSelector.disableSnappingKey = sphereSelector.disableSnappingKey or IN_KEY.WALK
 sphereSelector.finishClippingPlanesKey = sphereSelector.finishClippingPlanesKey or IN_KEY.RELOAD
@@ -59,6 +61,8 @@ local curPointInvalid = false
 local jobIncr = 0
 
 local storedParams = {}
+local radiusMin = nil
+local radiusMax = nil
 local anchorPos = nil
 local anchorRadius = nil
 
@@ -66,6 +70,10 @@ local sphereDotSize = Vector( sphereSelector.lineWidth * 2 )
 local sphereHolo1 = nil
 local sphereHolo2 = nil
 local sphereHolo3 = nil
+local sphereMinHolo1 = nil
+local sphereMinHolo2 = nil
+local sphereMaxHolo1 = nil
+local sphereMaxHolo2 = nil
 local lineHoloX = nil
 local lineHoloY = nil
 local lineHoloZ = nil
@@ -85,6 +93,9 @@ local doIntersectionFromSphereCenter
 local doDistanceFromPointOnLine
 local calcCurPoint
 local moveHolos
+local setMinMaxSpheresVisible
+local moveMinMaxSpheres
+local getClampedRadius
 local finalizeSelection
 
 
@@ -111,6 +122,8 @@ local finalizeSelection
     params: (optional) (table)
         - Optional parameters to modify behavior: {
             NoClippingPlanes = boolean, -- If true, skips steps 4 and 5.
+            RadiusMin = number, -- If provided, the minimum allowed radius for the sphere.
+            RadiusMax = number, -- If provided, the maximum allowed radius for the sphere.
             AnchorPos = Vector, -- If provided, steps 1 and 2 instead set the center based on a direction (step 1) and distance (step 2) from this position.
             AnchorRadius = number, -- The radius for the AnchorPos sphere, used for intersectin math. Defaults to 200.
         }
@@ -159,6 +172,8 @@ function sphereSelector.startSelecting( callback, params )
         lineHoloZ:setPos( Vector() )
         lineHoloZ:setColor( sphereSelector.lineColor )
 
+        setMinMaxSpheresVisible( true )
+
         curPointInvalid = false
     end
 
@@ -187,6 +202,10 @@ function sphereSelector.stopSelecting()
     sphereHolo1:setPos( Vector() )
     sphereHolo2:setPos( Vector() )
     sphereHolo3:setPos( Vector() )
+    sphereMinHolo1:setPos( Vector() )
+    sphereMinHolo2:setPos( Vector() )
+    sphereMaxHolo1:setPos( Vector() )
+    sphereMaxHolo2:setPos( Vector() )
     lineHoloX:setPos( Vector() )
     lineHoloY:setPos( Vector() )
     lineHoloZ:setPos( Vector() )
@@ -195,6 +214,10 @@ function sphereSelector.stopSelecting()
     sphereHolo1:setColor( COLOR_EMPTY )
     sphereHolo2:setColor( COLOR_EMPTY )
     sphereHolo3:setColor( COLOR_EMPTY )
+    sphereMinHolo1:setColor( COLOR_EMPTY )
+    sphereMinHolo2:setColor( COLOR_EMPTY )
+    sphereMaxHolo1:setColor( COLOR_EMPTY )
+    sphereMaxHolo2:setColor( COLOR_EMPTY )
     lineHoloX:setColor( COLOR_EMPTY )
     lineHoloY:setColor( COLOR_EMPTY )
     lineHoloZ:setColor( COLOR_EMPTY )
@@ -224,6 +247,16 @@ storeParams = function( params )
 
             storedParams[k] = v
         end
+    end
+
+    radiusMin = storedParams.RadiusMin
+    if radiusMin ~= nil and type( radiusMin ) ~= "number" then
+        error( "Expected params.RadiusMin to be a number or nil" )
+    end
+
+    radiusMax = storedParams.RadiusMax
+    if radiusMax ~= nil and type( radiusMax ) ~= "number" then
+        error( "Expected params.RadiusMax to be a number or nil" )
     end
 
     anchorPos = storedParams.AnchorPos
@@ -432,6 +465,7 @@ moveHolos = function()
             lineHoloX:setAngles( ang )
         else
             lineHoloZ:setPos( curPoint )
+            moveMinMaxSpheres( curPoint )
         end
     elseif stage == 2 then -- Choosing center
         if anchorPos then
@@ -440,8 +474,10 @@ moveHolos = function()
             sphereHolo1:setPos( curPoint )
             sphereHolo2:setPos( curPoint )
         end
+
+        moveMinMaxSpheres( curPoint )
     elseif stage == 3 then -- Choosing chosenRadius
-        local radius = curPoint:getDistance( center )
+        local radius = getClampedRadius( curPoint:getDistance( center ) )
         local size = Vector( radius * 2 )
 
         sphereHolo3:setPos( curPoint )
@@ -460,6 +496,42 @@ moveHolos = function()
     end
 end
 
+setMinMaxSpheresVisible = function( visible )
+    if radiusMin then
+        local size = Vector( radiusMin * 2 )
+        local color = visible and sphereSelector.minColor or COLOR_EMPTY
+
+        sphereMinHolo1:setColor( color )
+        sphereMinHolo2:setColor( color )
+
+        sphereMinHolo1:setSize( size )
+        sphereMinHolo2:setSize( -size )
+    end
+
+    if radiusMax then
+        local size = Vector( radiusMax * 2 )
+        local color = visible and sphereSelector.maxColor or COLOR_EMPTY
+
+        sphereMaxHolo1:setColor( color )
+        sphereMaxHolo2:setColor( color )
+
+        sphereMaxHolo1:setSize( size )
+        sphereMaxHolo2:setSize( -size )
+    end
+end
+
+moveMinMaxSpheres = function( pos )
+    if radiusMin then
+        sphereMinHolo1:setPos( pos )
+        sphereMinHolo2:setPos( pos )
+    end
+
+    if radiusMax then
+        sphereMaxHolo1:setPos( pos )
+        sphereMaxHolo2:setPos( pos )
+    end
+end
+
 finalizeSelection = function()
     local _center = center
     local _chosenRadius = chosenRadius
@@ -471,6 +543,13 @@ finalizeSelection = function()
     sphereSelector.stopSelecting()
     _finishCallback( true, _center, _chosenRadius, _clippingPlanes, { jobID = _jobIncr } )
     hook.run( "LKL_SphereSelector_Stopped", _jobIncr, true )
+end
+
+getClampedRadius = function( radius )
+    if radiusMin and radius < radiusMin then return radiusMin end
+    if radiusMax and radius > radiusMax then return radiusMax end
+
+    return radius
 end
 
 
@@ -515,6 +594,7 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
             sphereHolo3:setSize( sphereDotSize )
 
             curPointInvalid = true
+            setMinMaxSpheresVisible( true )
         else
             centerHorizontal = curPoint
 
@@ -548,9 +628,12 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
         sphereHolo3:setColor( sphereSelector.noduleColor )
 
         sphereHolo3:setSize( sphereDotSize )
+
+        moveMinMaxSpheres( center )
+        setMinMaxSpheresVisible( true )
     elseif stage == 3 then -- Choosing chosenRadius
         stage = 4
-        chosenRadius = curPoint:getDistance( center )
+        chosenRadius = getClampedRadius( curPoint:getDistance( center ) )
 
         lineHoloX:setPos( center )
 
@@ -565,6 +648,9 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
 
             return
         end
+
+        moveMinMaxSpheres( Vector() )
+        setMinMaxSpheresVisible( false )
     elseif stage == 4 then -- Choosing clippingPlaneNormal
         local ang = ( curPoint - center ):getAngle()
         local planeSize = chosenRadius * 2.25
@@ -612,6 +698,10 @@ do
     sphereHolo1 = makeHolo( sphereModel )
     sphereHolo2 = makeHolo( sphereModel )
     sphereHolo3 = makeHolo( sphereModel )
+    sphereMinHolo1 = makeHolo( sphereModel )
+    sphereMinHolo2 = makeHolo( sphereModel )
+    sphereMaxHolo1 = makeHolo( sphereModel )
+    sphereMaxHolo2 = makeHolo( sphereModel )
 
     lineHoloX = makeHolo()
     lineHoloX:setSize( Vector( 10000, lineWidth, lineWidth ) )
