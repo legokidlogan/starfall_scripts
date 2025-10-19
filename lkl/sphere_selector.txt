@@ -170,6 +170,11 @@ end
 function sphereSelector.stopSelecting()
     if not selecting then return end
 
+    -- Disable holo clips.
+    for i = 1, #clippingPlanes + 1 do
+        updateClip( i, nil, nil, true )
+    end
+
     selecting = false
     stage = -1
     finishCallback = nil
