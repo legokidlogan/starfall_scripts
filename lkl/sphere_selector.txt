@@ -113,6 +113,7 @@ local finalizeSelection
 function sphereSelector.startSelecting( callback, params )
     if selecting then error( "Already selecting" ) end
     if type( callback ) ~= "function" then error( "Expected callback to be a function" ) end
+    if params ~= nil and type( params ) ~= "table" then error( "Expected params to be a table or nil" ) end
 
     storeParams( params )
 
@@ -177,7 +178,7 @@ end
 storeParams = function( params )
     table.empty( storedParams )
 
-    if type( params ) == "table" then
+    if params then
         for k, v in pairs( params ) do
             if type( v ) == "Vector" then
                 v = v:clone()
