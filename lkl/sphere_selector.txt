@@ -54,7 +54,8 @@ local stage = -1
 local finishCallback = nil
 local curPoint = nil
 local centerHorizontal = nil
-local centerDir = nil -- Only used if anchorPos is set.
+local anchorDir = nil -- Only used if anchorPos is set.
+local anchorDist = nil -- Only used if anchorPos is set.
 local center = nil
 local chosenRadius = nil
 local clippingPlanes = nil
@@ -122,6 +123,9 @@ local finalizeSelection
         clippingPlanes = nil or { { origin = Vector, normal = Vector }, ... }  (world coords)
         misc = {
             jobID = number, -- The unique identifier for this selection job.
+            anchorPos = Vector or nil, -- The anchor position used for this selection, if any.
+            anchorDist = number or nil, -- The distance from anchorPos to the sphere center, if applicable.
+            anchorDir = Vector or nil, -- The direction from anchorPos to the sphere center, if applicable.
         }
     end
 
@@ -152,7 +156,8 @@ function sphereSelector.startSelecting( callback, params )
     stage = 1
     finishCallback = callback
     centerHorizontal = nil
-    centerDir = nil
+    anchorDir = nil
+    anchorDist = nil
     center = nil
     chosenRadius = nil
     clippingPlanes = {}
@@ -240,8 +245,14 @@ function sphereSelector.stopSelecting()
 
     if finishCallback then
         local jobID = jobIncr
+        local misc = {
+            jobID = jobID,
+            anchorPos = anchorPos and anchorPos:clone() or nil,
+            anchorDir = anchorDir and anchorDir:clone() or nil,
+            anchorDist = anchorDist,
+        }
 
-        finishCallback( false, nil, nil, nil, { jobID = jobID } )
+        finishCallback( false, nil, nil, nil, misc )
         hook.run( "LKL_SphereSelector_Stopped", jobID, false )
     end
 end
@@ -459,7 +470,7 @@ calcCurPoint = function()
     local aimDir = owner():getEyeAngles():getForward()
     local tr = owner():getEyeTrace()
 
-    if stage == 1 then -- Choosing centerDir or centerHorizontal
+    if stage == 1 then -- Choosing anchorDir or centerHorizontal
         if anchorPos then
             doIntersectionFromSphereCenter( tr, aimDir, anchorPos, anchorRadius, lineHoloX, sphereSelector.lineColor )
             curPoint = curPoint or tr.HitPos -- Fallback to aimpos if no valid intersection, for the sake of visual consistency.
@@ -468,23 +479,24 @@ calcCurPoint = function()
         end
     elseif stage == 2 then -- Choosing center
         if anchorPos then
-            local _, signedDist = doDistanceFromPointOnLine( tr, aimDir, anchorPos, centerDir, sphereHolo3, sphereSelector.noduleColor )
+            local _, signedDist = doDistanceFromPointOnLine( tr, aimDir, anchorPos, anchorDir, sphereHolo3, sphereSelector.noduleColor )
 
             -- Flip direction if behind anchorPos.
             if signedDist < 0 then
                 signedDist = -signedDist
-                centerDir:mul( -1 )
+                anchorDir:mul( -1 )
 
                 if anchorDistMin then
-                    planeMinHolo:setPos( anchorPos + centerDir * anchorDistMin )
+                    planeMinHolo:setPos( anchorPos + anchorDir * anchorDistMin )
                 end
 
                 if anchorDistMax then
-                    planeMaxHolo:setPos( anchorPos + centerDir * anchorDistMax )
+                    planeMaxHolo:setPos( anchorPos + anchorDir * anchorDistMax )
                 end
             end
 
-            curPoint = anchorPos + centerDir * optionalClamp( signedDist, anchorDistMin, anchorDistMax )
+            anchorDist = optionalClamp( signedDist, anchorDistMin, anchorDistMax )
+            curPoint = anchorPos + anchorDir * anchorDist
         else
             curPoint = getVerticalPoint( tr, aimDir, centerHorizontal )
         end
@@ -506,7 +518,7 @@ end
 moveHolos = function()
     if curPoint == nil then return end
 
-    if stage == 1 then -- Choosing centerDir or centerHorizontal
+    if stage == 1 then -- Choosing anchorDir or centerHorizontal
         if anchorPos then
             local ang = ( curPoint - anchorPos ):getAngle()
 
@@ -592,9 +604,16 @@ finalizeSelection = function()
     local _finishCallback = finishCallback
     local _jobIncr = jobIncr
 
+    local misc = {
+        jobID = _jobIncr,
+        anchorPos = anchorPos and anchorPos:clone() or nil,
+        anchorDir = anchorDir and anchorDir:clone() or nil,
+        anchorDist = anchorDist,
+    }
+
     finishCallback = nil
     sphereSelector.stopSelecting()
-    _finishCallback( true, _center, _chosenRadius, _clippingPlanes, { jobID = _jobIncr } )
+    _finishCallback( true, _center, _chosenRadius, _clippingPlanes, misc )
     hook.run( "LKL_SphereSelector_Stopped", _jobIncr, true )
 end
 
@@ -629,18 +648,18 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
     if not curPoint then return end
     if curPointInvalid then return end
 
-    if stage == 1 then -- Choosing centerDir or centerHorizontal
+    if stage == 1 then -- Choosing anchorDir or centerHorizontal
         stage = 2
 
         if anchorPos then
-            centerDir = curPoint - anchorPos
+            anchorDir = curPoint - anchorPos
 
-            local length = centerDir:getLength()
+            local length = anchorDir:getLength()
 
             if length <= 0.001 then
-                centerDir:set( VECTOR_Z )
+                anchorDir:set( VECTOR_Z )
             else
-                centerDir:div( length )
+                anchorDir:div( length )
             end
 
             sphereHolo3:setColor( COLOR_EMPTY )
@@ -656,15 +675,15 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
                 if anchorDistMin then
                     planeMinHolo:setColor( sphereSelector.minDistColor )
                     planeMinHolo:setSize( size )
-                    planeMinHolo:setPos( anchorPos + centerDir * anchorDistMin )
-                    planeMinHolo:setAngles( centerDir:getAngle() )
+                    planeMinHolo:setPos( anchorPos + anchorDir * anchorDistMin )
+                    planeMinHolo:setAngles( anchorDir:getAngle() )
                 end
 
                 if anchorDistMax then
                     planeMaxHolo:setColor( sphereSelector.maxDistColor )
                     planeMaxHolo:setSize( size )
-                    planeMaxHolo:setPos( anchorPos + centerDir * anchorDistMax )
-                    planeMaxHolo:setAngles( centerDir:getAngle() )
+                    planeMaxHolo:setPos( anchorPos + anchorDir * anchorDistMax )
+                    planeMaxHolo:setAngles( anchorDir:getAngle() )
                 end
 
                 sphereHolo1:setColor( sphereSelector.sphereColor )
