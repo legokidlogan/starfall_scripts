@@ -176,11 +176,14 @@ function sphereSelector.startSelecting( callback, params )
         sphereHolo3:setSize( sphereDotSize )
 
         curPointInvalid = true
+
+        setMinMaxSpheresVisible( true, anchorDistMin, anchorDistMax, sphereSelector.minDistColor, sphereSelector.maxDistColor )
+        moveMinMaxSpheres( anchorPos, anchorDistMin, anchorDistMax )
     else
         lineHoloZ:setPos( Vector() )
         lineHoloZ:setColor( sphereSelector.lineColor )
 
-        setMinMaxSpheresVisible( true )
+        setMinMaxSpheresVisible( true, radiusMin, radiusMax, sphereSelector.minRadiusColor, sphereSelector.maxRadiusColor )
 
         curPointInvalid = false
     end
@@ -512,7 +515,7 @@ moveHolos = function()
             lineHoloX:setAngles( ang )
         else
             lineHoloZ:setPos( curPoint )
-            moveMinMaxSpheres( curPoint )
+            moveMinMaxSpheres( curPoint, radiusMin, radiusMax )
         end
     elseif stage == 2 then -- Choosing center
         if anchorPos then
@@ -522,7 +525,7 @@ moveHolos = function()
             sphereHolo2:setPos( curPoint )
         end
 
-        moveMinMaxSpheres( curPoint )
+        moveMinMaxSpheres( curPoint, radiusMin, radiusMax )
     elseif stage == 3 then -- Choosing chosenRadius
         local radius = optionalClamp( curPoint:getDistance( center ), radiusMin, radiusMax )
         local size = Vector( radius * 2 )
@@ -543,37 +546,40 @@ moveHolos = function()
     end
 end
 
-setMinMaxSpheresVisible = function( visible )
-    if radiusMin then
-        local size = Vector( radiusMin * 2 )
-        local color = visible and sphereSelector.minRadiusColor or COLOR_EMPTY
+setMinMaxSpheresVisible = function( visible, rMin, rMax, minColor, maxColor )
+    if visible then
+        if rMin then
+            local size = Vector( rMin * 2 )
 
-        sphereMinHolo1:setColor( color )
-        sphereMinHolo2:setColor( color )
+            sphereMinHolo1:setSize( size )
+            sphereMinHolo2:setSize( -size )
+        end
 
-        sphereMinHolo1:setSize( size )
-        sphereMinHolo2:setSize( -size )
+        if rMax then
+            local size = Vector( rMax * 2 )
+
+            sphereMaxHolo1:setSize( size )
+            sphereMaxHolo2:setSize( -size )
+        end
     end
 
-    if radiusMax then
-        local size = Vector( radiusMax * 2 )
-        local color = visible and sphereSelector.maxRadiusColor or COLOR_EMPTY
+    -- Always set color regardless of visible or r to avoid color carryover.
+    local colorMin = visible and rMin and minColor or COLOR_EMPTY
+    sphereMinHolo1:setColor( colorMin )
+    sphereMinHolo2:setColor( colorMin )
 
-        sphereMaxHolo1:setColor( color )
-        sphereMaxHolo2:setColor( color )
-
-        sphereMaxHolo1:setSize( size )
-        sphereMaxHolo2:setSize( -size )
-    end
+    local colorMax = visible and rMax and maxColor or COLOR_EMPTY
+    sphereMaxHolo1:setColor( colorMax )
+    sphereMaxHolo2:setColor( colorMax )
 end
 
-moveMinMaxSpheres = function( pos )
-    if radiusMin then
+moveMinMaxSpheres = function( pos, minExists, maxExists )
+    if minExists then
         sphereMinHolo1:setPos( pos )
         sphereMinHolo2:setPos( pos )
     end
 
-    if radiusMax then
+    if maxExists then
         sphereMaxHolo1:setPos( pos )
         sphereMaxHolo2:setPos( pos )
     end
@@ -641,7 +647,7 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
             sphereHolo3:setSize( sphereDotSize )
 
             curPointInvalid = true
-            setMinMaxSpheresVisible( true )
+            setMinMaxSpheresVisible( true, radiusMin, radiusMax, sphereSelector.minRadiusColor, sphereSelector.maxRadiusColor )
 
             if anchorDistMin or anchorDistMax then
                 local width = ( radiusMax or anchorRadius ) * 2.25
@@ -703,8 +709,8 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
 
         sphereHolo3:setSize( sphereDotSize )
 
-        moveMinMaxSpheres( center )
-        setMinMaxSpheresVisible( true )
+        moveMinMaxSpheres( center, radiusMin, radiusMax )
+        setMinMaxSpheresVisible( true, radiusMin, radiusMax, sphereSelector.minRadiusColor, sphereSelector.maxRadiusColor )
 
         if anchorPos then
             if anchorDistMin then
@@ -733,7 +739,7 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
             return
         end
 
-        moveMinMaxSpheres( Vector() )
+        moveMinMaxSpheres( Vector(), true, true )
         setMinMaxSpheresVisible( false )
     elseif stage == 4 then -- Choosing clippingPlaneNormal
         local ang = ( curPoint - center ):getAngle()
