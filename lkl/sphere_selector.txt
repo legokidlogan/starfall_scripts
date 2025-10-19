@@ -107,16 +107,13 @@ end
 function sphereSelector.stopSelecting()
     if not selecting then return end
 
-    if finishCallback then
-        finishCallback( false )
-    end
-
     selecting = false
     finishCallback = nil
     centerHorizontal = nil
     center = nil
     chosenRadius = nil
     clippingPlanes = nil
+    curPoint = nil
 
     sphereHolo1:setPos( Vector() )
     sphereHolo2:setPos( Vector() )
@@ -133,6 +130,10 @@ function sphereSelector.stopSelecting()
     lineHoloY:setColor( COLOR_EMPTY )
     lineHoloZ:setColor( COLOR_EMPTY )
     planeHolo:setColor( COLOR_EMPTY )
+
+    if finishCallback then
+        finishCallback( false )
+    end
 end
 
 function sphereSelector.isSelecting()
@@ -337,10 +338,14 @@ moveHolos = function()
 end
 
 finalizeSelection = function()
-    curPoint = nil
-    finishCallback( true, center, chosenRadius, clippingPlanes )
+    local _center = center
+    local _chosenRadius = chosenRadius
+    local _clippingPlanes = clippingPlanes
+    local _finishCallback = finishCallback
+
     finishCallback = nil
     sphereSelector.stopSelecting()
+    _finishCallback( true, _center, _chosenRadius, _clippingPlanes )
 end
 
 
