@@ -42,19 +42,25 @@ sphereSelector.clipUpdateInterval = sphereSelector.clipUpdateInterval or 0.1
 local VECTOR_X = Vector( 1, 0, 0 )
 local VECTOR_Y = Vector( 0, 1, 0 )
 local VECTOR_Z = Vector( 0, 0, 1 )
+local ANGLE_ZERO = Angle( 0, 0, 0 )
 local COLOR_EMPTY = Color( 0, 0, 0, 0 )
 
 local selecting = false
+local stage = -1
 local finishCallback = nil
 local curPoint = nil
 local centerHorizontal = nil
+local centerDir = nil -- Only used if anchorPos is set.
 local center = nil
 local chosenRadius = nil
 local clippingPlanes = nil
 local clippingPlaneNormal = nil
-local clippingPlaneNil = true
-local storedParams = {}
+local curPointInvalid = false
 local jobIncr = 0
+
+local storedParams = {}
+local anchorPos = nil
+local anchorRadius = nil
 
 local sphereDotSize = Vector( sphereSelector.lineWidth * 2 )
 local sphereHolo1 = nil
@@ -75,6 +81,8 @@ local getClosestVerticalIntersection
 local getVerticalPoint
 local snapToThreeAxes
 local getFirstForwardIntersectionWithSphere
+local doIntersectionFromSphereCenter
+local doDistanceFromPointOnLine
 local calcCurPoint
 local moveHolos
 local finalizeSelection
@@ -103,6 +111,8 @@ local finalizeSelection
     params: (optional) (table)
         - Optional parameters to modify behavior: {
             NoClippingPlanes = boolean, -- If true, skips steps 4 and 5.
+            AnchorPos = Vector, -- If provided, steps 1 and 2 instead set the center based on a direction (step 1) and distance (step 2) from this position.
+            AnchorRadius = number, -- The radius for the AnchorPos sphere, used for intersectin math. Defaults to 200.
         }
 
     RETURNS: jobID
@@ -118,8 +128,10 @@ function sphereSelector.startSelecting( callback, params )
     storeParams( params )
 
     selecting = true
+    stage = 1
     finishCallback = callback
     centerHorizontal = nil
+    centerDir = nil
     center = nil
     chosenRadius = nil
     clippingPlanes = {}
@@ -127,8 +139,28 @@ function sphereSelector.startSelecting( callback, params )
 
     local jobID = jobIncr
 
-    lineHoloZ:setPos( Vector() )
-    lineHoloZ:setColor( sphereSelector.lineColor )
+    if anchorPos then
+        local size = Vector( anchorRadius * 2 )
+
+        sphereHolo1:setColor( sphereSelector.sphereColor )
+        sphereHolo2:setColor( sphereSelector.sphereColor )
+        sphereHolo3:setColor( sphereSelector.noduleColor )
+
+        sphereHolo1:setPos( anchorPos )
+        sphereHolo2:setPos( anchorPos )
+        lineHoloX:setPos( anchorPos )
+
+        sphereHolo1:setSize( size )
+        sphereHolo2:setSize( -size )
+        sphereHolo3:setSize( sphereDotSize )
+
+        curPointInvalid = true
+    else
+        lineHoloZ:setPos( Vector() )
+        lineHoloZ:setColor( sphereSelector.lineColor )
+
+        curPointInvalid = false
+    end
 
     hook.run( "LKL_SphereSelector_Started", jobID )
 
@@ -139,6 +171,7 @@ function sphereSelector.stopSelecting()
     if not selecting then return end
 
     selecting = false
+    stage = -1
     finishCallback = nil
     centerHorizontal = nil
     center = nil
@@ -186,6 +219,18 @@ storeParams = function( params )
 
             storedParams[k] = v
         end
+    end
+
+    anchorPos = storedParams.AnchorPos
+    if anchorPos ~= nil and type( anchorPos ) ~= "Vector" then
+        error( "Expected params.AnchorPos to be a Vector or nil" )
+    end
+
+    anchorRadius = storedParams.AnchorRadius
+    if anchorRadius == nil then
+        anchorRadius = 200
+    elseif type( anchorRadius ) ~= "number" then
+        error( "Expected params.AnchorRadius to be a number or nil" )
     end
 end
 
@@ -297,45 +342,72 @@ getFirstForwardIntersectionWithSphere = function( tr, aimDir, pos, radius )
     return intersect1
 end
 
+-- Modifies curPoint in place.
+doIntersectionFromSphereCenter = function( tr, aimDir, pos, radius, holoToUpdate, visibleColor )
+    local curPointWasInvalid = curPointInvalid
+
+    if owner():keyDown( sphereSelector.disableSnappingKey ) then
+        curPoint = tr.HitPos
+    else
+        curPoint = getFirstForwardIntersectionWithSphere( tr, aimDir, pos, radius )
+    end
+
+    curPointInvalid = curPoint == nil
+    local invalidChanged = curPointInvalid ~= curPointWasInvalid
+
+    if invalidChanged and holoToUpdate then
+        holoToUpdate:setColor( curPointInvalid and COLOR_EMPTY or visibleColor )
+    end
+
+    return invalidChanged
+end
+
+-- Modifies curPoint in place.
+doDistanceFromPointOnLine = function( tr, aimDir, linePos, lineDir, holoToUpdate, visibleColor )
+    local curPointWasInvalid = curPointInvalid
+    local _, closestPoint, t1 = vectorMath.closestPointsBetweenLines( tr.StartPos, aimDir, linePos, lineDir )
+
+    if t1 <= 0 then
+        curPoint = nil
+    else
+        curPoint = closestPoint
+    end
+
+    curPointInvalid = curPoint == nil
+    local invalidChanged = curPointInvalid ~= curPointWasInvalid
+
+    if invalidChanged and holoToUpdate then
+        holoToUpdate:setColor( curPointInvalid and COLOR_EMPTY or visibleColor )
+    end
+
+    return invalidChanged
+end
+
 calcCurPoint = function()
     local aimDir = owner():getEyeAngles():getForward()
     local tr = owner():getEyeTrace()
 
-    if centerHorizontal == nil then
-        curPoint = getHorizontalPoint( tr )
-    elseif center == nil then
-        curPoint = getVerticalPoint( tr, aimDir, centerHorizontal )
-    elseif chosenRadius == nil then
+    if stage == 1 then -- Choosing centerDir or centerHorizontal
+        if anchorPos then
+            doIntersectionFromSphereCenter( tr, aimDir, anchorPos, anchorRadius, lineHoloX, sphereSelector.lineColor )
+            curPoint = curPoint or tr.HitPos -- Fallback to aimpos if no valid intersection, for the sake of visual consistency.
+        else
+            curPoint = getHorizontalPoint( tr )
+        end
+    elseif stage == 2 then -- Choosing center
+        if anchorPos then
+            doDistanceFromPointOnLine( tr, aimDir, anchorPos, centerDir, sphereHolo3, sphereSelector.noduleColor )
+        else
+            curPoint = getVerticalPoint( tr, aimDir, centerHorizontal )
+        end
+    elseif stage == 3 then -- Choosing chosenRadius
         curPoint = owner():keyDown( sphereSelector.disableSnappingKey ) and tr.HitPos or snapToThreeAxes( tr, aimDir, center )
-    elseif clippingPlaneNormal == nil then
-        local clippingPlaneWasNil = clippingPlaneNil
+    elseif stage == 4 then -- Choosing clippingPlaneNormal
+        doIntersectionFromSphereCenter( tr, aimDir, center, chosenRadius, lineHoloX, sphereSelector.lineColor )
+    elseif stage == 5 then -- Choosing clippingPlanePos
+        local invalidChanged = doDistanceFromPointOnLine( tr, aimDir, center, clippingPlaneNormal, planeHolo, sphereSelector.planeColor )
 
-        if owner():keyDown( sphereSelector.disableSnappingKey ) then
-            curPoint = tr.HitPos
-        else
-            curPoint = getFirstForwardIntersectionWithSphere( tr, aimDir, center, chosenRadius )
-        end
-
-        clippingPlaneNil = curPoint == nil
-
-        if clippingPlaneNil ~= clippingPlaneWasNil then
-            lineHoloX:setColor( clippingPlaneNil and COLOR_EMPTY or sphereSelector.lineColor )
-        end
-    else--if clippingPlanePos == nil then
-        local clippingPlaneWasNil = clippingPlaneNil
-        local _, closestPoint, t1 = vectorMath.closestPointsBetweenLines( tr.StartPos, aimDir, center, clippingPlaneNormal )
-
-        if t1 <= 0 then
-            curPoint = nil
-        else
-            curPoint = closestPoint
-        end
-
-        clippingPlaneNil = curPoint == nil
-
-        if clippingPlaneNil ~= clippingPlaneWasNil then
-            planeHolo:setColor( clippingPlaneNil and COLOR_EMPTY or sphereSelector.planeColor )
-
+        if invalidChanged then
             updateClip( #clippingPlanes + 1, curPoint, clippingPlaneNormal, true )
         else
             updateClip( #clippingPlanes + 1, curPoint, clippingPlaneNormal, false )
@@ -346,12 +418,24 @@ end
 moveHolos = function()
     if curPoint == nil then return end
 
-    if centerHorizontal == nil then
-        lineHoloZ:setPos( curPoint )
-    elseif center == nil then
-        sphereHolo1:setPos( curPoint )
-        sphereHolo2:setPos( curPoint )
-    elseif chosenRadius == nil then
+    if stage == 1 then -- Choosing centerDir or centerHorizontal
+        if anchorPos then
+            local ang = ( curPoint - anchorPos ):getAngle()
+
+            sphereHolo3:setPos( curPoint )
+
+            lineHoloX:setAngles( ang )
+        else
+            lineHoloZ:setPos( curPoint )
+        end
+    elseif stage == 2 then -- Choosing center
+        if anchorPos then
+            sphereHolo3:setPos( curPoint )
+        else
+            sphereHolo1:setPos( curPoint )
+            sphereHolo2:setPos( curPoint )
+        end
+    elseif stage == 3 then -- Choosing chosenRadius
         local radius = curPoint:getDistance( center )
         local size = Vector( radius * 2 )
 
@@ -359,13 +443,13 @@ moveHolos = function()
 
         sphereHolo1:setSize( size )
         sphereHolo2:setSize( -size )
-    elseif clippingPlaneNormal == nil then
+    elseif stage == 4 then -- Choosing clippingPlaneNormal
         local ang = ( curPoint - center ):getAngle()
 
         sphereHolo3:setPos( curPoint )
 
         lineHoloX:setAngles( ang )
-    else--if clippingPlanePos == nil then
+    elseif stage == 5 then -- Choosing clippingPlanePos
         sphereHolo3:setPos( curPoint )
         planeHolo:setPos( curPoint )
     end
@@ -406,18 +490,39 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
 
     if key ~= sphereSelector.advanceSelectionKey then return end
     if not curPoint then return end
+    if curPointInvalid then return end
 
-    if not centerHorizontal then
-        centerHorizontal = curPoint
+    if stage == 1 then -- Choosing centerDir or centerHorizontal
+        stage = 2
 
-        lineHoloZ:setPos( curPoint )
+        if anchorPos then
+            centerDir = curPoint - anchorPos
 
-        sphereHolo1:setColor( sphereSelector.sphereColor )
-        sphereHolo2:setColor( sphereSelector.sphereColor )
+            local length = centerDir:getLength()
 
-        sphereHolo1:setSize( sphereDotSize )
-        sphereHolo2:setSize( -sphereDotSize )
-    elseif not center then
+            if length <= 0.001 then
+                centerDir:set( VECTOR_Z )
+            else
+                centerDir:div( length )
+            end
+
+            sphereHolo3:setColor( sphereSelector.noduleColor )
+            sphereHolo3:setSize( sphereDotSize )
+
+            curPointInvalid = true
+        else
+            centerHorizontal = curPoint
+
+            lineHoloZ:setPos( curPoint )
+
+            sphereHolo1:setColor( sphereSelector.sphereColor )
+            sphereHolo2:setColor( sphereSelector.sphereColor )
+
+            sphereHolo1:setSize( sphereDotSize )
+            sphereHolo2:setSize( -sphereDotSize )
+        end
+    elseif stage == 2 then -- Choosing center
+        stage = 3
         center = curPoint
 
         lineHoloX:setPos( center )
@@ -428,9 +533,18 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
         lineHoloY:setColor( sphereSelector.lineColor )
         lineHoloZ:setColor( sphereSelector.lineColor )
 
+        lineHoloX:setAngles( ANGLE_ZERO )
+
+        sphereHolo1:setPos( center )
+        sphereHolo2:setPos( center )
+
+        sphereHolo1:setColor( sphereSelector.sphereColor )
+        sphereHolo2:setColor( sphereSelector.sphereColor )
         sphereHolo3:setColor( sphereSelector.noduleColor )
+
         sphereHolo3:setSize( sphereDotSize )
-    elseif not chosenRadius then
+    elseif stage == 3 then -- Choosing chosenRadius
+        stage = 4
         chosenRadius = curPoint:getDistance( center )
 
         lineHoloX:setPos( center )
@@ -439,17 +553,18 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
         lineHoloY:setColor( COLOR_EMPTY )
         lineHoloZ:setColor( COLOR_EMPTY )
 
-        clippingPlaneNil = true
+        curPointInvalid = true
 
         if storedParams.NoClippingPlanes then
             finalizeSelection()
 
             return
         end
-    elseif clippingPlaneNormal == nil then
+    elseif stage == 4 then -- Choosing clippingPlaneNormal
         local ang = ( curPoint - center ):getAngle()
         local planeSize = chosenRadius * 2.25
 
+        stage = 5
         clippingPlaneNormal = ang:getForward()
 
         lineHoloX:setAngles( ang )
@@ -462,8 +577,8 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
 
         planeHolo:setSize( Vector( 1, planeSize, planeSize ) )
 
-        clippingPlaneNil = true
-    else--if clippingPlanePos == nil then
+        curPointInvalid = true
+    elseif stage == 5 then -- Choosing clippingPlanePos
         updateClip( #clippingPlanes + 1, curPoint, clippingPlaneNormal, true )
         table.insert( clippingPlanes, {
             origin = curPoint,
@@ -476,8 +591,9 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
         sphereHolo3:setColor( sphereSelector.noduleColor )
         planeHolo:setColor( COLOR_EMPTY )
 
-        clippingPlaneNil = true
+        curPointInvalid = true
         clippingPlaneNormal = nil
+        stage = 4
     end
 
     curPoint = nil
