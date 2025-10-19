@@ -25,6 +25,20 @@ sphereSelector.clipUpdateInterval = sphereSelector.clipUpdateInterval or 0.1
 -- END CONFIG DEFAULTS
 
 
+--[[
+    - Hooks:
+        LKL_SphereSelector_Started( jobID ):
+            - Called when a selection starts.
+            - jobID is a unique identifier for this selection job.
+        LKL_SphereSelector_Stopped( jobID, success ):
+            - Called when a selection ends.
+            - jobID is the unique identifier for this selection job.
+            - success will be true if the selection ended with a finalized sphere, false if it was canceled.
+            - Runs after the selection callback is called.
+                - Will result in strange started/stopped hook call order if the callback immediately starts a new selection.
+--]]
+
+
 local VECTOR_X = Vector( 1, 0, 0 )
 local VECTOR_Y = Vector( 0, 1, 0 )
 local VECTOR_Z = Vector( 0, 0, 1 )
@@ -40,6 +54,7 @@ local clippingPlanes = nil
 local clippingPlaneNormal = nil
 local clippingPlaneNil = true
 local storedParams = {}
+local jobIncr = 0
 
 local sphereDotSize = Vector( sphereSelector.lineWidth * 2 )
 local sphereHolo1 = nil
@@ -86,6 +101,11 @@ local finalizeSelection
         - Optional parameters to modify behavior: {
             NoClippingPlanes = boolean, -- If true, skips steps 4 and 5.
         }
+
+    RETURNS: jobID
+        jobID: (number)
+            - A unique identifier for this selection job.
+            - Only one selection job can be active at a time, so this is purely informational.
 --]]
 function sphereSelector.startSelecting( callback, params )
     if selecting then error( "Already selecting" ) end
@@ -99,9 +119,16 @@ function sphereSelector.startSelecting( callback, params )
     center = nil
     chosenRadius = nil
     clippingPlanes = {}
+    jobIncr = jobIncr + 1
+
+    local jobID = jobIncr
 
     lineHoloZ:setPos( Vector() )
     lineHoloZ:setColor( sphereSelector.lineColor )
+
+    hook.run( "LKL_SphereSelector_Started", jobID )
+
+    return jobID
 end
 
 function sphereSelector.stopSelecting()
@@ -133,6 +160,7 @@ function sphereSelector.stopSelecting()
 
     if finishCallback then
         finishCallback( false )
+        hook.run( "LKL_SphereSelector_Stopped", jobIncr, false )
     end
 end
 
@@ -342,10 +370,12 @@ finalizeSelection = function()
     local _chosenRadius = chosenRadius
     local _clippingPlanes = clippingPlanes
     local _finishCallback = finishCallback
+    local _jobIncr = jobIncr
 
     finishCallback = nil
     sphereSelector.stopSelecting()
     _finishCallback( true, _center, _chosenRadius, _clippingPlanes )
+    hook.run( "LKL_SphereSelector_Stopped", _jobIncr, true )
 end
 
 
