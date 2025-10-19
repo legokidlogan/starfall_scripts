@@ -62,6 +62,7 @@ local snapToThreeAxes
 local getFirstForwardIntersectionWithSphere
 local calcCurPoint
 local moveHolos
+local finalizeSelection
 
 
 --[[
@@ -335,6 +336,13 @@ moveHolos = function()
     end
 end
 
+finalizeSelection = function()
+    curPoint = nil
+    finishCallback( true, center, chosenRadius, clippingPlanes )
+    finishCallback = nil
+    sphereSelector.stopSelecting()
+end
+
 
 hook.add( "think", "LKL_SphereSelector_UpdatePoint", function()
     if not selecting then return end
@@ -350,10 +358,7 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
     if key == sphereSelector.finishClippingPlanesKey then
         if not chosenRadius then return end
 
-        finishCallback( true, center, chosenRadius, clippingPlanes )
-        finishCallback = nil
-
-        sphereSelector.stopSelecting()
+        finalizeSelection()
 
         return
     end
@@ -396,10 +401,7 @@ hook.add( "KeyPress", "LKL_SphereSelector_KeyPress", function( ply, key )
         clippingPlaneNil = true
 
         if storedParams.NoClippingPlanes then
-            finishCallback( true, center, chosenRadius, clippingPlanes )
-            finishCallback = nil
-
-            sphereSelector.stopSelecting()
+            finalizeSelection()
 
             return
         end
