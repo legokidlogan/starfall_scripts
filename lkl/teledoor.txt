@@ -65,7 +65,7 @@ do
     local spawnables = prop.getSpawnableSents( true ).Vehicles
     local mainType = "Couch_Furniture_01"
     local mainOP = Vector( 0, 0, -32.894 / 2 )
-    local mainOA = Angle( 0, 0, 0 )
+    local mainOA = Angle( 0, -90, 0 )
     local fallbackType = "Seat_Airboat"
     local fallbackOP = Vector( 0, 0, -25.042 / 2 )
     local fallbackOA = Angle( 0, -90, 0 )
