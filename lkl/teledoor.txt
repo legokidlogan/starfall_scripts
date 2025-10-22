@@ -23,17 +23,13 @@ local doorSounds = {
 }
 -- End Config
 
---local chairs = {}
---local chairMap = {}
 local chair
 local doors = {}
 local doorMap = {}
 local exits = {}
 local chairType = ""
 local useRange = 70
-local useRangeSqr = useRange * useRange
 local storePos = Vector( 0, 0, -2000 )
---local exitOffsetPos = Vector( 90, 0, -11 )
 local exitOffsetPos = Vector( 90, 0, -11 )
 local exitOffsetPlyAdjust = Vector( 0.7, 0, 0 )
 local exitOffsetAng = Angle( 0, 0, 0 )
@@ -83,7 +79,6 @@ end
 
 
 local function spawnChair( ind )
-    --if isValid( chairs[ind] ) then return end
     if isValid( chair ) then return end
 
     local ent
@@ -93,8 +88,6 @@ local function spawnChair( ind )
     end )
 
     if isValid( ent ) then
-        --chairs[ind] = ent
-        --chairMap[ent] = ind
         chair = ent
         ent:setNocollideAll( true )
         ent:setMass( 50000 )
@@ -114,9 +107,9 @@ local function wireInput( name, value )
     local baseName, id = inGenGetInfo( name )
 
     if baseName == "Door" then
-        local oldDoor= doors[id]
+        local oldDoor = doors[id]
 
-        if isValid( oldDoor ) then
+        if oldDoor ~= nil then
             doorMap[oldDoor] = nil
         end
 
@@ -137,7 +130,6 @@ hook.add( "PlayerEnteredVehicle", "LKL_TeleDoor_EnterChair", function( ply, ent 
     if not isValid( ent ) then return end
     if ent ~= chair then return end
 
-    --local ind = chairMap[ent]
     local ind = chair.teledoorTargetInd
 
     if not ind then
@@ -218,7 +210,7 @@ hook.add( "KeyPress", "LKL_TeleDoor_UseDoor", function( ply, key )
     end
 
     local ignoreUseRange = hook.run( "LKL_TeleDoor_IgnoreUseRange", ply, tr, ind )
-    if not ignoreUseRange and tr.StartPos:getDistanceSqr( tr.HitPos ) > useRangeSqr then return end
+    if not ignoreUseRange and tr.StartPos:getDistance( tr.HitPos ) > useRange then return end
 
     chair.teledoorTargetInd = ind
     chair:setPos( ply:getEyePos() + ply:getEyeAngles():getForward() * 10 + doorOffsetPos )
