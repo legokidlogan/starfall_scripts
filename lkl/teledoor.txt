@@ -205,13 +205,15 @@ hook.add( "KeyPress", "LKL_TeleDoor_UseDoor", function( ply, key )
     local ind = hook.run( "LKL_TeleDoor_SelectDoorInd", ply, tr ) -- Allow the index to be overridden
 
     -- If no override, use what the player is looking at.
-    if not ind then
+    if ind == nil then
         local ent = tr.Entity
         if not isValid( ent ) then return end
 
         ind = doorMap[ent]
-        if not ind then return end
     end
+
+    -- If override returned false, or nothing was found from the door map, abort.
+    if not ind then return end
 
     local ignoreUseRange = hook.run( "LKL_TeleDoor_IgnoreUseRange", ply, tr, ind )
     if not ignoreUseRange and tr.StartPos:getDistance( tr.HitPos ) > useRange then return end
