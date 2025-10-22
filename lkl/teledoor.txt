@@ -3,8 +3,11 @@
 --@server
 --@include lkl/input_generator.txt
 
+teledoor = teledoor or {}
+
+
 -- CONFIG:
-local doorSounds = {
+teledoor.doorSounds = teledoor.doorSounds or {
     Default = "doors/latchunlocked1.wav", -- Good for normal-looking wood doors
     --Default = "physics/metal/metal_barrel_impact_hard5.wav", -- Good for vents
     [1] = nil,
@@ -165,7 +168,7 @@ hook.add( "PlayerEnteredVehicle", "LKL_TeleDoor_EnterChair", function( ply, ent 
         if not isValid( ent ) then return end
 
         if sound.emitSoundLeft() > 0 then
-            ent:emitSound( doorSounds[ind] or doorSounds.Default, 75, 100, 1 )
+            ent:emitSound( teledoor.doorSounds[ind] or teledoor.doorSounds.Default, 75, 100, 1 )
         end
 
         ent:unlock()
