@@ -75,7 +75,7 @@ do
 end
 
 
-local function spawnChair( ind )
+local function spawnChair()
     if isValid( chair ) then return end
 
     local ent
@@ -96,8 +96,8 @@ local function spawnChair( ind )
         return true
     end
 
-    timer.simple( 1, function()
-        spawnChair( ind )
+    timer.create( "LKL_TeleDoor_SpawnChair", function()
+        spawnChair()
     end )
 
     return false
