@@ -30,11 +30,10 @@ local exits = {}
 local chairType = ""
 local useRange = 70
 local storePos = Vector( 0, 0, -2000 )
-local exitOffsetPos = Vector( 90, 0, -11 )
-local exitOffsetPlyAdjust = Vector( 0.7, 0, 0 )
-local exitOffsetAng = Angle( 0, 0, 0 )
-local doorOffsetPos
-local doorOffsetAng
+local chairLocalOffsetPos = Vector( 90, 0, -11 ) -- Local to the exit marker
+local chairLocalOffsetPlyAdjust = Vector( 0.7, 0, 0 )
+local chairLocalOffsetAng -- Local to the exit marker, depends on the chair model (accounts for exit rotation)
+local chairOffsetPos -- In world coordinates, depends on the chair model (accounts for the exit point)
 
 
 projectNameID = "TeleDoor." .. chip():entIndex()
@@ -65,16 +64,16 @@ do
 
     local spawnables = prop.getSpawnableSents( true ).Vehicles
     local mainType = "Couch_Furniture_01"
-    local mainEnOP = Vector( 0, 0, -32.894 / 2 )
-    local mainEnOA = Angle( 0, 0, 0 )
+    local mainOP = Vector( 0, 0, -32.894 / 2 )
+    local mainOA = Angle( 0, 0, 0 )
     local fallbackType = "Seat_Airboat"
-    local fallbackEnOP = Vector( 0, 0, -25.042 / 2 )
-    local fallbackEnOA = Angle( 0, -90, 0 )
+    local fallbackOP = Vector( 0, 0, -25.042 / 2 )
+    local fallbackOA = Angle( 0, -90, 0 )
     local useMainType = table.hasValue( spawnables, mainType )
 
     chairType = useMainType and mainType or fallbackType
-    doorOffsetPos = useMainType and mainEnOP or fallbackEnOP
-    doorOffsetAng = useMainType and mainEnOA or fallbackEnOA
+    chairOffsetPos = useMainType and mainOP or fallbackOP
+    chairLocalOffsetAng = useMainType and mainOA or fallbackOA
 end
 
 
@@ -157,8 +156,8 @@ hook.add( "PlayerEnteredVehicle", "LKL_TeleDoor_EnterChair", function( ply, ent 
     ent:lock()
     ent:setParent()
     ent:enableMotion( false )
-    ent:setPos( exit:localToWorld( exitOffsetPos + exitOffsetPlyAdjust * plySize + exitBox ) )
-    ent:setAngles( exit:localToWorldAngles( exitOffsetAng ) )
+    ent:setPos( exit:localToWorld( chairLocalOffsetPos + chairLocalOffsetPlyAdjust * plySize + exitBox ) )
+    ent:setAngles( exit:localToWorldAngles( chairLocalOffsetAng ) )
 
     timer.simple( 0.1, function()
         if not isValid( ent ) then return end
@@ -171,9 +170,6 @@ hook.add( "PlayerEnteredVehicle", "LKL_TeleDoor_EnterChair", function( ply, ent 
             if not isValid( ent ) then return end
             if not isValid( door ) then return end
 
-            --ent:setPos( door:localToWorld( doorOffsetPos ) )
-            --ent:setAngles( door:localToWorldAngles( doorOffsetAng ) )
-            --ent:setParent( door )
             ent:setPos( storePos )
 
             timer.simple( 0.1, function()
@@ -213,7 +209,7 @@ hook.add( "KeyPress", "LKL_TeleDoor_UseDoor", function( ply, key )
     if not ignoreUseRange and tr.StartPos:getDistance( tr.HitPos ) > useRange then return end
 
     chair.teledoorTargetInd = ind
-    chair:setPos( ply:getEyePos() + ply:getEyeAngles():getForward() * 10 + doorOffsetPos )
+    chair:setPos( ply:getEyePos() + ply:getEyeAngles():getForward() * 10 + chairOffsetPos )
 end )
 
 
