@@ -40,7 +40,7 @@ local chairOffsetPos -- In world coordinates, depends on the chair model (accoun
 local tableInsert = table.insert
 
 
-projectNameID = "TeleDoor." .. chip():entIndex()
+projectNameID = projectNameID or "TeleDoor." .. chip():entIndex()
 
 inputNames = inputNames or {}
 inputTypes = inputTypes or {}
