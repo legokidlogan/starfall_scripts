@@ -206,12 +206,16 @@ hook.add( "KeyPress", "LKL_TeleDoor_UseDoor", function( ply, key )
     if chair.teledoorIsBusy then return end
 
     local tr = ply:getEyeTrace()
-    local ent = tr.Entity
+    local ind = hook.run( "LKL_TeleDoor_SelectDoorInd", ply, tr ) -- Allow the index to be overridden
 
-    if not isValid( ent ) then return end
+    -- If no override, use what the player is looking at.
+    if not ind then
+        local ent = tr.Entity
+        if not isValid( ent ) then return end
 
-    local ind = hook.run( "LKL_TeleDoor_SelectDoorInd", ply, tr ) or doorMap[ent]
-    if not ind then return end
+        ind = doorMap[ent]
+        if not ind then return end
+    end
 
     if
         not hook.run( "LKL_TeleDoor_IgnoreUseRange", ply, tr, ind ) and
