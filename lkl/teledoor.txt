@@ -60,8 +60,6 @@ tableInsert( inGenRepeatMaxes, inGenRepeatMaxDefault )
 require( "lkl/input_generator.txt" )
 
 do
-    prop.setPropUndo( false )
-
     local spawnables = prop.getSpawnableSents( true ).Vehicles
     local mainType = "Couch_Furniture_01"
     local mainOP = Vector( 0, 0, -32.894 / 2 )
@@ -81,10 +79,13 @@ local function spawnChair( ind )
     if isValid( chair ) then return end
 
     local ent
+    local undo = prop.getPropUndo()
 
     pcall( function()
         ent = prop.createSent( storePos, Angle( 0, 0, 0 ), chairType, true )
     end )
+
+    prop.setPropUndo( undo )
 
     if isValid( ent ) then
         chair = ent
