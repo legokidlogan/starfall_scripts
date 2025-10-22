@@ -3,8 +3,6 @@
 --@server
 --@include lkl/input_generator.txt
 
-local tableInsert = table.insert
-
 -- CONFIG:
 local doorSounds = {
     Default = "doors/latchunlocked1.wav", -- Good for normal-looking wood doors
@@ -23,6 +21,7 @@ local doorSounds = {
 }
 -- End Config
 
+
 local chair
 local doors = {}
 local doorMap = {}
@@ -34,6 +33,8 @@ local chairLocalOffsetPos = Vector( 90, 0, -11 ) -- Local to the exit marker
 local chairLocalOffsetPlyAdjust = Vector( 0.7, 0, 0 )
 local chairLocalOffsetAng -- Local to the exit marker, depends on the chair model (accounts for exit rotation)
 local chairOffsetPos -- In world coordinates, depends on the chair model (accounts for the exit point)
+
+local tableInsert = table.insert
 
 
 projectNameID = "TeleDoor." .. chip():entIndex()
