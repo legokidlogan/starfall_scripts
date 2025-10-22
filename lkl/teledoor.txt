@@ -167,7 +167,7 @@ hook.add( "PlayerEnteredVehicle", "LKL_TeleDoor_EnterChair", function( ply, ent 
     timer.simple( 0.1, function()
         if not isValid( ent ) then return end
 
-        if sound.emitSoundLeft() > 0 then
+        if sound.emitSoundsLeft() > 0 then
             ent:emitSound( teledoor.doorSounds[ind] or teledoor.doorSounds.Default, 75, 100, 1 )
         end
 
