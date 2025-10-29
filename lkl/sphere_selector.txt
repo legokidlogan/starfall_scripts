@@ -135,7 +135,7 @@ local finalizeSelection
             RadiusMin = number, -- If provided, the minimum allowed radius for the sphere.
             RadiusMax = number, -- If provided, the maximum allowed radius for the sphere.
             AnchorPos = Vector, -- If provided, steps 1 and 2 instead set the center based on a direction (step 1) and distance (step 2) from this position.
-            AnchorRadius = number, -- The radius for the AnchorPos sphere, used for intersectin math. Defaults to 200.
+            AnchorRadius = number, -- The radius for the AnchorPos sphere, used for intersection math. Defaults to 200.
             AnchorDistMin = number, -- If provided, the minimum allowed distance from AnchorPos for the sphere center.
             AnchorDistMax = number, -- If provided, the maximum allowed distance from AnchorPos for the sphere center.
         }
