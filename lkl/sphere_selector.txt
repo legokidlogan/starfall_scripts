@@ -208,7 +208,6 @@ function sphereSelector.stopSelecting()
 
     selecting = false
     stage = -1
-    finishCallback = nil
     centerHorizontal = nil
     center = nil
     chosenRadius = nil
@@ -245,6 +244,7 @@ function sphereSelector.stopSelecting()
 
     if finishCallback then
         local jobID = jobIncr
+        local cb = finishCallback
         local misc = {
             jobID = jobID,
             anchorPos = anchorPos and anchorPos:clone() or nil,
@@ -252,7 +252,9 @@ function sphereSelector.stopSelecting()
             anchorDist = anchorDist,
         }
 
-        finishCallback( false, nil, nil, nil, misc )
+        finishCallback = nil
+
+        cb( false, nil, nil, nil, misc )
         hook.run( "LKL_SphereSelector_Stopped", jobID, false )
     end
 end
