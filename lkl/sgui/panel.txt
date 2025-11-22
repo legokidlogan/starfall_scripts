@@ -47,14 +47,20 @@
 
     - RENDER HOOKS:
         LKL_SGUI_PreRender
+        LKL_SGUI_HUD_PreRender
             - Called before any SGUI rendering is done.
+            - HUD hook runs for HUD Panels, normal hook runs for screen Panels.
 
         LKL_SGUI_PreRenderExtraDrawCalls
+        LKL_SGUI_HUD_PreRenderExtraDrawCalls
             - Called right before extra draw calls are rendered.
             - :handleOrderedDraw() and :handleOrderedDrawBackground() will be called after this.
+            - HUD hook runs for HUD Panels, normal hook runs for screen Panels.
 
         LKL_SGUI_PostRender
+        LKL_SGUI_HUD_PostRender
             - Called after all SGUI rendering is done.
+            - HUD hook runs for HUD Panels, normal hook runs for screen Panels.
 --]]
 
 
@@ -2400,6 +2406,8 @@ end
 hook.add( "drawhud", "LKL_SGUI_AutoDraw", function()
     wipeExtraDrawCalls()
 
+    hook.run( "LKL_SGUI_HUD_PreRender" )
+
     for _, panel in ipairs( parentlessPanels ) do
         if panel:doesAutoDraw() and panel:isHUD() then
             if not SGUI.perfCheck() then return end
@@ -2408,7 +2416,11 @@ hook.add( "drawhud", "LKL_SGUI_AutoDraw", function()
         end
     end
 
+    hook.run( "LKL_SGUI_HUD_PreRenderExtraDrawCalls" )
+
     handleExtraDrawCalls()
+
+    hook.run( "LKL_SGUI_HUD_PostRender" )
 end )
 
 hook.add( "render", "LKL_SGUI_AutoDraw", function()
