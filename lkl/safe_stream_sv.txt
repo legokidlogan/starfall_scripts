@@ -24,6 +24,8 @@ local netReadStream = net.readStream
 local netCancelStream = net.cancelStream
 --local netGetStreamProgress = net.getStreamProgress
 local netIsStreaming = net.isStreaming
+local netCanWriteStream = net.canWriteStream
+local netCanReadStream = net.canReadStream
 local netSend = net.send
 
 local tableInsert = table.insert
@@ -427,7 +429,10 @@ function safeStream.getCurrentWriteStream( ply )
     if not queue.Busy then return nil end
 
     local streamInfo = queue[1]
-    if not streamInfo then return nil end
+    if not streamInfo then
+        if netCanWriteStream() then return nil end
+        return false -- Busy with an unqueued stream.
+    end
     if not isMyQueueEntry( streamInfo ) then return false end -- Busy with another chip's stream.
 
     return streamInfo.streamID
@@ -449,7 +454,10 @@ function safeStream.getCurrentReadStream()
     if not readQueue.Busy then return nil end
 
     local streamInfo = readQueue[1]
-    if not streamInfo then return nil end
+    if not streamInfo then
+        if netCanReadStream() then return nil end
+        return false -- Busy with an unqueued stream.
+    end
     if not isMyQueueEntry( streamInfo ) then return false end -- Busy with another chip's stream.
 
     return streamInfo.streamID
@@ -457,11 +465,23 @@ end
 
 -- Returns whether at least one stream is actively being written or read.
 function safeStream.isStreaming()
-    if netIsStreaming() then return true end
+    return safeStream.isReading() or safeStream.isWriting()
+end
+
+function safeStream.isReading()
+    local reading = netIsStreaming()
+    if reading then return true end
 
     validateGlobalData()
-    local readQueue = GDM.OwnerData.SafeStream.ReadQueue
-    if readQueue.Busy then return true end
+
+    return GDM.OwnerData.SafeStream.ReadQueue.Busy or false
+end
+
+function safeStream.isWriting()
+    local _, writing = netIsStreaming()
+    if writing then return true end
+
+    validateGlobalData()
 
     local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
 
@@ -1068,6 +1088,8 @@ timer.create( "LKL_SafeStream_ProcessWriteQueue", 1, 0, function()
             shouldPushGDM = true
             continue
         end
+
+        if not netCanWriteStream() then continue end -- Don't write if we're at the stream limit
 
         queue.Busy = true
         shouldPushGDM = true

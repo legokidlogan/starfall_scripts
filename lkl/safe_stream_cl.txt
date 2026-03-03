@@ -18,6 +18,7 @@ local netReadStream = net.readStream
 local netCancelStream = net.cancelStream
 --local netGetStreamProgress = net.getStreamProgress
 local netIsStreaming = net.isStreaming
+local netCanWriteStream = net.canWriteStream
 --local netSend = net.send
 
 local tableInsert = table.insert
@@ -130,6 +131,7 @@ function safeStream.cancelAllWrites( noNet )
     local callbacks = {}
 
     writingStreamID = nil
+    timer.remove( "LKL_SafeStream_StartWriting" )
 
     for streamID, streamInfo in pairs( writeBank ) do
         tableInsert( streamIDs, streamID )
@@ -213,10 +215,23 @@ end
 
 -- Returns whether at least one stream is actively being written or read.
 function safeStream.isStreaming()
-    if netIsStreaming() then return true end
-    if writingStreamID then return true end
+    local reading, writing = netIsStreaming()
+
+    return reading or writing or writingStreamID ~= nil
+end
+
+function safeStream.isReading()
+    local reading = netIsStreaming()
+    if reading then return true end
 
     return false
+end
+
+function safeStream.isWriting()
+    local _, writing = netIsStreaming()
+    if writing then return true end
+
+    return writingStreamID and true or false
 end
 
 
@@ -351,6 +366,7 @@ net.receive( "LKL_SafeStream_ReadFinished", function()
     if not streamInfo then return end
 
     if writingStreamID == streamID then
+        timer.remove( "LKL_SafeStream_StartWriting" )
         writingStreamID = nil
     end
 
@@ -367,6 +383,7 @@ net.receive( "LKL_SafeStream_ClearWriteBank", function()
     -- Server wants us to clear the write bank, and not send a message back.
 
     table.empty( writeBank )
+    timer.remove( "LKL_SafeStream_StartWriting" )
     writingStreamID = nil
 end )
 
@@ -376,13 +393,29 @@ net.receive( "LKL_SafeStream_StartWriting", function()
     local streamID = net.readUInt( 16 )
     local streamInfo = writeBank[streamID]
     if not streamInfo then error( "[SafeStream] Server prompted the client to write a stream it never queued!" ) end
+    if writingStreamID ~= nil then error( "[SafeStream] Server prompted the client to write a stream before finishing the previous one!" ) end -- Should never happen
 
     writingStreamID = streamID
 
-    net.start( "LKL_SafeStream_ReadStream" )
-    net.writeUInt( streamID, 16 )
-    netWriteStream( streamInfo.dataStr, streamInfo.compress )
-    net.send()
+    local function startStream()
+        timer.remove( "LKL_SafeStream_StartWriting" )
+
+        net.start( "LKL_SafeStream_ReadStream" )
+        net.writeUInt( streamID, 16 )
+        netWriteStream( streamInfo.dataStr, streamInfo.compress )
+        net.send()
+    end
+
+    if netCanWriteStream() then
+        startStream()
+        return
+    end
+
+    timer.create( "LKL_SafeStream_StartWriting", 0.1, 0, function()
+        if netCanWriteStream() then
+            startStream()
+        end
+    end )
 end )
 
 
