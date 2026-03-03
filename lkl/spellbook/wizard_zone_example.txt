@@ -8,6 +8,12 @@ require( "lkl/spellbook/wizard_zone.txt" )
 if CLIENT then return end
 
 
+--[[
+    - Creates a WizardZone, an area for pvpers to freely cast spells.
+    - Purely visual, doesn't actually restrict/enable spells by itself.
+    - Mostly exists for making it easy to handle server rules without banning magic.
+--]]
+
 local zone = WizardZone:new()
 
 zone:setCornersWithBoxSelector( cbAdjust, cbFinished )
