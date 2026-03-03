@@ -12,6 +12,12 @@ if CLIENT then return end
     - Creates a WizardZone, an area for pvpers to freely cast spells.
     - Purely visual, doesn't actually restrict/enable spells by itself.
     - Mostly exists for making it easy to handle server rules without banning magic.
+
+    - Like with any LabeledZone, you set this up by right clicking to mark each boundary of the box.
+        - First the x,y (horizontal) position of the first corner.
+        - Then the z (vertical) position of the first corner.
+        - Then the x,y (horizontal) position of the second corner.
+        - Then the z (vertical) position of the second corner.
 --]]
 
 local zone = WizardZone:new()
