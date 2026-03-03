@@ -29,7 +29,7 @@ function ChanneledSpell:onSetActive( _state, _startTime )
 end
 
 function ChanneledSpell:onManaEmpty()
-    -- Called when an active wpell is forcefully stopped due to running out of mana.
+    -- Called when an active spell is forcefully stopped due to running out of mana.
 end
 
 function ChanneledSpell:paintActive()
