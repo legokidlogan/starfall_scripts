@@ -1,3 +1,5 @@
+--[[ comment block so this doesn't break your Starfall chips
+
 # Spellbook
 
 A magic book which lets you cast spells.
@@ -12,15 +14,16 @@ A magic book which lets you cast spells.
 
 ## Notice
 
-This library was intended to come with a few base spells to serve as examples and give some bare-minimum combat capabilities. However, part of the goal of this library is to give people a framework to make their own special, creative, unique spells; and GMod players take mountains when you give them inches. As such, the only public spells are now bare-bones examples incapable of dealing damage. If you were looking for easy, abuseable spells, this is not the place for you; you must design your own spells, and try to make them fun and balanced.
+This library was intended to come with a few base spells to serve as examples and give some bare-minimum combat capabilities. However, part of the goal of this library is to give people a framework to make their own special, creative, unique spells. That, and GMod players take mountains when you give them inches; they will abuse almost anything. As such, the only public spells are now bare-bones examples incapable of dealing damage. If you were looking for easy, abuseable spells, this is not the place for you. You must design your own spells, and try to make them fun and balanced.
 
 If, however, you are well-versed in writing starfall code, and you would like to make some fun and fair spells, then welcome on in, fellow wizard! Go forth, craft thine spells!
 
 ## Usage
 
 Simply place the [custom_spellbook.txt](/lkl/spellbook/custom_spellbook.txt) script and use its Global Radial Menu (GRM) to navigate through spells.
-- The script is a template, intended for you to make a copy elsewhere and edit it to your liking.
-- By default, GRM's are opened by holding the COMMA key. However, [custom_spellbook.txt](/lkl/spellbook/custom_spellbook.txt) changes it to R for your convencience.
+- The script is a **template**, intended for you to make a copy elsewhere and edit it to your liking.
+- See the [customization section](/lkl/spellbook/README.md#customization) for how to start making your own spellbook.
+- By default, GRM's are opened by holding the `COMMA` key. However, [custom_spellbook.txt](/lkl/spellbook/custom_spellbook.txt) changes it to `R` for combat convencience.
 - Spells are displayed in the spellbook's radial menu, click on one to select it.
     - Cooldowns and active statuses are also displayed here, and in the book itself.
 - Press `spellbook.SUMMON_KEY` (middle mouse by default) while the radial menu is open to (de)summon the spellbook.
@@ -31,10 +34,10 @@ Spells, and how to cast them:
 - Spells are primarily casted/activated by left clicking while the spellbook is open.
 - There are four main types of spell: **Instant**, **Charged**, **Channeled**, and **Passive**.
     - **Instant** are self-explanatory. They cast instantly upon clicking.
-    - **Charged** spells cast when you left go.
+    - **Charged** spells cast when you let go.
         - The charge progress can be seen at the top of the spellbook's right page.
         - The longer a spell is charged for, the stronger it will be and the more mana it will consume.
-        - Some charged spells have a minimum charge requirement, shown as a darkened part of the charge bar.
+        - Some charged spells have a minimum charge requirement, seen as a darkened part of the charge bar.
     - **Channeled** spells have a continuous effect and mana drain for as long as you hold left click.
     - **Passive** spells are toggled upon clicking, and remain active even when you select another spell.
         - Passive spells can also be toggled by right clicking them in the radial menu.
@@ -54,34 +57,64 @@ How to read your spellbook:
 The [wizard_zone_example.txt](/lkl/spellbook/wizard_zone_example.txt) script can be used to define a wizard zone.
 - A wizard zone is an easy way to mark an area for wizard combat.
 - Place the chip. It will automatically use [boxSelector](/lkl/box_selector.txt) to let you determine the bounds.
-- Aim at the first corner and press E to lock it in.
-- Aim up and doin to choose the first corner's height, then press E.
+- Aim at the first corner and right click to lock it in.
+- Aim up and down to choose the first corner's height, then right click.
 - Repeat for the second corner.
 
 ## Customization
 
 Many aspects of the spellbook and its spells can be adjusted to your liking.
-To simplify the process, and not break your edits when updating this repo, it is recommended to make your own custom spellbook by copying the [custom_spellbook.txt](/lkl/spellbook/custom_spellbook.txt) template into your own folder and make edits to it from there.
+To simplify the process, and not break your edits when updating this repo, it is recommended to make your own custom spellbook by copying the [custom_spellbook.txt](/lkl/spellbook/custom_spellbook.txt) template into your own folder somewhere else and make edits to it from there. Likewise, it is recommended to make your own spell folder, separate from the one created by this library.
 
 Note that the `spellbook.SPELL_FOLDER` and `spellbook.SPELL_FOLDER_EXTRA` options can be changed to select your own spell folders. \
-The custom spellbook template also changes the GRM open key to `R` and `spellbook.SUMMON_KEY` to `MOUSE_MIDDLE` by default for easier use in combat.
+The spell loader will NOT search subfolders. \
+The custom spellbook template also changes the GRM open key to `R` and `spellbook.SUMMON_KEY` to `MOUSE_MIDDLE` by default for easier use in combat. \
+More information is available in the [documentation section](/lkl/spellbook/README.md#documentation) and in comments throughout the library.
 
 ## Visual Aids and Examples
 
-![Left and right pages](https://i.imgur.com/Rx2HfFg.png)
-![Active spell](https://i.imgur.com/vYanGh1.png)
-![Uncharged spell](https://i.imgur.com/7MqEJMI.png)
-![Charging spell](https://i.imgur.com/5MF7Xyv.png)
-![Mana-gaining spell](https://i.imgur.com/FLlMJ5d.png)
-![Radial menu](https://i.imgur.com/ib40Cp9.png)
+![Left and right pages](https://i.imgur.com/QHUDSqS.png "Left and right pages")
+![Active spell](https://i.imgur.com/vYanGh1.png "Active spell")
+![Uncharged spell](https://i.imgur.com/7MqEJMI.png "Uncharged spell")
+![Charging spell](https://i.imgur.com/5MF7Xyv.png "Charging spell")
+![Mana-gaining spell](https://i.imgur.com/FLlMJ5d.png "Mana-gaining spell")
+![Radial menu](https://i.imgur.com/ib40Cp9.png "Radial menu")
+![Wizard zone](https://i.imgur.com/Yi7vts1.gif "Wizard zone")
 
 ## Documentation
 
 This project is split into three main realms: server, owner client, and non-owner client. \
 The owner client handles spell selection, mana, cooldowns, etc, though the server can also add/remove mana and adjust cooldowns, among other things. \
 For realm-specific functions, see [spellbook_sv.txt](/lkl/spellbook/spellbook_sv.txt), [spellbook_cl_owner.txt](/lkl/spellbook/spellbook_cl_owner.txt), and [spellbook_cl.txt](/lkl/spellbook/spellbook_cl.txt). \
-See the [spells/](/lkl/spellbook/spells) folder for existing spells to make your own from. \
-Further details about the four amin spell classes can be found in their respective files.
+See the [spells/bare_examples/](/lkl/spellbook/spells/bare_examples) folder for example implementations of spells.
+
+There are currently four main spell types:
+- [Instant](/lkl/spellbook/instant_spell.txt)
+    - Casts the spell instantly on left click, or fumbles if out of mana.
+    - Doesn't do anything special when left click is held.
+    - Cooldowns apply on cast.
+- [Passive](/lkl/spellbook/passive_spell.txt)
+    - Pressing left mouse will cast the spell and activate it, or fumble if out of mana.
+    - Releasing left mouse will deactivate the spell.
+    - Mana will slowly drain while active.
+    - Cooldowns apply when the cast starts.
+    - Will fumble and deactivate if you run out of mana while it is active.
+    - Right-clicking the spell in the radial menu will quick-toggle it.
+- [Channeled](/lkl/spellbook/channeled_spell.txt)
+    - Behaves the same as a Passive spell, except it cannot be quick-toggled from the radial menu.
+    - Will auto-deactivate if you close the spellbook or select a different spell.
+- [Charged](/lkl/spellbook/charged_spell.txt)
+    - The spell will start charging upon pressing left mouse.
+    - Releasing left mouse will cast the spell, or fumble if out of mana.
+    - Cast strength (0-1) and mana cost scales with how long the spell was charged for.
+    - Can be configured to fumble if not charged for long enough.
+    - Cooldowns apply on cast.
+    - Has additional initialization parameters not present in other spell types.
+
+Each spell type has their most-relevant overridable functions displayed in their own file, but more can be found in the [Spell](/lkl/spellbook/spell.txt) class itself, along with instance methods, initialization parameters, and other information. \
+Note that all four spell types implement `Spell:onKeyPress()` (and some implement more methods), so be sure to call it if you need to override it in your own spells. \
+Every spell type can use `:setActive()`, not just Passive and Channeled! This can be useful for more complex spells or custom classes.
+
 
 Hooks:
 
@@ -182,3 +215,6 @@ Hooks:
 - `LKL_Spellbook_PostHUDDraw`
     - Owner client realm.
     - Called after the spellbook HUD draws.
+ \
+ \
+--]]

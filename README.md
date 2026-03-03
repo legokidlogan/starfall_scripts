@@ -25,10 +25,26 @@ Take caution when using any scripts which have `----- VERY OLD -----` at the top
 Most of this repo is just small libraries, fringe tools, or repurposed projects, but here's the extra-special ones that I'd recommend looking at first:
 
 ### Libraries
+- [Spellbook](/lkl/spellbook)
+    - An in-depth library for creating and casting magic spells of all sorts.
+    - Uses [GlobalRadialMenu](/lkl/global_radial_menu.txt) for selecting spells quickly.
+    - Each spell can be given its own color and icon for quick identification and simply looking pretty.
+    - The spellbook's appearance can be *fully customized*, including the book model itself, interface/UI colors, completely changing the right page rendering of specific spells, adding holos to yourself like a wizard hat and robe or whatever else, and changing the custom crosshair.
+    - Has built-in compatibility with [prop_buffer.txt](/lkl/prop_buffer.txt) so you can not only have props spawned ahead of time for on-demand use, but also have spells display the current number of available props per each model they care about.
+        - Each spell can associate itself with a trio of model, prop provider, and display name to have it displayed on the left page whenever the spell is selected.
+        - Multiple associations can be made per spell.
+        - Custom prop providers can be used as well, as long as you add support for it according to the comments for `Spell:associateModel()`.
+    - If enabled, has built-in support with [cross_cross.txt](/lkl/cross_cross.txt), allowing the spellbook's crosshair to be compatible with custom camera/crosshair systems in other chips.
+    - Has tons of helper functions for trace filtering, dealing arbitrary bullet damage, getting other spellbook users, hiding the spellbook and garments to specific players, using pooled particle emitters, playing sounds that follow the chip owner without hitting permission errors, and more.
+    - Pairs well with [a Wizard Zone](/lkl/spellbook/wizard_zone_example.txt) to quickly mark an area for yourself and others to cast spells in.
+        - The zone does nothing by itself, only serving as a clear visual marker to make pvp rules easier to enforce, and to give justification for allowing spells at all.
+    - Lots of custom hooks, overridable class functions, and (mostly comment-based) documentation.
+    - Additional information can be found in the library's [dedicated README](/lkl/spellbook/README.md).
 - [SGUI](/lkl/sgui)
     - An entire GUI library made from within Starfall using [middleclass](https://github.com/kikito/middleclass).
     - There's currently a pr to [add vgui into Starfall itself](https://github.com/thegrb93/StarfallEx/pull/1413), though it may be a long time before it's merged. As such, I've been working on this in the meantime.
     - While most of it is complete, I'm still working on SGUI to add more classes, so expect updates and new features from time to time.
+    - Additional information can be found in the library's [dedicated README](/lkl/sgui/README.md).
 - [cl_check_permissions.txt](/lkl/cl_check_permissions.txt)
     - A dead-simple client permission checker to make your life easier and your code faster.
     - Apart from the initial setup, all you need to do is check the global `permissionSatisfied` boolean before performing a required action.
@@ -83,6 +99,8 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
     - Fail cases can be handled separately from the execution function to keep things tidy and provide colored prints on what went wrong.
     - Has a built-in help command to list argument info and any custom details you provide.
     - Allows for the creation of multiple sets of commands (with different prefixes) in the same chip.
+- [safe_stream.txt](/lkl/safe_stream.txt)
+    - A robust netstream manager which allows multiple chips to use streams without conflicting with each other, as Starfall doesn't have its own stream queue.
 - [sv_dosound.txt](/lkl/sv_dosound.txt) and [cl_dosound.txt](/lkl/cl_dosound.txt)
     - **Disclaimer**: `cl_dosound` will soon be refactored to use [easy_bass.txt](/lkl/easy_bass.txt), though it shouldn't change anything front-facing.
     - Lets you create special event-based sounds, consolidating the params into one place and reducing the playback function to a simple one-liner.
@@ -116,8 +134,23 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
 - [e2_applytorque.txt](/lkl/e2_applytorque.txt)
     - Provides access to [Expression 2](https://github.com/wiremod/wire)'s version of [applyTorque()](http://thegrb93.github.io/StarfallEx/#Types.Entity.applyTorque), which has been [modified from base-game](https://github.com/wiremod/wire/blob/master/lua/entities/gmod_wire_expression2/core/compat.lua#L78).
     - Also provides tools to easily rotate an unfrozen entity to align with a specific angle using stable torque.
+    - **Superceded by [align_angvel.txt](/lkl/align_angvel.txt)** as a much more stable and performant way to rotate unfrozen entities.
 
 ### Non-Library Tools
+- [interactive_3d_map.txt](/lkl/interactive_3d_map.txt)
+    - Automatically builds a mesh out of the current map and displays it in miniature form.
+        - Powered by [map_mesh.txt](/lkl/map_mesh.txt) and [map_data.txt](/lkl/map_data.txt), which scrape brush data, get manually-scraped displacement and prop_static info from my [starfall_data repo](https://github.com/legokidlogan/starfall_data), and scan and locally cache other assorted info like the skybox size, map bounds, and more.
+        - The resulting mesh can be tweaked in many ways through each of these library's configs.
+    - Players are shown on the map as well, with a slightly increased size to see them more easily.
+    - An array of entities can be wired in to display them on the map as well.
+    - Further expanded on by [magnified_map.txt](/lkl/magnified_map.txt), which adds wire inputs that let players pick up and focus a magnifying glass which seamlessly reveals what the real map actually looks like.
+    - Only starts loading once the local player gets close to the chip.
+    - Doesn't need a starfall hud component to work!
+- [mesh_minimap.txt](/lkl/mesh_minimap.txt) and [mesh_minimap_sgui.txt](/lkl/mesh_minimap_sgui.txt)
+    - Uses [map_mesh.txt](/lkl/map_mesh.txt) to automatically generate a stylized minimap HUD element for the current map.
+    - Highly configurable, with the ability to add custom dot/arrow markers.
+    - Usable by anyone who connects to the hud component.
+    - The SGUI version allows for most config settings to be adjusted on the fly, individually per each player. Simply open chat or the context menu and click on the settings cog.
 - [music_player.txt](/lkl/music_player.txt)
     - Customizable songs and playlists, edited in [music_player_songs.txt](/lkl/music_player_songs.txt)
     - Able to be controlled by both chat commands and wire inputs.
@@ -125,14 +158,16 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
     - Has wire outputs for if you want to make a fancy radio which adjusts visuals per song.
 - [starfall_error_viewer.txt](/lkl/starfall_error_viewer.txt)
     - Displays (through walls) the position of errored starfall chips that are owned by you.
+    - Pressing `ctrl + r` while looking at an error indicator will restart the corresponding chip.
     - Toggleable with the `/sev` chat commmand.
 - [enhanced_first_person.txt](/lkl/enhanced_first_person.txt)
     - Lets you see yourself in first person, well and truly.
     - Uses calcview so your playermodel actually gets rendered, no janky fake models or duplicate rendering required.
     - Best used with [PAC3](https://github.com/CapsAdmin/pac3) to see yourself or force your `player movement` parts to apply without needing third person or the wonky pac camera.
 - [true_crosshair.txt](/lkl/true_crosshair.txt)
-    - Ever notice that high recoil guns tend to shoot away from the center-screen crosshair? Well, that's because the base-game crosshair is a lying little bugger, and there's actually a lot of things it gets wrong!
-    - This script will give you a new crosshair that gets positioned to your player hitpos, meaning it will **always** be exactly correct for telling you where you're going to shoot, whether it be for weapons, toolgun, physgun, whatever.
+    - Renders a secondary crosshair that gets positioned to your player hitpos, i.e. whatever you are looking at.
+    - Useful for weapons which don't account for viewpunch (recoil) properly when handling bullet spread, and thus make the game's normal crosshair unreliable.
+        - For example, the [Workshop version of M9K](https://steamcommunity.com/sharedfiles/filedetails/?id=128089118). The same issue does not happen with CFC's [m9k_monorepo](https://github.com/CFC-Servers/m9k_monorepo).
     - A must-have tool when using [enhanced_first_person.txt](/lkl/enhanced_first_person.txt), as the default crosshair will be very unreliable otherwise.
 - [undo_buffer.txt](/lkl/undo_buffer.txt)
     - Spawns a buffer of six auto-respawning props to put a stop-gap in your undo history, preventing you from accidentally undoing a large build, etc.
@@ -149,6 +184,7 @@ Most of this repo is just small libraries, fringe tools, or repurposed projects,
     - Broadly, this makes objects that fluidly go from one position/orientation to another and back. Anything with just two states to move between, you can create it with this, like a bridge, drawer, window, whatever.
 - [advanced_entity_marker.txt](/lkl/advanced_entity_marker.txt)
     - Recreates the functionality of the [Wiremod](https://github.com/wiremod/wire) AdvEntMarker, but compresses multiple marker lists into one chip, and has several quality of life improvements.
+    - **Disclaimer**: Currently broken due to changes to Starfall's wire library.
 - [sh_propinfo.txt](/lkl/sh_propinfo.txt)
     - If your server doesn't have [Customizable Prop Info](https://github.com/legokidlogan/customizable_prop_info) but you need accurate info of whatever you're looking at to make building easier or to find the owner of a prop, why not try the addon's predecessor?
     - Take this with a grain of salt, though. Because of the addon, *I will not be maintaining the Starfall version anymore*.
