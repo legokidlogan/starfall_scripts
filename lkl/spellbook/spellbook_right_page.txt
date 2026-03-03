@@ -16,7 +16,7 @@
         - "empty" (no circle bars or charge bar, just a blank page)
         - "compact" (uses regular bars instead of circle bars, giving a ton of room at the bottom of the page for custom content)
     - spellbook.RIGHT_PAGE_STYLE determines the global default right page style, but spells can override this with :setRightPageStyle( styleName ).
-    - Regardless of the style, when the right page is drawn, the selected sepll will be called with :paintRightPage( rightPageInfo )
+    - Regardless of the style, when the right page is drawn, the selected spell will be called with :paintRightPage( rightPageInfo )
         - rightPageInfo is meant to be read-only, containing information which may be useful for drawing to the right page.
 --]]
 
