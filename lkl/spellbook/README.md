@@ -79,7 +79,7 @@ More information is available in the [documentation section](/lkl/spellbook/READ
 ![Charging spell](https://i.imgur.com/5MF7Xyv.png "Charging spell")
 ![Mana-gaining spell](https://i.imgur.com/FLlMJ5d.png "Mana-gaining spell")
 ![Radial menu](https://i.imgur.com/ib40Cp9.png "Radial menu")
-![Wizard zone](https://i.imgur.com/Yi7vts1.gif "Wizard zone")
+![Wizard zone](https://i.imgur.com/s8PAaEk.gif "Wizard zone")
 
 ## Documentation
 
