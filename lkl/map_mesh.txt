@@ -112,6 +112,8 @@ local meshMat = nil
 local mapDataReady = false
 local recordVertsQueue = nil
 local meshMapExportFolder = "lkl/map_mesh/exports/" .. game.getMap() .. "/" .. meshMapExportSubfolder
+local finishedCachingMapColors = false
+local dispQueueFinished = false
 
 
 ----- PUBLIC FUNCTIONS -----
@@ -165,6 +167,14 @@ if CLIENT then
     -- 0 to 1, -1 if not started.
     function libMapMesh.getMeshProgress()
         return meshProgress
+    end
+
+    function libMapMesh.isProcessingDisplacements()
+        return meshesStartedLoading and meshMapShowDisplacements and not dispQueueFinished
+    end
+
+    function libMapMesh.isCachingMapColors()
+        return meshesStartedLoading and ( dispQueueFinished or not meshMapShowDisplacements ) and meshMapColorMode == 2 and not finishedCachingMapColors
     end
 
     --[[
@@ -347,9 +357,7 @@ local mapMatsByName = {}
 local mapMatColors = {}
 local tempMaterials = {} -- Materials created for the sake of caching colors. Will get destroyed afterwards.
 local recordVerts_surfaceInd = -1
-local finishedCachingMapColors = false
 local dispQueue = nil
-local dispQueueFinished = false
 local dispQueueEntriesCompleted = 0
 local dispQueueEntriesTotal = 0
 

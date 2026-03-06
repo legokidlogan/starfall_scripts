@@ -390,9 +390,19 @@ hook.add( "DrawHUD", "LKL_MeshMinimap_DrawMinimap", function()
         render.setColor( Color( 120 * progress, 1, 1 ):hsvToRGB() )
         render.drawRect( barX + border, barY + border, ( barWidth - border * 2 ) * progress, barHeight - border * 2 )
 
+        local str = "building map mesh..."
+
+        if not mapDataReady then
+            str = "streaming map data..."
+        elseif libMapMesh.isProcessingDisplacements() then
+            str = "processing displacements..."
+        elseif libMapMesh.isCachingMapColors() then
+            str = "caching map colors..."
+        end
+
         render.setColor( c_white )
         render.setFont( progressFont )
-        render.drawSimpleText( scrW / 2, barY, "loading map mesh...", TEXT_ALIGN.CENTER, TEXT_ALIGN.BOTTOM )
+        render.drawSimpleText( scrW / 2, barY, str, TEXT_ALIGN.CENTER, TEXT_ALIGN.BOTTOM )
         render.drawRectOutline( barX, barY, barWidth, barHeight, border )
 
         return
