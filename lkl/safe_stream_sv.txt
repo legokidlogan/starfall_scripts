@@ -1034,6 +1034,11 @@ timer.create( "LKL_SafeStream_ProcessWriteQueue", 1, 0, function()
     local writeQueue = GDM.OwnerData.SafeStream.WriteQueue
     local shouldPushGDM = false
 
+    -- Force starfall to update the net stream manager
+    if not next( writeBank ) then
+        netCanWriteStream()
+    end
+
     for plyID, queue in pairs( writeQueue ) do
         if unqueuedBusyPlys[plyID] then continue end -- Don't send streams to players who are busy with unqueued streams.
 
