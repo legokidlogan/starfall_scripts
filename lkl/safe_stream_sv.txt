@@ -1106,7 +1106,7 @@ timer.create( "LKL_SafeStream_ProcessWriteQueue", 1, 0, function()
 end )
 
 timer.create( "LKL_SafeStream_ProcessReadQueue", 1, 0, function()
-    if netIsStreaming() then return end
+    if not netCanReadStream() then return end
 
     validateGlobalData()
     local readQueue = GDM.OwnerData.SafeStream.ReadQueue
