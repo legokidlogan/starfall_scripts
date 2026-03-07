@@ -1432,7 +1432,8 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
     end
 
     local degStep = 360 / #curPage
-    local hoverDT = timer.frametime() / curMenu:getHoverDuration()
+    local hoverDuration = curMenu:getHoverDuration()
+    local hoverDT = hoverDuration <= 0 and 1 or ( timer.frametime() / hoverDuration )
     local polySetsByFrame = choicePolySetsLookup[polyStr]
     local choiceGradientPolys = polySetsByFrame.gradientPolys
     local choiceBandPolys = polySetsByFrame.bandPolys
