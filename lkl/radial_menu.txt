@@ -423,7 +423,7 @@ end
 function RadialMenu:setHoverDuration( duration )
     if duration ~= nil then
         if type( duration ) ~= "number" then error( "Expected duration to be a number or nil" ) end
-        if duration > 0 then error( "Expected duration to be greater than 0" ) end
+        if duration >= 0 then error( "Expected duration to be greater than or equal to 0" ) end
     end
 
     self._hoverDuration = duration
