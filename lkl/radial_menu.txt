@@ -330,6 +330,122 @@ function RadialMenu.static:fillPagesWithBlanks( pages, targetChoiceCount, blankC
     return pages
 end
 
+--[[
+    - Returns a list of pages that each have the same number of choices, using one list of choice descriptors.
+    - If there aren't enough choices to complete the last page, the remainder will be filled with blank choices.
+
+    choiceList: table
+        - A list of choice descriptors, as seen in RadialMenu:initialize().
+        - Note that you can add more fields to choices that aren't listed in RadialMenu:initialize().
+            - Doing so may help when doing more complex setups with extraParams.
+        - Each choice will automatically be given these additional fields:
+            isTopChoice = BOOLEAN
+            isBlankChoice = BOOLEAN
+    choicesPerPage: number
+        - The exact number of choices each page should have.
+    extraParams: (optional) table
+        - Additional options. All fields are optional.
+        {
+            blankChoice = TABLE, -- The blank choice descriptor to use, instead of the class default.
+            topChoice = TABLE or function( pageInd ) return choice end, -- A choice descriptor to put at the top of every page.
+            pageName = STRING or function( pageInd, page ) return name end, -- The name to use for each page.
+            choiceIterator = function( pageInd, choiceInd, choice ) return end, -- Runs for every choice at the end.
+        }
+--]]
+function RadialMenu.static:makePagesFromChoiceList( choiceList, choicesPerPage, extraParams )
+    if type( choicesPerPage ) ~= "number" then error( "Expected choicesPerPage to be a number" ) end
+    if math.floor( choicesPerPage ) ~= choicesPerPage then error( "Expected choicesPerPage to be an integer" ) end
+    if choicesPerPage < 3 then error( "Expected choicesPerPage to be 3 or greater" ) end
+
+    extraParams = extraParams or {}
+
+    local allChoices = {}
+    local choiceCount = 0
+    local blankChoice = extraParams.blankChoice or self:makeBlankChoice()
+    local topChoice = extraParams.topChoice
+
+    blankChoice.isTopChoice = false
+    blankChoice.isBlankChoice = true
+
+    -- Build the normal and top choices.
+    for _, choice in ipairs( choiceList ) do
+        if topChoice and choiceCount % choicesPerPage == 0 then
+            local c = topChoice
+
+            if type( topChoice ) == "function" then
+                c = topChoice( choiceCount / choicesPerPage + 1 )
+            end
+
+            c.isTopChoice = true
+            c.isBlankChoice = false
+            table.insert( allChoices, c )
+            choiceCount = choiceCount + 1
+        end
+
+        choiceCount = choiceCount + 1
+
+        local choiceInd = choiceCount % choicesPerPage
+        if choiceInd == 0 then choiceInd = choicesPerPage end
+
+        choice.isTopChoice = false
+        choice.isBlankChoice = false
+        table.insert( allChoices, choice )
+    end
+
+    local pages = {}
+    local curPage = {}
+    local pageName = extraParams.pageName or nil
+    choiceCount = 0
+
+    -- Build the pages.
+    for _, choice in ipairs( allChoices ) do
+        if choiceCount == choicesPerPage then
+            table.insert( pages, curPage )
+            curPage = {}
+            choiceCount = 0
+        end
+
+        table.insert( curPage, choice )
+        choiceCount = choiceCount + 1
+    end
+
+    -- Add placeholder choices to the last page if needed.
+    if choiceCount < choicesPerPage and ( #pages == 0 or choiceCount ~= 0 ) then
+        for _ = choiceCount, choicesPerPage - 1 do
+            table.insert( curPage, blankChoice )
+        end
+
+        choiceCount = choicesPerPage
+    end
+
+    -- Add the last page if it's not empty.
+    if choiceCount ~= 0 then
+        table.insert( pages, curPage )
+    end
+
+    -- Handle page names.
+    for pageInd, page in ipairs( pages ) do
+        if type( page ) == "function" then
+            page.name = pageName( pageInd, page )
+        else
+            page.name = pageName
+        end
+    end
+
+    -- Handle choice iterator.
+    local choiceIterator = extraParams.choiceIterator
+
+    if choiceIterator then
+        for pageInd, page in ipairs( pages ) do
+            for choiceInd, choice in ipairs( page ) do
+                choiceIterator( pageInd, choiceInd, choice )
+            end
+        end
+    end
+
+    return pages
+end
+
 function RadialMenu.static:getMenuByName( name )
     return menusByName[name]
 end
