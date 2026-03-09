@@ -294,6 +294,42 @@ function RadialMenu.static:makeBlankChoice( template )
     )
 end
 
+--[[
+    - Adds blank choices to a page descriptor until it has a minimum number of choices.
+    - Useful for auto-filling pages with less than three choices or ensuring a page has a fixed number of choices.
+    - Modifies page and returns it.
+    - This should be used in conjunction with RadialMenu:new() or page-editing functions. 
+
+    page: table
+        - A page descriptor, as seen in RadialMenu:initialize().
+        - Will be modified.
+    targetChoiceCount: number
+        - The minimum number of choices the page should have after adding blanks.
+    blankChoice: (optional) table
+        - The blanke choice descriptor to use.
+        - If nil, will use a generic one from the class defaults.
+--]]
+function RadialMenu.static:fillPageWithBlanks( page, targetChoiceCount, blankChoice )
+    blankChoice = blankChoice or self:makeBlankChoice()
+
+    for i = #page + 1, targetChoiceCount do
+        page[i] = blankChoice
+    end
+
+    return page
+end
+
+-- Identical to RadialMenu:fillPageWithBlanks(), but applies to a list of page descriptors.
+function RadialMenu.static:fillPagesWithBlanks( pages, targetChoiceCount, blankChoice )
+    blankChoice = blankChoice or self:makeBlankChoice()
+
+    for _, page in ipairs( pages ) do
+        self:fillPageWithBlanks( page, targetChoiceCount, blankChoice )
+    end
+
+    return pages
+end
+
 function RadialMenu.static:getMenuByName( name )
     return menusByName[name]
 end
