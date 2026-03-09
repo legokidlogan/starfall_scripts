@@ -184,6 +184,7 @@ local nudgePolyUsers
 local nudgeColorUsers
 local getChoiceVisuals
 local editChoice
+local makeBlankChoice
 local validatePolyUser
 local handleChoiceClick
 local resetHoverProgress
@@ -271,6 +272,26 @@ function RadialMenu:initialize( name, displayName, pages )
     self:setPages( pages )
 
     menusByName[name] = self
+end
+
+--[[
+    - Returns a blank choice for use with other page/choice functions.
+    - Note that there is both an instance and a static version of this function.
+        - This one uses the class' current choice parameters as fallbacks.
+        - Be careful when using someMenuInstance:makeBlankChoice() vs RadialMenu:makeBlankChoice().
+
+    template: (optional) table
+        - Behaves the same as it normally does for choice parameters, as seen in RadialMenu:initialize().
+--]]
+function RadialMenu.static:makeBlankChoice( template )
+    return makeBlankChoice(
+        template,
+        self.CHOICE_GRADIENT_ENABLED,
+        self.CHOICE_BAND_ENABLED,
+        self.CHOICE_GRADIENT_COLOR_UNHOVERED,
+        self.CHOICE_BAND_COLOR_UNHOVERED,
+        self.CHOICE_NAME_COLOR_UNHOVERED
+    )
 end
 
 function RadialMenu.static:getMenuByName( name )
@@ -735,31 +756,17 @@ function RadialMenu:editChoice( pageInd, choiceInd, choice )
     editChoice( page, pageUIDPrepend, choiceInd, choice, self )
 end
 
--- Makes a blank choice for use with other page/choice functions.
--- template is optional, and behaves as it normally does for choice parameters.
+--[[
+    - Returns a blank choice for use with other page/choice functions.
+    - Note that there is both an instance and a static version of this function.
+        - This one uses the instance's current choice parameters as fallbacks.
+        - Be careful when using someMenuInstance:makeBlankChoice() vs RadialMenu:makeBlankChoice().
+
+    template: (optional) table
+        - Behaves the same as it normally does for choice parameters, as seen in RadialMenu:initialize().
+--]]
 function RadialMenu:makeBlankChoice( template )
-    local choice = {
-        name = "",
-        func = function() end,
-        template = template,
-    }
-
-    -- Get visuals, but use the unhovered colors only so the choice doesn't get highlighted.
-    local ge, be, gcu, _, bcu, _, ncu, _ = getChoiceVisuals( choice, self )
-    gcu = gcu:clone()
-    bcu = bcu:clone()
-    ncu = ncu:clone()
-
-    choice.gradientEnabled = ge
-    choice.bandEnabled = be
-    choice.gradientColorUnhovered = gcu
-    choice.gradientColorHovered = gcu
-    choice.bandColorUnhovered = bcu
-    choice.bandColorHovered = bcu
-    choice.nameColorUnhovered = ncu
-    choice.nameColorHovered = ncu
-
-    return choice
+    return makeBlankChoice( template, self )
 end
 
 function RadialMenu:getName()
@@ -1364,6 +1371,33 @@ editChoice = function(
     if not realChoice._hoverProgress then
         realChoice._hoverProgress = 0
     end
+end
+
+-- ge can instead be replaced with a menu instance.
+makeBlankChoice = function( template, ge, be, gcu, bcu, ncu )
+    local choice = {
+        name = "",
+        func = function() end,
+        template = template,
+    }
+
+    -- Get visuals, but use the unhovered colors only so the choice doesn't get highlighted.
+    local _
+    ge, be, gcu, _, bcu, _, ncu, _ = getChoiceVisuals( choice, ge, be, gcu, nil, bcu, nil, ncu, nil )
+    gcu = gcu:clone()
+    bcu = bcu:clone()
+    ncu = ncu:clone()
+
+    choice.gradientEnabled = ge
+    choice.bandEnabled = be
+    choice.gradientColorUnhovered = gcu
+    choice.gradientColorHovered = gcu
+    choice.bandColorUnhovered = bcu
+    choice.bandColorHovered = bcu
+    choice.nameColorUnhovered = ncu
+    choice.nameColorHovered = ncu
+
+    return choice
 end
 
 validatePolyUser = function( menu, page, pageInd )
