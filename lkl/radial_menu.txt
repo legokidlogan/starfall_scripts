@@ -182,6 +182,7 @@ local getColorFrame
 local moveColorUser
 local nudgePolyUsers
 local nudgeColorUsers
+local getChoiceVisuals
 local editChoice
 local validatePolyUser
 local handleChoiceClick
@@ -734,6 +735,33 @@ function RadialMenu:editChoice( pageInd, choiceInd, choice )
     editChoice( page, pageUIDPrepend, choiceInd, choice, self )
 end
 
+-- Makes a blank choice for use with other page/choice functions.
+-- template is optional, and behaves as it normally does for choice parameters.
+function RadialMenu:makeBlankChoice( template )
+    local choice = {
+        name = "",
+        func = function() end,
+        template = template,
+    }
+
+    -- Get visuals, but use the unhovered colors only so the choice doesn't get highlighted.
+    local ge, be, gcu, _, bcu, _, ncu, _ = getChoiceVisuals( choice, self )
+    gcu = gcu:clone()
+    bcu = bcu:clone()
+    ncu = ncu:clone()
+
+    choice.gradientEnabled = ge
+    choice.bandEnabled = be
+    choice.gradientColorUnhovered = gcu
+    choice.gradientColorHovered = gcu
+    choice.bandColorUnhovered = bcu
+    choice.bandColorHovered = bcu
+    choice.nameColorUnhovered = ncu
+    choice.nameColorHovered = ncu
+
+    return choice
+end
+
 function RadialMenu:getName()
     return self._name
 end
@@ -1199,6 +1227,69 @@ nudgeColorUsers = function( page, pageUID, indStart, indEnd, dir )
     end
 end
 
+-- Instead of passing all args, (choice, menu) can be passed. Using all args is ideal when iterating a whole page.
+getChoiceVisuals = function(
+        choice,
+        gradientEnabled, bandEnabled,
+        gradientColorUnhovered,
+        gradientColorHovered,
+        bandColorUnhovered,
+        bandColorHovered,
+        nameColorUnhovered,
+        nameColorHovered
+    )
+
+    -- This is terrible for maintenance, but great for performance. Likewise for a lot of the backend here...
+    -- Menu defaults
+    if bandEnabled == nil then
+        local menu = gradientEnabled
+
+        gradientEnabled = menu:isChoiceGradientEnabled()
+        bandEnabled = menu:isChoiceBandEnabled()
+        gradientColorUnhovered = menu._choiceGradientColorUnhovered
+        gradientColorHovered = menu._choiceGradientColorHovered
+        bandColorUnhovered = menu._choiceBandColorUnhovered
+        bandColorHovered = menu._choiceBandColorHovered
+        nameColorUnhovered = menu._choiceNameColorUnhovered
+        nameColorHovered = menu._choiceNameColorHovered
+    end
+
+    -- Template defaults
+    local template = choice.template
+    local t
+
+    if template then
+        t = template.gradientEnabled
+        if t ~= nil then gradientEnabled = t end
+
+        t = template.bandEnabled
+        if t ~= nil then bandEnabled = t end
+
+        gradientColorUnhovered = template.gradientColorUnhovered
+        gradientColorHovered = template.gradientColorHovered
+        bandColorUnhovered = template.bandColorUnhovered
+        bandColorHovered = template.bandColorHovered
+        nameColorUnhovered = template.nameColorUnhovered
+        nameColorHovered = template.nameColorHovered
+    end
+
+    -- Choice overrides
+    t = choice.gradientEnabled
+    if t ~= nil then gradientEnabled = t end
+
+    t = choice.bandEnabled
+    if t ~= nil then bandEnabled = t end
+
+    return
+        gradientEnabled, bandEnabled,
+        choice.gradientColorUnhovered or gradientColorUnhovered,
+        choice.gradientColorHovered or gradientColorHovered,
+        choice.bandColorUnhovered or bandColorUnhovered,
+        choice.bandColorHovered or bandColorHovered,
+        choice.nameColorUnhovered or nameColorUnhovered,
+        choice.nameColorHovered or nameColorHovered
+end
+
 editChoice = function(
         page, pageUIDPrepend, choiceInd, choice,
         choiceGradientEnabled, choiceBandEnabled,
@@ -1210,52 +1301,25 @@ editChoice = function(
         choiceNameColorHovered
     )
 
-    -- This is terrible for maintenance, but great for performance. Likewise for a lot of the backend here...
-    if choiceBandEnabled == nil then
-        local menu = choiceGradientEnabled
-
-        choiceGradientEnabled = menu:isChoiceGradientEnabled()
-        choiceBandEnabled = menu:isChoiceBandEnabled()
-        choiceGradientColorUnhovered = menu._choiceGradientColorUnhovered
-        choiceGradientColorHovered = menu._choiceGradientColorHovered
-        choiceBandColorUnhovered = menu._choiceBandColorUnhovered
-        choiceBandColorHovered = menu._choiceBandColorHovered
-        choiceNameColorUnhovered = menu._choiceNameColorUnhovered
-        choiceNameColorHovered = menu._choiceNameColorHovered
-    end
-
-    local template = choice.template
-    if template then
-        local t
-
-        t = template.gradientEnabled
-        if t ~= nil then choiceGradientEnabled = t end
-
-        t = template.bandEnabled
-        if t ~= nil then choiceBandEnabled = t end
-
-        choiceGradientColorUnhovered = template.gradientColorUnhovered
-        choiceGradientColorHovered = template.gradientColorHovered
-        choiceBandColorUnhovered = template.bandColorUnhovered
-        choiceBandColorHovered = template.bandColorHovered
-        choiceNameColorUnhovered = template.nameColorUnhovered
-        choiceNameColorHovered = template.nameColorHovered
-    end
-
     local realChoice = page[choiceInd]
     local choiceUID = pageUIDPrepend .. choiceInd
-    local gradientEnabled = choice.gradientEnabled
-    local bandEnabled = choice.bandEnabled
-
-    if gradientEnabled == nil then
-        gradientEnabled = choiceGradientEnabled
-    end
-
-    if bandEnabled == nil then
-        bandEnabled = choiceBandEnabled
-    end
-
     local name = choice.name
+
+    choiceGradientEnabled, choiceBandEnabled,
+        choiceGradientColorUnhovered,
+        choiceGradientColorHovered,
+        choiceBandColorUnhovered,
+        choiceBandColorHovered,
+        choiceNameColorUnhovered,
+        choiceNameColorHovered =
+        getChoiceVisuals( choice, choiceGradientEnabled, choiceBandEnabled,
+            choiceGradientColorUnhovered,
+            choiceGradientColorHovered,
+            choiceBandColorUnhovered,
+            choiceBandColorHovered,
+            choiceNameColorUnhovered,
+            choiceNameColorHovered
+        )
 
     realChoice.name = name
     realChoice.command = choice.command
@@ -1264,8 +1328,8 @@ editChoice = function(
     realChoice.func = choice.func
     realChoice.paint = choice.paint
     realChoice.paintRadial = choice.paintRadial
-    realChoice.gradientEnabled = gradientEnabled
-    realChoice.bandEnabled = bandEnabled
+    realChoice.gradientEnabled = choiceGradientEnabled
+    realChoice.bandEnabled = choiceBandEnabled
 
     if string.find( name, "\n" ) then
         realChoice.nameLines = string.split( name, "\n" )
@@ -1277,9 +1341,9 @@ editChoice = function(
     local bandColorStrOld = realChoice.bandColorStr
     local nameColorStrOld = realChoice.nameColorStr
 
-    gradientColorStr = addColorUser( choiceGradientColorsLookup, choiceUID, choice.gradientColorUnhovered or choiceGradientColorUnhovered, choice.gradientColorHovered or choiceGradientColorHovered )
-    bandColorStr = addColorUser( choiceBandColorsLookup, choiceUID, choice.bandColorUnhovered or choiceBandColorUnhovered, choice.bandColorHovered or choiceBandColorHovered )
-    nameColorStr = addColorUser( choiceNameColorsLookup, choiceUID, choice.nameColorUnhovered or choiceNameColorUnhovered, choice.nameColorHovered or choiceNameColorHovered )
+    gradientColorStr = addColorUser( choiceGradientColorsLookup, choiceUID, choiceGradientColorUnhovered, choiceGradientColorHovered )
+    bandColorStr = addColorUser( choiceBandColorsLookup, choiceUID, choiceBandColorUnhovered, choiceBandColorHovered )
+    nameColorStr = addColorUser( choiceNameColorsLookup, choiceUID, choiceNameColorUnhovered, choiceNameColorHovered )
 
     if gradientColorStrOld and gradientColorStrOld ~= gradientColorStr then
         removeColorUser( choiceGradientColorsLookup, choiceUID, gradientColorStrOld )
