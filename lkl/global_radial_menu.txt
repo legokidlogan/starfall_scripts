@@ -356,13 +356,13 @@ makeMainMenuCoice = function( chipID, menuInfo )
                 end )
             end
         end,
-        paint = function( xDir, yDir, choiceRadius, nameHeight, _hovered, menu, _pageInd, _choiceNum )
+        paint = function( args )
             if not displayPermsMissing then return end
 
-            local dist = choiceRadius + nameHeight * 2
+            local dist = args.choiceRadius + args.nameHeight * 2
             local m = Matrix()
-            m:translate( Vector( xDir * dist, yDir * dist, 0 ) )
-            m:scale( menu._fontVecScale )
+            m:translate( Vector( args.xDir * dist, args.yDir * dist, 0 ) )
+            m:scale( args.menu._fontVecScale )
 
             render.pushMatrix( m )
             render.setRGBA( 255, 0, 0, 255 )

@@ -162,6 +162,8 @@ local menusByName = {}
 local curMenu = nil
 local prevMenu = nil
 local hoveredInd = nil
+local paintArgs = {}
+local paintRadialArgs = {}
 
 local menuFontLookup = {}
 local choicePolySetsLookup = {}
@@ -233,12 +235,26 @@ local getColorEff
                     -- Drawing at xDir * choiceRadius, yDir * choiceRadius will result in drawing at the outermost edge of the choice.
                     -- The render will be facing upright.
                     -- choiceWidth is the outermost width of the choice based on its current hover progress.
-                    paint = function( xDir, yDir, choiceRadius, bandHeight, hovered, menu, pageInd, choiceInd, hoverProgress, choiceWidth ) return end (optional),
+                    -- paintArgs is a read-only table with the following values:
+                    --[==[
+                        menu = RadialMenu, -- The menu this choice is a part of.
+                        xDir = VECTOR, -- The choice's x-axis in screen coordinates.
+                        yDir = VECTOR, -- The choice's y-axis in screen coordinates.
+                        pageInd = NUMBER, -- The page index this choice is on.
+                        choiceInd = NUMBER, -- The index of this choice.
+                        choiceRadius = NUMBER, -- The choice's radius/height.
+                        bandHeight = NUMBER, -- The radial height of the name band.
+                        choiceWidth = NUMBER, -- The tangential width of this choice at the outermost edge. Varies with hover progress.
+                        hoverProgress = NUMBER, -- The hover progress of this choice, from 0 to 1.
+                        hovered = BOOLEAN, -- Whether this choice is being hovered over or not.
+                    --]==]
+                    paint = function( paintArgs ) return end (optional),
 
                     -- This function is like paint, but inherits the choice's radial orientation.
                     -- Drawing at 0, -choiceRadius will result in drawing at the outermost edge of the choice.
                     -- Note that choices below the center have their rotation flipped for ease of readability.
-                    paintRadial = function( choiceRadius, bandHeight, hovered, menu, pageInd, choiceInd, hoverProgress, choiceWidth ) return end (optional),
+                    -- paintRadialArgs is a read-only table, with the same values as paintArgs except for xDir and yDir.
+                    paintRadial = function( paintRadialArgs ) return end (optional),
                 },
                 ...
             },
@@ -1720,6 +1736,14 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
     local matrChoice = Matrix()
     memAng[2] = degStep
 
+    paintArgs.menu = curMenu
+    paintArgs.pageInd = curPageInd
+    paintArgs.bandHeight = bandHeight
+
+    paintRadialArgs.menu = curMenu
+    paintRadialArgs.pageInd = curPageInd
+    paintRadialArgs.bandHeight = bandHeight
+
     -- Draw choices
     for i, choice in ipairs( curPage ) do
         local deg = ( i - 1 ) * degStep
@@ -1832,7 +1856,12 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
         local paintRadial = choice.paintRadial
 
         if paintRadial then
-            paintRadial( nameRadius + bandHeight / 2, bandHeight, i == hoveredInd, curMenu, curPageInd, i, hoverProgress, choiceWidth )
+            paintRadialArgs.choiceRadius = nameRadius + bandHeight / 2
+            paintRadialArgs.hovered = i == hoveredInd
+            paintRadialArgs.choiceInd = i
+            paintRadialArgs.hoverProgress = hoverProgress
+            paintRadialArgs.choiceWidth = choiceWidth
+            paintRadial( paintRadialArgs )
         end
 
         render.popMatrix() -- matrChoice
@@ -1843,10 +1872,14 @@ hook.add( "DrawHUD", "LKL_RadialMenu_DrawCurrentMenu", function()
 
         if paint then
             local rad = math.rad( deg + 90 )
-            local xDir = -math.cos( rad )
-            local yDir = -math.sin( rad )
-
-            paint( xDir, yDir, nameRadius + bandHeight / 2, bandHeight, i == hoveredInd, curMenu, curPageInd, i, hoverProgress, choiceWidth )
+            paintArgs.xDir = -math.cos( rad )
+            paintArgs.yDir = -math.sin( rad )
+            paintArgs.choiceRadius = nameRadius + bandHeight / 2
+            paintArgs.hovered = i == hoveredInd
+            paintArgs.choiceInd = i
+            paintArgs.hoverProgress = hoverProgress
+            paintArgs.choiceWidth = choiceWidth
+            paint( paintArgs )
         end
     end
 
