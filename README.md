@@ -3,11 +3,11 @@ This is a collection of [Starfall](https://github.com/thegrb93/StarfallEx) scrip
 You're welcome to use or edit these for making projects of your own, just don't claim them as your own, sell them, etc.
 
 ## DISCLAIMER
-Since these are a bunch of small tools and not full-scale addons, don't be surprised if a few things break here and there. \
-Most should be quite robust and have documentation for known issues and what not to do, but there'll always be stragglers, especially with my older work. \
+Since these are a bunch of small tools and not full-scale addons, don't be surprised if a few things break here and there as Starfall constantly updates and changes. \
+Most should be quite robust and have documentation for known issues, but there's bound to be stragglers in my older work. \
 Typically the libraries have lots of documentation, while full tools like [dial_button.txt](/lkl/dial_button.txt) usually have little more than config details. Some may improve over time.
 
-Feel free to submit an issue request if there's a significant problem with anything, though I can't make any guarantees.
+Feel free to submit an issue request if there's a significant problem with anything.
 
 Take caution when using any scripts which have `----- VERY OLD -----` at the top, these are especially old and/or clunky. These will be rarely updated, if ever.
 
@@ -19,7 +19,7 @@ Take caution when using any scripts which have `----- VERY OLD -----` at the top
 - **Do NOT rename the starfall files!** Doing so will break the includes.
 - Some subfolders, such as [lkl/utility_chips_dir/](/lkl/utility_chips_dir) will have their own README for additional info.
     - Said README files will be wrapped in a lua comment block to ensure they don't cause any havoc if you download the entire repo directly.
-- *Most* scripts will put their configs at the top of their respecive SERVER/CLIENT blocks, and will specify the number of config areas it has.
+- Most scripts will put their configs at the top of their respecive SERVER/CLIENT blocks, and will specify the number of config areas the file has.
 
 ## Best of the Bunch
 Most of this repo is just small libraries, fringe tools, or repurposed projects, but here's the extra-special ones that I'd recommend looking at first:

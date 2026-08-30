@@ -14,7 +14,7 @@ A magic book which lets you cast spells.
 
 ## Notice
 
-This library was intended to come with a few base spells to serve as examples and give some bare-minimum combat capabilities. However, part of the goal of this library is to give people a framework to make their own special, creative, unique spells. That, and GMod players take mountains when you give them inches; they will abuse almost anything. As such, the only public spells are now bare-bones examples incapable of dealing damage. If you were looking for easy, abuseable spells, this is not the place for you. You must design your own spells, and try to make them fun and balanced.
+This library was intended to come with a few base spells to serve as examples and give some bare-minimum combat capabilities. However, part of the goal of this library is to give people a framework to make their own special, creative, unique spells. That, and GMod players take miles when you give them inches; they will abuse almost anything. As such, the only public spells are now bare-bones examples incapable of dealing damage. If you were looking for easy, abuseable spells, this is not the place for you. You must design your own spells, and try to make them fun and balanced.
 
 If, however, you are well-versed in writing starfall code, and you would like to make some fun and fair spells, then welcome on in, fellow wizard! Go forth, craft thine spells!
 
@@ -40,7 +40,7 @@ Spells, and how to cast them:
         - Some charged spells have a minimum charge requirement, seen as a darkened part of the charge bar.
     - **Channeled** spells have a continuous effect and mana drain for as long as you hold left click.
     - **Passive** spells are toggled upon clicking, and remain active even when you select another spell.
-        - Passive spells can also be toggled by right clicking them in the radial menu.
+        - Passive spells can also be quick-toggled by right clicking them in the radial menu.
 - Some spells use additional key inputs, detailed in their left-page description.
 - Each spell has its own separate cooldown upon being casted, along with a (usually short) global cooldown to all spells.
 
@@ -73,13 +73,13 @@ More information is available in the [documentation section](/lkl/spellbook/READ
 
 ## Visual Aids and Examples
 
-![Left and right pages](https://i.imgur.com/QHUDSqS.png "Left and right pages")
-![Active spell](https://i.imgur.com/vYanGh1.png "Active spell")
-![Uncharged spell](https://i.imgur.com/7MqEJMI.png "Uncharged spell")
-![Charging spell](https://i.imgur.com/5MF7Xyv.png "Charging spell")
-![Mana-gaining spell](https://i.imgur.com/FLlMJ5d.png "Mana-gaining spell")
-![Radial menu](https://i.imgur.com/ib40Cp9.png "Radial menu")
-![Wizard zone](https://i.imgur.com/s8PAaEk.gif "Wizard zone")
+![Left and right pages](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_left_and_right_pages.png "Left and right pages")
+![Active spell](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_active_spell.png "Active spell")
+![Uncharged spell](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_uncharged_spell.png "Uncharged spell")
+![Charging spell](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_charging_spell.png "Charging spell")
+![Mana-gaining spell](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_mana_gain_spell.png "Mana-gaining spell")
+![Radial menu](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/radial_menu.png "Radial menu")
+![Wizard zone](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/wizard_zone.gif "Wizard zone")
 
 ## Documentation
 
