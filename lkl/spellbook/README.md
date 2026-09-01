@@ -2,7 +2,7 @@
 
 # Spellbook
 
-A magic book which lets you cast spells.
+A fully customizable book which lets you cast spells of your own creation.
 
 ## Authorship
 
@@ -46,7 +46,8 @@ Spells, and how to cast them:
 
 How to read your spellbook:
 - The left page shows your currently selected spell, its type, and description.
-- The right page shows your current status:
+    - This can be seen by *anyone*, by physically looking at the book in front of you, in case you want to show it off!
+- The right page shows your spell's current statuses:
     - The outermost circle (blue) shows your current mana, and previews mana consumption.
     - The middle circle (gray) shows the global cooldown status.
     - The innermost circle (spell color) shows the selected spell's cooldown status.
@@ -56,6 +57,7 @@ How to read your spellbook:
 
 The [wizard_zone_example.txt](/lkl/spellbook/wizard_zone_example.txt) script can be used to define a wizard zone.
 - A wizard zone is an easy way to mark an area for wizard combat.
+- It is *not* required to use the spellbook, but may be useful for hosting events or using in servers with special rules involving Starfall in PvP.
 - Place the chip. It will automatically use [boxSelector](/lkl/box_selector.txt) to let you determine the bounds.
 - Aim at the first corner and right click to lock it in.
 - Aim up and down to choose the first corner's height, then right click.
@@ -73,13 +75,36 @@ More information is available in the [documentation section](/lkl/spellbook/READ
 
 ## Visual Aids and Examples
 
-![Left and right pages](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_left_and_right_pages.png "Left and right pages")
-![Active spell](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_active_spell.png "Active spell")
-![Uncharged spell](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_uncharged_spell.png "Uncharged spell")
-![Charging spell](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_charging_spell.png "Charging spell")
-![Mana-gaining spell](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_mana_gain_spell.png "Mana-gaining spell")
-![Radial menu](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/radial_menu.png "Radial menu")
-![Wizard zone](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/wizard_zone.gif "Wizard zone")
+<p align="middle">
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_left_and_right_pages.png" width="498" title="Left and right pages" />
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_active_spell.png" width="49%" title="Active spell" /> 
+</p>
+<p align="middle">
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_uncharged_spell.png" width="498" title="Uncharged spell" />
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_charging_spell.png" width="49%" title="Charged spell" /> 
+</p>
+<p align="middle">
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_style_classic_smaller.png" width="498" title="classic_smaller page style" />
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/book_style_compact.png" width="49%" title="compact page style" /> 
+</p>
+<p align="middle">
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/radial_menu.png" width="100%" title="Radial Menu" />
+</p>
+<p align="middle">
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook//wizard_zone.gif" width="100%" title="Wizard Zone" />
+</p>
+<p align="middle">
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/spell_charged_fireball.gif" width="498" title="Charged Fireball" />
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/spell_invis_and_charged_fireball.gif" width="49%" title="Invisibility" /> 
+</p>
+<p align="middle">
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/spell_laser_mgun.gif" width="498" title="Laser Machinegun" />
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/spell_bubble.gif" width="49%" title="Bubble" /> 
+</p>
+<p align="middle">
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/spell_telekinesis.gif" width="498" title="Telekinesis" />
+  <img src="https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/spell_wall_and_saw.gif" width="49%" title="Wall and Saw Blast" /> 
+</p>
 
 ## Documentation
 
