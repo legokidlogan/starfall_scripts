@@ -4,6 +4,8 @@
 
 A fully customizable book which lets you cast spells of your own creation.
 
+![Preview](https://github.com/legokidlogan/readme_images/blob/main/starfall_scripts/spellbook/spellbook_preview.gif "Preview")
+
 ## Authorship
 
 - [Two Lemons (legokidlogan)](https://github.com/legokidlogan):
