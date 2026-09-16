@@ -275,6 +275,7 @@ end
 
 --[[
     - Returns a render matrix which translates from 0,0 to the current crosshair position.
+    - Do not modify the returned matrix!
     - Example usage:
         render.pushMatrix( crossCross.getCrosshairMatrix(), false )
         -- (Draw your crosshair centered at 0,0 here.)
@@ -299,6 +300,7 @@ end
 
 --[[
     - Returns a render matrix which translates from the center of the screen to the current crosshair position.
+    - Do not modify the returned matrix!
     - Useful for libraries which draw a crosshair fixed at the center of the screen, such as some weapon base crosshairs.
     - Example usage:
         render.pushMatrix( crossCross.getCrosshairOffsetMatrix(), false )
