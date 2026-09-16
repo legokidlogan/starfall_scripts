@@ -401,7 +401,7 @@ end
             - An altered hit position to feed to :toScreen() and then to crossCross.pushCrosshairInfo().
 
     Example usage:
-        local cXLerp, cYLerp = render.getScreenResolution()
+        local cXLerp, cYLerp = render.getGameResolution()
         cXLerp, cYLerp = cXLerp / 2, cYLerp / 2
 
         hook.add( "PreDrawHUD", "MyCustomCrosshair", function()
