@@ -324,6 +324,128 @@ function crossCross.getCrosshairOffsetMatrix()
     return matrCrossOffset
 end
 
+--[[
+    - Tracing convenience function.
+    - Handles common defaults for crosshair tracing, and returns aimDir in addition to the trace.
+
+    shootPos: (optional) (Vector)
+        - The origin of where shots will be made from, whether from your player or from a vehicle's turret.
+        - Defaults to player():getShootPos().
+    aimDir: (optional) (unit Vector)
+        - The aiming direction.
+        - Defaults to crossCross.getAimAngles():getForward().
+    filter: (optional) (Entity or table or function)
+        - The trace filter, identical to the arg in trace.line().
+        - Defaults to player().
+    mask: (optional) (number)
+        - The trace mask, identical to the arg in trace.line().
+        - Defaults to MASK.SHOT.
+    colgroup: (optional) (number)
+        - The trace collision group, identical to the arg in trace.line().
+        - Defaults to COLLISION_GROUP.NONE
+    ignworld: (optional) (boolean)
+        - Whether to ignore the world, identical to the arg in trace.line().
+        - Defaults to false.
+    whitelist: (optional) (boolean)
+        - Whether to treat filter as a whitelist, identical to the arg in trace.line().
+        - Defaults to false.
+
+    RETURNS: tr, aimDir
+        tr: (TraceResult)
+            - The trace result.
+        aimDir: (Vector)
+            - Identical to aimDir.
+--]]
+function crossCross.aimTrace( shootPos, aimDir, filter, mask, colgroup, ignworld, whitelist )
+    shootPos = shootPos or PLAYER:getShootPos()
+    aimDir = aimDir or crossCross.getAimAngles():getForward()
+    filter = filter or PLAYER -- TODO: Recursive getParent/getChildren on vehicle if applicable
+    mask = mask or MASK_SHOT
+
+    local tr = trace.line( shootPos, shootPos + aimDir * 32768, filter, mask, colgroup, ignworld, whitelist )
+
+    return tr, aimDir
+end
+
+function crossCross.isViableTarget( ent )
+    return isValid( ent ) and ( ent:isPlayer() or ent:isNPC() or ent:isNextBot() or ent:isVehicle() )
+end
+
+--[[
+    - For a third-person camera perspective, takes an aim trace and skews its hit position relative to targets.
+    - By using :toScreen(), the end result is a more natural crosshair position that indicates the mouse movements
+       needed to correctly aim at the nearest target.
+    - May cause sudden snapping. It is recommended to use math.lerp() on the final screen position.
+
+    trAim: (TraceResult)
+        - The trace originating from where bullets shoot from.
+    aimDir: (unit Vector)
+        - The normalized vector from the start towards the end of the trace.
+    targets: (optional) (table)
+        - A list of target entities.
+        - Defaults to all players.
+    ignoreLocalPlayer: (optional) (boolean)
+        - If true, will explicitly exclude player() as a target.
+        - Defaults to false.
+    maxDist: (optional) (number)
+        - How close to targets the trace line must to be to consider them.
+        - Defaults to 300.
+    viableFilter: (optional) (function)
+        - Given an Entity, return true/false whether it is considered viable for shooting at.
+        - Only used to see if the trace is already aiming at something viable, and thus doesn't need assistance.
+        - Can (and possibly should) return true for entities not included by the targets list.
+        - Defaults to crossCross.isViableTarget().
+
+    RETURNS: assistedPos
+        assistedPos: (Vector)
+            - An altered hit position to feed to :toScreen() and then to crossCross.pushCrosshairInfo().
+
+    Example usage:
+        local cXLerp, cYLerp = render.getScreenResolution()
+        cXLerp, cYLerp = cXLerp / 2, cYLerp / 2
+
+        hook.add( "PreDrawHUD", "MyCustomCrosshair", function()
+            local tr, aimDir = crossCross.aimTrace()
+            local assistedPos = crossCross.getAssistedHitPos( tr, aimDir )
+            local cursorScreenPos = assistedPos:toScreen()
+            local cX = cursorScreenPos.x
+            local cY = cursorScreenPos.y
+
+            cXLerp = math.lerp( 0.35, cXLerp, cX )
+            cYLerp = math.lerp( 0.35, cYLerp, cY )
+
+            crossCross.pushCrosshairInfo( "MyCustomCrosshair", cXLerp, cYLerp, aimDir, tr.Entity, tr.HitPos, tr.HitNormal )
+        end )
+--]]
+function crossCross.getAssistedHitPos( trAim, aimDir, targets, ignoreLocalPlayer, maxDist, viableFilter )
+    viableFilter = viableFilter or crossCross.isViableTarget
+    if viableFilter( trAim.Entity ) then return trAim.HitPos end
+    if ignoreLocalPlayer == nil then ignoreLocalPlayer = true end
+
+    local bestDist = maxDist or 300
+    local bestPos = trAim.HitPos
+    local shootPos = trAim.StartPos
+    local camPos = render.getEyePos()
+
+    for _, target in ipairs( targets or find.allPlayers() ) do
+        if ignoreLocalPlayer and target == PLAYER then continue end
+
+        local targetPos = target:obbCenterW()
+        local to = targetPos - camPos
+        local planePos = trace.intersectRayWithPlane( shootPos, aimDir * 32768, targetPos, to )
+        if not planePos then continue end
+
+        local dist = planePos:getDistance( targetPos )
+
+        if dist < bestDist then
+            bestDist = dist
+            bestPos = planePos
+        end
+    end
+
+    return bestPos
+end
+
 
 ----- PRIVATE FUNCTIONS -----
 
