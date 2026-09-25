@@ -1,0 +1,45 @@
+--@name Safe Trace
+--@author legokidlogan
+--@shared
+
+--[[
+    - Because Starfall now errors when having an invalid entity in a trace filter,
+       tedious jank like this is required.
+    - Thanks for the code bloat and perf hit, Sparky.
+    - Note that the original trace.line and trace.hull functions do NOT get localized or wrapped here.
+--]]
+
+
+local isValid = isValid
+local tableRemove = table.remove
+local isfunction = isfunction
+
+
+-- Only operates on sequential tables.
+function table.removeInvalid( tbl )
+    for i = #tbl, 1, -1 do
+        if not isValid( tbl[i] ) then
+            tableRemove( tbl, i )
+        end
+    end
+
+    return tbl
+end
+local tableRemoveInvalid = table.removeInvalid
+
+function trace.validateFilter( filter )
+    if not filter then return nil end
+    if isfunction( filter ) then return filter end
+    if filter.entOwner then return isValid( filter ) and filter or nil end -- Validate single entity. No one should be passing non-sequential tables, so this check is sufficient.
+
+    return tableRemoveInvalid( filter )
+end
+local traceValidateFilter = trace.validateFilter
+
+function trace.lineSafe( start, endpos, filter, ... )
+    return trace.line( start, endpos, traceValidateFilter( filter ), ... )
+end
+
+function trace.hullSafe( start, endpos, minbox, maxbox, filter, ... )
+    return trace.full( start, endpos, minbox, maxbox, traceValidateFilter( filter ), ... )
+end
