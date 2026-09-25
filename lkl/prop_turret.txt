@@ -4,6 +4,7 @@
 --@include lkl/placeable.txt
 --@include lkl/global_whitelist.txt
 --@include lkl/prop_buffer.txt
+--@include lkl/safe_trace.txt
 --@include lkl/math/vector_math.txt
 
 --[[
@@ -24,6 +25,7 @@ if SERVER then
     propBuffer.storePos = propBuffer.storePos or Vector( 0, 0, -4000 )
 
     require( "lkl/prop_buffer.txt" )
+    require( "lkl/safe_trace.txt" )
     require( "lkl/math/vector_math.txt" )
 end
 
@@ -55,6 +57,7 @@ PropTurret.static.AUTO_TARGET_VEHICLES = 0 -- 0 = don't target vehicles, 1 = onl
 
 PropTurret.static.TARGET_VEL_ACCOUNT = 1 -- Multiplier for adding the target's velocity when firing shots. Also gets affected by bullet speed and distance.
 PropTurret.static.SHOOT_COOLDOWN = 0.5
+PropTurret.static.USE_SAFE_TRACE = false -- Whether to auto-sanitize trace ignore entities. Adds a notable performance cost, avoid if possible.
 
 
 local COLLISION_GROUP_NONE = COLLISION_GROUP.NONE
@@ -424,10 +427,17 @@ if SERVER then
         local startPos = self:getHeadWorldPos()
         local endPos = ent:obbCenterW()
 
-        local filter = {}
-        table.add( filter, self:getProps() )
-        table.add( filter, propBuffer.getProps( self:getBulletModel() ) )
-        table.add( filter, self:getExtraTraceFilterEnts() )
+        local filter = propBuffer.getProps( self:getBulletModel() )
+        local registeredProps = self:getProps()
+        local extraIgnore = self:getExtraTraceFilterEnts()
+
+        if self:doesUseSafeTrace() then
+            table.removeInvalid( registeredProps )
+            table.removeInvalid( extraIgnore )
+        end
+
+        table.add( filter, registeredProps )
+        table.add( filter, extraIgnore )
 
         -- Trace for the player's vehicle if they're in one.
         if ent.isPlayer and ent:isPlayer() and ent:inVehicle() then
@@ -805,6 +815,17 @@ if SERVER then
 
     function PropTurret:isOnShotCooldown()
         return self._isOnShotCooldown
+    end
+
+    function PropTurret:setUseSafeTrace( shouldUse )
+        self._useSafeTrace = shouldUse
+    end
+
+    function PropTurret:doesUseSafeTrace()
+        local shouldUse = self._useSafeTrace
+        if shouldUse == nil then shouldUse = self.class.USE_SAFE_TRACE end
+
+        return shouldUse
     end
 end
 
