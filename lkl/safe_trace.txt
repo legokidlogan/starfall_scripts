@@ -17,15 +17,18 @@ local isfunction = isfunction
 local pcall = pcall
 
 
--- Only operates on sequential tables.
+-- Only operates on sequential tables. Second arg returns true if a removal happened.
 function table.removeInvalid( tbl )
+    local didRemove = false
+
     for i = #tbl, 1, -1 do
         if not isValid( tbl[i] ) then
             tableRemove( tbl, i )
+            didRemove = true
         end
     end
 
-    return tbl
+    return tbl, didRemove
 end
 local tableRemoveInvalid = table.removeInvalid
 
