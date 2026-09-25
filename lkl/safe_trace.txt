@@ -14,6 +14,7 @@
 local isValid = isValid
 local tableRemove = table.remove
 local isfunction = isfunction
+local pcall = pcall
 
 
 -- Only operates on sequential tables.
@@ -37,10 +38,32 @@ function trace.validateFilter( filter )
 end
 local traceValidateFilter = trace.validateFilter
 
+-- Auto-validates (potentially modifying) filter. O(n^2) due to item removal.
 function trace.lineSafe( start, endpos, filter, ... )
     return trace.line( start, endpos, traceValidateFilter( filter ), ... )
 end
 
+-- Auto-validates (potentially modifying) filter. O(n^2) due to item removal.
 function trace.hullSafe( start, endpos, minbox, maxbox, filter, ... )
     return trace.full( start, endpos, minbox, maxbox, traceValidateFilter( filter ), ... )
+end
+
+--[[
+    - Same as trace.lineSafe, but tries an unvalidated pcall first, which is O(n) if everything is valid.
+    - Ideal for setups where you expect invalid entities to be possible but rare, and you re-use the same table.
+    - Do not use this if invalid entities are common, or if a new filter table is made for each call.
+--]]
+function trace.lineSafeStable( start, endpos, filter, ... )
+    local success, tr = pcall( trace.line, start, endpos, filter, ... )
+    if success then return tr end
+
+    return trace.line( start, endpos, traceValidateFilter( filter ), ... )
+end
+
+-- Same as trace.lineSafeStable, but for hull traces.
+function trace.hullSafeStable( start, endpos, minbox, maxbox, filter, ... )
+    local success, tr = pcall( trace.hull, start, endpos, minbox, maxbox, filter, ... )
+    if success then return tr end
+
+    return trace.hull( start, endpos, minbox, maxbox, traceValidateFilter( filter ), ... )
 end
