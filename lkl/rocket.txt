@@ -921,10 +921,10 @@ end
 function Rocket:onHitboxPropDestroyed()
     if self:doesExplodeOnDeath() then
         self:explode()
+    end
 
-        if self:isValid() then
-            self:destroy()
-        end
+    if self:isValid() then
+        self:destroy()
     end
 end
 
