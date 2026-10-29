@@ -80,7 +80,6 @@ function hookRunRemoteFixed( targets, hookName, ... )
     for _, target in pairs( targets ) do
         if isValid( target ) then
             local result
-
             local success, err = pcall( function() -- Can sometimes error from invalid starfall instances (such as during the removal process )
                 result = _hookRunRemote( target, hookName, unpack( args ) )[1] or {}
             end )
