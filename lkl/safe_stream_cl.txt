@@ -281,7 +281,7 @@ net.receive( "LKL_SafeStream_ReadStream", function()
 
         net.start( "LKL_SafeStream_ReadFinished" )
         net.writeUInt( streamID, 16 )
-        net.writeBool( true )
+        net.writeBool( data ~= nil )
         net.send()
 
         if cb then
@@ -304,13 +304,12 @@ net.receive( "LKL_SafeStream_CancelRead", function()
 
     local streamID = net.readUInt( 16 )
     local cb = readBank[streamID]
+    readBank[streamID] = nil
 
     if readingStreamID == streamID and netIsStreaming() then
         readingStreamID = nil
         netCancelStream()
     end
-
-    readBank[streamID] = nil
 
     net.start( "LKL_SafeStream_ReadFinished" )
     net.writeUInt( streamID, 16 )
@@ -333,6 +332,10 @@ net.receive( "LKL_SafeStream_CancelReadMultiple", function()
         local streamID = net.readUInt( 16 )
         local cb = readBank[streamID]
 
+        streamIDs[i] = streamID
+        callbacks[streamID] = cb
+        readBank[streamID] = nil
+
         if readingStreamID == streamID and netIsStreaming() then
             readingStreamID = nil
             netCancelStream()
@@ -342,10 +345,6 @@ net.receive( "LKL_SafeStream_CancelReadMultiple", function()
             net.writeBool( false )
             net.send()
         end
-
-        streamIDs[i] = streamID
-        callbacks[streamID] = cb
-        readBank[streamID] = nil
     end
 
     for _, streamID in ipairs( streamIDs ) do

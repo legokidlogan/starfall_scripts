@@ -16,6 +16,7 @@ local readBank = {} -- [plyID] -> { [streamID] -> { cb = FUNCTION, ply = PLAYER 
 local writeIncr = 0
 local thisChipID = chip():entIndex()
 local thisChipCT = chip():getCreationTime()
+local thisChipIsReading = false
 local unqueuedBusyPlys = {} -- [plyID] -> BOOL  (players who are reading an unqueued stream)
 local initPlys = {} -- [ply] -> BOOL (players with initialized clients)
 
@@ -381,7 +382,7 @@ function safeStream.cancelRead( streamID, ply )
             if readQueue.Busy and i == 1 then
                 readQueue.Busy = false
 
-                if netIsStreaming() then
+                if thisChipIsReading then
                     netCancelStream()
                 end
             end
@@ -622,7 +623,7 @@ hook.add( "Removed", "LKL_SafeStream_CancelMyStreams", function()
             if stillBusy and i == 1 then
                 stillBusy = false
 
-                if netIsStreaming() then
+                if thisChipIsReading then
                     netCancelStream()
                 end
             end
@@ -674,35 +675,10 @@ hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, pl
     local chipCT = chipEnt:getCreationTime()
     local errPlyID = isClient and ply:getSteamID()
 
-    -- If one of this chip's client errored and we were reading a stream from them, cancel it.
-    if readQueue.Busy and isClient and chipEnt == chip() then
-        local firstEntry = readQueue[1]
-
-        if firstEntry and firstEntry.plyID == errPlyID and isMyQueueEntry( firstEntry ) then
-            if netIsStreaming() then
-                netCancelStream()
-            end
-
-            local bank = readBank[errPlyID]
-            if not bank then return end -- This shouldn't happen, but just in case.
-
-            local streamID = firstEntry.streamID
-
-            local streamInfo = bank[streamID]
-            if not streamInfo then return end -- This shouldn't happen, but just in case.
-
-            local cb = streamInfo.cb
-
-            bank[streamID] = nil
-
-            if cb then
-                cb( nil, streamID, ply )
-            end
-        end
-    end
-
-    -- Remove all queue entries tied to the errored chip (and only if it matches the player, if it's a client error).
+    -- Remove all queue entries tied to the errored chip (and for client errors: only if it matches the player).
     local shouldPushGDM = false
+    local isMyClient = isClient and chipEnt == chip()
+    local readCallbackInfos = {}
 
     for i = #readQueue, 1, -1 do
         local streamInfo = readQueue[i]
@@ -711,24 +687,31 @@ hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, pl
             tableRemove( readQueue, i )
             shouldPushGDM = true
 
+            if isMyClient then
+                -- Collect read callbacks (will be in reverse order)
+                local bank = readBank[errPlyID]
+                local bankInfo = bank and bank[streamInfo.streamID]
+
+                if bankInfo and bankInfo.cb then
+                    tableInsert( readCallbackInfos, { streamID = streamInfo.streamID, cb = bankInfo.cb } )
+                end
+            end
+
             if i == 1 then
                 readQueue.Busy = false
             end
         end
     end
 
-    if isClient and not writeQueue[errPlyID] then
-        if shouldPushGDM then
-            GDM.pushOwnerData()
-        end
-
-        return
+    if isMyClient and thisChipIsReading then
+        netCancelStream()
     end
 
     local plyIDs = isServer and table.getKeys( writeQueue ) or { errPlyID }
 
     for _, plyID in ipairs( plyIDs ) do
         local queue = writeQueue[plyID]
+        if not queue then continue end -- Can happen if client err on other chip
 
         for i = #queue, 1, -1 do
             local streamInfo = queue[i]
@@ -750,6 +733,15 @@ hook.add( "StarfallError", "LKL_SafeStream_CancelStreams", function( chipEnt, pl
 
     if shouldPushGDM then
         GDM.pushOwnerData()
+    end
+
+    if not isMyClient then return end
+
+    -- Run callbacks
+    for i = #readCallbackInfos, 1, -1 do
+        local info = readCallbackInfos[i]
+
+        info.cb( nil, info.streamID, ply )
     end
 end )
 
@@ -787,21 +779,25 @@ net.receive( "LKL_SafeStream_ReadStream", function( _, ply )
 
     local plyID = ply:getSteamID()
     local streamID = net.readUInt( 16 )
+    thisChipIsReading = true
 
     netReadStream( function( data )
+        thisChipIsReading = false
+
         validateGlobalData()
         local readQueue = GDM.OwnerData.SafeStream.ReadQueue
         local firstEntry = readQueue[1]
 
-        if firstEntry and firstEntry.streamID == streamID and firstEntry.plyID == plyID and isMyQueueEntry( firstEntry ) then
-            tableRemove( readQueue, 1 )
-            readQueue.Busy = false
-            GDM.pushOwnerData()
-        end
+        -- If it's not in the queue, it got canceled gracefully and nothing needs to be done here.
+        if not firstEntry or firstEntry.streamID ~= streamID or firstEntry.plyID ~= plyID or not isMyQueueEntry( firstEntry ) then return end
+
+        tableRemove( readQueue, 1 )
+        readQueue.Busy = false
+        GDM.pushOwnerData()
 
         net.start( "LKL_SafeStream_ReadFinished" )
         net.writeUInt( streamID, 16 )
-        net.writeBool( true )
+        net.writeBool( data ~= nil )
         net.send( ply )
 
         local bank = readBank[plyID]
@@ -848,7 +844,7 @@ net.receive( "LKL_SafeStream_CancelRead", function( _, ply )
             if readQueue.Busy and i == 1 then
                 readQueue.Busy = false
 
-                if netIsStreaming() then
+                if thisChipIsReading then
                     netCancelStream()
                 end
             end
@@ -909,7 +905,7 @@ net.receive( "LKL_SafeStream_CancelReadMultiple", function( _, ply )
             if stillBusy and i == 1 then
                 stillBusy = false
 
-                if netIsStreaming() then
+                if thisChipIsReading then
                     netCancelStream()
                 end
             end
