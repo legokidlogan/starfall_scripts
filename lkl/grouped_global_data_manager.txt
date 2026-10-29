@@ -183,6 +183,10 @@ local function requestOwnerData()
 end
 
 
+requestData()
+requestOwnerData()
+
+
 hook.add( "Remote_LKL_GGDM_RequestData", "LKL_GGDM_ProvideData", function( callingChip )
     if not GGDM.Data then return end
     if getRemoteGroupName( callingChip ) ~= getRemoteGroupName() then return end
@@ -241,6 +245,3 @@ hook.add( "Remote_RemoteGroupChanged", "LKL_GGDM_RequestDataFromNewGroup", funct
     requestOwnerData()
 end )
 
-
-requestData()
-requestOwnerData()
