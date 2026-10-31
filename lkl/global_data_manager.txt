@@ -56,13 +56,7 @@ getAllChipsButThis = function()
     for i = #chips, 1, -1 do
         local chipEnt = chips[i]
 
-        if chipEnt == chip() then
-            table.remove( chips, i )
-
-            break
-        end
-
-        if not chipEnt:hasInstance() then
+        if chipEnt == chip() or not chipEnt:hasInstance() then
             table.remove( chips, i )
         end
     end
